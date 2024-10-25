@@ -15,6 +15,7 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case noV3Client(String)
 	case noV2Client(String)
+	case missingInboxId
 
 	public var description: String {
 		switch self {
@@ -24,6 +25,8 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 			return "ClientError.noV3Client: \(err)"
 		case .noV2Client(let err):
 			return "ClientError.noV2Client: \(err)"
+		case .missingInboxId:
+			return "ClientError.missingInboxId"
 		}
 	}
 
@@ -197,7 +200,7 @@ public final class Client {
 	}
 
 	public static func createV3(account: SigningKey, options: ClientOptions) async throws -> Client {
-		let accountAddress = account.address
+		let accountAddress = account.address.lowercased()
 		let inboxId = try await getOrCreateInboxId(options: options, address: accountAddress)
 
 		return try await initializeClient(
@@ -209,10 +212,11 @@ public final class Client {
 	}
 	
 	public static func buildV3(address: String, options: ClientOptions) async throws -> Client {
-		let inboxId = try await getOrCreateInboxId(options: options, address: address)
+		let accountAddress = address.lowercased()
+		let inboxId = try await getOrCreateInboxId(options: options, address: accountAddress)
 
 		return try await initializeClient(
-			accountAddress: address,
+			accountAddress: accountAddress,
 			options: options,
 			signingKey: nil,
 			inboxId: inboxId
@@ -689,6 +693,53 @@ public final class Client {
 		}
 		do {
 			return Group(ffiGroup: try client.conversation(conversationId: groupId.hexToData), client: self)
+		} catch {
+			return nil
+		}
+	}
+	
+	public func findConversation(conversationId: String) throws -> Conversation? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		do {
+			let conversation = try client.conversation(conversationId: conversationId.hexToData)
+			return try conversation.toConversation(client: self)
+		} catch {
+			return nil
+		}
+	}
+	
+	public func findConversationByTopic(topic: String) throws -> Conversation? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		do {
+			let regexPattern = #"/xmtp/mls/1/g-(.*?)/proto"#
+			if let regex = try? NSRegularExpression(pattern: regexPattern) {
+				let range = NSRange(location: 0, length: topic.utf16.count)
+				if let match = regex.firstMatch(in: topic, options: [], range: range) {
+					let conversationId = (topic as NSString).substring(with: match.range(at: 1))
+					let conversation = try client.conversation(conversationId: conversationId.hexToData)
+					return try conversation.toConversation(client: self)
+				}
+			}
+		} catch {
+			return nil
+		}
+		return nil
+	}
+	
+	public func findDm(address: String) async throws -> Dm? {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
+		}
+		guard let inboxId = try await inboxIdFromAddress(address: address) else {
+			throw ClientError.creationError("No inboxId present")
+		}
+		do {
+			let conversation = try client.dmConversation(targetInboxId: inboxId)
+			return Dm(ffiConversation: conversation, client: self)
 		} catch {
 			return nil
 		}

@@ -1,38 +1,20 @@
 //
-//  Group.swift
+//  Dm.swift
+//  XMTPiOS
 //
-//
-//  Created by Pat Nakajima on 2/1/24.
+//  Created by Naomi Plasterer on 10/23/24.
 //
 
 import Foundation
 import LibXMTP
 
-final class MessageCallback: FfiMessageCallback {
-	let client: Client
-	let callback: (LibXMTP.FfiMessage) -> Void
-
-	init(client: Client, _ callback: @escaping (LibXMTP.FfiMessage) -> Void) {
-		self.client = client
-		self.callback = callback
-	}
-
-	func onMessage(message: LibXMTP.FfiMessage) {
-		callback(message)
-	}
-}
-
-final class StreamHolder {
-	var stream: FfiStreamCloser?
-}
-
-public struct Group: Identifiable, Equatable, Hashable {
-	var ffiGroup: FfiConversation
+public struct Dm: Identifiable, Equatable, Hashable {
+	var ffiConversation: FfiConversation
 	var client: Client
 	let streamHolder = StreamHolder()
 
 	public var id: String {
-		ffiGroup.id().toHex
+		ffiConversation.id().toHex
 	}
 	
 	public var topic: String {
@@ -40,18 +22,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	func metadata() throws -> FfiConversationMetadata {
-		return try ffiGroup.groupMetadata()
+		return try ffiConversation.groupMetadata()
 	}
-    
-    func permissions() throws -> FfiGroupPermissions {
-        return try ffiGroup.groupPermissions()
-    }
 
 	public func sync() async throws {
-		try await ffiGroup.sync()
+		try await ffiConversation.sync()
 	}
 
-	public static func == (lhs: Group, rhs: Group) -> Bool {
+	public static func == (lhs: Dm, rhs: Dm) -> Bool {
 		lhs.id == rhs.id
 	}
 
@@ -59,48 +37,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		id.hash(into: &hasher)
 	}
 
-	public func isActive() throws -> Bool {
-		return try ffiGroup.isActive()
-	}
-
 	public func isCreator() throws -> Bool {
 		return try metadata().creatorInboxId() == client.inboxID
-	}
-    
-    public func isAdmin(inboxId: String) throws -> Bool {
-        return try ffiGroup.isAdmin(inboxId: inboxId)
-    }
-    
-    public func isSuperAdmin(inboxId: String) throws -> Bool {
-        return try ffiGroup.isSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func addAdmin(inboxId: String) async throws {
-        try await ffiGroup.addAdmin(inboxId: inboxId)
-    }
-    
-    public func removeAdmin(inboxId: String) async throws {
-        try await ffiGroup.removeAdmin(inboxId: inboxId)
-    }
-    
-    public func addSuperAdmin(inboxId: String) async throws {
-        try await ffiGroup.addSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func removeSuperAdmin(inboxId: String) async throws {
-        try await ffiGroup.removeSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func listAdmins() throws -> [String] {
-        try ffiGroup.adminList()
-    }
-    
-    public func listSuperAdmins() throws -> [String] {
-        try ffiGroup.superAdminList()
-    }
-
-	public func permissionPolicySet() throws -> PermissionPolicySet {
-        return PermissionPolicySet.fromFfiPermissionPolicySet(try permissions().policySet())
 	}
 
 	public func creatorInboxId() throws -> String {
@@ -108,109 +46,32 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 	
 	public func addedByInboxId() throws -> String {
-		return try ffiGroup.addedByInboxId()
+		return try ffiConversation.addedByInboxId()
 	}
 
 	public var members: [Member] {
 		get async throws {
-			return try await ffiGroup.listMembers().map { ffiGroupMember in
+			return try await ffiConversation.listMembers().map { ffiGroupMember in
 				Member(ffiGroupMember: ffiGroupMember)
 			}
 		}
 	}
 
-	public var peerInboxIds: [String] {
+	public var peerInboxId: String {
 		get async throws {
 			var ids = try await members.map(\.inboxId)
 			if let index = ids.firstIndex(of: client.inboxID) {
 				ids.remove(at: index)
 			}
-			return ids
+			guard let inboxId = ids.first else {
+				throw ClientError.missingInboxId
+			}
+			return inboxId
 		}
 	}
 
 	public var createdAt: Date {
-		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())
-	}
-
-	public func addMembers(addresses: [String]) async throws {
-		try await ffiGroup.addMembers(accountAddresses: addresses)
-	}
-
-	public func removeMembers(addresses: [String]) async throws {
-		try await ffiGroup.removeMembers(accountAddresses: addresses)
-	}
-	
-	public func addMembersByInboxId(inboxIds: [String]) async throws {
-		try await ffiGroup.addMembersByInboxId(inboxIds: inboxIds)
-	}
-
-	public func removeMembersByInboxId(inboxIds: [String]) async throws {
-		try await ffiGroup.removeMembersByInboxId(inboxIds: inboxIds)
-	}
-    
-    public func groupName() throws -> String {
-        return try ffiGroup.groupName()
-    }
-	
-	public func groupImageUrlSquare() throws -> String {
-		return try ffiGroup.groupImageUrlSquare()
-	}
-
-	public func groupDescription() throws -> String {
-		return try ffiGroup.groupDescription()
-	}
-
-	public func groupPinnedFrameUrl() throws -> String {
-		return try ffiGroup.groupPinnedFrameUrl()
-	}
-
-    public func updateGroupName(groupName: String) async throws {
-        try await ffiGroup.updateGroupName(groupName: groupName)
-    }
-	
-	public func updateGroupImageUrlSquare(imageUrlSquare: String) async throws {
-		try await ffiGroup.updateGroupImageUrlSquare(groupImageUrlSquare: imageUrlSquare)
-	}
-
-	public func updateGroupDescription(groupDescription: String) async throws {
-		try await ffiGroup.updateGroupDescription(groupDescription: groupDescription)
-	}
-
-	public func updateGroupPinnedFrameUrl(groupPinnedFrameUrl: String) async throws {
-		try await ffiGroup.updateGroupPinnedFrameUrl(pinnedFrameUrl: groupPinnedFrameUrl)
-	}
-
-	public func updateAddMemberPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.addMember, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
-	}
-
-	public func updateRemoveMemberPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.removeMember, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
-	}
-
-	public func updateAddAdminPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.addAdmin, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
-	}
-
-	public func updateRemoveAdminPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.removeAdmin, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
-	}
-
-	public func updateGroupNamePermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.groupName)
-	}
-
-	public func updateGroupDescriptionPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.description)
-	}
-
-	public func updateGroupImageUrlSquarePermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.imageUrlSquare)
-	}
-
-	public func updateGroupPinnedFrameUrlPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.pinnedFrameUrl)
+		Date(millisecondsSinceEpoch: ffiConversation.createdAtNs())
 	}
 
 	public func updateConsentState(state: ConsentState) async throws {
@@ -222,15 +83,15 @@ public struct Group: Identifiable, Equatable, Hashable {
 			}
 		}
 
-		try ffiGroup.updateConsentState(state: state.toFFI)
+		try ffiConversation.updateConsentState(state: state.toFFI)
 	}
 
 	public func consentState() throws -> ConsentState{
-		return try ffiGroup.consentState().fromFFI
+		return try ffiConversation.consentState().fromFFI
 	}
 	
 	public func processMessage(envelopeBytes: Data) async throws -> MessageV3 {
-		let message = try await ffiGroup.processStreamedConversationMessage(envelopeBytes: envelopeBytes)
+		let message = try await ffiConversation.processStreamedConversationMessage(envelopeBytes: envelopeBytes)
 		return MessageV3(client: client, ffiMessage: message)
 	}
 
@@ -244,7 +105,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try await updateConsentState(state: .allowed)
 		}
 
-		let messageId = try await ffiGroup.send(contentBytes: encodedContent.serializedData())
+		let messageId = try await ffiConversation.send(contentBytes: encodedContent.serializedData())
 		return messageId.toHex
 	}
 
@@ -286,11 +147,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 		
 		let encodeContent = try await encodeContent(content: content, options: options)
-		return try ffiGroup.sendOptimistic(contentBytes: try encodeContent.serializedData()).toHex
+		return try ffiConversation.sendOptimistic(contentBytes: try encodeContent.serializedData()).toHex
 	}
 
 	public func publishMessages() async throws {
-		try await ffiGroup.publishMessages()
+		try await ffiConversation.publishMessages()
 	}
 
 	public func endStream() {
@@ -300,7 +161,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
-				self.streamHolder.stream = await self.ffiGroup.stream(
+				self.streamHolder.stream = await self.ffiConversation.stream(
 					messageCallback: MessageCallback(client: self.client) { message in
 						guard !Task.isCancelled else {
 							continuation.finish()
@@ -330,7 +191,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
-				self.streamHolder.stream = await self.ffiGroup.stream(
+				self.streamHolder.stream = await self.ffiConversation.stream(
 					messageCallback: MessageCallback(client: self.client) { message in
 						guard !Task.isCancelled else {
 							continuation.finish()
@@ -410,7 +271,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+		return try ffiConversation.findMessages(opts: options).compactMap { ffiMessage in
 			return MessageV3(client: self.client, ffiMessage: ffiMessage).decodeOrNull()
 		}
 	}
@@ -468,7 +329,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+		return try ffiConversation.findMessages(opts: options).compactMap { ffiMessage in
 			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()
 		}
 	}

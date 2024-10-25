@@ -154,7 +154,7 @@ final class IntegrationTests: XCTestCase {
 			options: opt
 		)
 		// And it uses the saved topic data for the conversation
-		let aliceConvo2 = await alice2.conversations.importTopicData(
+		let aliceConvo2 = try await alice2.conversations.importTopicData(
 				data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
 		XCTAssertEqual("example.com/alice-bob-1", aliceConvo2.conversationID)
 

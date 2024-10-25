@@ -39,51 +39,52 @@ class GroupTests: XCTestCase {
 		var alice: PrivateKey!
 		var bob: PrivateKey!
 		var fred: PrivateKey!
+		var davonV3: PrivateKey!
 		var aliceClient: Client!
 		var bobClient: Client!
 		var fredClient: Client!
+		var davonV3Client: Client!
 	}
 
 	func localFixtures() async throws -> LocalFixtures {
 		let key = try Crypto.secureRandomBytes(count: 32)
+		let options = ClientOptions.init(
+			api: .init(env: .local, isSecure: false),
+			   codecs: [GroupUpdatedCodec()],
+			   enableV3: true,
+			   encryptionKey: key
+		   )
 		let alice = try PrivateKey.generate()
 		let aliceClient = try await Client.create(
 			account: alice,
-			options: .init(
-				api: .init(env: .local, isSecure: false),
-				codecs: [GroupUpdatedCodec()],
-				enableV3: true,
-				encryptionKey: key
-			)
+			options: options
 		)
 		let bob = try PrivateKey.generate()
 		let bobClient = try await Client.create(
 			account: bob,
-			options: .init(
-				api: .init(env: .local, isSecure: false),
-				codecs: [GroupUpdatedCodec()],
-				enableV3: true,
-				encryptionKey: key
-			)
+			options: options
 		)
 		let fred = try PrivateKey.generate()
 		let fredClient = try await Client.create(
 			account: fred,
-			options: .init(
-				api: .init(env: .local, isSecure: false),
-				codecs: [GroupUpdatedCodec()],
-				enableV3: true,
-				encryptionKey: key
-			)
+			options: options
+		)
+		
+		let davonV3 = try PrivateKey.generate()
+		let davonV3Client = try await Client.createV3(
+			account: davonV3,
+			options: options
 		)
 
 		return .init(
 			alice: alice,
 			bob: bob,
 			fred: fred,
+			davonV3: davonV3,
 			aliceClient: aliceClient,
 			bobClient: bobClient,
-			fredClient: fredClient
+			fredClient: fredClient,
+			davonV3Client: davonV3Client
 		)
 	}
 
@@ -195,7 +196,10 @@ class GroupTests: XCTestCase {
 	func testCanListGroups() async throws {
 		let fixtures = try await localFixtures()
 		_ = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
-
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.bob.address)
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
+		
+		try await fixtures.aliceClient.conversations.sync()
 		let aliceGroupCount = try await fixtures.aliceClient.conversations.groups().count
 
 		try await fixtures.bobClient.conversations.sync()
@@ -209,6 +213,8 @@ class GroupTests: XCTestCase {
 		let fixtures = try await localFixtures()
 		_ = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
 		_ = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.address)
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.bob.walletAddress)
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.walletAddress)
 
 		let aliceGroupCount = try await fixtures.aliceClient.conversations.list(includeGroups: true).count
 
@@ -557,6 +563,7 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -575,6 +582,7 @@ class GroupTests: XCTestCase {
 
 		_ = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
 		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+		_ = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -659,6 +667,8 @@ class GroupTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let dm = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
+
 		try await fixtures.aliceClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in try await fixtures.aliceClient.conversations.streamAllMessages(includeGroups: true) {
@@ -668,6 +678,7 @@ class GroupTests: XCTestCase {
 
 		_ = try await group.send(content: "hi")
 		_ = try await convo.send(content: "hi")
+		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -680,6 +691,7 @@ class GroupTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let dm = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
 		try await fixtures.aliceClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.aliceClient.conversations.streamAllDecryptedMessages(includeGroups: true) {
@@ -690,6 +702,7 @@ class GroupTests: XCTestCase {
 		_ = try await group.send(content: "hi")
 		_ = try await group.send(content: membershipChange, options: SendOptions(contentType: ContentTypeGroupUpdated))
 		_ = try await convo.send(content: "hi")
+		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -700,6 +713,7 @@ class GroupTests: XCTestCase {
 		let expectation1 = XCTestExpectation(description: "got a conversation")
 
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let dm = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
 		try await fixtures.aliceClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.aliceClient.conversations.streamAllGroupMessages() {
@@ -708,6 +722,7 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await group.send(content: "hi")
+		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -717,6 +732,8 @@ class GroupTests: XCTestCase {
 
 		let expectation1 = XCTestExpectation(description: "got a conversation")
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let dm = try await fixtures.davonV3Client.conversations.findOrCreateDm(with: fixtures.alice.address)
+
 		try await fixtures.aliceClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.aliceClient.conversations.streamAllGroupDecryptedMessages() {
@@ -725,6 +742,7 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await group.send(content: "hi")
+		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -760,7 +778,10 @@ class GroupTests: XCTestCase {
                 return
             case .group(let group):
                 bobGroup = group
-        }
+		    case .dm(_):
+				XCTFail("failed converting conversation to group")
+				return
+		}
         groupName = try bobGroup.groupName()
         XCTAssertEqual(groupName, "Start Name")
         

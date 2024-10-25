@@ -24,10 +24,51 @@ public enum ConversationContainer: Codable {
 /// Wrapper that provides a common interface between ``ConversationV1`` and ``ConversationV2`` objects.
 public enum Conversation: Sendable {
 	// TODO: It'd be nice to not have to expose these types as public, maybe we make this a struct with an enum prop instead of just an enum
-	case v1(ConversationV1), v2(ConversationV2), group(Group)
+	case v1(ConversationV1), v2(ConversationV2), group(Group), dm(Dm)
 
 	public enum Version {
-		case v1, v2, group
+		case v1, v2, group, dm
+	}
+	
+	public var id: String {
+		get throws {
+			switch self {
+			case .v1(_):
+				throw ConversationError.v1NotSupported("id")
+			case .v2(_):
+				throw ConversationError.v2NotSupported("id")
+			case let .group(group):
+				return group.id
+			case let .dm(dm):
+				return dm.id
+			}
+		}
+	}
+	
+	public func isCreator() async throws -> Bool {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("isCreator")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("isCreator")
+		case let .group(group):
+			return try group.isCreator()
+		case let .dm(dm):
+			return try dm.isCreator()
+		}
+	}
+	
+	public func members() async throws -> [Member] {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("members")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("members")
+		case let .group(group):
+			return try await group.members
+		case let .dm(dm):
+			return try await dm.members
+		}
 	}
 
 	public func consentState() async throws -> ConsentState {
@@ -38,6 +79,60 @@ public enum Conversation: Sendable {
 			return try await conversationV2.client.contacts.consentList.state(address: peerAddress)
 		case let .group(group):
 			return try group.consentState()
+		case let .dm(dm):
+			return try dm.consentState()
+		}
+	}
+	
+	public func updateConsentState(state: ConsentState) async throws {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("updateConsentState use contact.allowAddresses instead")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("updateConsentState use contact.allowAddresses instead")
+		case let .group(group):
+			try await group.updateConsentState(state: state)
+		case let .dm(dm):
+			try await dm.updateConsentState(state: state)
+		}
+	}
+	
+	public func sync() async throws {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("sync")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("sync")
+		case let .group(group):
+			try await group.sync()
+		case let .dm(dm):
+			try await dm.sync()
+		}
+	}
+
+	public func processMessage(envelopeBytes: Data) async throws -> MessageV3 {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("processMessage")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("processMessage")
+		case let .group(group):
+			return try await group.processMessage(envelopeBytes: envelopeBytes)
+		case let .dm(dm):
+			return try await dm.processMessage(envelopeBytes: envelopeBytes)
+		}
+	}
+	
+	public func prepareMessageV3<T>(content: T, options: SendOptions? = nil) async throws -> String {
+		switch self {
+		case .v1(_):
+			throw ConversationError.v1NotSupported("prepareMessageV3 use prepareMessage instead")
+		case .v2(_):
+			throw ConversationError.v2NotSupported("prepareMessageV3 use prepareMessage instead")
+		case let .group(group):
+			return try await group.prepareMessage(content: content, options: options)
+		case let .dm(dm):
+			return try await dm.prepareMessage(content: content, options: options)
 		}
 	}
 
@@ -49,6 +144,8 @@ public enum Conversation: Sendable {
 			return .v2
 		case .group:
 			return .group
+		case let .dm(dm):
+			return .dm
 		}
 	}
 
@@ -60,17 +157,164 @@ public enum Conversation: Sendable {
 			return conversationV2.createdAt
 		case let .group(group):
 			return group.createdAt
+		case let .dm(dm):
+			return dm.createdAt
 		}
 	}
 
+	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.send(content: content, options: options)
+		case let .v2(conversationV2):
+			return try await conversationV2.send(content: content, options: options)
+		case let .group(group):
+			return try await group.send(content: content, options: options)
+		case let .dm(dm):
+			return try await dm.send(content: content, options: options)
+		}
+	}
+
+	@discardableResult public func send(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> String {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.send(encodedContent: encodedContent, options: options)
+		case let .v2(conversationV2):
+			return try await conversationV2.send(encodedContent: encodedContent, options: options)
+		case let .group(group):
+			return try await group.send(content: encodedContent, options: options)
+		case let .dm(dm):
+			return try await dm.send(content: encodedContent, options: options)
+		}
+	}
+
+	/// Send a message to the conversation
+	public func send(text: String, options: SendOptions? = nil) async throws -> String {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.send(content: text, options: options)
+		case let .v2(conversationV2):
+			return try await conversationV2.send(content: text, options: options)
+		case let .group(group):
+			return try await group.send(content: text, options: options)
+		case let .dm(dm):
+			return try await dm.send(content: text, options: options)
+		}
+	}
+
+	public var clientAddress: String {
+		return client.address
+	}
+
+	/// The topic identifier for this conversation
+	public var topic: String {
+		switch self {
+		case let .v1(conversation):
+			return conversation.topic.description
+		case let .v2(conversation):
+			return conversation.topic
+		case let .group(group):
+			return group.topic
+		case let .dm(dm):
+			return dm.topic
+		}
+	}
+	
+	/// Returns a stream you can iterate through to receive new messages in this conversation.
+	///
+	/// > Note: All messages in the conversation are returned by this stream. If you want to filter out messages
+	/// by a sender, you can check the ``Client`` address against the message's ``peerAddress``.
+	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+		switch self {
+		case let .v1(conversation):
+			return conversation.streamMessages()
+		case let .v2(conversation):
+			return conversation.streamMessages()
+		case let .group(group):
+			return group.streamMessages()
+		case let .dm(dm):
+			return dm.streamMessages()
+		}
+	}
+
+	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		switch self {
+		case let .v1(conversation):
+			return conversation.streamDecryptedMessages()
+		case let .v2(conversation):
+			return conversation.streamDecryptedMessages()
+		case let .group(group):
+			return group.streamDecryptedMessages()
+		case let .dm(dm):
+			return dm.streamDecryptedMessages()
+		}
+	}
+
+	/// List messages in the conversation
+	public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
+		case let .v2(conversationV2):
+			return try await conversationV2.messages(limit: limit, before: before, after: after, direction: direction)
+		case let .group(group):
+			return try await group.messages(before: before, after: after, limit: limit, direction: direction)
+		case let .dm(dm):
+			return try await dm.messages(before: before, after: after, limit: limit, direction: direction)
+		}
+	}
+
+	public func decryptedMessages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
+		case let .v2(conversationV2):
+			return try await conversationV2.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
+		case let .group(group):
+			return try await group.decryptedMessages(before: before, after: after, limit: limit, direction: direction)
+		case let .dm(dm):
+			return try await dm.decryptedMessages(before: before, after: after, limit: limit, direction: direction)
+		}
+	}
+
+	public var consentProof: ConsentProofPayload? {
+		switch self {
+		case .v1(_):
+			return nil
+		case let .v2(conversationV2):
+			return conversationV2.consentProof
+		case .group(_):
+			return nil
+		case let .dm(dm):
+			return nil
+		}
+	}
+
+	var client: Client {
+		switch self {
+		case let .v1(conversationV1):
+			return conversationV1.client
+		case let .v2(conversationV2):
+			return conversationV2.client
+		case let .group(group):
+			return group.client
+		case let .dm(dm):
+			return dm.client
+		}
+	}
+	
+	// ------- V1 V2 to be deprecated ------
+	
 	public func encodedContainer() throws -> ConversationContainer  {
 		switch self {
 		case let .v1(conversationV1):
 			return .v1(conversationV1.encodedContainer)
 		case let .v2(conversationV2):
 			return .v2(conversationV2.encodedContainer)
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
+		case .group(_):
+			throw ConversationError.v3NotSupported("encodedContainer")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("encodedContainer")
 		}
 	}
 
@@ -82,8 +326,10 @@ public enum Conversation: Sendable {
 				return conversationV1.peerAddress
 			case let .v2(conversationV2):
 				return conversationV2.peerAddress
-			case let .group(group):
-				throw GroupError.notSupportedByGroups
+			case .group(_):
+				throw ConversationError.v3NotSupported("peerAddress use members inboxId instead")
+			case .dm(_):
+				throw ConversationError.v3NotSupported("peerAddress use members inboxId instead")
 			}
 		}
 	}
@@ -95,8 +341,10 @@ public enum Conversation: Sendable {
 				return [conversationV1.peerAddress]
 			case let .v2(conversationV2):
 				return [conversationV2.peerAddress]
-			case let .group(group):
-				throw GroupError.notSupportedByGroups
+			case .group(_):
+				throw ConversationError.v3NotSupported("peerAddresses use members inboxIds instead")
+			case .dm(_):
+				throw ConversationError.v3NotSupported("peerAddresses use members inboxIds instead")
 			}
 		}
 	}
@@ -107,7 +355,9 @@ public enum Conversation: Sendable {
 			return nil
 		case let .v2(conversationV2):
 			return conversationV2.keyMaterial
-		case let .group(group):
+		case .group(_):
+			return nil
+		case .dm(_):
 			return nil
 		}
 	}
@@ -121,7 +371,9 @@ public enum Conversation: Sendable {
 			return nil
 		case let .v2(conversation):
 			return conversation.context.conversationID
-		case let .group(group):
+		case .group(_):
+			return nil
+		case .dm(_):
 			return nil
 		}
 	}
@@ -144,31 +396,29 @@ public enum Conversation: Sendable {
 		}
 	}
 
-	public func decode(_ envelope: Envelope, message: FfiMessage? = nil) throws -> DecodedMessage {
+	public func decode(_ envelope: Envelope) throws -> DecodedMessage {
 		switch self {
 		case let .v1(conversationV1):
 			return try conversationV1.decode(envelope: envelope)
 		case let .v2(conversationV2):
 			return try conversationV2.decode(envelope: envelope)
-		case let .group(group):
-			guard let message = message else {
-				throw GroupError.groupsRequireMessagePassed
-			}
-			return try MessageV3(client: client, ffiMessage: message).decode()
+		case .group(_):
+			throw ConversationError.v3NotSupported("decode use decodeV3 instead")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("decode use decodeV3 instead")
 		}
 	}
 
-	public func decrypt(_ envelope: Envelope, message: FfiMessage? = nil) throws -> DecryptedMessage {
+	public func decrypt(_ envelope: Envelope) throws -> DecryptedMessage {
 		switch self {
 		case let .v1(conversationV1):
 			return try conversationV1.decrypt(envelope: envelope)
 		case let .v2(conversationV2):
 			return try conversationV2.decrypt(envelope: envelope)
-		case let .group(group):
-			guard let message = message else {
-				throw GroupError.groupsRequireMessagePassed
-			}
-			return try MessageV3(client: client, ffiMessage: message).decrypt()
+		case .group(_):
+			throw ConversationError.v3NotSupported("decrypt use decryptV3 instead")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("decrypt use decryptV3 instead")
 		}
 	}
 
@@ -178,21 +428,25 @@ public enum Conversation: Sendable {
 			throw RemoteAttachmentError.v1NotSupported
 		case let .v2(conversationV2):
 			return try await conversationV2.encode(codec: codec, content: content)
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
+		case .group(_):
+			throw ConversationError.v3NotSupported("encode")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("encode")
 		}
 	}
 
-    public func prepareMessage(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> PreparedMessage {
-        switch self {
-        case let .v1(conversationV1):
-            return try await conversationV1.prepareMessage(encodedContent: encodedContent, options: options)
-        case let .v2(conversationV2):
-            return try await conversationV2.prepareMessage(encodedContent: encodedContent, options: options)
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
-        }
-    }
+	public func prepareMessage(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> PreparedMessage {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.prepareMessage(encodedContent: encodedContent, options: options)
+		case let .v2(conversationV2):
+			return try await conversationV2.prepareMessage(encodedContent: encodedContent, options: options)
+		case .group(_):
+			throw ConversationError.v3NotSupported("prepareMessage use prepareMessageV3 instead")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("prepareMessage use prepareMessageV3 instead")
+		}
+	}
 
 	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> PreparedMessage {
 		switch self {
@@ -200,8 +454,10 @@ public enum Conversation: Sendable {
 			return try await conversationV1.prepareMessage(content: content, options: options ?? .init())
 		case let .v2(conversationV2):
 			return try await conversationV2.prepareMessage(content: content, options: options ?? .init())
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
+		case .group(_):
+			throw ConversationError.v3NotSupported("prepareMessage use prepareMessageV3 instead")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("prepareMessage use prepareMessageV3 instead")
 		}
 	}
 
@@ -213,60 +469,13 @@ public enum Conversation: Sendable {
 			return try await conversationV1.send(prepared: prepared)
 		case let .v2(conversationV2):
 			return try await conversationV2.send(prepared: prepared)
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
+		case .group(_):
+			throw ConversationError.v3NotSupported("send(prepareMessage) use send(content) instead")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("send(prepareMessage) use send(content) instead")
 		}
 	}
 
-	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
-		switch self {
-		case let .v1(conversationV1):
-			return try await conversationV1.send(content: content, options: options)
-		case let .v2(conversationV2):
-			return try await conversationV2.send(content: content, options: options)
-		case let .group(group):
-			return try await group.send(content: content, options: options)
-		}
-	}
-
-	@discardableResult public func send(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> String {
-		switch self {
-		case let .v1(conversationV1):
-			return try await conversationV1.send(encodedContent: encodedContent, options: options)
-		case let .v2(conversationV2):
-			return try await conversationV2.send(encodedContent: encodedContent, options: options)
-		case let .group(group):
-			return try await group.send(content: encodedContent, options: options)
-		}
-	}
-
-	/// Send a message to the conversation
-	public func send(text: String, options: SendOptions? = nil) async throws -> String {
-		switch self {
-		case let .v1(conversationV1):
-			return try await conversationV1.send(content: text, options: options)
-		case let .v2(conversationV2):
-			return try await conversationV2.send(content: text, options: options)
-		case let .group(group):
-			return try await group.send(content: text, options: options)
-		}
-	}
-
-	public var clientAddress: String {
-		return client.address
-	}
-
-	/// The topic identifier for this conversation
-	public var topic: String {
-		switch self {
-		case let .v1(conversation):
-			return conversation.topic.description
-		case let .v2(conversation):
-			return conversation.topic
-		case let .group(group):
-			return group.topic
-		}
-	}
 
 	public func streamEphemeral() throws -> AsyncThrowingStream<Envelope, Error>? {
 		switch self {
@@ -274,81 +483,14 @@ public enum Conversation: Sendable {
 			return conversation.streamEphemeral()
 		case let .v2(conversation):
 			return conversation.streamEphemeral()
-		case let .group(group):
-			throw GroupError.notSupportedByGroups
-		}
-	}
-
-	/// Returns a stream you can iterate through to receive new messages in this conversation.
-	///
-	/// > Note: All messages in the conversation are returned by this stream. If you want to filter out messages
-	/// by a sender, you can check the ``Client`` address against the message's ``peerAddress``.
-	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
-		switch self {
-		case let .v1(conversation):
-			return conversation.streamMessages()
-		case let .v2(conversation):
-			return conversation.streamMessages()
-		case let .group(group):
-			return group.streamMessages()
-		}
-	}
-
-	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
-		switch self {
-		case let .v1(conversation):
-			return conversation.streamDecryptedMessages()
-		case let .v2(conversation):
-			return conversation.streamDecryptedMessages()
-		case let .group(group):
-			return group.streamDecryptedMessages()
-		}
-	}
-
-	/// List messages in the conversation
-	public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
-		switch self {
-		case let .v1(conversationV1):
-			return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
-		case let .v2(conversationV2):
-			return try await conversationV2.messages(limit: limit, before: before, after: after, direction: direction)
-		case let .group(group):
-			return try await group.messages(before: before, after: after, limit: limit, direction: direction)
-		}
-	}
-
-	public func decryptedMessages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
-		switch self {
-		case let .v1(conversationV1):
-			return try await conversationV1.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
-		case let .v2(conversationV2):
-			return try await conversationV2.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
-		case let .group(group):
-			return try await group.decryptedMessages(before: before, after: after, limit: limit, direction: direction)
-		}
-	}
-
-    public var consentProof: ConsentProofPayload? {
-		switch self {
-		case .v1(_):
-			return nil
-		case let .v2(conversationV2):
-			return conversationV2.consentProof
 		case .group(_):
-			return nil
+			throw ConversationError.v3NotSupported("streamEphemeral")
+		case .dm(_):
+			throw ConversationError.v3NotSupported("streamEphemeral")
 		}
 	}
 
-	var client: Client {
-		switch self {
-		case let .v1(conversationV1):
-			return conversationV1.client
-		case let .v2(conversationV2):
-			return conversationV2.client
-		case let .group(group):
-			return group.client
-		}
-	}
+
 }
 
 extension Conversation: Hashable, Equatable {
