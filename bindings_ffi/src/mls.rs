@@ -1,7 +1,7 @@
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
-use crate::{GenericError, FfiSubscribeError};
+use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
@@ -917,8 +917,8 @@ impl FfiConversations {
             Some(ConversationType::Group),
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into())
-            }
+                Err(e) => callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -931,8 +931,8 @@ impl FfiConversations {
             Some(ConversationType::Dm),
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into())
-            }
+                Err(e) => callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -945,8 +945,8 @@ impl FfiConversations {
             None,
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => callback.on_error(e.into())
-            }
+                Err(e) => callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -961,8 +961,8 @@ impl FfiConversations {
             Some(ConversationType::Group),
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into())
-            }
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -977,8 +977,8 @@ impl FfiConversations {
             Some(ConversationType::Dm),
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into())
-            }
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -993,8 +993,8 @@ impl FfiConversations {
             None,
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into())
-            }
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -1376,8 +1376,8 @@ impl FfiConversation {
             self.inner.created_at_ns,
             move |message| match message {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into())
-            }
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -1656,7 +1656,7 @@ mod tests {
         FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
         FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
         FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -1748,6 +1748,10 @@ mod tests {
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             self.notify.notify_one();
         }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
+        }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
@@ -1757,6 +1761,10 @@ mod tests {
             let mut convos = self.conversations.lock().unwrap();
             convos.push(group);
             self.notify.notify_one();
+        }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
         }
     }
 
@@ -2297,7 +2305,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2589,7 +2597,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = alix
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2636,7 +2644,7 @@ mod tests {
         let bo_message_callbacks = RustStreamCallback::default();
         let bo_stream_messages = bo2
             .conversations()
-            .stream_all_messages(Box::new(bo_message_callbacks.clone()))
+            .stream_all_messages(Arc::new(bo_message_callbacks.clone()))
             .await;
         bo_stream_messages.wait_for_ready().await;
 
@@ -2895,7 +2903,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2969,7 +2977,7 @@ mod tests {
 
         let stream = bola
             .conversations()
-            .stream(Box::new(stream_callback.clone()))
+            .stream(Arc::new(stream_callback.clone()))
             .await;
 
         amal.conversations()
@@ -3018,7 +3026,7 @@ mod tests {
 
         let stream = caro
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -3065,7 +3073,7 @@ mod tests {
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = RustStreamCallback::default();
-        let stream_closer = bola_group.stream(Box::new(stream_callback.clone())).await;
+        let stream_closer = bola_group.stream(Arc::new(stream_callback.clone())).await;
 
         stream_closer.wait_for_ready().await;
 
@@ -3104,7 +3112,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream_closer = bola
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream_closer.wait_for_ready().await;
 
@@ -3198,12 +3206,12 @@ mod tests {
         let group_callback = RustStreamCallback::default();
         let stream_groups = bo
             .conversations()
-            .stream(Box::new(group_callback.clone()))
+            .stream(Arc::new(group_callback.clone()))
             .await;
 
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callback.clone()))
+            .stream_all_messages(Arc::new(message_callback.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3704,7 +3712,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream(Box::new(stream_callback.clone()))
+            .stream(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -3733,7 +3741,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_groups(Box::new(stream_callback.clone()))
+            .stream_groups(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -3762,7 +3770,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_dms(Box::new(stream_callback.clone()))
+            .stream_dms(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -3811,7 +3819,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -3830,7 +3838,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_group_messages(Box::new(stream_callback.clone()))
+            .stream_all_group_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -3850,7 +3858,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_dm_messages(Box::new(stream_callback.clone()))
+            .stream_all_dm_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
