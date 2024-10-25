@@ -97,7 +97,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// External proxy for `process_stream_entry`
-    /// Converts some `SubscribError` variants to an Option, if they are inconsequential.
+    /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
     pub async fn process_streamed_group_message(
         &self,
         envelope_bytes: Vec<u8>,
