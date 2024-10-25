@@ -1,7 +1,7 @@
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
-use crate::{GenericError, SubscribeError};
+use crate::{GenericError, FfiSubscribeError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
@@ -909,7 +909,7 @@ impl FfiConversations {
 
     pub async fn stream_groups(
         &self,
-        callback: Box<dyn FfiConversationCallback>,
+        callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
@@ -917,36 +917,36 @@ impl FfiConversations {
             Some(ConversationType::Group),
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => log::warn!("ERROR in stream_groups {:?}:{}", e, e),
-            },
+                Err(e) => callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
     }
 
-    pub async fn stream_dms(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream_dms(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Dm),
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => log::warn!("ERROR in stream_dms {:?}:{}", e, e),
-            },
+                Err(e) => callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
     }
 
-    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             None,
             move |convo| match convo {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
-                Err(e) => log::warn!("ERROR in stream {:?}:{}", e, e),
-            },
+                Err(e) => callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
@@ -954,15 +954,15 @@ impl FfiConversations {
 
     pub async fn stream_all_group_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Group),
-            move |message| match message {
+            move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => log::warn!("ERROR in stream_all_group_messages {}:{:?}", e, e),
-            },
+                Err(e) => message_callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
@@ -970,15 +970,15 @@ impl FfiConversations {
 
     pub async fn stream_all_dm_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Dm),
-            move |message| match message {
+            move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => log::warn!("ERROR in stream_all_dm_messages {}:{:?}", e, e),
-            },
+                Err(e) => message_callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
@@ -986,15 +986,15 @@ impl FfiConversations {
 
     pub async fn stream_all_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             None,
-            move |message| match message {
+            move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => log::warn!("ERROR in stream_all_messages {}:{:?}", e, e),
-            },
+                Err(e) => message_callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
@@ -1172,7 +1172,7 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<FfiMessage, SubscribeError> {
+    ) -> Result<FfiMessage, FfiSubscribeError> {
         let message = self
             .inner
             .process_streamed_group_message(envelope_bytes)
@@ -1369,15 +1369,15 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
-    pub async fn stream(&self, message_callback: Box<dyn FfiMessageCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let handle = MlsGroup::stream_with_callback(
             self.inner.client.clone(),
             self.id(),
             self.inner.created_at_ns,
             move |message| match message {
                 Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => log::warn!("ERROR in `stream`: {:?}:{}", e, e),
-            },
+                Err(e) => message_callback.on_error(e.into())
+            }
         );
 
         FfiStreamCloser::new(handle)
@@ -1575,14 +1575,16 @@ impl FfiStreamCloser {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[uniffi::export(with_foreign)]
 pub trait FfiMessageCallback: Send + Sync {
     fn on_message(&self, message: FfiMessage);
+    fn on_error(&self, error: FfiSubscribeError);
 }
 
-#[uniffi::export(callback_interface)]
+#[uniffi::export(with_foreign)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiConversation>);
+    fn on_error(&self, error: FfiSubscribeError);
 }
 
 #[derive(uniffi::Object)]

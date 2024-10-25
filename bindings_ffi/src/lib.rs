@@ -48,8 +48,8 @@ pub enum GenericError {
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]
-pub enum SubscribeError {
-    #[error(transparent)]
+pub enum FfiSubscribeError {
+    #[error("Testing")]
     Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
 }
 
