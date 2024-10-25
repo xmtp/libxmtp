@@ -184,15 +184,13 @@ where
                 mls_group.process_stream_entry(envelope).await
             }
         })
+        .inspect(|e| {
+            if matches!(e, Err(SubscribeError::GroupMessageNotFound)) {
+                tracing::warn!("Skipped message streaming payload");
+            }
+        })
         .filter(|e| {
-            let filter = match e {
-                Err(SubscribeError::GroupMessageNotFound) => {
-                    tracing::info!("Skipped message streaming payload");
-                    false
-                }
-                _ => true,
-            };
-            futures::future::ready(filter)
+            futures::future::ready(!matches!(e, Err(SubscribeError::GroupMessageNotFound)))
         });
 
     Ok(stream)
