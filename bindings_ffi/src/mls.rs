@@ -1416,6 +1416,10 @@ impl FfiConversation {
             inner: Arc::new(metadata),
         }))
     }
+
+    pub fn dm_peer_inbox_id(&self) -> Result<String, GenericError> {
+        self.inner.dm_inbox_id().map_err(Into::into)
+    }
 }
 
 #[uniffi::export]
