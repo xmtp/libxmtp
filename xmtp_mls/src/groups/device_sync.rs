@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::{BufReader, Cursor};
 use thiserror::Error;
+use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -98,8 +99,8 @@ pub enum DeviceSyncError {
     InvalidBundleUrl,
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
-    #[error("snc payload timestamp is outside sync window")]
-    PayloadTimestamp,
+    #[error("sync reply is too old")]
+    SyncReplyTimestamp,
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -235,7 +236,7 @@ where
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
         if time_diff > NS_IN_HOUR as u64 {
             // time discrepancy is too much
-            return Err(DeviceSyncError::PayloadTimestamp);
+            return Err(DeviceSyncError::SyncReplyTimestamp);
         }
 
         let Some(enc_key) = reply.encryption_key.clone() else {
@@ -461,7 +462,7 @@ pub(crate) enum DeviceSyncKeyType {
 }
 
 impl DeviceSyncKeyType {
-    fn new_chacha20_poly1305_key() -> Self {
+    fn new_aes_256_gcm_key() -> Self {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
@@ -569,7 +570,14 @@ fn insert_encrypted_syncables(
                 }
             }
             Syncable::ConsentRecord(consent_record) => {
-                consent_record.store(conn)?;
+                if let Some(existing_consent_record) =
+                    conn.maybe_insert_consent_record_return_existing(&consent_record)?
+                {
+                    if existing_consent_record.state != consent_record.state {
+                        warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
+                        // Todo - stream consent record when streaming is implemented
+                    }
+                }
             }
         };
     }
@@ -580,7 +588,7 @@ fn insert_encrypted_syncables(
 fn encrypt_syncables(
     syncables: &[Vec<Syncable>],
 ) -> Result<(Vec<u8>, DeviceSyncKeyType), DeviceSyncError> {
-    let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+    let enc_key = DeviceSyncKeyType::new_aes_256_gcm_key();
     encrypt_syncables_with_key(syncables, enc_key)
 }
 

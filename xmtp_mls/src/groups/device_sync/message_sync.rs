@@ -272,8 +272,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new_key() {
-        let sig_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
-        let enc_key = DeviceSyncKeyType::new_chacha20_poly1305_key();
+        let sig_key = DeviceSyncKeyType::new_aes_256_gcm_key();
+        let enc_key = DeviceSyncKeyType::new_aes_256_gcm_key();
         assert_eq!(sig_key.len(), ENC_KEY_SIZE);
         assert_eq!(enc_key.len(), ENC_KEY_SIZE);
         // ensure keys are different (seed isn't reused)

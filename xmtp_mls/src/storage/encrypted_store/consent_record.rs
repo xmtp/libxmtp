@@ -78,6 +78,30 @@ impl DbConnection {
 
         Ok(())
     }
+
+    pub fn maybe_insert_consent_record_return_existing(
+        &self,
+        record: &StoredConsentRecord,
+    ) -> Result<Option<StoredConsentRecord>, StorageError> {
+        self.raw_query(|conn| {
+            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+                diesel::insert_into(dsl::consent_records)
+                    .values(record)
+                    .on_conflict_do_nothing()
+                    .get_result(conn)
+                    .optional()?;
+
+            // if record was not inserted...
+            if maybe_inserted_consent_record.is_none() {
+                return Ok(dsl::consent_records
+                    .find((&record.entity_type, &record.entity))
+                    .first(conn)
+                    .optional()?);
+            }
+
+            Ok(None)
+        })
+    }
 }
 
 #[repr(i32)]
