@@ -89,7 +89,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[ignore]
     async fn test_message_history_sync() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,

@@ -25,8 +25,6 @@ use rand::{
     Rng, RngCore,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Deserializer;
-use std::io::{BufReader, Cursor};
 use thiserror::Error;
 use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
@@ -543,15 +541,9 @@ fn insert_encrypted_syncables(
 
     // Decrypt the ciphertext
     let payload = cipher.decrypt(nonce_array, ciphertext)?;
+    let payload: Vec<Syncable> = serde_json::from_slice(&payload)?;
 
-    let cursor = Cursor::new(payload);
-    let reader = BufReader::new(cursor);
-
-    let de = Deserializer::from_reader(reader);
-    let stream = de.into_iter::<Syncable>();
-
-    for syncable in stream {
-        let syncable = syncable?;
+    for syncable in payload {
         match syncable {
             Syncable::Group(group) => {
                 conn.insert_or_replace_group(group)?;

@@ -61,7 +61,6 @@ pub(crate) mod tests {
     use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[ignore]
     async fn test_consent_sync() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
