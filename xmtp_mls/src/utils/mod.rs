@@ -11,8 +11,6 @@ pub mod time {
     use wasm_timer::{SystemTime, UNIX_EPOCH};
 
     pub const NS_IN_SEC: i64 = 1_000_000_000;
-    pub const NS_IN_MINUTE: i64 = NS_IN_SEC * 60;
-    pub const NS_IN_HOUR: i64 = NS_IN_MINUTE * 60;
 
     pub fn now_ns() -> i64 {
         let now = SystemTime::now();

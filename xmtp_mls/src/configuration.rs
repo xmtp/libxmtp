@@ -14,7 +14,7 @@ pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
 const NS_IN_SEC: i64 = 1_000_000_000;
 
-const NS_IN_HOUR: i64 = NS_IN_SEC * 60 * 60;
+pub const NS_IN_HOUR: i64 = NS_IN_SEC * 60 * 60;
 
 const NS_IN_DAY: i64 = NS_IN_HOUR * 24;
 

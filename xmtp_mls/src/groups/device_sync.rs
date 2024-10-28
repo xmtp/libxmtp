@@ -30,9 +30,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::configuration::NS_IN_HOUR;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::utils::time::{now_ns, NS_IN_HOUR};
+use crate::utils::time::now_ns;
 use crate::Store;
 use crate::{
     client::ClientError,
