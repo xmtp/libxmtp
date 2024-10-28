@@ -18,8 +18,6 @@ where
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let (_msg, request) = self.pending_sync_request(DeviceSyncKind::Consent).await?;
 
-        self.verify_pin(&request.request_id, pin_code)?;
-
         let consent_records = self.syncable_consent_records()?;
 
         let reply = self

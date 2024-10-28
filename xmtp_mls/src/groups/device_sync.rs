@@ -32,7 +32,7 @@ use super::{GroupError, MlsGroup};
 
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::utils::time::now_ns;
+use crate::utils::time::{now_ns, NS_IN_HOUR};
 use crate::Store;
 use crate::{
     client::ClientError,
@@ -124,38 +124,6 @@ where
         sync_group.sync().await?;
 
         Ok(())
-    }
-
-    pub(crate) fn verify_pin(
-        &self,
-        request_id: &str,
-        pin_code: &str,
-    ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
-
-        for msg in messages.into_iter().rev() {
-            match serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes) {
-                Err(e) => {
-                    tracing::warn!(
-                        "Unable to deserialize message history. message_id: {:?}, err: {e:?}",
-                        msg.id
-                    );
-                    continue;
-                }
-                Ok(DeviceSyncContent::Request(request)) if request.request_id == request_id => {
-                    if request.pin_code == pin_code {
-                        return Ok(());
-                    } else {
-                        return Err(DeviceSyncError::PinMismatch);
-                    }
-                }
-                _ => continue,
-            }
-        }
-
-        Err(DeviceSyncError::PinNotFound)
     }
 
     async fn send_sync_request(
@@ -266,6 +234,12 @@ where
         let conn = self.store().conn()?;
 
         let reply = self.get_sync_reply(kind).await?;
+
+        let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
+        if time_diff > NS_IN_HOUR as u64 {
+            // time discrepancy is too much
+            return Err(DeviceSyncError::PayloadTimestamp);
+        }
 
         let Some(enc_key) = reply.encryption_key.clone() else {
             return Err(DeviceSyncError::InvalidPayload);

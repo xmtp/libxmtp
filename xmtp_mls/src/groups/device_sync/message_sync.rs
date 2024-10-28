@@ -23,8 +23,6 @@ where
             .pending_sync_request(DeviceSyncKind::MessageHistory)
             .await?;
 
-        self.verify_pin(&request.request_id, pin_code)?;
-
         let groups = self.syncable_groups()?;
         let messages = self.syncable_messages()?;
 
