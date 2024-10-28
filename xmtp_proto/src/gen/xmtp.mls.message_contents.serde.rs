@@ -311,10 +311,10 @@ impl serde::Serialize for DeviceSyncKeyType {
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DeviceSyncKeyType", len)?;
         if let Some(v) = self.key.as_ref() {
             match v {
-                device_sync_key_type::Key::Chacha20Poly1305(v) => {
+                device_sync_key_type::Key::Aes256Gcm(v) => {
                     #[allow(clippy::needless_borrow)]
                     #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("chacha20Poly1305", pbjson::private::base64::encode(&v).as_str())?;
+                    struct_ser.serialize_field("aes256Gcm", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
         }
@@ -328,13 +328,13 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "chacha20_poly1305",
-            "chacha20Poly1305",
+            "aes_256_gcm",
+            "aes256Gcm",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Chacha20Poly1305,
+            Aes256Gcm,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -356,7 +356,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
                         E: serde::de::Error,
                     {
                         match value {
-                            "chacha20Poly1305" | "chacha20_poly1305" => Ok(GeneratedField::Chacha20Poly1305),
+                            "aes256Gcm" | "aes_256_gcm" => Ok(GeneratedField::Aes256Gcm),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -379,11 +379,11 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
                 let mut key__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Chacha20Poly1305 => {
+                        GeneratedField::Aes256Gcm => {
                             if key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("chacha20Poly1305"));
+                                return Err(serde::de::Error::duplicate_field("aes256Gcm"));
                             }
-                            key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| device_sync_key_type::Key::Chacha20Poly1305(x.0));
+                            key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| device_sync_key_type::Key::Aes256Gcm(x.0));
                         }
                     }
                 }

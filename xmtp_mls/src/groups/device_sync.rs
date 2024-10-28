@@ -1,36 +1,5 @@
-use std::io::{BufRead, BufReader, Cursor};
-
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm,
-};
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
-use serde::{Deserialize, Serialize};
-use serde_json::Deserializer;
-use thiserror::Error;
-
-use xmtp_cryptography::utils as crypto_utils;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
-use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
-use xmtp_proto::xmtp::mls::message_contents::{
-    DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-};
-
-use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType::{Reply, Request},
-    plaintext_envelope::V2,
-    DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
-};
-
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
-
 use crate::configuration::NS_IN_HOUR;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
@@ -45,6 +14,32 @@ use crate::{
         StorageError,
     },
     Client,
+};
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm,
+};
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    Rng, RngCore,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Deserializer;
+use std::io::{BufReader, Cursor};
+use thiserror::Error;
+use xmtp_cryptography::utils as crypto_utils;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
+use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
+use xmtp_proto::xmtp::mls::message_contents::{
+    plaintext_envelope::v2::MessageType::{Reply, Request},
+    plaintext_envelope::V2,
+    DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
+};
+use xmtp_proto::xmtp::mls::message_contents::{
+    DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
 pub mod consent_sync;
@@ -462,7 +457,7 @@ impl From<DeviceSyncReply> for DeviceSyncReplyProto {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum DeviceSyncKeyType {
-    Chacha20Poly1305([u8; ENC_KEY_SIZE]),
+    Aes256Gcm([u8; ENC_KEY_SIZE]),
 }
 
 impl DeviceSyncKeyType {
@@ -470,19 +465,19 @@ impl DeviceSyncKeyType {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
-        DeviceSyncKeyType::Chacha20Poly1305(key)
+        DeviceSyncKeyType::Aes256Gcm(key)
     }
 
     #[cfg(test)]
     fn len(&self) -> usize {
         match self {
-            DeviceSyncKeyType::Chacha20Poly1305(key) => key.len(),
+            DeviceSyncKeyType::Aes256Gcm(key) => key.len(),
         }
     }
 
     fn as_bytes(&self) -> &[u8; ENC_KEY_SIZE] {
         match self {
-            DeviceSyncKeyType::Chacha20Poly1305(key) => key,
+            DeviceSyncKeyType::Aes256Gcm(key) => key,
         }
     }
 }
@@ -490,8 +485,8 @@ impl DeviceSyncKeyType {
 impl From<DeviceSyncKeyType> for DeviceSyncKeyTypeProto {
     fn from(key: DeviceSyncKeyType) -> Self {
         match key {
-            DeviceSyncKeyType::Chacha20Poly1305(key) => DeviceSyncKeyTypeProto {
-                key: Some(EncKeyProto::Chacha20Poly1305(key.to_vec())),
+            DeviceSyncKeyType::Aes256Gcm(key) => DeviceSyncKeyTypeProto {
+                key: Some(EncKeyProto::Aes256Gcm(key.to_vec())),
             },
         }
     }
@@ -503,9 +498,9 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
         let DeviceSyncKeyTypeProto { key } = key;
         match key {
             Some(k) => {
-                let EncKeyProto::Chacha20Poly1305(hist_key) = k;
-                match hist_key.try_into() {
-                    Ok(array) => Ok(DeviceSyncKeyType::Chacha20Poly1305(array)),
+                let EncKeyProto::Aes256Gcm(key) = k;
+                match key.try_into() {
+                    Ok(array) => Ok(DeviceSyncKeyType::Aes256Gcm(array)),
                     Err(_) => Err(DeviceSyncError::Conversion),
                 }
             }
