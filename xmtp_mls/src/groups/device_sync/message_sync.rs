@@ -17,7 +17,6 @@ where
 
     pub async fn reply_to_history_sync_request(
         &self,
-        pin_code: &str,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let (_msg, request) = self
             .pending_sync_request(DeviceSyncKind::MessageHistory)
@@ -144,7 +143,7 @@ pub(crate) mod tests {
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         // Have the second installation request for a consent sync.
-        let (_group_id, pin_code) = amal_b
+        let (_group_id, _pin_code) = amal_b
             .send_history_sync_request()
             .await
             .expect("history request");
@@ -158,10 +157,7 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
-        let reply = amal_a
-            .reply_to_history_sync_request(&pin_code)
-            .await
-            .unwrap();
+        let reply = amal_a.reply_to_history_sync_request().await.unwrap();
 
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(

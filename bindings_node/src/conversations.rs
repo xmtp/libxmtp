@@ -96,13 +96,7 @@ impl NapiConversations {
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
     };
 
-    let out = NapiGroup::new(
-      self.inner_client.clone(),
-      convo.group_id,
-      convo.created_at_ns,
-    );
-
-    Ok(out)
+    Ok(convo.into())
   }
 
   #[napi]
@@ -114,11 +108,7 @@ impl NapiConversations {
       .group(group_id)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(NapiGroup::new(
-      self.inner_client.clone(),
-      group.group_id,
-      group.created_at_ns,
-    ))
+    Ok(group.into())
   }
 
   #[napi]
@@ -128,11 +118,7 @@ impl NapiConversations {
       .dm_group_from_target_inbox(target_inbox_id)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(NapiGroup::new(
-      self.inner_client.clone(),
-      convo.group_id,
-      convo.created_at_ns,
-    ))
+    Ok(convo.into())
   }
 
   #[napi]
@@ -158,12 +144,7 @@ impl NapiConversations {
       .process_streamed_welcome_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
-    let out = NapiGroup::new(
-      self.inner_client.clone(),
-      group.group_id,
-      group.created_at_ns,
-    );
-    Ok(out)
+    Ok(group.into())
   }
 
   #[napi]
@@ -196,13 +177,7 @@ impl NapiConversations {
       })
       .map_err(ErrorWrapper::from)?
       .into_iter()
-      .map(|group| {
-        NapiGroup::new(
-          self.inner_client.clone(),
-          group.group_id,
-          group.created_at_ns,
-        )
-      })
+      .map(NapiGroup::from)
       .collect();
 
     Ok(convo_list)
@@ -212,17 +187,15 @@ impl NapiConversations {
   pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let client = self.inner_client.clone();
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      client.clone(),
+      self.inner_client.clone(),
       Some(ConversationType::Group),
       move |convo| {
         tsfn.call(
-          Ok(NapiGroup::new(
-            client.clone(),
-            convo.group_id,
-            convo.created_at_ns,
-          )),
+          convo
+            .map(NapiGroup::from)
+            .map_err(ErrorWrapper::from)
+            .map_err(Error::from),
           ThreadsafeFunctionCallMode::Blocking,
         );
       },
@@ -239,7 +212,13 @@ impl NapiConversations {
       self.inner_client.clone(),
       Some(ConversationType::Group),
       move |message| {
-        tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
+        tsfn.call(
+          message
+            .map(Into::into)
+            .map_err(ErrorWrapper::from)
+            .map_err(Error::from),
+          ThreadsafeFunctionCallMode::Blocking,
+        );
       },
     );
 

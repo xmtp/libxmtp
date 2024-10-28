@@ -1,5 +1,4 @@
 [workspace]
-
 members = [
   "examples/cli",
   "mls_validation_service",
@@ -60,8 +59,10 @@ tokio = { version = "1.35.1", default-features = false }
 # Changing this version and rustls may potentially break the android build. Use Caution.
 # Test with Android and Swift first.
 # Its probably preferable to one day use https://github.com/rustls/rustls-native-certs
-tonic = { version = "^0.12.2", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
+# Until then, always test agains iOS/Android after updating these dependencies & making a PR
+tonic = { version = "0.12", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
 rustls = { version = "=0.23.7", features = ["ring"] }
+# Pinned Dependencies
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-subscriber = { version = "0.3", default-features = false }
 diesel = { version = "2.2", default-features = false }
@@ -74,7 +75,7 @@ wasm-bindgen-test = "0.3.45"
 gloo-timers = "0.3"
 web-sys = "0.3"
 js-sys = "0.3"
-openssl-sys = "0.9"
+openssl-sys = { version = "0.9", features = ["vendored"] }
 openssl = { version = "0.10", features = ["vendored"] }
 libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
 dyn-clone = "1"

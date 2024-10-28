@@ -1,7 +1,7 @@
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
-use crate::GenericError;
+use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
@@ -254,13 +254,10 @@ impl FfiXmtpClient {
     }
 
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
-        let convo = self.inner_client.group(conversation_id)?;
-
-        Ok(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: convo.group_id,
-            created_at_ns: convo.created_at_ns,
-        })
+        self.inner_client
+            .group(conversation_id)
+            .map(Into::into)
+            .map_err(Into::into)
     }
 
     pub fn dm_conversation(
@@ -270,12 +267,7 @@ impl FfiXmtpClient {
         let convo = self
             .inner_client
             .dm_group_from_target_inbox(target_inbox_id)?;
-
-        Ok(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: convo.group_id,
-            created_at_ns: convo.created_at_ns,
-        })
+        Ok(convo.into())
     }
 
     pub fn message(&self, message_id: Vec<u8>) -> Result<FfiMessage, GenericError> {
@@ -802,13 +794,7 @@ impl FfiConversations {
                 .await?
         };
 
-        let out = Arc::new(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: convo.group_id,
-            created_at_ns: convo.created_at_ns,
-        });
-
-        Ok(out)
+        Ok(Arc::new(convo.into()))
     }
 
     pub async fn create_dm(
@@ -816,32 +802,22 @@ impl FfiConversations {
         account_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
-
-        let convo = self.inner_client.create_dm(account_address).await?;
-
-        let out = Arc::new(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: convo.group_id,
-            created_at_ns: convo.created_at_ns,
-        });
-
-        Ok(out)
+        self.inner_client
+            .create_dm(account_address)
+            .await
+            .map(|g| Arc::new(g.into()))
+            .map_err(Into::into)
     }
 
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let group = inner
+        self.inner_client
             .process_streamed_welcome_message(envelope_bytes)
-            .await?;
-        let out = Arc::new(FfiConversation {
-            inner_client: self.inner_client.clone(),
-            conversation_id: group.group_id,
-            created_at_ns: group.created_at_ns,
-        });
-        Ok(out)
+            .await
+            .map(|g| Arc::new(g.into()))
+            .map_err(Into::into)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -865,13 +841,9 @@ impl FfiConversations {
 
         let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
         // Uniffi does not work with usize, so we need to convert to u32
-        let num_groups_synced: u32 =
-            num_groups_synced
-                .try_into()
-                .map_err(|_| GenericError::Generic {
-                    err: "Failed to convert the number of synced groups from usize to u32"
-                        .to_string(),
-                })?;
+        let num_groups_synced: u32 = num_groups_synced
+            .try_into()
+            .map_err(|_| GenericError::FailedToConvertToU32)?;
         Ok(num_groups_synced)
     }
 
@@ -889,13 +861,7 @@ impl FfiConversations {
                 conversation_type: None,
             })?
             .into_iter()
-            .map(|group| {
-                Arc::new(FfiConversation {
-                    inner_client: self.inner_client.clone(),
-                    conversation_id: group.group_id,
-                    created_at_ns: group.created_at_ns,
-                })
-            })
+            .map(|group| Arc::new(group.into()))
             .collect();
 
         Ok(convo_list)
@@ -915,13 +881,7 @@ impl FfiConversations {
                 conversation_type: Some(ConversationType::Group),
             })?
             .into_iter()
-            .map(|group| {
-                Arc::new(FfiConversation {
-                    inner_client: self.inner_client.clone(),
-                    conversation_id: group.group_id,
-                    created_at_ns: group.created_at_ns,
-                })
-            })
+            .map(|group| Arc::new(group.into()))
             .collect();
 
         Ok(convo_list)
@@ -941,13 +901,7 @@ impl FfiConversations {
                 conversation_type: Some(ConversationType::Dm),
             })?
             .into_iter()
-            .map(|group| {
-                Arc::new(FfiConversation {
-                    inner_client: self.inner_client.clone(),
-                    conversation_id: group.group_id,
-                    created_at_ns: group.created_at_ns,
-                })
-            })
+            .map(|group| Arc::new(group.into()))
             .collect();
 
         Ok(convo_list)
@@ -955,52 +909,43 @@ impl FfiConversations {
 
     pub async fn stream_groups(
         &self,
-        callback: Box<dyn FfiConversationCallback>,
+        callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Group),
-            move |convo| {
-                callback.on_conversation(Arc::new(FfiConversation {
-                    inner_client: client.clone(),
-                    conversation_id: convo.group_id,
-                    created_at_ns: convo.created_at_ns,
-                }))
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => callback.on_error(e.into()),
             },
         );
 
         FfiStreamCloser::new(handle)
     }
 
-    pub async fn stream_dms(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream_dms(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Dm),
-            move |convo| {
-                callback.on_conversation(Arc::new(FfiConversation {
-                    inner_client: client.clone(),
-                    conversation_id: convo.group_id,
-                    created_at_ns: convo.created_at_ns,
-                }))
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => callback.on_error(e.into()),
             },
         );
 
         FfiStreamCloser::new(handle)
     }
 
-    pub async fn stream(&self, callback: Box<dyn FfiConversationCallback>) -> FfiStreamCloser {
+    pub async fn stream(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             None,
-            move |convo| {
-                callback.on_conversation(Arc::new(FfiConversation {
-                    inner_client: client.clone(),
-                    conversation_id: convo.group_id,
-                    created_at_ns: convo.created_at_ns,
-                }))
+            move |convo| match convo {
+                Ok(c) => callback.on_conversation(Arc::new(c.into())),
+                Err(e) => callback.on_error(e.into()),
             },
         );
 
@@ -1009,12 +954,15 @@ impl FfiConversations {
 
     pub async fn stream_all_group_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Group),
-            move |message| message_callback.on_message(message.into()),
+            move |msg| match msg {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -1022,12 +970,15 @@ impl FfiConversations {
 
     pub async fn stream_all_dm_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             Some(ConversationType::Dm),
-            move |message| message_callback.on_message(message.into()),
+            move |msg| match msg {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -1035,12 +986,15 @@ impl FfiConversations {
 
     pub async fn stream_all_messages(
         &self,
-        message_callback: Box<dyn FfiMessageCallback>,
+        message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             None,
-            move |message| message_callback.on_message(message.into()),
+            move |msg| match msg {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
@@ -1049,9 +1003,13 @@ impl FfiConversations {
 
 #[derive(uniffi::Object)]
 pub struct FfiConversation {
-    inner_client: Arc<RustXmtpClient>,
-    conversation_id: Vec<u8>,
-    created_at_ns: i64,
+    inner: MlsGroup<RustXmtpClient>,
+}
+
+impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
+    fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
+        FfiConversation { inner: mls_group }
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -1162,48 +1120,27 @@ impl FfiCreateGroupOptions {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let message_id = group.send_message(content_bytes.as_slice()).await?;
+        let message_id = self.inner.send_message(content_bytes.as_slice()).await?;
         Ok(message_id)
     }
 
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let id = group.send_message_optimistic(content_bytes.as_slice())?;
+        let id = self
+            .inner
+            .send_message_optimistic(content_bytes.as_slice())?;
 
         Ok(id)
     }
 
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group.publish_messages().await?;
+        self.inner.publish_messages().await?;
         Ok(())
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.sync().await?;
+        self.inner.sync().await?;
 
         Ok(())
     }
@@ -1212,16 +1149,11 @@ impl FfiConversation {
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
 
-        let messages: Vec<FfiMessage> = group
+        let messages: Vec<FfiMessage> = self
+            .inner
             .find_messages(
                 &MsgQueryArgs::default()
                     .maybe_sent_before_ns(opts.sent_before_ns)
@@ -1240,26 +1172,19 @@ impl FfiConversation {
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<FfiMessage, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        let message = group.process_streamed_group_message(envelope_bytes).await?;
+    ) -> Result<FfiMessage, FfiSubscribeError> {
+        let message = self
+            .inner
+            .process_streamed_group_message(envelope_bytes)
+            .await?;
         let ffi_message = message.into();
 
         Ok(ffi_message)
     }
 
     pub async fn list_members(&self) -> Result<Vec<FfiConversationMember>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let members: Vec<FfiConversationMember> = group
+        let members: Vec<FfiConversationMember> = self
+            .inner
             .members()
             .await?
             .into_iter()
@@ -1282,13 +1207,7 @@ impl FfiConversation {
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         log::info!("adding members: {}", account_addresses.join(","));
 
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.add_members(&account_addresses).await?;
+        self.inner.add_members(&account_addresses).await?;
 
         Ok(())
     }
@@ -1299,66 +1218,35 @@ impl FfiConversation {
     ) -> Result<(), GenericError> {
         log::info!("adding members by inbox id: {}", inbox_ids.join(","));
 
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.add_members_by_inbox_id(&inbox_ids).await?;
-
-        Ok(())
+        self.inner
+            .add_members_by_inbox_id(&inbox_ids)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.remove_members(&account_addresses).await?;
-
-        Ok(())
+        self.inner
+            .remove_members(&account_addresses)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn remove_members_by_inbox_id(
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.remove_members_by_inbox_id(&inbox_ids).await?;
-
+        self.inner.remove_members_by_inbox_id(&inbox_ids).await?;
         Ok(())
     }
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.update_group_name(group_name).await?;
-
+        self.inner.update_group_name(group_name).await?;
         Ok(())
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let provider = group.mls_provider()?;
-        let group_name = group.group_name(&provider)?;
-
+        let provider = self.inner.mls_provider()?;
+        let group_name = self.inner.group_name(&provider)?;
         Ok(group_name)
     }
 
@@ -1366,13 +1254,7 @@ impl FfiConversation {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group
+        self.inner
             .update_group_image_url_square(group_image_url_square)
             .await?;
 
@@ -1380,55 +1262,31 @@ impl FfiConversation {
     }
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let group_image_url_square = group.group_image_url_square(group.mls_provider()?)?;
-
-        Ok(group_image_url_square)
+        let provider = self.inner.mls_provider()?;
+        Ok(self.inner.group_image_url_square(provider)?)
     }
 
     pub async fn update_group_description(
         &self,
         group_description: String,
     ) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.update_group_description(group_description).await?;
+        self.inner
+            .update_group_description(group_description)
+            .await?;
 
         Ok(())
     }
 
     pub fn group_description(&self) -> Result<String, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let group_description = group.group_description(group.mls_provider()?)?;
-
-        Ok(group_description)
+        let provider = self.inner.mls_provider()?;
+        Ok(self.inner.group_description(provider)?)
     }
 
     pub async fn update_group_pinned_frame_url(
         &self,
         pinned_frame_url: String,
     ) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group
+        self.inner
             .update_group_pinned_frame_url(pinned_frame_url)
             .await?;
 
@@ -1436,39 +1294,20 @@ impl FfiConversation {
     }
 
     pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let group_pinned_frame_url = group.group_pinned_frame_url(group.mls_provider()?)?;
-
-        Ok(group_pinned_frame_url)
+        let provider = self.inner.mls_provider()?;
+        self.inner
+            .group_pinned_frame_url(&provider)
+            .map_err(Into::into)
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let admin_list = group.admin_list(group.mls_provider()?)?;
-
-        Ok(admin_list)
+        let provider = self.inner.mls_provider()?;
+        self.inner.admin_list(&provider).map_err(Into::into)
     }
 
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let super_admin_list = group.super_admin_list(group.mls_provider()?)?;
-
-        Ok(super_admin_list)
+        let provider = self.inner.mls_provider()?;
+        self.inner.super_admin_list(&provider).map_err(Into::into)
     }
 
     pub fn is_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
@@ -1482,65 +1321,35 @@ impl FfiConversation {
     }
 
     pub async fn add_admin(&self, inbox_id: String) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group
+        self.inner
             .update_admin_list(UpdateAdminListType::Add, inbox_id)
-            .await?;
-
-        Ok(())
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn remove_admin(&self, inbox_id: String) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group
+        self.inner
             .update_admin_list(UpdateAdminListType::Remove, inbox_id)
-            .await?;
-
-        Ok(())
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn add_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group
+        self.inner
             .update_admin_list(UpdateAdminListType::AddSuper, inbox_id)
-            .await?;
-
-        Ok(())
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn remove_super_admin(&self, inbox_id: String) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group
+        self.inner
             .update_admin_list(UpdateAdminListType::RemoveSuper, inbox_id)
-            .await?;
-
-        Ok(())
+            .await
+            .map_err(Into::into)
     }
 
     pub fn group_permissions(&self) -> Result<Arc<FfiGroupPermissions>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let permissions = group.permissions()?;
+        let permissions = self.inner.permissions()?;
         Ok(Arc::new(FfiGroupPermissions {
             inner: Arc::new(permissions),
         }))
@@ -1552,90 +1361,59 @@ impl FfiConversation {
         permission_policy_option: FfiPermissionPolicy,
         metadata_field: Option<FfiMetadataField>,
     ) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-        group
+        self.inner
             .update_permission_policy(
                 PermissionUpdateType::from(&permission_update_type),
                 permission_policy_option.try_into()?,
                 metadata_field.map(|field| MetadataField::from(&field)),
             )
             .await
-            .map_err(|e| GenericError::from(e.to_string()))?;
-        Ok(())
+            .map_err(Into::into)
     }
 
-    pub async fn stream(&self, message_callback: Box<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let inner_client = Arc::clone(&self.inner_client);
+    pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let handle = MlsGroup::stream_with_callback(
-            inner_client,
-            self.conversation_id.clone(),
-            self.created_at_ns,
-            move |message| message_callback.on_message(message.into()),
+            self.inner.client.clone(),
+            self.id(),
+            self.inner.created_at_ns,
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
         );
 
         FfiStreamCloser::new(handle)
     }
 
     pub fn created_at_ns(&self) -> i64 {
-        self.created_at_ns
+        self.inner.created_at_ns
     }
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        Ok(group.is_active(group.mls_provider()?)?)
+        let provider = self.inner.mls_provider()?;
+        self.inner.is_active(&provider).map_err(Into::into)
     }
 
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let state = group.consent_state()?;
-
-        Ok(state.into())
+        self.inner
+            .consent_state()
+            .map(Into::into)
+            .map_err(Into::into)
     }
 
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        group.update_consent_state(state.into())?;
-
-        Ok(())
+        self.inner
+            .update_consent_state(state.into())
+            .map_err(Into::into)
     }
 
     pub fn added_by_inbox_id(&self) -> Result<String, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        Ok(group.added_by_inbox_id()?)
+        self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
-        let group = MlsGroup::new(
-            self.inner_client.clone(),
-            self.conversation_id.clone(),
-            self.created_at_ns,
-        );
-
-        let metadata = group.metadata(group.mls_provider()?)?;
+        let provider = self.inner.mls_provider()?;
+        let metadata = self.inner.metadata(provider)?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1645,7 +1423,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.conversation_id.clone()
+        self.inner.group_id.clone()
     }
 }
 
@@ -1799,14 +1577,16 @@ impl FfiStreamCloser {
     }
 }
 
-#[uniffi::export(callback_interface)]
+#[uniffi::export(with_foreign)]
 pub trait FfiMessageCallback: Send + Sync {
     fn on_message(&self, message: FfiMessage);
+    fn on_error(&self, error: FfiSubscribeError);
 }
 
-#[uniffi::export(callback_interface)]
+#[uniffi::export(with_foreign)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiConversation>);
+    fn on_error(&self, error: FfiSubscribeError);
 }
 
 #[derive(uniffi::Object)]
@@ -1878,7 +1658,7 @@ mod tests {
         FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
         FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
         FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -1895,11 +1675,7 @@ mod tests {
         generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
-    use xmtp_mls::{
-        groups::{GroupError, MlsGroup},
-        storage::EncryptionKey,
-        InboxOwner,
-    };
+    use xmtp_mls::{groups::GroupError, storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -1974,6 +1750,10 @@ mod tests {
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             self.notify.notify_one();
         }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
+        }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
@@ -1983,6 +1763,10 @@ mod tests {
             let mut convos = self.conversations.lock().unwrap();
             convos.push(group);
             self.notify.notify_one();
+        }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
         }
     }
 
@@ -2047,13 +1831,7 @@ mod tests {
     impl FfiConversation {
         #[cfg(test)]
         async fn update_installations(&self) -> Result<(), GroupError> {
-            let group = MlsGroup::new(
-                self.inner_client.clone(),
-                self.conversation_id.clone(),
-                self.created_at_ns,
-            );
-
-            group.update_installations().await?;
+            self.inner.update_installations().await?;
             Ok(())
         }
     }
@@ -2529,7 +2307,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2821,7 +2599,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = alix
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2868,7 +2646,7 @@ mod tests {
         let bo_message_callbacks = RustStreamCallback::default();
         let bo_stream_messages = bo2
             .conversations()
-            .stream_all_messages(Box::new(bo_message_callbacks.clone()))
+            .stream_all_messages(Arc::new(bo_message_callbacks.clone()))
             .await;
         bo_stream_messages.wait_for_ready().await;
 
@@ -3127,7 +2905,7 @@ mod tests {
         let message_callbacks = RustStreamCallback::default();
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callbacks.clone()))
+            .stream_all_messages(Arc::new(message_callbacks.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3201,7 +2979,7 @@ mod tests {
 
         let stream = bola
             .conversations()
-            .stream(Box::new(stream_callback.clone()))
+            .stream(Arc::new(stream_callback.clone()))
             .await;
 
         amal.conversations()
@@ -3250,7 +3028,7 @@ mod tests {
 
         let stream = caro
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -3294,12 +3072,10 @@ mod tests {
             .unwrap();
 
         bola.inner_client.sync_welcomes().await.unwrap();
-        let bola_group = bola
-            .conversation(amal_group.conversation_id.clone())
-            .unwrap();
+        let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = RustStreamCallback::default();
-        let stream_closer = bola_group.stream(Box::new(stream_callback.clone())).await;
+        let stream_closer = bola_group.stream(Arc::new(stream_callback.clone())).await;
 
         stream_closer.wait_for_ready().await;
 
@@ -3338,7 +3114,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream_closer = bola
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream_closer.wait_for_ready().await;
 
@@ -3432,12 +3208,12 @@ mod tests {
         let group_callback = RustStreamCallback::default();
         let stream_groups = bo
             .conversations()
-            .stream(Box::new(group_callback.clone()))
+            .stream(Arc::new(group_callback.clone()))
             .await;
 
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Box::new(message_callback.clone()))
+            .stream_all_messages(Arc::new(message_callback.clone()))
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3938,7 +3714,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream(Box::new(stream_callback.clone()))
+            .stream(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -3967,7 +3743,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_groups(Box::new(stream_callback.clone()))
+            .stream_groups(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -3996,7 +3772,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_dms(Box::new(stream_callback.clone()))
+            .stream_dms(Arc::new(stream_callback.clone()))
             .await;
 
         alix.conversations()
@@ -4045,7 +3821,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_messages(Box::new(stream_callback.clone()))
+            .stream_all_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -4064,7 +3840,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_group_messages(Box::new(stream_callback.clone()))
+            .stream_all_group_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 
@@ -4084,7 +3860,7 @@ mod tests {
         let stream_callback = RustStreamCallback::default();
         let stream = bo
             .conversations()
-            .stream_all_dm_messages(Box::new(stream_callback.clone()))
+            .stream_all_dm_messages(Arc::new(stream_callback.clone()))
             .await;
         stream.wait_for_ready().await;
 

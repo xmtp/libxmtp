@@ -513,7 +513,6 @@ where
                 discriminant(&other),
             )),
         }?;
-
         if !allow_epoch_increment && message.content_type() == ContentType::Commit {
             return Err(MessageProcessingError::EpochIncrementNotAllowed);
         }

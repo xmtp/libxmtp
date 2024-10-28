@@ -29,8 +29,6 @@ pub enum ClientBuilderError {
     #[error("Database was configured with a different wallet")]
     StoredIdentityMismatch,
 
-    #[error("Inbox ID mismatch with address")]
-    InboxIdMismatch,
     #[error("Uncovered Case")]
     UncoveredCase,
     #[error("Storage Error")]
