@@ -232,6 +232,13 @@ mod tests {
             let existing = existing.unwrap();
             // we want the old record to be returned.
             assert_eq!(existing.state, ConsentState::Denied);
+
+            let db_cr = conn
+                .get_consent_record(existing.entity, existing.entity_type)
+                .unwrap()
+                .unwrap();
+            // ensure the db matches the state of what was returned
+            assert_eq!(db_cr.state, existing.state);
         })
         .await;
     }
