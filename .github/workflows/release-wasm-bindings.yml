@@ -10,7 +10,7 @@ jobs:
   release:
     permissions:
       id-token: write
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +25,11 @@ jobs:
           workspaces: |
             .
             bindings_wasm
+
+      - name: Install wasm-bindgen and wasm-opt
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen, wasm-opt
 
       - name: Setup node
         uses: actions/setup-node@v4
