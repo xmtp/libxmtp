@@ -31,8 +31,8 @@ use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
 use crate::storage::group_message::MsgQueryArgs;
-use crate::storage::key_value_store::Key;
 use crate::storage::DbConnection;
+use crate::utils::time::now_ns;
 use crate::Store;
 use crate::{
     client::ClientError,
@@ -40,7 +40,6 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
         group_message::{GroupMessageKind, StoredGroupMessage},
-        key_value_store::KVStore,
         StorageError,
     },
     Client,
@@ -102,6 +101,8 @@ pub enum DeviceSyncError {
     InvalidBundleUrl,
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
+    #[error("snc payload timestamp is outside sync window")]
+    PayloadTimestamp,
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -168,38 +169,15 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
-
-        let store_key = match request.kind {
-            DeviceSyncKind::Consent => Key::ConsentSyncRequestId,
-            DeviceSyncKind::MessageHistory => Key::MessageHistorySyncRequestId,
-            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
-        };
-
-        if let Some(request_id) =
-            KVStore::get::<String>(&conn, &store_key).map_err(DeviceSyncError::Storage)?
-        {
-            for message in messages.iter().rev() {
-                let ctx: DeviceSyncContent =
-                    serde_json::from_slice(&message.decrypted_message_bytes)?;
-                if let DeviceSyncContent::Request(request) = ctx {
-                    if request.request_id == request_id {
-                        return Ok((request.request_id, request.pin_code));
-                    }
-                }
-            }
-
-            // Request id not found.
-            tracing::warn!("Unable to find sync message with request_id: {request_id}");
-            KVStore::delete(&conn, &store_key).map_err(DeviceSyncError::Storage)?;
+        // lookup if a request has already been made
+        if let Ok((_msg, request)) = self.pending_sync_request(request.kind).await {
+            return Ok((request.request_id, request.pin_code));
         }
 
         // build the request
         let request: DeviceSyncRequestProto = request.into();
         let pin_code = request.pin_code.clone();
         let request_id = request.request_id.clone();
-        KVStore::set(&conn, &store_key, request_id.clone()).map_err(DeviceSyncError::Storage)?;
 
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
@@ -256,38 +234,11 @@ where
         Err(DeviceSyncError::NoPendingRequest)
     }
 
-    async fn pending_sync_request_id(
-        &self,
-        request_id: &str,
-    ) -> Result<Option<(StoredGroupMessage, DeviceSyncRequestProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
-
-        sync_group.sync().await?;
-
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
-
-        for msg in messages.into_iter().rev() {
-            let msg_content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            match msg_content {
-                DeviceSyncContent::Request(request) if request.request_id == request_id => {
-                    return Ok(Some((msg, request)));
-                }
-                DeviceSyncContent::Reply(reply) if reply.request_id == request_id => {
-                    return Err(DeviceSyncError::ReplyAlreadyProcessed);
-                }
-                _ => {}
-            }
-        }
-
-        Ok(None)
-    }
-
+    /// Look for sync reply by kind, returns NoReplyToProcess error if not found.
     async fn get_sync_reply(
         &self,
-        request_id: &str,
-    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
+        kind: DeviceSyncKind,
+    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
 
         sync_group.sync().await?;
@@ -302,21 +253,20 @@ where
 
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Reply(reply) = content {
-                if reply.request_id == request_id {
-                    return Ok(Some(reply));
+                if reply.kind() == kind {
+                    return Ok(reply);
                 }
             }
         }
 
-        Ok(None)
+        Err(DeviceSyncError::NoReplyToProcess)
     }
 
-    async fn process_sync_reply(&self, request_id: &str) -> Result<(), DeviceSyncError> {
+    async fn process_sync_reply(&self, kind: DeviceSyncKind) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
-        let Some(reply) = self.get_sync_reply(request_id).await? else {
-            return Err(DeviceSyncError::NoReplyToProcess);
-        };
+        let reply = self.get_sync_reply(kind).await?;
+
         let Some(enc_key) = reply.encryption_key.clone() else {
             return Err(DeviceSyncError::InvalidPayload);
         };
@@ -350,6 +300,7 @@ where
         &self,
         request_id: &str,
         syncables: &[Vec<Syncable>],
+        kind: DeviceSyncKind,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
@@ -381,6 +332,8 @@ where
             encryption_key: Some(enc_key.into()),
             request_id: request_id.to_string(),
             url,
+            timestamp_ns: now_ns() as u64,
+            kind: kind as i32,
         };
 
         self.send_sync_reply(sync_reply.clone()).await?;
@@ -396,12 +349,7 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let Some((msg, _request)) = self.pending_sync_request_id(&contents.request_id).await?
-        else {
-            // pending_sync_request_id will return an error if it's already replied to
-            // so if we're here, it means we can't find the request at all, and that's a problem
-            return Err(DeviceSyncError::ReplyRequestIdMissing);
-        };
+        let (msg, _request) = self.pending_sync_request(contents.kind()).await?;
 
         // add original sender to all groups on this device on the node
         self.ensure_member_of_all_groups(&msg.sender_inbox_id)
@@ -457,8 +405,7 @@ where
     pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn
-            .find_sync_groups()?
-            .pop()
+            .latest_sync_group()?
             .ok_or(GroupError::GroupNotFound)?
             .id;
         let sync_group = self.group(sync_group_id.clone())?;
@@ -519,6 +466,10 @@ pub(crate) struct DeviceSyncReply {
     url: String,
     /// Encryption key for the backup bundle
     encryption_key: DeviceSyncKeyType,
+    /// UNIX timestamp of when the reply was sent in ns
+    timestamp_ns: u64,
+    // sync kind
+    kind: DeviceSyncKind,
 }
 
 impl From<DeviceSyncReply> for DeviceSyncReplyProto {
@@ -527,6 +478,8 @@ impl From<DeviceSyncReply> for DeviceSyncReplyProto {
             request_id: reply.request_id,
             url: reply.url,
             encryption_key: Some(reply.encryption_key.into()),
+            timestamp_ns: reply.timestamp_ns,
+            kind: reply.kind as i32,
         }
     }
 }

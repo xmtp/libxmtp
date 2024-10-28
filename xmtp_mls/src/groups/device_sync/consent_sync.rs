@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    storage::key_value_store::{KVStore, Key},
-    Client, XmtpApi,
-};
+use crate::{Client, XmtpApi};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -26,24 +23,18 @@ where
         let consent_records = self.syncable_consent_records()?;
 
         let reply = self
-            .send_syncables(&request.request_id, &[consent_records])
+            .send_syncables(
+                &request.request_id,
+                &[consent_records],
+                DeviceSyncKind::Consent,
+            )
             .await?;
 
         Ok(reply)
     }
 
     pub async fn process_consent_sync_reply(&self) -> Result<(), DeviceSyncError> {
-        let conn = self.store().conn()?;
-
-        // load the request_id
-        let request_id: Option<String> =
-            KVStore::get(&conn, &Key::ConsentSyncRequestId).map_err(DeviceSyncError::Storage)?;
-        let Some(request_id) = request_id else {
-            return Err(DeviceSyncError::NoReplyToProcess);
-        };
-
-        // process the reply
-        self.process_sync_reply(&request_id).await
+        self.process_sync_reply(DeviceSyncKind::Consent).await
     }
 
     fn syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
@@ -109,8 +100,8 @@ pub(crate) mod tests {
         assert_eq!(syncable_consent_records.len(), 1);
 
         // The first installation should have zero sync groups.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 0);
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        assert!(amal_a_sync_groups.is_none());
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
@@ -125,8 +116,8 @@ pub(crate) mod tests {
             .expect("history request");
 
         // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 1);
+        let amal_a_sync_groups = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        assert!(amal_a_sync_groups.is_some());
 
         // Have first installation reply.
         // This is to make sure it finds the request in its sync group history,

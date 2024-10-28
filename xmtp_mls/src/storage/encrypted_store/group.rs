@@ -165,12 +165,13 @@ impl DbConnection {
         Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
-    /// Return only the [`Purpose::Sync`] groups
-    pub fn find_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-        query = query.filter(dsl::purpose.eq(Purpose::Sync));
+    pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::purpose.eq(Purpose::Sync))
+            .limit(1);
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        Ok(self.raw_query(|conn| query.load(conn))?.pop())
     }
 
     /// Return a single group that matches the given ID
@@ -540,8 +541,8 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.find_sync_groups().unwrap();
-            assert_eq!(synced_groups.len(), 0);
+            let synced_groups = conn.latest_sync_group().unwrap();
+            assert!(synced_groups.is_none());
 
             // test that dm groups are included
             let dm_results = conn.find_groups(None, None, None, None, None).unwrap();
@@ -620,9 +621,9 @@ pub(crate) mod tests {
 
             sync_group.store(conn).unwrap();
 
-            let found = conn.find_sync_groups().unwrap();
-            assert_eq!(found.len(), 1);
-            assert_eq!(found[0].purpose, Purpose::Sync)
+            let found = conn.latest_sync_group().unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().purpose, Purpose::Sync)
         })
         .await
     }

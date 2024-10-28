@@ -1,6 +1,5 @@
 use super::*;
 use crate::storage::group_message::MsgQueryArgs;
-use crate::storage::key_value_store::{KVStore, Key};
 use crate::XmtpApi;
 use crate::{storage::group::StoredGroup, Client};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -30,23 +29,19 @@ where
         let messages = self.syncable_messages()?;
 
         let reply = self
-            .send_syncables(&request.request_id, &[groups, messages])
+            .send_syncables(
+                &request.request_id,
+                &[groups, messages],
+                DeviceSyncKind::MessageHistory,
+            )
             .await?;
 
         Ok(reply)
     }
 
     pub async fn process_history_sync_reply(&self) -> Result<(), DeviceSyncError> {
-        let conn = self.store().conn()?;
-        // load the request_id
-        let request_id: Option<String> = KVStore::get(&conn, &Key::MessageHistorySyncRequestId)
-            .map_err(DeviceSyncError::Storage)?;
-        let Some(request_id) = request_id else {
-            return Err(DeviceSyncError::NoReplyToProcess);
-        };
-
-        // process the reply
-        self.process_sync_reply(&request_id).await
+        self.process_sync_reply(DeviceSyncKind::MessageHistory)
+            .await
     }
 
     fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
@@ -141,8 +136,8 @@ pub(crate) mod tests {
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // The first installation should have zero sync groups.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 0);
+        let amal_a_sync_group = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        assert!(amal_a_sync_group.is_none());
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
@@ -157,8 +152,8 @@ pub(crate) mod tests {
             .expect("history request");
 
         // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().find_sync_groups().unwrap();
-        assert_eq!(amal_a_sync_groups.len(), 1);
+        let amal_a_sync_group = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        assert!(amal_a_sync_group.is_some());
 
         // Have first installation reply.
         // This is to make sure it finds the request in its sync group history,
@@ -244,17 +239,18 @@ pub(crate) mod tests {
             .await
             .expect("sync welcomes");
 
-        let amal_sync_groups = amal
+        let amal_sync_group = amal
             .store()
             .conn()
             .unwrap()
-            .find_sync_groups()
-            .expect("find sync groups");
-        assert_eq!(amal_sync_groups.len(), 1);
+            .latest_sync_group()
+            .expect("find sync group");
+        assert!(amal_sync_group.is_some());
+        let amal_sync_group = amal_sync_group.unwrap();
 
         // try to join amal's sync group
-        let sync_group_id = amal_sync_groups[0].id.clone();
-        let created_at_ns = amal_sync_groups[0].created_at_ns;
+        let sync_group_id = amal_sync_group.id.clone();
+        let created_at_ns = amal_sync_group.created_at_ns;
 
         let external_client_group = MlsGroup::new(
             external_client.clone(),

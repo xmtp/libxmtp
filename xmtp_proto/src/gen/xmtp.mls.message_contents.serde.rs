@@ -486,6 +486,12 @@ impl serde::Serialize for DeviceSyncReply {
         if self.encryption_key.is_some() {
             len += 1;
         }
+        if self.timestamp_ns != 0 {
+            len += 1;
+        }
+        if self.kind != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DeviceSyncReply", len)?;
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
@@ -495,6 +501,16 @@ impl serde::Serialize for DeviceSyncReply {
         }
         if let Some(v) = self.encryption_key.as_ref() {
             struct_ser.serialize_field("encryptionKey", v)?;
+        }
+        if self.timestamp_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+        }
+        if self.kind != 0 {
+            let v = DeviceSyncKind::try_from(self.kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
+            struct_ser.serialize_field("kind", &v)?;
         }
         struct_ser.end()
     }
@@ -511,6 +527,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             "url",
             "encryption_key",
             "encryptionKey",
+            "timestamp_ns",
+            "timestampNs",
+            "kind",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -518,6 +537,8 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             RequestId,
             Url,
             EncryptionKey,
+            TimestampNs,
+            Kind,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -542,6 +563,8 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "url" => Ok(GeneratedField::Url),
                             "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
+                            "kind" => Ok(GeneratedField::Kind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -564,6 +587,8 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                 let mut request_id__ = None;
                 let mut url__ = None;
                 let mut encryption_key__ = None;
+                let mut timestamp_ns__ = None;
+                let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -584,12 +609,28 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             }
                             encryption_key__ = map_.next_value()?;
                         }
+                        GeneratedField::TimestampNs => {
+                            if timestamp_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestampNs"));
+                            }
+                            timestamp_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Kind => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kind"));
+                            }
+                            kind__ = Some(map_.next_value::<DeviceSyncKind>()? as i32);
+                        }
                     }
                 }
                 Ok(DeviceSyncReply {
                     request_id: request_id__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
                     encryption_key: encryption_key__,
+                    timestamp_ns: timestamp_ns__.unwrap_or_default(),
+                    kind: kind__.unwrap_or_default(),
                 })
             }
         }
