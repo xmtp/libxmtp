@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.14
+
+- Arguments in stream callback throw error rather than silently ignore
+
 ## 0.0.13
 
 - Added logging option when creating a client
