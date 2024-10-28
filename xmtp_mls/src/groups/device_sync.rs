@@ -10,6 +10,7 @@ use rand::{
     Rng, RngCore,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Deserializer;
 use thiserror::Error;
 
 use xmtp_cryptography::utils as crypto_utils;
@@ -550,9 +551,12 @@ fn insert_encrypted_syncables(
     let cursor = Cursor::new(payload);
     let reader = BufReader::new(cursor);
 
-    for line in reader.lines() {
-        let db_entry: Syncable = serde_json::from_str(&line?)?;
-        match db_entry {
+    let de = Deserializer::from_reader(reader);
+    let stream = de.into_iter::<Syncable>();
+
+    for syncable in stream {
+        let syncable = syncable?;
+        match syncable {
             Syncable::Group(group) => {
                 conn.insert_or_replace_group(group)?;
             }
@@ -589,13 +593,8 @@ fn encrypt_syncables_with_key(
     syncables: &[Vec<Syncable>],
     enc_key: DeviceSyncKeyType,
 ) -> Result<(Vec<u8>, DeviceSyncKeyType), DeviceSyncError> {
-    let mut payload = vec![];
-    for collection in syncables {
-        for syncable in collection {
-            payload.extend_from_slice(serde_json::to_string(&syncable)?.as_bytes());
-            payload.push(b'\n');
-        }
-    }
+    let syncables: Vec<&Syncable> = syncables.iter().flat_map(|s| s.iter()).collect();
+    let payload = serde_json::to_vec(&syncables)?;
 
     let enc_key_bytes = enc_key.as_bytes();
     let mut result = generate_nonce().to_vec();
