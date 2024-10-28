@@ -3958,6 +3958,27 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_get_dm_peer_inbox_id() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_dm = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        let alix_dm_peer_inbox = alix_dm.dm_peer_inbox_id().unwrap();
+        assert_eq!(alix_dm_peer_inbox, bo.inbox_id());
+
+        bo.conversations().sync().await.unwrap();
+        let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+
+        let bo_dm_peer_inbox = bo_dm.dm_peer_inbox_id().unwrap();
+        assert_eq!(bo_dm_peer_inbox, alix.inbox_id());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_and_get_member_consent() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
