@@ -218,6 +218,20 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
+
+            let conflict = generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                inbox_id.to_string(),
+            );
+
+            let existing = conn
+                .maybe_insert_consent_record_return_existing(&conflict)
+                .unwrap();
+            assert!(existing.is_some());
+            let existing = existing.unwrap();
+            // we want the old record to be returned.
+            assert_eq!(existing.state, ConsentState::Denied);
         })
         .await;
     }
