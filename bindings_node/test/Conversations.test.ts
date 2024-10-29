@@ -492,7 +492,7 @@ describe('Conversations', () => {
     stream.end()
   })
 
-  it.only('should only stream dm messages', async () => {
+  it('should only stream dm messages', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const user3 = createUser()
