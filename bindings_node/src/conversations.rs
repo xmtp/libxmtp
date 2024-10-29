@@ -9,17 +9,91 @@ use napi_derive::napi;
 use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::GroupMembershipState;
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
 use crate::ErrorWrapper;
 use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
+#[napi]
+#[derive(Debug)]
+pub enum NapiConversationType {
+  Dm = 0,
+  Group = 1,
+  Sync = 2,
+}
+
+impl From<ConversationType> for NapiConversationType {
+  fn from(ct: ConversationType) -> Self {
+    match ct {
+      ConversationType::Dm => NapiConversationType::Dm,
+      ConversationType::Group => NapiConversationType::Group,
+      ConversationType::Sync => NapiConversationType::Sync,
+    }
+  }
+}
+
+impl From<NapiConversationType> for ConversationType {
+  fn from(nct: NapiConversationType) -> Self {
+    match nct {
+      NapiConversationType::Dm => ConversationType::Dm,
+      NapiConversationType::Group => ConversationType::Group,
+      NapiConversationType::Sync => ConversationType::Sync,
+    }
+  }
+}
+
+#[napi]
+#[derive(Debug)]
+pub enum NapiGroupMembershipState {
+  Allowed = 0,
+  Rejected = 1,
+  Pending = 2,
+}
+
+impl From<GroupMembershipState> for NapiGroupMembershipState {
+  fn from(gms: GroupMembershipState) -> Self {
+    match gms {
+      GroupMembershipState::Allowed => NapiGroupMembershipState::Allowed,
+      GroupMembershipState::Rejected => NapiGroupMembershipState::Rejected,
+      GroupMembershipState::Pending => NapiGroupMembershipState::Pending,
+    }
+  }
+}
+
+impl From<NapiGroupMembershipState> for GroupMembershipState {
+  fn from(ngms: NapiGroupMembershipState) -> Self {
+    match ngms {
+      NapiGroupMembershipState::Allowed => GroupMembershipState::Allowed,
+      NapiGroupMembershipState::Rejected => GroupMembershipState::Rejected,
+      NapiGroupMembershipState::Pending => GroupMembershipState::Pending,
+    }
+  }
+}
+
 #[napi(object)]
+#[derive(Debug, Default)]
 pub struct NapiListConversationsOptions {
+  pub allowed_states: Option<Vec<NapiGroupMembershipState>>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+  pub conversation_type: Option<NapiConversationType>,
+}
+
+impl From<NapiListConversationsOptions> for FindGroupParams {
+  fn from(opts: NapiListConversationsOptions) -> Self {
+    FindGroupParams {
+      allowed_states: opts
+        .allowed_states
+        .map(|states| states.into_iter().map(From::from).collect()),
+      conversation_type: opts.conversation_type.map(|ct| ct.into()),
+      created_after_ns: opts.created_after_ns,
+      created_before_ns: opts.created_before_ns,
+      limit: opts.limit,
+    }
+  }
 }
 
 #[napi(object)]
@@ -100,6 +174,17 @@ impl NapiConversations {
   }
 
   #[napi]
+  pub async fn create_dm(&self, account_address: String) -> Result<NapiGroup> {
+    let convo = self
+      .inner_client
+      .create_dm(account_address)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(convo.into())
+  }
+
+  #[napi]
   pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
 
@@ -159,22 +244,13 @@ impl NapiConversations {
 
   #[napi]
   pub async fn list(&self, opts: Option<NapiListConversationsOptions>) -> Result<Vec<NapiGroup>> {
-    let opts = match opts {
-      Some(options) => options,
-      None => NapiListConversationsOptions {
-        created_after_ns: None,
-        created_before_ns: None,
-        limit: None,
-      },
-    };
+    // let opts = match opts {
+    //   Some(options) => options,
+    //   None => NapiListConversationsOptions::default(),
+    // };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups(FindGroupParams {
-        created_after_ns: opts.created_after_ns,
-        created_before_ns: opts.created_before_ns,
-        limit: opts.limit,
-        ..FindGroupParams::default()
-      })
+      .find_groups(opts.unwrap_or_default().into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(NapiGroup::from)
@@ -183,13 +259,43 @@ impl NapiConversations {
     Ok(convo_list)
   }
 
+  #[napi]
+  pub async fn list_groups(
+    &self,
+    opts: Option<NapiListConversationsOptions>,
+  ) -> Result<Vec<NapiGroup>> {
+    self
+      .list(Some(NapiListConversationsOptions {
+        conversation_type: Some(NapiConversationType::Group),
+        ..opts.unwrap_or_default()
+      }))
+      .await
+  }
+
+  #[napi]
+  pub async fn list_dms(
+    &self,
+    opts: Option<NapiListConversationsOptions>,
+  ) -> Result<Vec<NapiGroup>> {
+    self
+      .list(Some(NapiListConversationsOptions {
+        conversation_type: Some(NapiConversationType::Dm),
+        ..opts.unwrap_or_default()
+      }))
+      .await
+  }
+
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
-  pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+  pub fn stream(
+    &self,
+    callback: JsFunction,
+    conversation_type: Option<NapiConversationType>,
+  ) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
-      Some(ConversationType::Group),
+      conversation_type.map(|ct| ct.into()),
       move |convo| {
         tsfn.call(
           convo
@@ -204,13 +310,27 @@ impl NapiConversations {
     Ok(NapiStreamCloser::new(stream_closer))
   }
 
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  pub fn stream_groups(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+    self.stream(callback, Some(NapiConversationType::Group))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  pub fn stream_dms(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+    self.stream(callback, Some(NapiConversationType::Dm))
+  }
+
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
-  pub fn stream_all_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+  pub fn stream_all_messages(
+    &self,
+    callback: JsFunction,
+    conversation_type: Option<NapiConversationType>,
+  ) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
-      Some(ConversationType::Group),
+      conversation_type.map(Into::into),
       move |message| {
         tsfn.call(
           message
@@ -223,5 +343,15 @@ impl NapiConversations {
     );
 
     Ok(NapiStreamCloser::new(stream_closer))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  pub fn stream_all_group_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+    self.stream_all_messages(callback, Some(NapiConversationType::Group))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  pub fn stream_all_dm_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
+    self.stream_all_messages(callback, Some(NapiConversationType::Dm))
   }
 }
