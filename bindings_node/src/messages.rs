@@ -1,6 +1,8 @@
 use napi::bindgen_prelude::Uint8Array;
 use prost::Message;
-use xmtp_mls::storage::group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage};
+use xmtp_mls::storage::group_message::{
+  DeliveryStatus, GroupMessageKind, SortDirection, StoredGroupMessage,
+};
 
 use napi_derive::napi;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -49,12 +51,40 @@ impl From<NapiDeliveryStatus> for DeliveryStatus {
   }
 }
 
+#[napi]
+pub enum NapiDirection {
+  Ascending,
+  Descending,
+}
+
+impl From<NapiDirection> for SortDirection {
+  fn from(direction: NapiDirection) -> Self {
+    match direction {
+      NapiDirection::Ascending => SortDirection::Ascending,
+      NapiDirection::Descending => SortDirection::Descending,
+    }
+  }
+}
+
 #[napi(object)]
 pub struct NapiListMessagesOptions {
   pub sent_before_ns: Option<i64>,
   pub sent_after_ns: Option<i64>,
   pub limit: Option<i64>,
   pub delivery_status: Option<NapiDeliveryStatus>,
+  pub direction: Option<NapiDirection>,
+}
+
+impl Default for NapiListMessagesOptions {
+  fn default() -> Self {
+    Self {
+      sent_before_ns: None,
+      sent_after_ns: None,
+      limit: None,
+      delivery_status: None,
+      direction: None,
+    }
+  }
 }
 
 #[napi]
