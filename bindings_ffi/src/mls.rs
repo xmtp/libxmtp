@@ -20,7 +20,7 @@ use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError, FindGroupParams},
+    client::{Client as MlsClient, ClientError},
     groups::{
         group_metadata::{ConversationType, GroupMetadata},
         group_mutable_metadata::MetadataField,
@@ -37,13 +37,12 @@ use xmtp_mls::{
     retry::Retry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::mls::api::v1::SortDirection;
-
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 /// It returns a new client of the specified `inbox_id`.
@@ -525,6 +524,16 @@ pub struct FfiListConversationsOptions {
     pub consent_state: Option<FfiConsentState>,
 }
 
+impl From<FfiListConversationsOptions> for GroupQueryArgs {
+    fn from(opts: FfiListConversationsOptions) -> GroupQueryArgs {
+        GroupQueryArgs::default()
+            .maybe_created_before_ns(opts.created_before_ns)
+            .maybe_created_after_ns(opts.created_after_ns)
+            .maybe_limit(opts.limit)
+            .maybe_consent_state(opts.consent_state.map(Into::into))
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
@@ -830,10 +839,7 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(FindGroupParams {
-            conversation_type: None,
-            ..FindGroupParams::default()
-        })?;
+        let groups = inner.find_groups(GroupQueryArgs::default())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",
@@ -855,14 +861,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: None,
-                consent_state: opts.consent_state.into(),
-            })?
+            .find_groups(opts.into())?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();
@@ -876,14 +875,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: Some(ConversationType::Group),
-                consent_state: opts.consent_state.into(),
-            })?
+            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Group))?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();
@@ -897,14 +889,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: Some(ConversationType::Dm),
-                consent_state: opts.consent_state.into(),
-            })?
+            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();

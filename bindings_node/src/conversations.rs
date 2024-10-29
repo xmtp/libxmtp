@@ -6,9 +6,9 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
@@ -20,6 +20,15 @@ pub struct NapiListConversationsOptions {
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+}
+
+impl From<NapiListConversationsOptions> for GroupQueryArgs {
+  fn from(opts: NapiListConversationsOptions) -> GroupQueryArgs {
+    GroupQueryArgs::default()
+      .maybe_created_after_ns(opts.created_after_ns)
+      .maybe_created_before_ns(opts.created_before_ns)
+      .maybe_limit(opts.limit)
+  }
 }
 
 #[napi(object)]
@@ -169,12 +178,7 @@ impl NapiConversations {
     };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups(FindGroupParams {
-        created_after_ns: opts.created_after_ns,
-        created_before_ns: opts.created_before_ns,
-        limit: opts.limit,
-        ..FindGroupParams::default()
-      })
+      .find_groups(opts.into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(NapiGroup::from)

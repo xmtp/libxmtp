@@ -17,8 +17,8 @@ use super::{
     consent_record::ConsentState, db_connection::DbConnection, schema::groups::dsl, Sqlite,
 };
 use crate::{
-    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
-    storage::schema::groups
+    groups::group_metadata::ConversationType, impl_fetch, impl_store, storage::schema::groups,
+    DuplicateItem, StorageError,
 };
 
 /// The Group ID type.
@@ -139,7 +139,10 @@ impl GroupQueryArgs {
         self.maybe_allowed_states(Some(allowed_states))
     }
 
-    pub fn maybe_allowed_states(mut self, allowed_states: Option<Vec<GroupMembershipState>>) -> Self {
+    pub fn maybe_allowed_states(
+        mut self,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+    ) -> Self {
         self.allowed_states = allowed_states;
         self
     }
@@ -196,15 +199,15 @@ impl DbConnection {
         &self,
         args: A,
     ) -> Result<Vec<StoredGroup>, StorageError> {
-        use crate::storage::schema::groups::dsl as groups_dsl;
         use crate::storage::schema::consent_records::dsl as consent_dsl;
-        let GroupQueryArgs  {
+        use crate::storage::schema::groups::dsl as groups_dsl;
+        let GroupQueryArgs {
             allowed_states,
             created_after_ns,
             created_before_ns,
             limit,
             conversation_type,
-            consent_state
+            consent_state,
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
@@ -242,14 +245,14 @@ impl DbConnection {
         query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
 
         let groups = if let Some(consent_state) = consent_state {
-            let query = query
-                .inner_join(
-                    consent_dsl::consent_records
-                        .on(sql::<diesel::sql_types::Text>("hex(groups.id)").eq(consent_dsl::entity)),
-                )
-                .filter(consent_dsl::state.eq(consent_state))
-                .select(groups_dsl::groups::all_columns())
-                .order(groups_dsl::created_at_ns.asc());
+            let query =
+                query
+                    .inner_join(consent_dsl::consent_records.on(
+                        sql::<diesel::sql_types::Text>("hex(groups.id)").eq(consent_dsl::entity),
+                    ))
+                    .filter(consent_dsl::state.eq(consent_state))
+                    .select(groups_dsl::groups::all_columns())
+                    .order(groups_dsl::created_at_ns.asc());
             self.raw_query(|conn| query.load::<StoredGroup>(conn))?
         } else {
             self.raw_query(|conn| query.load::<StoredGroup>(conn))?
@@ -499,10 +502,7 @@ pub(crate) mod tests {
             consent_record::{ConsentType, StoredConsentRecord},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
-        utils::{
-            test::{self, rand_vec},
-            time::now_ns,
-        },
+        utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };
 
@@ -624,7 +624,7 @@ pub(crate) mod tests {
                 .find_groups(
                     GroupQueryArgs::default()
                         .allowed_states(vec![GroupMembershipState::Pending])
-                        .conversation_type(ConversationType::Group)
+                        .conversation_type(ConversationType::Group),
                 )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
@@ -632,7 +632,11 @@ pub(crate) mod tests {
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(GroupQueryArgs::default().limit(1).conversation_type(ConversationType::Group))
+                .find_groups(
+                    GroupQueryArgs::default()
+                        .limit(1)
+                        .conversation_type(ConversationType::Group),
+                )
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
@@ -642,8 +646,8 @@ pub(crate) mod tests {
                     GroupQueryArgs::default()
                         .created_after_ns(test_group_1.created_at_ns)
                         .conversation_type(ConversationType::Group)
-                        .limit(1)
-                    )
+                        .limit(1),
+                )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
@@ -768,24 +772,22 @@ pub(crate) mod tests {
             );
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn
-                .find_groups(None, None, None, None, None, None)
-                .unwrap();
+            let all_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(all_results.len(), 4);
 
             let allowed_results = conn
-                .find_groups(None, None, None, None, None, Some(ConsentState::Allowed))
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Allowed))
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
             let denied_results = conn
-                .find_groups(None, None, None, None, None, Some(ConsentState::Denied))
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Denied))
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
             assert_eq!(denied_results[0].id, test_group_2.id);
 
             let unknown_results = conn
-                .find_groups(None, None, None, None, None, Some(ConsentState::Unknown))
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Unknown))
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);

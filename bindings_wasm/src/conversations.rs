@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::messages::WasmMessage;
 use crate::permissions::WasmGroupPermissionsOptions;
@@ -13,6 +13,20 @@ pub struct WasmListConversationsOptions {
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+}
+
+impl From<WasmListConversationsOptions> for GroupQueryArgs {
+  fn from(opts: WasmListConversationsOptions) -> GroupQueryArgs {
+    let WasmListConversationsOptions {
+      created_after_ns,
+      created_before_ns,
+      limit,
+    } = opts;
+    GroupQueryArgs::default()
+      .maybe_created_after_ns(created_after_ns)
+      .maybe_created_before_ns(created_before_ns)
+      .maybe_limit(limit)
+  }
 }
 
 #[wasm_bindgen]
@@ -190,12 +204,7 @@ impl WasmConversations {
     };
     let convo_list: js_sys::Array = self
       .inner_client
-      .find_groups(FindGroupParams {
-        created_after_ns: opts.created_after_ns,
-        created_before_ns: opts.created_before_ns,
-        limit: opts.limit,
-        ..FindGroupParams::default()
-      })
+      .find_groups(opts.into())
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
