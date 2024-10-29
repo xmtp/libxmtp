@@ -271,6 +271,36 @@ impl NapiConversations {
     Ok(convo_list)
   }
 
+  #[napi]
+  pub async fn list_groups(
+    &self,
+    opts: Option<NapiListConversationsOptions>,
+  ) -> Result<Vec<NapiGroup>> {
+    Ok(
+      self
+        .list(Some(NapiListConversationsOptions {
+          conversation_type: Some(NapiConversationType::Group),
+          ..opts.unwrap_or_default()
+        }))
+        .await?,
+    )
+  }
+
+  #[napi]
+  pub async fn list_dms(
+    &self,
+    opts: Option<NapiListConversationsOptions>,
+  ) -> Result<Vec<NapiGroup>> {
+    Ok(
+      self
+        .list(Some(NapiListConversationsOptions {
+          conversation_type: Some(NapiConversationType::Dm),
+          ..opts.unwrap_or_default()
+        }))
+        .await?,
+    )
+  }
+
   #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     let tsfn: ThreadsafeFunction<NapiGroup, ErrorStrategy::CalleeHandled> =
