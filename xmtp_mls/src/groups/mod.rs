@@ -1008,7 +1008,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group = conn
             .find_group(self.group_id.clone())?
             .ok_or(GroupError::GroupNotFound)?;
-        Ok(group.dm_inbox_id.ok_or(GroupError::GroupNotFound)?)
+        group.dm_inbox_id.ok_or(GroupError::GroupNotFound)
     }
 
     /// Find the `consent_state` of the group
