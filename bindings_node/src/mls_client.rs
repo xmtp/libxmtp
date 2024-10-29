@@ -1,4 +1,3 @@
-use crate::consent_state::{NapiConsent, NapiConsentEntityType, NapiConsentState};
 use crate::conversations::NapiConversations;
 use crate::inbox_state::NapiInboxState;
 use crate::ErrorWrapper;
@@ -374,33 +373,5 @@ impl NapiClient {
     }
 
     Ok(())
-  }
-
-  #[napi]
-  pub async fn set_consent_states(&self, records: Vec<NapiConsent>) -> Result<()> {
-    let inner = self.inner_client.as_ref();
-    let stored_records: Vec<StoredConsentRecord> =
-      records.into_iter().map(StoredConsentRecord::from).collect();
-
-    inner
-      .set_consent_states(stored_records)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn get_consent_state(
-    &self,
-    entity_type: NapiConsentEntityType,
-    entity: String,
-  ) -> Result<NapiConsentState> {
-    let inner = self.inner_client.as_ref();
-    let result = inner
-      .get_consent_state(entity_type.into(), entity)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(result.into())
   }
 }
