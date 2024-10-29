@@ -186,6 +186,17 @@ impl NapiConversations {
   }
 
   #[napi]
+  pub async fn create_dm(&self, account_address: String) -> Result<NapiGroup> {
+    let convo = self
+      .inner_client
+      .create_dm(account_address)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(convo.into())
+  }
+
+  #[napi]
   pub fn find_group_by_id(&self, group_id: String) -> Result<NapiGroup> {
     let group_id = hex::decode(group_id).map_err(ErrorWrapper::from)?;
 
