@@ -1005,15 +1005,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `inbox_id` of the group member who is the peer of this dm
     pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context().store().conn()?;
-        conn.find_group(self.group_id.clone())
-            .map_err(GroupError::from)
-            .and_then(|fetch_result| {
-                fetch_result
-                    .map(|group| group.dm_inbox_id.clone())
-                    .ok_or_else(|| GroupError::GroupNotFound)
-            })
+        let group = conn
+            .find_group(self.group_id.clone())?
+            .ok_or(GroupError::GroupNotFound)?;
+        Ok(group.dm_inbox_id.ok_or(GroupError::GroupNotFound)?)
     }
-
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
