@@ -10,6 +10,7 @@ mod inbox_state;
 mod messages;
 pub mod mls_client;
 mod permissions;
+mod signatures;
 mod streams;
 
 use napi::bindgen_prelude::Error;
