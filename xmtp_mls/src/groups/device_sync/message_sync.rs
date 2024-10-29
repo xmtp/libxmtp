@@ -26,12 +26,13 @@ where
         let messages = self.syncable_messages()?;
 
         let reply = self
-            .send_syncables(
+            .create_sync_reply(
                 &request.request_id,
                 &[groups, messages],
                 DeviceSyncKind::MessageHistory,
             )
             .await?;
+        self.send_sync_reply(reply.clone()).await?;
 
         Ok(reply)
     }

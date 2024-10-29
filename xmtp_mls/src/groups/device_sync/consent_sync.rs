@@ -20,12 +20,13 @@ where
         let consent_records = self.syncable_consent_records()?;
 
         let reply = self
-            .send_syncables(
+            .create_sync_reply(
                 &request.request_id,
                 &[consent_records],
                 DeviceSyncKind::Consent,
             )
             .await?;
+        self.send_sync_reply(reply.clone()).await?;
 
         Ok(reply)
     }

@@ -163,6 +163,47 @@ where
         Ok((request_id, pin_code))
     }
 
+    async fn send_sync_reply(&self, contents: DeviceSyncReplyProto) -> Result<(), DeviceSyncError> {
+        // find the sync group
+        let conn = self.store().conn()?;
+        let sync_group = self.get_sync_group()?;
+
+        // sync the group
+        sync_group.sync().await?;
+
+        let (msg, _request) = self.pending_sync_request(contents.kind()).await?;
+
+        // add original sender to all groups on this device on the node
+        self.ensure_member_of_all_groups(&msg.sender_inbox_id)
+            .await?;
+
+        // the reply message
+        let (content_bytes, contents) = {
+            let content = DeviceSyncContent::Reply(contents);
+            let content_bytes = serde_json::to_vec(&content)?;
+            let DeviceSyncContent::Reply(contents) = content else {
+                unreachable!("This is a reply.");
+            };
+
+            (content_bytes, contents)
+        };
+
+        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
+            PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    idempotency_key: new_request_id(),
+                    message_type: Some(Reply(contents)),
+                })),
+            }
+        })?;
+
+        // publish the intent
+        if let Err(err) = sync_group.publish_messages().await {
+            tracing::error!("error publishing sync group intents: {:?}", err);
+        }
+        Ok(())
+    }
+
     async fn pending_sync_request(
         &self,
         kind: DeviceSyncKind,
@@ -259,7 +300,7 @@ where
         Ok(())
     }
 
-    async fn send_syncables(
+    async fn create_sync_reply(
         &self,
         request_id: &str,
         syncables: &[Vec<Syncable>],
@@ -299,50 +340,7 @@ where
             kind: kind as i32,
         };
 
-        self.send_sync_reply(sync_reply.clone()).await?;
-
         Ok(sync_reply)
-    }
-
-    async fn send_sync_reply(&self, contents: DeviceSyncReplyProto) -> Result<(), DeviceSyncError> {
-        // find the sync group
-        let conn = self.store().conn()?;
-        let sync_group = self.get_sync_group()?;
-
-        // sync the group
-        sync_group.sync().await?;
-
-        let (msg, _request) = self.pending_sync_request(contents.kind()).await?;
-
-        // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(&msg.sender_inbox_id)
-            .await?;
-
-        // the reply message
-        let (content_bytes, contents) = {
-            let content = DeviceSyncContent::Reply(contents);
-            let content_bytes = serde_json::to_vec(&content)?;
-            let DeviceSyncContent::Reply(contents) = content else {
-                unreachable!("This is a reply.");
-            };
-
-            (content_bytes, contents)
-        };
-
-        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
-            PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    idempotency_key: new_request_id(),
-                    message_type: Some(Reply(contents)),
-                })),
-            }
-        })?;
-
-        // publish the intent
-        if let Err(err) = sync_group.publish_messages().await {
-            tracing::error!("error publishing sync group intents: {:?}", err);
-        }
-        Ok(())
     }
 }
 
