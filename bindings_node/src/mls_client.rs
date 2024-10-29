@@ -217,22 +217,6 @@ impl NapiClient {
     Ok(inbox_id)
   }
 
-  /**
-   * Get the client's inbox state.
-   *
-   * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
-   * Otherwise, the state will be read from the local database.
-   */
-  #[napi]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<NapiInboxState> {
-    let state = self
-      .inner_client
-      .inbox_state(refresh_from_network)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(state.into())
-  }
-
   #[napi]
   pub async fn addresses_from_inbox_id(
     &self,
@@ -245,21 +229,6 @@ impl NapiClient {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
-  }
-
-  #[napi]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<NapiInboxState> {
-    let conn = self
-      .inner_client
-      .store()
-      .conn()
-      .map_err(ErrorWrapper::from)?;
-    let state = self
-      .inner_client
-      .get_latest_association_state(&conn, &inbox_id)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(state.into())
   }
 
   #[napi]
