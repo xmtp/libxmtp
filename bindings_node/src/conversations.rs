@@ -330,7 +330,7 @@ impl NapiConversations {
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
-      conversation_type.map(|ct| ct.into()),
+      conversation_type.map(Into::into),
       move |message| {
         tsfn.call(
           message
