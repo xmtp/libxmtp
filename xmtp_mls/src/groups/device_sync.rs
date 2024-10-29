@@ -174,22 +174,15 @@ where
         let messages = sync_group
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
-        let mut replied_request_ids = vec![];
         for msg in messages.into_iter().rev() {
             let msg_content: DeviceSyncContent =
                 serde_json::from_slice(&msg.decrypted_message_bytes)?;
             match msg_content {
-                DeviceSyncContent::Request(request) if request.kind() == kind => {
-                    if replied_request_ids.contains(&request.request_id) {
-                        // request was already replied to, no longer considered pending.
-                        return Err(DeviceSyncError::NoPendingRequest);
-                    } else {
-                        return Ok((msg, request));
-                    }
+                DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
+                    return Err(DeviceSyncError::NoPendingRequest);
                 }
-                DeviceSyncContent::Reply(reply) => {
-                    // track this request_id as being replied to
-                    replied_request_ids.push(reply.request_id.clone());
+                DeviceSyncContent::Request(request) if request.kind() == kind => {
+                    return Ok((msg, request));
                 }
                 _ => {}
             }
