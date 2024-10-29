@@ -1,5 +1,6 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
+use diesel::expression::SqlLiteral;
 use diesel::query_dsl::QueryDsl;
 use diesel::{
     backend::Backend,
@@ -14,10 +15,7 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    consent_record::ConsentState,
-    db_connection::DbConnection,
-    schema::groups::{self, dsl},
-    Sqlite,
+    consent_record::ConsentState, db_connection::DbConnection, schema::groups::dsl, Sqlite,
 };
 use crate::{
     groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
@@ -120,6 +118,17 @@ impl StoredGroup {
     }
 }
 
+pub struct FindGroupParams {
+    allowed_states: Option<Vec<GroupMembershipState>>,
+    created_after_ns: Option<i64>,
+    created_before_ns: Option<i64>,
+    limit: Option<i64>,
+    conversation_type: Option<ConversationType>,
+}
+
+use crate::storage::schema::consent_records;
+use crate::storage::schema::groups;
+
 impl DbConnection {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups(
@@ -131,12 +140,16 @@ impl DbConnection {
         conversation_type: Option<ConversationType>,
         consent_state: Option<ConsentState>,
     ) -> Result<Vec<StoredGroup>, StorageError> {
-        use crate::storage::schema::consent_records::dsl as consent_dsl;
         use crate::storage::schema::groups::dsl as groups_dsl;
+        use crate::storage::schema::consent_records::dsl as consent_dsl;
 
         let mut query = groups_dsl::groups
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
+
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
 
         if let Some(allowed_states) = allowed_states {
             query = query.filter(groups_dsl::membership_state.eq_any(allowed_states));
@@ -162,23 +175,23 @@ impl DbConnection {
             }
         }
 
-        if let Some(state) = consent_state {
-            query =
-                query
-                    .inner_join(consent_dsl::consent_records.on(
-                        sql::<diesel::sql_types::Text>("hex(groups.id)").eq(consent_dsl::entity),
-                    ))
-                    .filter(consent_dsl::state.eq(state))
-                    .select(groups_dsl::groups::all_columns());
-        }
-
-        if let Some(limit) = limit {
-            query = query.limit(limit);
-        }
-
         query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
 
-        Ok(self.raw_query(|conn| query.load::<StoredGroup>(conn))?)
+        let groups = if let Some(consent_state) = consent_state {
+            let query = query
+                .inner_join(
+                    consent_dsl::consent_records
+                        .on(sql::<diesel::sql_types::Text>("hex(groups.id)").eq(consent_dsl::entity)),
+                )
+                .filter(consent_dsl::state.eq(consent_state))
+                .select(groups_dsl::groups::all_columns())
+                .order(groups_dsl::created_at_ns.asc());
+            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+        } else {
+            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+        };
+
+        Ok(groups)
     }
 
     /// Return only the [`Purpose::Sync`] groups

@@ -272,7 +272,7 @@ where
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, conversation_type)?
+            .find_groups(None, None, None, None, conversation_type, None)?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
