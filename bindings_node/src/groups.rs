@@ -641,4 +641,15 @@ impl NapiGroup {
 
     Ok(())
   }
+
+  #[napi]
+  pub fn dm_peer_inbox_id(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    Ok(group.dm_inbox_id().map_err(ErrorWrapper::from)?)
+  }
 }
