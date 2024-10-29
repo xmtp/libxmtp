@@ -1,6 +1,5 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
-use diesel::expression::SqlLiteral;
 use diesel::query_dsl::QueryDsl;
 use diesel::{
     backend::Backend,
@@ -19,6 +18,7 @@ use super::{
 };
 use crate::{
     groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
+    storage::schema::groups
 };
 
 /// The Group ID type.
@@ -118,37 +118,101 @@ impl StoredGroup {
     }
 }
 
-pub struct FindGroupParams {
-    allowed_states: Option<Vec<GroupMembershipState>>,
-    created_after_ns: Option<i64>,
-    created_before_ns: Option<i64>,
-    limit: Option<i64>,
-    conversation_type: Option<ConversationType>,
+#[derive(Debug, Default)]
+pub struct GroupQueryArgs {
+    pub allowed_states: Option<Vec<GroupMembershipState>>,
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+    pub conversation_type: Option<ConversationType>,
+    pub consent_state: Option<ConsentState>,
 }
 
-use crate::storage::schema::consent_records;
-use crate::storage::schema::groups;
+impl AsRef<GroupQueryArgs> for GroupQueryArgs {
+    fn as_ref(&self) -> &GroupQueryArgs {
+        self
+    }
+}
+
+impl GroupQueryArgs {
+    pub fn allowed_states(self, allowed_states: Vec<GroupMembershipState>) -> Self {
+        self.maybe_allowed_states(Some(allowed_states))
+    }
+
+    pub fn maybe_allowed_states(mut self, allowed_states: Option<Vec<GroupMembershipState>>) -> Self {
+        self.allowed_states = allowed_states;
+        self
+    }
+
+    pub fn created_after_ns(self, created_after_ns: i64) -> Self {
+        self.maybe_created_after_ns(Some(created_after_ns))
+    }
+
+    pub fn maybe_created_after_ns(mut self, created_after_ns: Option<i64>) -> Self {
+        self.created_after_ns = created_after_ns;
+        self
+    }
+
+    pub fn created_before_ns(self, created_before_ns: i64) -> Self {
+        self.maybe_created_before_ns(Some(created_before_ns))
+    }
+
+    pub fn maybe_created_before_ns(mut self, created_before_ns: Option<i64>) -> Self {
+        self.created_before_ns = created_before_ns;
+        self
+    }
+
+    pub fn limit(self, limit: i64) -> Self {
+        self.maybe_limit(Some(limit))
+    }
+
+    pub fn maybe_limit(mut self, limit: Option<i64>) -> Self {
+        self.limit = limit;
+        self
+    }
+
+    pub fn conversation_type(self, conversation_type: ConversationType) -> Self {
+        self.maybe_conversation_type(Some(conversation_type))
+    }
+
+    pub fn maybe_conversation_type(mut self, conversation_type: Option<ConversationType>) -> Self {
+        self.conversation_type = conversation_type;
+        self
+    }
+
+    pub fn consent_state(self, consent_state: ConsentState) -> Self {
+        self.maybe_consent_state(Some(consent_state))
+    }
+
+    pub fn maybe_consent_state(mut self, consent_state: Option<ConsentState>) -> Self {
+        self.consent_state = consent_state;
+        self
+    }
+}
 
 impl DbConnection {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
-    pub fn find_groups(
+    pub fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
-        allowed_states: Option<Vec<GroupMembershipState>>,
-        created_after_ns: Option<i64>,
-        created_before_ns: Option<i64>,
-        limit: Option<i64>,
-        conversation_type: Option<ConversationType>,
-        consent_state: Option<ConsentState>,
+        args: A,
     ) -> Result<Vec<StoredGroup>, StorageError> {
         use crate::storage::schema::groups::dsl as groups_dsl;
         use crate::storage::schema::consent_records::dsl as consent_dsl;
+        let GroupQueryArgs  {
+            allowed_states,
+            created_after_ns,
+            created_before_ns,
+            limit,
+            conversation_type,
+            consent_state
+        } = args.as_ref();
 
         let mut query = groups_dsl::groups
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
 
         if let Some(limit) = limit {
-            query = query.limit(limit);
+            query = query.limit(*limit);
         }
 
         if let Some(allowed_states) = allowed_states {
@@ -552,18 +616,15 @@ pub(crate) mod tests {
             test_group_3.store(conn).unwrap();
 
             let all_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Group), None)
+                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
                 .find_groups(
-                    Some(vec![GroupMembershipState::Pending]),
-                    None,
-                    None,
-                    None,
-                    Some(ConversationType::Group),
-                    None,
+                    GroupQueryArgs::default()
+                        .allowed_states(vec![GroupMembershipState::Pending])
+                        .conversation_type(ConversationType::Group)
                 )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
@@ -578,13 +639,11 @@ pub(crate) mod tests {
 
             let results_with_created_at_ns_after = conn
                 .find_groups(
-                    None,
-                    Some(test_group_1.created_at_ns),
-                    None,
-                    Some(1),
-                    Some(ConversationType::Group),
-                    None,
-                )
+                    GroupQueryArgs::default()
+                        .created_after_ns(test_group_1.created_at_ns)
+                        .conversation_type(ConversationType::Group)
+                        .limit(1)
+                    )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
@@ -604,7 +663,7 @@ pub(crate) mod tests {
 
             // test only dms are returned
             let dm_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Dm), None)
+                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Dm))
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
