@@ -5,6 +5,7 @@ mod consent_state;
 mod conversations;
 mod encoded_content;
 mod groups;
+pub mod inbox_id;
 mod inbox_state;
 mod messages;
 pub mod mls_client;
