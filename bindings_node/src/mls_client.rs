@@ -41,6 +41,12 @@ pub struct NapiClient {
   pub account_address: String,
 }
 
+impl NapiClient {
+  pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
+    &self.inner_client
+  }
+}
+
 /// Create an MLS client
 /// Optionally specify a filter for the log level as a string.
 /// It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
