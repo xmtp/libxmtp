@@ -192,7 +192,7 @@ where
     }
 
     /// Look for sync reply by kind, returns NoReplyToProcess error if not found.
-    async fn get_sync_reply(
+    async fn sync_reply(
         &self,
         kind: DeviceSyncKind,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
@@ -222,7 +222,7 @@ where
     async fn process_sync_reply(&self, kind: DeviceSyncKind) -> Result<(), DeviceSyncError> {
         let conn = self.store().conn()?;
 
-        let reply = self.get_sync_reply(kind).await?;
+        let reply = self.sync_reply(kind).await?;
 
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
         if time_diff > NS_IN_HOUR as u64 {
