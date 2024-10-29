@@ -9,17 +9,103 @@ use napi_derive::napi;
 use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::GroupMembershipState;
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
 use crate::ErrorWrapper;
 use crate::{groups::NapiGroup, mls_client::RustXmtpClient, streams::NapiStreamCloser};
 
+#[napi]
+#[derive(Debug)]
+pub enum NapiConversationType {
+  Dm = 0,
+  Group = 1,
+  Sync = 2,
+}
+
+impl From<ConversationType> for NapiConversationType {
+  fn from(ct: ConversationType) -> Self {
+    match ct {
+      ConversationType::Dm => NapiConversationType::Dm,
+      ConversationType::Group => NapiConversationType::Group,
+      ConversationType::Sync => NapiConversationType::Sync,
+    }
+  }
+}
+
+impl From<NapiConversationType> for ConversationType {
+  fn from(nct: NapiConversationType) -> Self {
+    match nct {
+      NapiConversationType::Dm => ConversationType::Dm,
+      NapiConversationType::Group => ConversationType::Group,
+      NapiConversationType::Sync => ConversationType::Sync,
+    }
+  }
+}
+
+#[napi]
+#[derive(Debug)]
+pub enum NapiGroupMembershipState {
+  Allowed = 0,
+  Rejected = 1,
+  Pending = 2,
+}
+
+impl From<GroupMembershipState> for NapiGroupMembershipState {
+  fn from(gms: GroupMembershipState) -> Self {
+    match gms {
+      GroupMembershipState::Allowed => NapiGroupMembershipState::Allowed,
+      GroupMembershipState::Rejected => NapiGroupMembershipState::Rejected,
+      GroupMembershipState::Pending => NapiGroupMembershipState::Pending,
+    }
+  }
+}
+
+impl From<NapiGroupMembershipState> for GroupMembershipState {
+  fn from(ngms: NapiGroupMembershipState) -> Self {
+    match ngms {
+      NapiGroupMembershipState::Allowed => GroupMembershipState::Allowed,
+      NapiGroupMembershipState::Rejected => GroupMembershipState::Rejected,
+      NapiGroupMembershipState::Pending => GroupMembershipState::Pending,
+    }
+  }
+}
+
 #[napi(object)]
+#[derive(Debug)]
 pub struct NapiListConversationsOptions {
+  pub allowed_states: Option<Vec<NapiGroupMembershipState>>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+  pub conversation_type: Option<NapiConversationType>,
+}
+
+impl From<NapiListConversationsOptions> for FindGroupParams {
+  fn from(opts: NapiListConversationsOptions) -> Self {
+    FindGroupParams {
+      allowed_states: opts
+        .allowed_states
+        .map(|states| states.into_iter().map(From::from).collect()),
+      conversation_type: opts.conversation_type.map(|ct| ct.into()),
+      created_after_ns: opts.created_after_ns,
+      created_before_ns: opts.created_before_ns,
+      limit: opts.limit,
+    }
+  }
+}
+
+impl Default for NapiListConversationsOptions {
+  fn default() -> Self {
+    NapiListConversationsOptions {
+      allowed_states: None,
+      conversation_type: None,
+      created_after_ns: None,
+      created_before_ns: None,
+      limit: None,
+    }
+  }
 }
 
 #[napi(object)]
@@ -161,20 +247,11 @@ impl NapiConversations {
   pub async fn list(&self, opts: Option<NapiListConversationsOptions>) -> Result<Vec<NapiGroup>> {
     let opts = match opts {
       Some(options) => options,
-      None => NapiListConversationsOptions {
-        created_after_ns: None,
-        created_before_ns: None,
-        limit: None,
-      },
+      None => NapiListConversationsOptions::default(),
     };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
-      .find_groups(FindGroupParams {
-        created_after_ns: opts.created_after_ns,
-        created_before_ns: opts.created_before_ns,
-        limit: opts.limit,
-        ..FindGroupParams::default()
-      })
+      .find_groups(opts.into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(NapiGroup::from)
