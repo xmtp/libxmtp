@@ -160,10 +160,7 @@ impl NapiGroup {
 
   #[napi]
   pub fn find_messages(&self, opts: Option<NapiListMessagesOptions>) -> Result<Vec<NapiMessage>> {
-    let opts = match opts {
-      Some(options) => options,
-      None => NapiListMessagesOptions::default(),
-    };
+    let opts = opts.unwrap_or_default();
 
     let group = MlsGroup::new(
       self.inner_client.clone(),

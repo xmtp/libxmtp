@@ -67,24 +67,13 @@ impl From<NapiDirection> for SortDirection {
 }
 
 #[napi(object)]
+#[derive(Default)]
 pub struct NapiListMessagesOptions {
   pub sent_before_ns: Option<i64>,
   pub sent_after_ns: Option<i64>,
   pub limit: Option<i64>,
   pub delivery_status: Option<NapiDeliveryStatus>,
   pub direction: Option<NapiDirection>,
-}
-
-impl Default for NapiListMessagesOptions {
-  fn default() -> Self {
-    Self {
-      sent_before_ns: None,
-      sent_after_ns: None,
-      limit: None,
-      delivery_status: None,
-      direction: None,
-    }
-  }
 }
 
 #[napi]
