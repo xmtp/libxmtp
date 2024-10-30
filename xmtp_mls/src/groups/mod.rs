@@ -666,7 +666,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
-
         Ok(messages)
     }
 
@@ -1522,7 +1521,7 @@ pub(crate) mod tests {
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        client::{FindGroupParams, MessageProcessingError},
+        client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
@@ -1536,6 +1535,7 @@ pub(crate) mod tests {
         },
         storage::{
             consent_record::ConsentState,
+            group::GroupQueryArgs,
             group::Purpose,
             group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
@@ -1552,7 +1552,7 @@ pub(crate) mod tests {
             .sync_welcomes(&client.store().conn().unwrap())
             .await
             .unwrap();
-        let mut groups = client.find_groups(FindGroupParams::default()).unwrap();
+        let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
 
         groups.remove(0)
     }
@@ -1867,7 +1867,7 @@ pub(crate) mod tests {
 
             // Bo should not be able to actually read this group
             bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
-            let groups = bo.find_groups(FindGroupParams::default()).unwrap();
+            let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(groups.len(), 0);
             assert_logged!("failed to create group from welcome", 1);
         });
@@ -1997,7 +1997,7 @@ pub(crate) mod tests {
             .sync_welcomes(&bola_client.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola_client.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola_client.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
@@ -2354,7 +2354,8 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2524,7 +2525,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2606,7 +2607,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2624,7 +2625,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2690,7 +2691,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2721,7 +2722,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2739,7 +2740,8 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2995,7 +2997,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         bola_group
@@ -3063,7 +3065,8 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
@@ -3220,12 +3223,8 @@ pub(crate) mod tests {
 
         // Bola can message amal
         let _ = bola.sync_welcomes(&bola.store().conn().unwrap()).await;
-        let bola_groups = bola
-            .find_groups(FindGroupParams {
-                conversation_type: None,
-                ..FindGroupParams::default()
-            })
-            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+
         let bola_dm: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_dm.send_message(b"test one").await.unwrap();
 
@@ -3572,7 +3571,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         // group consent state should default to unknown for users who did not create the group
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
@@ -3593,7 +3592,7 @@ pub(crate) mod tests {
         caro.sync_welcomes(&caro.store().conn().unwrap())
             .await
             .unwrap();
-        let caro_groups = caro.find_groups(FindGroupParams::default()).unwrap();
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
         let caro_group = caro_groups.first().unwrap();
 
         caro_group
@@ -3622,8 +3621,9 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
+
         bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
-        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
 
         // Both members see the same amount of messages to start

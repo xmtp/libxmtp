@@ -20,9 +20,8 @@ use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_api_grpc::replication_client::ClientV4;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
-use xmtp_mls::client::FindGroupParams;
-
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
+use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_mls::XmtpApi;
 
@@ -238,7 +237,7 @@ async fn main() {
 
             // recv(&client).await.unwrap();
             let group_list = client
-                .find_groups(FindGroupParams::default())
+                .find_groups(GroupQueryArgs::default())
                 .expect("failed to list groups");
             for group in group_list.iter() {
                 group.sync().await.expect("error syncing group");

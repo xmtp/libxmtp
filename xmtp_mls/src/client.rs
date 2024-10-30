@@ -38,9 +38,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_metadata::ConversationType, group_permissions::PolicySet,
-        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
-        MlsGroup,
+        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
+        GroupMetadataOptions, IntentError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -48,6 +47,7 @@ use crate::{
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
+    storage::group::GroupQueryArgs,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
@@ -215,15 +215,6 @@ impl From<&str> for ClientError {
     fn from(value: &str) -> Self {
         Self::Generic(value.to_string())
     }
-}
-
-#[derive(Debug, Default)]
-pub struct FindGroupParams {
-    pub allowed_states: Option<Vec<GroupMembershipState>>,
-    pub created_after_ns: Option<i64>,
-    pub created_before_ns: Option<i64>,
-    pub limit: Option<i64>,
-    pub conversation_type: Option<ConversationType>,
 }
 
 /// Clients manage access to the network, identity, and data store
@@ -671,17 +662,11 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(&self, params: FindGroupParams) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+    pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?
-            .find_groups(
-                params.allowed_states,
-                params.created_after_ns,
-                params.created_before_ns,
-                params.limit,
-                params.conversation_type,
-            )?
+            .find_groups(args)?
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(self.clone(), stored_group.id, stored_group.created_at_ns)
@@ -972,12 +957,12 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        client::FindGroupParams,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{
             consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+            group::GroupQueryArgs,
             group_message::MsgQueryArgs,
             schema::identity_updates,
         },
@@ -1082,7 +1067,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let groups = client.find_groups(FindGroupParams::default()).unwrap();
+        let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
@@ -1163,7 +1148,7 @@ pub(crate) mod tests {
         let bob_received_groups = bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
 
-        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 0);
@@ -1239,7 +1224,7 @@ pub(crate) mod tests {
         bola.sync_welcomes(&bola.store().conn().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         tracing::info!("Syncing bolas messages");
@@ -1377,7 +1362,7 @@ pub(crate) mod tests {
         bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
 
         // Bo should have two groups now
-        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bo_groups.len(), 2);
 
         // Bo's original key should be deleted

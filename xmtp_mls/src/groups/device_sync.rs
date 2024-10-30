@@ -1,6 +1,7 @@
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::utils::time::now_ns;
@@ -289,7 +290,8 @@ where
 
         self.sync_welcomes(provider.conn_ref()).await?;
 
-        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        let groups =
+            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
             let group = self.group(id)?;
             Box::pin(group.sync()).await?;
@@ -303,7 +305,8 @@ where
         conn: &DbConnection,
         inbox_id: &str,
     ) -> Result<(), GroupError> {
-        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        let groups =
+            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
             Box::pin(group.add_members_by_inbox_id(&[inbox_id.to_string()])).await?;

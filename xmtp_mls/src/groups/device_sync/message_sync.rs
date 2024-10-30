@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::XmtpApi;
 use crate::{storage::group::StoredGroup, Client};
@@ -53,7 +54,7 @@ where
 
     fn syncable_groups(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups = conn
-            .find_groups(None, None, None, None, Some(ConversationType::Group))?
+            .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?
             .into_iter()
             .map(Syncable::Group)
             .collect();
@@ -61,7 +62,8 @@ where
     }
 
     fn syncable_messages(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        let groups =
+            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {

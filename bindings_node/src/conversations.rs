@@ -6,10 +6,10 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::client::FindGroupParams;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 use xmtp_mls::storage::group::GroupMembershipState;
+use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
@@ -82,17 +82,18 @@ pub struct NapiListConversationsOptions {
   pub conversation_type: Option<NapiConversationType>,
 }
 
-impl From<NapiListConversationsOptions> for FindGroupParams {
-  fn from(opts: NapiListConversationsOptions) -> Self {
-    FindGroupParams {
-      allowed_states: opts
-        .allowed_states
-        .map(|states| states.into_iter().map(From::from).collect()),
-      conversation_type: opts.conversation_type.map(|ct| ct.into()),
-      created_after_ns: opts.created_after_ns,
-      created_before_ns: opts.created_before_ns,
-      limit: opts.limit,
-    }
+impl From<NapiListConversationsOptions> for GroupQueryArgs {
+  fn from(opts: NapiListConversationsOptions) -> GroupQueryArgs {
+    GroupQueryArgs::default()
+      .maybe_allowed_states(
+        opts
+          .allowed_states
+          .map(|states| states.into_iter().map(From::from).collect()),
+      )
+      .maybe_conversation_type(opts.conversation_type.map(|ct| ct.into()))
+      .maybe_created_after_ns(opts.created_after_ns)
+      .maybe_created_before_ns(opts.created_before_ns)
+      .maybe_limit(opts.limit)
   }
 }
 

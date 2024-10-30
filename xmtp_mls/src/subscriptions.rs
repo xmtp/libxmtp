@@ -12,8 +12,9 @@ use crate::{
     retry::Retry,
     retry::RetryableError,
     retry_async, retryable,
-    storage::StorageError,
-    storage::{group::StoredGroup, group_message::StoredGroupMessage},
+    storage::{
+        group::GroupQueryArgs, group::StoredGroup, group_message::StoredGroupMessage, StorageError,
+    },
     Client, XmtpApi,
 };
 
@@ -276,7 +277,7 @@ where
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, conversation_type)?
+            .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -388,9 +389,8 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        client::FindGroupParams,
         groups::{group_metadata::ConversationType, GroupMetadataOptions},
-        storage::group_message::StoredGroupMessage,
+        storage::{group::GroupQueryArgs, group_message::StoredGroupMessage},
         utils::test::{Delivery, FullXmtpClient, TestClient},
         Client, StreamHandle,
     };
@@ -769,7 +769,7 @@ pub(crate) mod tests {
         alix.sync_welcomes(&alix.store().conn().unwrap())
             .await
             .unwrap();
-        let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
+        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
 
         {
             let grps = groups.lock();
