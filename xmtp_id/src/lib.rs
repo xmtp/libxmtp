@@ -4,6 +4,7 @@ pub mod associations;
 pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
+use associations::AssociationError;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},

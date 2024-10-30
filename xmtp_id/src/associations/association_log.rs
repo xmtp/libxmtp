@@ -96,7 +96,7 @@ impl IdentityAction for CreateInbox {
             account_address,
             self.nonce,
             self.initial_address_signature.chain_id,
-        ))
+        )?)
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
