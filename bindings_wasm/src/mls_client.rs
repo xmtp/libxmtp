@@ -37,6 +37,18 @@ pub struct WasmClient {
   signature_requests: Arc<Mutex<HashMap<WasmSignatureRequestType, SignatureRequest>>>,
 }
 
+impl WasmClient {
+  pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
+    &self.inner_client
+  }
+
+  pub fn signature_requests(
+    &self,
+  ) -> &Arc<Mutex<HashMap<WasmSignatureRequestType, SignatureRequest>>> {
+    &self.signature_requests
+  }
+}
+
 #[wasm_bindgen(js_name = createClient)]
 pub async fn create_client(
   host: String,
