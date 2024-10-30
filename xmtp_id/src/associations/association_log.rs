@@ -36,6 +36,8 @@ pub enum AssociationError {
     MissingIdentityUpdate,
     #[error("Wrong chain id. Initially added with {0} but now signing from {1}")]
     ChainIdMismatch(u64, u64),
+    #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
+    InvalidAccountAddress,
 }
 
 pub trait IdentityAction: Send {

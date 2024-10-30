@@ -1,5 +1,7 @@
 use sha2::{Digest, Sha256};
 
+use super::AssociationError;
+
 /// Helper function to generate a SHA256 hash as a hex string.
 fn sha256_string(input: String) -> String {
     let mut hasher = Sha256::new();
@@ -17,9 +19,9 @@ fn is_valid_address(account_address: &str) -> bool {
 }
 
 /// Generates an inbox ID if the account address is valid.
-pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> Result<String, String> {
+pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> Result<String, AssociationError> {
     if !is_valid_address(account_address) {
-        return Err("Invalid account address: Must be 42 hex characters, starting with '0x'.".to_string());
+        return Err(AssociationError::InvalidAccountAddress);
     }
     Ok(sha256_string(format!("{}{}", account_address.to_lowercase(), nonce)))
 }
