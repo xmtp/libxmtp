@@ -13,6 +13,7 @@ pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::ClientBuilder;
+use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -140,7 +141,7 @@ impl NapiClient {
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<HashMap<String, bool>> {
     let results: HashMap<String, bool> = self
       .inner_client
-      .can_message(account_addresses)
+      .can_message(&account_addresses)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -179,11 +180,15 @@ impl NapiClient {
 
   #[napi]
   pub async fn request_history_sync(&self) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
     let _ = self
       .inner_client
-      .send_history_request()
+      .send_history_sync_request(&provider)
       .await
-      .map_err(ErrorWrapper::from);
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }

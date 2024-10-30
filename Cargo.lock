@@ -7121,7 +7121,6 @@ dependencies = [
  "thiserror",
  "thread-id",
  "tokio",
- "tonic",
  "uniffi",
  "uuid 1.11.0",
  "xmtp_api_grpc",
