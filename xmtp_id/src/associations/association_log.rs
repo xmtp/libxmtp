@@ -34,6 +34,8 @@ pub enum AssociationError {
     Deserialization(#[from] DeserializationError),
     #[error("Missing identity update")]
     MissingIdentityUpdate,
+    #[error("Wrong chain id. Initially added with {0} but now signing from {1}")]
+    ChainIdMismatch(u64, u64),
 }
 
 pub trait IdentityAction: Send {
@@ -88,7 +90,11 @@ impl IdentityAction for CreateInbox {
             return Err(AssociationError::LegacySignatureReuse);
         }
 
-        Ok(AssociationState::new(account_address, self.nonce))
+        Ok(AssociationState::new(
+            account_address,
+            self.nonce,
+            self.initial_address_signature.chain_id,
+        ))
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
@@ -146,6 +152,10 @@ impl IdentityAction for AddAssociation {
 
         let existing_member = existing_state.get(existing_member_identifier);
 
+        if let Some(member) = &existing_member {
+            verify_chain_id_matches(member, &self.existing_member_signature)?;
+        }
+
         let existing_entity_id = match existing_member {
             // If there is an existing member of the XID, use that member's ID
             Some(member) => member.identifier,
@@ -183,6 +193,7 @@ impl IdentityAction for AddAssociation {
             new_member_address.clone(),
             Some(existing_entity_id),
             Some(client_timestamp_ns),
+            self.new_member_signature.chain_id,
         );
 
         Ok(existing_state.add(new_member))
@@ -211,6 +222,12 @@ impl IdentityAction for RevokeAssociation {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
+
+        // Ensure that the new signature is on the same chain as the signature to create the account
+        let existing_member = existing_state.get(&self.recovery_address_signature.signer);
+        if let Some(member) = existing_member {
+            verify_chain_id_matches(&member, &self.recovery_address_signature)?;
+        }
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
@@ -267,6 +284,11 @@ impl IdentityAction for ChangeRecoveryAddress {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
+
+        let existing_member = existing_state.get(&self.recovery_address_signature.signer);
+        if let Some(member) = existing_member {
+            verify_chain_id_matches(&member, &self.recovery_address_signature)?;
+        }
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
@@ -425,6 +447,20 @@ fn allowed_signature_for_kind(
         return Err(AssociationError::SignatureNotAllowed(
             role.to_string(),
             signature_kind.to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn verify_chain_id_matches(
+    member: &Member,
+    signature: &VerifiedSignature,
+) -> Result<(), AssociationError> {
+    if member.added_on_chain_id.ne(&signature.chain_id) {
+        return Err(AssociationError::ChainIdMismatch(
+            member.added_on_chain_id.unwrap_or(0),
+            signature.chain_id.unwrap_or(0),
         ));
     }
 

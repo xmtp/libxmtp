@@ -40,6 +40,8 @@ pub enum SignatureError {
     UrlParseError(#[from] url::ParseError),
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
+    #[error(transparent)]
+    AccountIdError(#[from] AccountIdError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,6 +62,14 @@ impl std::fmt::Display for SignatureKind {
             SignatureKind::LegacyDelegated => write!(f, "legacy-delegated"),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum AccountIdError {
+    #[error("Chain ID is not a valid u64")]
+    InvalidChainId,
+    #[error("Chain ID is not prefixed with eip155:")]
+    MissingEip155Prefix,
 }
 
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
@@ -91,6 +101,17 @@ impl AccountId {
 
     pub fn get_chain_id(&self) -> &str {
         &self.chain_id
+    }
+
+    pub fn get_chain_id_u64(&self) -> Result<u64, AccountIdError> {
+        let stripped = self
+            .chain_id
+            .strip_prefix("eip155:")
+            .ok_or(AccountIdError::MissingEip155Prefix)?;
+
+        stripped
+            .parse::<u64>()
+            .map_err(|_| AccountIdError::InvalidChainId)
     }
 }
 

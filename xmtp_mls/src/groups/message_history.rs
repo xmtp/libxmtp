@@ -29,6 +29,8 @@ use xmtp_proto::{
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 
+use crate::storage::group::GroupQueryArgs;
+use crate::storage::group_message::MsgQueryArgs;
 use crate::XmtpApi;
 use crate::{
     client::ClientError,
@@ -138,7 +140,8 @@ where
 
     pub async fn ensure_member_of_all_groups(&self, inbox_id: String) -> Result<(), GroupError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        let groups =
+            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
             Box::pin(group.add_members_by_inbox_id(vec![inbox_id.clone()])).await?;
@@ -156,14 +159,8 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         let last_message = messages.last();
         if let Some(msg) = last_message {
@@ -215,14 +212,8 @@ where
         // sync the group
         Box::pin(sync_group.sync()).await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         let last_message = match messages.last() {
             Some(msg) => {
@@ -284,14 +275,8 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
         let last_message = messages.last();
 
         let history_request: Option<(String, String)> = if let Some(msg) = last_message {
@@ -333,14 +318,8 @@ where
         // sync the group
         sync_group.sync().await?;
 
-        let messages = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         let last_message = messages.last();
 
@@ -391,7 +370,9 @@ where
             self.sync_welcomes().await?;
 
             let conn = self.store().conn()?;
-            let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+            let groups = conn.find_groups(
+                GroupQueryArgs::default().conversation_type(ConversationType::Group),
+            )?;
             for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
                 let group = self.group(id)?;
                 Box::pin(group.sync()).await?;
@@ -409,14 +390,8 @@ where
         pin_code: &str,
     ) -> Result<(), MessageHistoryError> {
         let sync_group = self.get_sync_group()?;
-        let requests = sync_group.find_messages(
-            Some(GroupMessageKind::Application),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let requests = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
         let request = requests.into_iter().find(|msg| {
             let message_history_content =
                 serde_json::from_slice::<MessageHistoryContent>(&msg.decrypted_message_bytes);
@@ -510,18 +485,19 @@ where
 
     async fn prepare_groups_to_sync(&self) -> Result<Vec<StoredGroup>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        Ok(conn.find_groups(None, None, None, None, Some(ConversationType::Group))?)
+        Ok(conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?)
     }
 
     async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, MessageHistoryError> {
         let conn = self.store().conn()?;
-        let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
+        let groups =
+            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.into_iter() {
-            let messages = conn.get_group_messages(id, None, None, None, None, None, None)?;
+            let messages = conn.get_group_messages(&id, &MsgQueryArgs::default())?;
             all_messages.extend(messages);
         }
 
@@ -865,14 +841,7 @@ pub(crate) mod tests {
         // make sure there's only 1 message in the sync group
         let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -917,14 +886,7 @@ pub(crate) mod tests {
         // make sure there's 2 messages in the sync group
         let sync_group = client.get_sync_group().unwrap();
         let messages = sync_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         assert_eq!(messages.len(), 2);
     }
@@ -1074,15 +1036,7 @@ pub(crate) mod tests {
 
         let amal_b_conn = amal_b.store().conn().unwrap();
         let amal_b_messages = amal_b_conn
-            .get_group_messages(
-                amal_b_sync_group.group_id,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .get_group_messages(&amal_b_sync_group.group_id, &MsgQueryArgs::default())
             .unwrap();
 
         assert_eq!(amal_b_messages.len(), 1);

@@ -6,10 +6,13 @@ use napi::{
   JsFunction,
 };
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
-use xmtp_mls::groups::{
-  group_metadata::{ConversationType, GroupMetadata},
-  members::PermissionLevel,
-  MlsGroup, UpdateAdminListType,
+use xmtp_mls::{
+  groups::{
+    group_metadata::{ConversationType, GroupMetadata},
+    members::PermissionLevel,
+    MlsGroup, UpdateAdminListType,
+  },
+  storage::group_message::MsgQueryArgs,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -70,6 +73,16 @@ pub struct NapiGroup {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
   created_at_ns: i64,
+}
+
+impl From<MlsGroup<RustXmtpClient>> for NapiGroup {
+  fn from(mls_group: MlsGroup<RustXmtpClient>) -> Self {
+    NapiGroup {
+      group_id: mls_group.group_id,
+      created_at_ns: mls_group.created_at_ns,
+      inner_client: mls_group.client,
+    }
+  }
 }
 
 #[napi]
@@ -167,12 +180,11 @@ impl NapiGroup {
 
     let messages: Vec<NapiMessage> = group
       .find_messages(
-        None,
-        opts.sent_before_ns,
-        opts.sent_after_ns,
-        delivery_status,
-        opts.limit,
-        None,
+        &MsgQueryArgs::default()
+          .maybe_sent_before_ns(opts.sent_before_ns)
+          .maybe_sent_after_ns(opts.sent_after_ns)
+          .maybe_delivery_status(delivery_status)
+          .maybe_limit(opts.limit),
       )
       .map_err(ErrorWrapper::from)?
       .into_iter()
@@ -546,7 +558,13 @@ impl NapiGroup {
       self.group_id.clone(),
       self.created_at_ns,
       move |message| {
-        tsfn.call(Ok(message.into()), ThreadsafeFunctionCallMode::Blocking);
+        tsfn.call(
+          message
+            .map(NapiMessage::from)
+            .map_err(ErrorWrapper::from)
+            .map_err(napi::Error::from),
+          ThreadsafeFunctionCallMode::Blocking,
+        );
       },
     );
 

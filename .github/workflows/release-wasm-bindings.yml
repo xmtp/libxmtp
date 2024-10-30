@@ -1,0 +1,61 @@
+name: Release WASM Bindings
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_wasm
+
+      - name: Install wasm-bindgen and wasm-opt
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen, wasm-opt
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache-dependency-path: "bindings_wasm/yarn.lock"
+          cache: "yarn"
+        env:
+          SKIP_YARN_COREPACK_CHECK: "1"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        working-directory: bindings_wasm
+        run: |
+          yarn
+
+      - name: Build
+        working-directory: bindings_wasm
+        run: yarn build
+
+      - name: Publish to NPM
+        uses: JS-DevTools/npm-publish@v3
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+          package: bindings_wasm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

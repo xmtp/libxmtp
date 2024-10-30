@@ -13,7 +13,7 @@ parking_lot.workspace = true
 thiserror.workspace = true
 thread-id = "4.2.1"
 tokio = { workspace = true, features = ["macros"] }
-uniffi = { version = "0.28.0", default-features = false, features = ["tokio", "cli"] }
+uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
@@ -28,7 +28,8 @@ uniffi = { version = "0.28.0", features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"
-path = "src/bin.rs"
+path = "bindgen/bin.rs"
+required-features = ["uniffi/cli"]
 
 [dev-dependencies]
 ethers = { workspace = true, features = ["rustls"] }

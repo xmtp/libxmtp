@@ -90,7 +90,7 @@ use crate::{
         db_connection::DbConnection,
         group::{GroupMembershipState, Purpose, StoredGroup},
         group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, SortDirection, StoredGroupMessage},
+        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
     },
     utils::{id::calculate_message_id, time::now_ns},
@@ -227,7 +227,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub(crate) client: Arc<C>,
+    pub client: Arc<C>,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -667,24 +667,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// and limit
     pub fn find_messages(
         &self,
-        kind: Option<GroupMessageKind>,
-        sent_before_ns: Option<i64>,
-        sent_after_ns: Option<i64>,
-        delivery_status: Option<DeliveryStatus>,
-        limit: Option<i64>,
-        direction: Option<SortDirection>,
+        args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
-        let messages = conn.get_group_messages(
-            &self.group_id,
-            sent_after_ns,
-            sent_before_ns,
-            kind,
-            delivery_status,
-            limit,
-            direction,
-        )?;
-
+        let messages = conn.get_group_messages(&self.group_id, args)?;
         Ok(messages)
     }
 
@@ -1013,6 +999,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     .map(|group| group.added_by_inbox_id.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
+    }
+
+    /// Find the `inbox_id` of the group member who is the peer of this dm
+    pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
+        let conn = self.context().store().conn()?;
+        let group = conn
+            .find_group(self.group_id.clone())?
+            .ok_or(GroupError::GroupNotFound)?;
+        group.dm_inbox_id.ok_or(GroupError::GroupNotFound)
     }
 
     /// Find the `consent_state` of the group
@@ -1534,7 +1529,7 @@ pub(crate) mod tests {
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        client::{FindGroupParams, MessageProcessingError},
+        client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
@@ -1548,9 +1543,10 @@ pub(crate) mod tests {
         },
         storage::{
             consent_record::ConsentState,
+            group::GroupQueryArgs,
             group::Purpose,
             group_intent::{IntentKind, IntentState},
-            group_message::{GroupMessageKind, StoredGroupMessage},
+            group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         },
         utils::test::FullXmtpClient,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -1561,16 +1557,14 @@ pub(crate) mod tests {
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client.sync_welcomes().await.unwrap();
-        let mut groups = client.find_groups(FindGroupParams::default()).unwrap();
+        let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
 
         groups.remove(0)
     }
 
     async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMessage {
         group.sync().await.unwrap();
-        let mut messages = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
         messages.pop().unwrap()
     }
 
@@ -1654,9 +1648,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         // Check for messages
-        let messages = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
@@ -1833,9 +1825,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let bola_messages = bola_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         let matching_message = bola_messages
             .iter()
             .find(|m| m.decrypted_message_bytes == "hello from amal".as_bytes());
@@ -1876,7 +1866,7 @@ pub(crate) mod tests {
 
             // Bo should not be able to actually read this group
             bo.sync_welcomes().await.unwrap();
-            let groups = bo.find_groups(FindGroupParams::default()).unwrap();
+            let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(groups.len(), 0);
             assert_logged!("failed to create group from welcome", 1);
         });
@@ -1950,9 +1940,7 @@ pub(crate) mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_add = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages_with_add = group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages_with_add.len(), 1);
 
         // Try and add another member without merging the pending commit
@@ -1961,9 +1949,7 @@ pub(crate) mod tests {
             .await
             .expect("group remove members failure");
 
-        let messages_with_remove = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages_with_remove = group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -2009,12 +1995,10 @@ pub(crate) mod tests {
         group.send_message(b"hello").await.expect("send message");
 
         bola_client.sync_welcomes().await.unwrap();
-        let bola_groups = bola_client.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola_client.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        let bola_messages = bola_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bola_messages.len(), 1);
     }
 
@@ -2063,9 +2047,7 @@ pub(crate) mod tests {
             .unwrap();
         tracing::info!("created the group with 2 additional members");
         assert_eq!(group.members().await.unwrap().len(), 3);
-        let messages = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2080,9 +2062,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(group.members().await.unwrap().len(), 2);
         tracing::info!("removed bola");
-        let messages = group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -2155,14 +2135,7 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -2383,7 +2356,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2551,7 +2524,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2631,7 +2604,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2647,7 +2620,7 @@ pub(crate) mod tests {
 
         // Verify that bola can not add caro because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2711,7 +2684,7 @@ pub(crate) mod tests {
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2740,7 +2713,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -2756,7 +2729,7 @@ pub(crate) mod tests {
 
         // Verify that bola can not add caro as an admin because they are not a super admin
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
@@ -3007,7 +2980,7 @@ pub(crate) mod tests {
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         bola_group
@@ -3073,7 +3046,7 @@ pub(crate) mod tests {
         // Step 3: Bola attemps to add Caro, but fails because group is admin only
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let result = bola_group
@@ -3144,14 +3117,7 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3197,9 +3163,7 @@ pub(crate) mod tests {
         amal_group.publish_messages().await.unwrap();
         bola_group.sync().await.unwrap();
 
-        let messages = bola_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         let delivery = messages
             .iter()
             .cloned()
@@ -3241,20 +3205,13 @@ pub(crate) mod tests {
 
         // Bola can message amal
         let _ = bola.sync_welcomes().await;
-        let bola_groups = bola
-            .find_groups(FindGroupParams {
-                conversation_type: None,
-                ..FindGroupParams::default()
-            })
-            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_dm: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_dm.send_message(b"test one").await.unwrap();
 
         // Amal sync and reads message
         amal_dm.sync().await.unwrap();
-        let messages = amal_dm
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let messages = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 2);
         let message = messages.last().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"test one");
@@ -3407,12 +3364,8 @@ pub(crate) mod tests {
         alix1_group.sync().await.unwrap();
         alix2_group.sync().await.unwrap();
 
-        let alix1_messages = alix1_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
-        let alix2_messages = alix2_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
         assert!(alix1_messages
@@ -3519,12 +3472,8 @@ pub(crate) mod tests {
         alix1_group.sync().await.unwrap();
         alix2_group.sync().await.unwrap();
 
-        let alix1_messages = alix1_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
-        let alix2_messages = alix2_group
-            .find_messages(None, None, None, None, None, None)
-            .unwrap();
+        let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
         assert!(alix1_messages
@@ -3603,7 +3552,7 @@ pub(crate) mod tests {
             .unwrap();
 
         bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group = bola_groups.first().unwrap();
         // group consent state should default to unknown for users who did not create the group
         assert_eq!(bola_group.consent_state().unwrap(), ConsentState::Unknown);
@@ -3622,7 +3571,7 @@ pub(crate) mod tests {
             .unwrap();
 
         caro.sync_welcomes().await.unwrap();
-        let caro_groups = caro.find_groups(FindGroupParams::default()).unwrap();
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
         let caro_group = caro_groups.first().unwrap();
 
         caro_group
@@ -3652,7 +3601,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         bo.sync_welcomes().await.unwrap();
-        let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
 
         // Both members see the same amount of messages to start
@@ -3662,24 +3611,10 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3699,24 +3634,10 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(
-                Some(GroupMessageKind::Application),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3

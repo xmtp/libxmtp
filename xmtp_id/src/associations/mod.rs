@@ -69,11 +69,13 @@ pub mod test_defaults {
                     existing_member.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
                 new_member_signature: VerifiedSignature::new(
                     new_member.clone().into(),
                     SignatureKind::InstallationKey,
                     rand_vec(),
+                    None,
                 ),
                 new_member_identifier: new_member.into(),
             }
@@ -91,6 +93,7 @@ pub mod test_defaults {
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
             }
         }
@@ -104,6 +107,7 @@ pub mod test_defaults {
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec(),
+                    None,
                 ),
                 revoked_member: rand_string().into(),
             }
@@ -120,7 +124,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::associations::verified_signature::VerifiedSignature;
 
-    pub async fn new_test_inbox() -> AssociationState {
+    pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let identity_update =
@@ -129,8 +133,8 @@ pub(crate) mod tests {
         get_state(vec![identity_update]).unwrap()
     }
 
-    pub async fn new_test_inbox_with_installation() -> AssociationState {
-        let initial_state = new_test_inbox().await;
+    pub fn new_test_inbox_with_installation() -> AssociationState {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_wallet_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
@@ -140,6 +144,7 @@ pub(crate) mod tests {
                 initial_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -151,9 +156,8 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_create_inbox() {
+    #[test]
+    fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let account_address = create_request.account_address.clone();
@@ -166,10 +170,9 @@ pub(crate) mod tests {
         assert!(existing_entity.identifier.eq(&account_address.into()));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_and_add_separately() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn create_and_add_separately() {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let new_installation_identifier: MemberIdentifier = rand_vec().into();
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
@@ -180,11 +183,13 @@ pub(crate) mod tests {
                 new_installation_identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 first_member.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -199,9 +204,8 @@ pub(crate) mod tests {
         assert_eq!(new_member.added_by_entity, Some(first_member));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_and_add_together() {
+    #[test]
+    fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_address.clone();
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce);
@@ -211,12 +215,14 @@ pub(crate) mod tests {
                 account_address.clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             // Add an installation ID
             new_member_signature: VerifiedSignature::new(
                 new_member_identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             new_member_identifier: new_member_identifier.clone(),
         };
@@ -235,9 +241,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn create_from_legacy_key() {
+    #[test]
+    fn create_from_legacy_key() {
         let member_identifier: MemberIdentifier = rand_string().into();
         let create_action = CreateInbox {
             nonce: 0,
@@ -246,6 +251,7 @@ pub(crate) mod tests {
                 member_identifier.clone(),
                 SignatureKind::LegacyDelegated,
                 "0".as_bytes().to_vec(),
+                None,
             ),
         };
         let inbox_id = generate_inbox_id(&member_identifier.to_string(), &0);
@@ -263,6 +269,7 @@ pub(crate) mod tests {
                 SignatureKind::LegacyDelegated,
                 // All requests from the same legacy key will have the same signature nonce
                 "0".as_bytes().to_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -273,10 +280,9 @@ pub(crate) mod tests {
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn add_wallet_from_installation_key() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn add_wallet_from_installation_key() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -292,11 +298,13 @@ pub(crate) mod tests {
                 new_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 installation_id.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -308,12 +316,15 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_invalid_signature_on_create() {
+    #[test]
+    fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
-        let bad_signature =
-            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
+        let bad_signature = VerifiedSignature::new(
+            rand_string().into(),
+            SignatureKind::Erc191,
+            rand_vec(),
+            None,
+        );
         let action = CreateInbox {
             initial_address_signature: bad_signature,
             ..Default::default()
@@ -331,14 +342,17 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_invalid_signature_on_update() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn reject_invalid_signature_on_update() {
+        let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         // Signature is from a random address
-        let bad_signature =
-            VerifiedSignature::new(rand_string().into(), SignatureKind::Erc191, rand_vec());
+        let bad_signature = VerifiedSignature::new(
+            rand_string().into(),
+            SignatureKind::Erc191,
+            rand_vec(),
+            None,
+        );
 
         let update_with_bad_existing_member = Action::AddAssociation(AddAssociation {
             existing_member_signature: bad_signature.clone(),
@@ -361,6 +375,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -375,9 +390,8 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_if_signer_not_existing_member() {
+    #[test]
+    fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
         let create_request = Action::CreateInbox(create_inbox);
@@ -388,6 +402,7 @@ pub(crate) mod tests {
                 rand_string().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -402,10 +417,9 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn reject_if_installation_adding_installation() {
-        let existing_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn reject_if_installation_adding_installation() {
+        let existing_state = new_test_inbox_with_installation();
         let inbox_id = existing_state.inbox_id().clone();
         let existing_installations = existing_state.members_by_kind(MemberKind::Installation);
         let existing_installation = existing_installations.first().unwrap();
@@ -416,12 +430,14 @@ pub(crate) mod tests {
                 existing_installation.identifier.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
             new_member_identifier: new_installation_id.clone(),
             new_member_signature: VerifiedSignature::new(
                 new_installation_id.clone(),
                 SignatureKind::InstallationKey,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -438,10 +454,9 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn revoke() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -454,6 +469,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: installation_id.clone(),
         });
@@ -466,10 +482,9 @@ pub(crate) mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke_children() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn revoke_children() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
@@ -483,6 +498,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             ..Default::default()
         });
@@ -499,6 +515,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: wallet_address.clone(),
         });
@@ -512,10 +529,9 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 0);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn revoke_and_re_add() {
-        let initial_state = new_test_inbox().await;
+    #[test]
+    fn revoke_and_re_add() {
+        let initial_state = new_test_inbox();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
             .first()
@@ -532,11 +548,13 @@ pub(crate) mod tests {
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -545,6 +563,7 @@ pub(crate) mod tests {
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: second_wallet_address.clone(),
         });
@@ -565,11 +584,13 @@ pub(crate) mod tests {
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address,
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -581,10 +602,9 @@ pub(crate) mod tests {
         assert_eq!(state_after_re_add.members().len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn change_recovery_address() {
-        let initial_state = new_test_inbox_with_installation().await;
+    #[test]
+    fn change_recovery_address() {
+        let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
@@ -595,6 +615,7 @@ pub(crate) mod tests {
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
         });
 
@@ -610,6 +631,7 @@ pub(crate) mod tests {
                 initial_recovery_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec(),
+                None,
             ),
             revoked_member: initial_recovery_address.clone(),
         });
@@ -623,5 +645,75 @@ pub(crate) mod tests {
             revoke_result,
             Err(AssociationError::MissingExistingMember)
         ));
+    }
+
+    #[test]
+    fn scw_signature_binding() {
+        let initial_chain_id: u64 = 1;
+        let signer = rand_string();
+        let initial_address_signature = VerifiedSignature::new(
+            signer.clone().into(),
+            SignatureKind::Erc1271,
+            rand_vec(),
+            Some(initial_chain_id),
+        );
+        let action = CreateInbox {
+            initial_address_signature,
+            nonce: 0,
+            account_address: signer.clone(),
+        };
+
+        let initial_state = get_state(vec![IdentityUpdate::new_test(
+            vec![Action::CreateInbox(action)],
+            generate_inbox_id(&signer, &0),
+        )])
+        .expect("initial state should be OK");
+
+        let inbox_id = initial_state.inbox_id().clone();
+
+        let new_chain_id: u64 = 2;
+        let new_member: MemberIdentifier = rand_vec().into();
+
+        // A signature from the same account address but on a different chain ID
+        let existing_member_sig = VerifiedSignature::new(
+            signer.clone().into(),
+            SignatureKind::Erc1271,
+            rand_vec(),
+            Some(new_chain_id),
+        );
+
+        let actions: Vec<Action> = vec![
+            Action::AddAssociation(AddAssociation {
+                existing_member_signature: existing_member_sig.clone(),
+                new_member_signature: VerifiedSignature::new(
+                    new_member.clone(),
+                    SignatureKind::InstallationKey,
+                    rand_vec(),
+                    None,
+                ),
+                new_member_identifier: new_member.clone(),
+            }),
+            Action::RevokeAssociation(RevokeAssociation {
+                recovery_address_signature: existing_member_sig.clone(),
+                revoked_member: signer.clone().into(),
+            }),
+            Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+                recovery_address_signature: existing_member_sig.clone(),
+                new_recovery_address: rand_string(),
+            }),
+        ];
+
+        // Test all possible actions and ensure the chain id mismatch error is thrown
+        for action in actions {
+            let apply_result = apply_update(
+                initial_state.clone(),
+                IdentityUpdate::new_test(vec![action], inbox_id.clone()),
+            );
+
+            assert!(matches!(
+                apply_result,
+                Err(AssociationError::ChainIdMismatch(_, _))
+            ));
+        }
     }
 }

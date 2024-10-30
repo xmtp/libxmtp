@@ -20,14 +20,21 @@ pub struct VerifiedSignature {
     pub signer: MemberIdentifier,
     pub kind: SignatureKind,
     pub raw_bytes: Vec<u8>,
+    pub chain_id: Option<u64>,
 }
 
 impl VerifiedSignature {
-    pub fn new(signer: MemberIdentifier, kind: SignatureKind, raw_bytes: Vec<u8>) -> Self {
+    pub fn new(
+        signer: MemberIdentifier,
+        kind: SignatureKind,
+        raw_bytes: Vec<u8>,
+        chain_id: Option<u64>,
+    ) -> Self {
         Self {
             signer,
             kind,
             raw_bytes,
+            chain_id,
         }
     }
 
@@ -46,6 +53,7 @@ impl VerifiedSignature {
             MemberIdentifier::Address(address),
             SignatureKind::Erc191,
             signature_bytes.to_vec(),
+            None,
         ))
     }
 
@@ -96,6 +104,7 @@ impl VerifiedSignature {
             MemberIdentifier::Installation(verifying_key_bytes.to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
+            None,
         ))
     }
 
@@ -123,6 +132,7 @@ impl VerifiedSignature {
             // Must use the wallet signature bytes, since those are the ones we care about making unique.
             // This protects against using the legacy key more than once in the Identity Update Log
             signed_public_key.wallet_signature.raw_bytes,
+            None,
         ))
     }
 
@@ -148,9 +158,12 @@ impl VerifiedSignature {
             *block_number = response.block_number;
 
             Ok(Self::new(
-                MemberIdentifier::Address(account_id.into()),
+                MemberIdentifier::Address(
+                    account_id.get_account_address().to_string().to_lowercase(),
+                ),
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
+                Some(account_id.get_chain_id_u64()?),
             ))
         } else {
             tracing::error!(
@@ -170,8 +183,10 @@ mod tests {
     use super::*;
     use crate::{
         associations::{
-            sign_with_legacy_key, verified_signature::VerifiedSignature, MemberIdentifier,
-            SignatureKind,
+            sign_with_legacy_key,
+            test_utils::{rand_string, MockSmartContractSignatureVerifier},
+            verified_signature::VerifiedSignature,
+            MemberIdentifier, SignatureKind,
         },
         constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
         InboxOwner,
@@ -361,5 +376,34 @@ mod tests {
             legacy_signed_public_key_proto,
         );
         assert!(matches!(res, Err(super::SignatureError::Invalid)));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_smart_contract_wallet() {
+        let mock_verifier = MockSmartContractSignatureVerifier::new(true);
+        let chain_id: u64 = 24;
+        let account_address = rand_string();
+        let account_id = AccountId::new(format!("eip155:{chain_id}"), account_address.clone());
+        let signature_text = "test_smart_contract_wallet_signature";
+        let signature_bytes = &[1, 2, 3];
+        let mut block_number = Some(1);
+
+        let verified_sig = VerifiedSignature::from_smart_contract_wallet(
+            signature_text,
+            mock_verifier,
+            signature_bytes,
+            account_id,
+            &mut block_number,
+        )
+        .await
+        .expect("should validate");
+        assert_eq!(
+            verified_sig.signer,
+            MemberIdentifier::Address(account_address)
+        );
+        assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
+        assert_eq!(verified_sig.raw_bytes, signature_bytes);
+        assert_eq!(verified_sig.chain_id, Some(chain_id));
     }
 }

@@ -83,7 +83,7 @@ framework: lipo
 swift: libxmtp-version
 	cargo build --release -p xmtpv3
 	rm -rf build/swift
-	$(TARGET_DIR)/release/ffi-uniffi-bindgen generate \
+	cargo run --bin ffi-uniffi-bindgen --release --features uniffi/cli generate \
 		--lib-file $(TARGET_DIR)/release/$(LIB) \
 		src/$(PROJECT_NAME).udl \
 		--out-dir build/swift \

@@ -42,6 +42,15 @@ pub enum GenericError {
     Erc1271SignatureError(#[from] xmtp_id::associations::signature::SignatureError),
     #[error(transparent)]
     Verifier(#[from] xmtp_id::scw_verifier::VerifierError),
+    #[error("Failed to convert to u32")]
+    FailedToConvertToU32,
+}
+
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+#[uniffi(flat_error)]
+pub enum FfiSubscribeError {
+    #[error("Subscribe Error {0}")]
+    Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
 }
 
 impl From<String> for GenericError {
