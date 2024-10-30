@@ -14,7 +14,6 @@ use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
 use crate::conversations::WasmConversations;
-use crate::inbox_state::WasmInboxState;
 use crate::signatures::WasmSignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
@@ -180,37 +179,6 @@ impl WasmClient {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(inbox_id)
-  }
-
-  /**
-   * Get the client's inbox state.
-   *
-   * If `refresh_from_network` is true, the client will go to the network first to refresh the state.
-   * Otherwise, the state will be read from the local database.
-   */
-  #[wasm_bindgen(js_name = inboxState)]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<WasmInboxState, JsError> {
-    let state = self
-      .inner_client
-      .inbox_state(refresh_from_network)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    Ok(state.into())
-  }
-
-  #[wasm_bindgen(js_name = getLatestInboxState)]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<WasmInboxState, JsError> {
-    let conn = self
-      .inner_client
-      .store()
-      .conn()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let state = self
-      .inner_client
-      .get_latest_association_state(&conn, &inbox_id)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    Ok(state.into())
   }
 
   #[wasm_bindgen]
