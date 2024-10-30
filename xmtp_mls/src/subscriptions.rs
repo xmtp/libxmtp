@@ -4,7 +4,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
@@ -44,11 +44,11 @@ impl<C> LocalEvents<C> {
     }
 }
 
-impl<ScopedClient: Clone> Clone for LocalEvents<ScopedClient> {
+impl<ScopedClient> Clone for LocalEvents<ScopedClient> {
     fn clone(&self) -> LocalEvents<ScopedClient> {
         use LocalEvents::*;
         match self {
-            NewGroup(c) => NewGroup(c.clone()),
+            NewGroup(group) => NewGroup(group.clone()),
         }
     }
 }
@@ -127,8 +127,8 @@ impl RetryableError for SubscribeError {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     async fn process_streamed_welcome(
         &self,
@@ -189,7 +189,10 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError> {
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
         let event_queue = tokio_stream::wrappers::BroadcastStream::new(
             self.local_events.subscribe(),
         )
@@ -239,8 +242,8 @@ where
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
+    ApiClient: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,

@@ -104,8 +104,8 @@ pub enum DeviceSyncError {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let sync_group = match self.get_sync_group() {
@@ -372,8 +372,8 @@ impl MessageHistoryUrls {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;

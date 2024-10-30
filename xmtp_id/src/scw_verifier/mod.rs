@@ -1,13 +1,12 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 
-use std::{collections::HashMap, fs, path::Path};
-
 use crate::associations::AccountId;
 use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes},
 };
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
@@ -63,6 +62,25 @@ pub trait SmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError>;
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> SmartContractSignatureVerifier for Arc<T>
+where
+    T: SmartContractSignatureVerifier,
+{
+    async fn is_valid_signature(
+        &self,
+        account_id: AccountId,
+        hash: [u8; 32],
+        signature: Bytes,
+        block_number: Option<BlockNumber>,
+    ) -> Result<ValidationResponse, VerifierError> {
+        (**self)
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

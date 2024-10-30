@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use thiserror::Error;
 use tracing::debug;
 
@@ -106,49 +108,40 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
-        inner_build(self).await
+        let (builder, api_client) = inner_build_api_client(self)?;
+        inner_build(builder, api_client).await
     }
 }
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + Clone,
+    ApiClient: XmtpApi,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
-    pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
-        let api_client =
-            self.api_client
-                .clone()
-                .take()
-                .ok_or(ClientBuilderError::MissingParameter {
-                    parameter: "api_client",
-                })?;
-        self = self.scw_signature_verifier(RemoteSignatureVerifier::new(api_client));
-        inner_build::<ApiClient, RemoteSignatureVerifier<ApiClient>>(self).await
+    pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let (mut builder, api_client) = inner_build_api_client(self)?;
+        builder = builder.scw_signature_verifier(RemoteSignatureVerifier::new(api_client.clone()));
+        inner_build::<ApiClient, RemoteSignatureVerifier<ApiClient>>(builder, api_client).await
     }
 }
 
-async fn inner_build<C, V>(client: ClientBuilder<C, V>) -> Result<Client<C, V>, ClientBuilderError>
+fn inner_build_api_client<ApiClient, V>(
+    mut builder: ClientBuilder<ApiClient, V>,
+) -> Result<(ClientBuilder<ApiClient, V>, Arc<ApiClient>), ClientBuilderError>
 where
-    C: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
 {
     let ClientBuilder {
-        mut api_client,
-        mut store,
-        identity_strategy,
-        history_sync_url,
-        app_version,
-        mut scw_verifier,
+        ref mut api_client,
+        ref app_version,
         ..
-    } = client;
+    } = builder;
 
-    debug!("Building client");
     let mut api_client = api_client
         .take()
         .ok_or(ClientBuilderError::MissingParameter {
@@ -157,8 +150,29 @@ where
 
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
     if let Some(app_version) = app_version {
-        api_client.set_app_version(app_version)?;
+        api_client.set_app_version(app_version.to_string())?;
     }
+
+    Ok((builder, Arc::new(api_client)))
+}
+
+async fn inner_build<C, V>(
+    client: ClientBuilder<C, V>,
+    api_client: Arc<C>,
+) -> Result<Client<C, V>, ClientBuilderError>
+where
+    C: XmtpApi,
+    V: SmartContractSignatureVerifier,
+{
+    let ClientBuilder {
+        mut store,
+        identity_strategy,
+        history_sync_url,
+        mut scw_verifier,
+        ..
+    } = client;
+
+    debug!("Building client");
 
     let scw_verifier = scw_verifier
         .take()
@@ -242,7 +256,7 @@ pub(crate) mod tests {
         Client, InboxOwner,
     };
 
-    async fn register_client<C: XmtpApi + Clone, V: SmartContractSignatureVerifier + Clone>(
+    async fn register_client<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
         owner: &impl InboxOwner,
     ) {
@@ -526,7 +540,7 @@ pub(crate) mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let identity =
             IdentityStrategy::CreateIfNotFound("other_inbox_id".to_string(), address, nonce, None);
@@ -568,7 +582,7 @@ pub(crate) mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
         assert!(dbg!(
@@ -608,7 +622,7 @@ pub(crate) mod tests {
             .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
         let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
         assert!(identity
             .initialize_identity(&wrapper, &store, &scw_verifier)
@@ -646,7 +660,7 @@ pub(crate) mod tests {
 
         stored.store(&store.conn().unwrap()).unwrap();
 
-        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let inbox_id = "inbox_id".to_string();
         let identity =

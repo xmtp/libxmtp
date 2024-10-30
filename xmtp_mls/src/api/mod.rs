@@ -3,6 +3,8 @@ pub mod mls;
 #[cfg(test)]
 pub mod test_utils;
 
+use std::sync::Arc;
+
 use crate::{
     retry::{Retry, RetryableError},
     XmtpApi,
@@ -30,7 +32,7 @@ impl RetryableError for WrappedApiError {
 
 #[derive(Clone, Debug)]
 pub struct ApiClientWrapper<ApiClient> {
-    pub(crate) api_client: ApiClient,
+    pub(crate) api_client: Arc<ApiClient>,
     pub(crate) retry_strategy: Retry,
 }
 
@@ -38,7 +40,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
+    pub fn new(api_client: Arc<ApiClient>, retry_strategy: Retry) -> Self {
         Self {
             api_client,
             retry_strategy,

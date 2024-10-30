@@ -228,21 +228,17 @@ pub struct FindGroupParams {
 
 /// Clients manage access to the network, identity, and data store
 pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
-    pub(crate) api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
-    pub(crate) scw_verifier: V,
+    pub(crate) scw_verifier: Arc<V>,
 }
 
 // most of these things are `Arc`'s
-impl<ApiClient, V> Clone for Client<ApiClient, V>
-where
-    ApiClient: Clone,
-    V: Clone,
-{
+impl<ApiClient, V> Clone for Client<ApiClient, V> {
     fn clone(&self) -> Self {
         Self {
             api_client: self.api_client.clone(),
@@ -300,8 +296,8 @@ impl XmtpMlsLocalContext {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
@@ -326,11 +322,11 @@ where
         });
         let (tx, _) = broadcast::channel(10);
         Self {
-            api_client,
+            api_client: api_client.into(),
             context,
             history_sync_url,
             local_events: tx,
-            scw_verifier,
+            scw_verifier: scw_verifier.into(),
             intents,
         }
     }
@@ -342,8 +338,8 @@ where
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> Vec<u8> {
@@ -1309,8 +1305,8 @@ pub(crate) mod tests {
     }
 
     async fn get_key_package_init_key<
-        ApiClient: XmtpApi + Clone,
-        Verifier: SmartContractSignatureVerifier + Clone,
+        ApiClient: XmtpApi,
+        Verifier: SmartContractSignatureVerifier,
     >(
         client: &Client<ApiClient, Verifier>,
         installation_id: &[u8],

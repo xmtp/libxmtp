@@ -10,7 +10,7 @@ pbjson-types.workspace = true
 pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
-trait-variant = "0.1.2"
+async-trait = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }
