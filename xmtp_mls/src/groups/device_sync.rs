@@ -113,6 +113,10 @@ where
             Err(_) => self.create_sync_group()?,
         };
 
+        sync_group
+            .maybe_update_installations(provider, None)
+            .await?;
+
         sync_group.sync_with_conn(provider).await?;
 
         Ok(())
