@@ -82,20 +82,6 @@ pub struct NapiListConversationsOptions {
   pub conversation_type: Option<NapiConversationType>,
 }
 
-impl From<NapiListConversationsOptions> for FindGroupParams {
-  fn from(opts: NapiListConversationsOptions) -> Self {
-    FindGroupParams {
-      allowed_states: opts
-        .allowed_states
-        .map(|states| states.into_iter().map(From::from).collect()),
-      conversation_type: opts.conversation_type.map(|ct| ct.into()),
-      created_after_ns: opts.created_after_ns,
-      created_before_ns: opts.created_before_ns,
-      limit: opts.limit,
-    }
-  }
-}
-
 impl From<NapiListConversationsOptions> for GroupQueryArgs {
   fn from(opts: NapiListConversationsOptions) -> GroupQueryArgs {
     GroupQueryArgs::default()
