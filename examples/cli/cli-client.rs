@@ -355,7 +355,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_history_sync(&provider).await.unwrap();
+            client.create_sync_group(&provider).await.unwrap();
             let (group_id, _) = client.send_history_sync_request().await.unwrap();
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
@@ -382,7 +382,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_history_sync(&provider).await.unwrap();
+            client.create_sync_group(&provider).await.unwrap();
             client.process_history_sync_reply(&provider).await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
@@ -394,7 +394,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_history_sync(&provider).await.unwrap();
+            client.create_sync_group(&provider).await.unwrap();
             client.process_consent_sync_reply(&provider).await.unwrap();
 
             info!("Consent bundle downloaded and inserted into user DB", {})
@@ -406,7 +406,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_history_sync(&provider).await.unwrap();
+            client.create_sync_group(&provider).await.unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await.unwrap();

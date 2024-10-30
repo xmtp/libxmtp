@@ -90,17 +90,6 @@ pub(crate) mod tests {
     use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_enable_history_sync() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(
-            client
-                .enable_history_sync(&client.mls_provider().unwrap())
-                .await
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_message_history_sync() {
         let options = mockito::ServerOpts {
             host: HISTORY_SERVER_HOST,
@@ -154,7 +143,7 @@ pub(crate) mod tests {
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
         // Turn on history sync for the second installation.
-        assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
+        assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(amal_a_conn)
@@ -248,10 +237,7 @@ pub(crate) mod tests {
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(
-            amal.enable_history_sync(&amal.mls_provider().unwrap())
-                .await
-        );
+        assert_ok!(amal.enable_sync(&amal.mls_provider().unwrap()).await);
         amal.sync_welcomes(&amal.store().conn().unwrap())
             .await
             .expect("sync welcomes");
@@ -260,7 +246,7 @@ pub(crate) mod tests {
         let external_client = ClientBuilder::new_test_client(&external_wallet).await;
         assert_ok!(
             external_client
-                .enable_history_sync(&external_client.mls_provider().unwrap())
+                .enable_sync(&external_client.mls_provider().unwrap())
                 .await
         );
         external_client

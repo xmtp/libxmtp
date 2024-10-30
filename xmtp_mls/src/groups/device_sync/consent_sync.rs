@@ -119,7 +119,7 @@ pub(crate) mod tests {
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         // Turn on history sync for the second installation.
-        assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
+        assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(amal_a_conn)

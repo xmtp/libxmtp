@@ -511,17 +511,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
-        let conn = context.store().conn()?;
-        // let my_sequence_id = context.inbox_sequence_id(&conn)?;
         let creator_inbox_id = context.inbox_id() as String;
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let provider = client.mls_provider()?;
+
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
-            creator_inbox_id,
+            creator_inbox_id.clone(),
             GroupMetadataOptions::default(),
         )?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
         let group_config = build_group_config(

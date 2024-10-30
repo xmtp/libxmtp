@@ -107,20 +107,12 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub async fn enable_history_sync(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), GroupError> {
-        // look for the sync group, create if not found
+    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
-            Err(_) => {
-                // create the sync group
-                self.create_sync_group()?
-            }
+            Err(_) => self.create_sync_group()?,
         };
 
-        // sync the group
         sync_group.sync_with_conn(provider).await?;
 
         Ok(())
