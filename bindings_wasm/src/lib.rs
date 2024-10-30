@@ -7,3 +7,4 @@ pub mod inbox_state;
 pub mod messages;
 pub mod mls_client;
 pub mod permissions;
+pub mod signatures;
