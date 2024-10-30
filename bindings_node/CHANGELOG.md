@@ -1,5 +1,17 @@
 # @xmtp/node-bindings
 
+## 0.0.16
+
+- Added sort direction to `NapiListMessagesOptions`
+- Added `dm_peer_inbox_id` method to `NapiGroup`
+- Added `allowed_states` and `conversation_type` to `NapiListConversationsOptions`
+- Added `create_dm`, `list_groups`, and `list_dms` methods to `NapiConversations`
+- Added `stream_groups`, `stream_dms`, `stream_all_group_messages`, and `stream_all_dm_messages` streaming methods to `NapiConversations`
+
+## 0.0.15
+
+- Updated to latest `xmtp_mls`
+
 ## 0.0.14
 
 - Arguments in stream callback throw error rather than silently ignore

@@ -16,11 +16,13 @@ describe('Conversations', () => {
   it('should not have initial conversations', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const conversations = await client.conversations().list()
-    expect(conversations.length).toBe(0)
+
+    expect((await client.conversations().list()).length).toBe(0)
+    expect((await client.conversations().listDms()).length).toBe(0)
+    expect((await client.conversations().listGroups()).length).toBe(0)
   })
 
-  it('should create a new group', async () => {
+  it('should create a group chat', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
@@ -61,6 +63,8 @@ describe('Conversations', () => {
     const group1 = await client1.conversations().list()
     expect(group1.length).toBe(1)
     expect(group1[0].id).toBe(group.id)
+    expect((await client1.conversations().listDms()).length).toBe(0)
+    expect((await client1.conversations().listGroups()).length).toBe(1)
 
     expect((await client2.conversations().list()).length).toBe(0)
 
@@ -69,6 +73,74 @@ describe('Conversations', () => {
     const group2 = await client2.conversations().list()
     expect(group2.length).toBe(1)
     expect(group2[0].id).toBe(group.id)
+
+    expect((await client2.conversations().listDms()).length).toBe(0)
+    expect((await client2.conversations().listGroups()).length).toBe(1)
+  })
+
+  it('should create a dm group', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1.conversations().createDm(user2.account.address)
+    expect(group).toBeDefined()
+    expect(group.id()).toBeDefined()
+    expect(group.createdAtNs()).toBeTypeOf('number')
+    expect(group.isActive()).toBe(true)
+    expect(group.groupName()).toBe('')
+    expect(group.groupPermissions().policyType()).toBe(
+      NapiGroupPermissionsOptions.CustomPolicy
+    )
+    expect(group.groupPermissions().policySet()).toEqual({
+      addAdminPolicy: 1,
+      addMemberPolicy: 1,
+      removeAdminPolicy: 1,
+      removeMemberPolicy: 1,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupNamePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
+    })
+    expect(group.addedByInboxId()).toBe(client1.inboxId())
+    expect(group.findMessages().length).toBe(1)
+    const members = await group.listMembers()
+    expect(members.length).toBe(2)
+    const memberInboxIds = members.map((member) => member.inboxId)
+    expect(memberInboxIds).toContain(client1.inboxId())
+    expect(memberInboxIds).toContain(client2.inboxId())
+    expect(group.groupMetadata().conversationType()).toBe('dm')
+    expect(group.groupMetadata().creatorInboxId()).toBe(client1.inboxId())
+
+    expect(group.consentState()).toBe(NapiConsentState.Allowed)
+
+    const group1 = await client1.conversations().list()
+    expect(group1.length).toBe(1)
+    expect(group1[0].id).toBe(group.id)
+    expect(group1[0].dmPeerInboxId()).toBe(client2.inboxId())
+
+    expect((await client1.conversations().listDms()).length).toBe(1)
+    expect((await client1.conversations().listGroups()).length).toBe(0)
+
+    expect((await client2.conversations().list()).length).toBe(0)
+
+    await client2.conversations().sync()
+
+    const group2 = await client2.conversations().list()
+    expect(group2.length).toBe(1)
+    expect(group2[0].id).toBe(group.id)
+    expect(group2[0].dmPeerInboxId()).toBe(client1.inboxId())
+
+    expect((await client2.conversations().listDms()).length).toBe(1)
+    expect((await client2.conversations().listGroups()).length).toBe(0)
+
+    const dm1 = client1.conversations().findDmByTargetInboxId(client2.inboxId())
+    expect(dm1).toBeDefined()
+    expect(dm1!.id).toBe(group.id)
+
+    const dm2 = client2.conversations().findDmByTargetInboxId(client1.inboxId())
+    expect(dm2).toBeDefined()
+    expect(dm2!.id).toBe(group.id)
   })
 
   it('should find a group by ID', async () => {
@@ -212,15 +284,55 @@ describe('Conversations', () => {
     expect(group.groupPinnedFrameUrl()).toBe('https://frameurl.xyz')
   })
 
-  it('should stream new groups', async () => {
+  it('should stream all groups', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const user3 = createUser()
+    const user4 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
     const asyncStream = new AsyncStream<NapiGroup>(undefined)
     const stream = client3.conversations().stream(asyncStream.callback)
+    const group1 = await client1
+      .conversations()
+      .createGroup([user3.account.address])
+    const group2 = await client2
+      .conversations()
+      .createGroup([user3.account.address])
+    const group3 = await client4.conversations().createDm(user3.account.address)
+    let count = 0
+    for await (const convo of asyncStream) {
+      count++
+      expect(convo).toBeDefined()
+      if (count === 1) {
+        expect(convo!.id).toBe(group1.id)
+      }
+      if (count === 2) {
+        expect(convo!.id).toBe(group2.id)
+      }
+      if (count === 3) {
+        expect(convo!.id).toBe(group3.id)
+        break
+      }
+    }
+    asyncStream.stop()
+    stream.end()
+  })
+
+  it('should only stream group chats', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const user4 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
+    const asyncStream = new AsyncStream<NapiGroup>(undefined)
+    const stream = client3.conversations().streamGroups(asyncStream.callback)
+    const group3 = await client4.conversations().createDm(user3.account.address)
     const group1 = await client1
       .conversations()
       .createGroup([user3.account.address])
@@ -243,15 +355,50 @@ describe('Conversations', () => {
     stream.end()
   })
 
+  it('should only stream dm groups', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const user4 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
+    const asyncStream = new AsyncStream<NapiGroup>(undefined)
+    const stream = client3.conversations().streamDms(asyncStream.callback)
+    const group1 = await client1
+      .conversations()
+      .createGroup([user3.account.address])
+    const group2 = await client2
+      .conversations()
+      .createGroup([user3.account.address])
+    const group3 = await client4.conversations().createDm(user3.account.address)
+    let count = 0
+    for await (const convo of asyncStream) {
+      count++
+      expect(convo).toBeDefined()
+      if (count === 1) {
+        expect(convo!.id).toBe(group3.id)
+        break
+      }
+    }
+    expect(count).toBe(1)
+    asyncStream.stop()
+    stream.end()
+  })
+
   it('should stream all messages', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const user3 = createUser()
+    const user4 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
     await client1.conversations().createGroup([user2.account.address])
     await client1.conversations().createGroup([user3.account.address])
+    await client1.conversations().createDm(user4.account.address)
 
     const asyncStream = new AsyncStream<NapiMessage>(undefined)
     const stream = client1
@@ -266,6 +413,65 @@ describe('Conversations', () => {
     await groups3.sync()
     const groupsList3 = await groups3.list()
 
+    const groups4 = await client4.conversations()
+    await groups4.sync()
+    const groupsList4 = await groups4.list()
+
+    await groupsList2[0].send(encodeTextMessage('gm!'))
+    await groupsList3[0].send(encodeTextMessage('gm2!'))
+    await groupsList4[0].send(encodeTextMessage('gm3!'))
+
+    let count = 0
+
+    for await (const message of asyncStream) {
+      count++
+      expect(message).toBeDefined()
+      if (count === 1) {
+        expect(message!.senderInboxId).toBe(client2.inboxId())
+      }
+      if (count === 2) {
+        expect(message!.senderInboxId).toBe(client3.inboxId())
+      }
+      if (count === 3) {
+        expect(message!.senderInboxId).toBe(client4.inboxId())
+        break
+      }
+    }
+    asyncStream.stop()
+    stream.end()
+  })
+
+  it('should only stream group chat messages', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const user4 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
+    await client1.conversations().createGroup([user2.account.address])
+    await client1.conversations().createGroup([user3.account.address])
+    await client1.conversations().createDm(user4.account.address)
+
+    const asyncStream = new AsyncStream<NapiMessage>(undefined)
+    const stream = client1
+      .conversations()
+      .streamAllGroupMessages(asyncStream.callback)
+
+    const groups2 = client2.conversations()
+    await groups2.sync()
+    const groupsList2 = await groups2.list()
+
+    const groups3 = client3.conversations()
+    await groups3.sync()
+    const groupsList3 = await groups3.list()
+
+    const groups4 = await client4.conversations()
+    await groups4.sync()
+    const groupsList4 = await groups4.list()
+
+    await groupsList4[0].send(encodeTextMessage('gm3!'))
     await groupsList2[0].send(encodeTextMessage('gm!'))
     await groupsList3[0].send(encodeTextMessage('gm2!'))
 
@@ -279,6 +485,54 @@ describe('Conversations', () => {
       }
       if (count === 2) {
         expect(message!.senderInboxId).toBe(client3.inboxId())
+        break
+      }
+    }
+    asyncStream.stop()
+    stream.end()
+  })
+
+  it('should only stream dm messages', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const user4 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const client3 = await createRegisteredClient(user3)
+    const client4 = await createRegisteredClient(user4)
+    await client1.conversations().createGroup([user2.account.address])
+    await client1.conversations().createGroup([user3.account.address])
+    await client1.conversations().createDm(user4.account.address)
+
+    const asyncStream = new AsyncStream<NapiMessage>(undefined)
+    const stream = client1
+      .conversations()
+      .streamAllDmMessages(asyncStream.callback)
+
+    const groups2 = client2.conversations()
+    await groups2.sync()
+    const groupsList2 = await groups2.list()
+
+    const groups3 = client3.conversations()
+    await groups3.sync()
+    const groupsList3 = await groups3.list()
+
+    const groups4 = await client4.conversations()
+    await groups4.sync()
+    const groupsList4 = await groups4.list()
+
+    await groupsList2[0].send(encodeTextMessage('gm!'))
+    await groupsList3[0].send(encodeTextMessage('gm2!'))
+    await groupsList4[0].send(encodeTextMessage('gm3!'))
+
+    let count = 0
+
+    for await (const message of asyncStream) {
+      count++
+      expect(message).toBeDefined()
+      if (count === 1) {
+        expect(message!.senderInboxId).toBe(client4.inboxId())
         break
       }
     }

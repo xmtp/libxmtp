@@ -160,15 +160,7 @@ impl NapiGroup {
 
   #[napi]
   pub fn find_messages(&self, opts: Option<NapiListMessagesOptions>) -> Result<Vec<NapiMessage>> {
-    let opts = match opts {
-      Some(options) => options,
-      None => NapiListMessagesOptions {
-        sent_before_ns: None,
-        sent_after_ns: None,
-        limit: None,
-        delivery_status: None,
-      },
-    };
+    let opts = opts.unwrap_or_default();
 
     let group = MlsGroup::new(
       self.inner_client.clone(),
@@ -177,6 +169,7 @@ impl NapiGroup {
     );
 
     let delivery_status = opts.delivery_status.map(|status| status.into());
+    let direction = opts.direction.map(|dir| dir.into());
 
     let messages: Vec<NapiMessage> = group
       .find_messages(
@@ -184,7 +177,8 @@ impl NapiGroup {
           .maybe_sent_before_ns(opts.sent_before_ns)
           .maybe_sent_after_ns(opts.sent_after_ns)
           .maybe_delivery_status(delivery_status)
-          .maybe_limit(opts.limit),
+          .maybe_limit(opts.limit)
+          .maybe_direction(direction),
       )
       .map_err(ErrorWrapper::from)?
       .into_iter()
@@ -643,5 +637,16 @@ impl NapiGroup {
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
+  }
+
+  #[napi]
+  pub fn dm_peer_inbox_id(&self) -> Result<String> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    Ok(group.dm_inbox_id().map_err(ErrorWrapper::from)?)
   }
 }
