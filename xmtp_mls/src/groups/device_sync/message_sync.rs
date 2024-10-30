@@ -81,14 +81,7 @@ pub(crate) mod tests {
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
-    use crate::{
-        assert_ok,
-        builder::ClientBuilder,
-        groups::{
-            scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
-            GroupMetadataOptions,
-        },
-    };
+    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
     use mockito;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;

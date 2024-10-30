@@ -105,7 +105,7 @@ pub(crate) mod tests {
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
 
         // Ensure that consent record now exists.
-        let syncable_consent_records = amal_a.syncable_consent_records(&amal_a_conn).unwrap();
+        let syncable_consent_records = amal_a.syncable_consent_records(amal_a_conn).unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
         // The first installation should have zero sync groups.
@@ -115,7 +115,6 @@ pub(crate) mod tests {
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
         // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
