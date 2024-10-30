@@ -119,7 +119,7 @@ class DmTest {
 
         assertEquals(
             runBlocking
-            { dm.peerInboxId() },
+            { dm.peerInboxId },
             alixClient.inboxId,
         )
     }

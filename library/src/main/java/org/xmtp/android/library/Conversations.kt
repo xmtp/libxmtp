@@ -49,6 +49,7 @@ import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiPermissionPolicySet
+import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiV2SubscribeRequest
 import uniffi.xmtpv3.FfiV2Subscription
 import uniffi.xmtpv3.FfiV2SubscriptionCallback
@@ -561,6 +562,10 @@ data class Conversations(
                     trySend(Conversation.Group(Group(client, conversation)))
                 }
             }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP Conversation stream", error.message.toString())
+            }
         }
         val stream = libXMTPConversations?.stream(conversationCallback)
             ?: throw XMTPException("Client does not support Groups")
@@ -571,6 +576,10 @@ data class Conversations(
         val groupCallback = object : FfiConversationCallback {
             override fun onConversation(conversation: FfiConversation) {
                 trySend(Conversation.Group(Group(client, conversation)))
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP Conversation stream", error.message.toString())
             }
         }
 
@@ -583,6 +592,10 @@ data class Conversations(
         val groupCallback = object : FfiConversationCallback {
             override fun onConversation(conversation: FfiConversation) {
                 trySend(Group(client, conversation))
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP Group stream", error.message.toString())
             }
         }
         val stream = libXMTPConversations?.streamGroups(groupCallback)
@@ -614,6 +627,10 @@ data class Conversations(
                     trySend(it)
                 }
             }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP all group message stream", error.message.toString())
+            }
         }
         val stream = libXMTPConversations?.streamAllGroupMessages(messageCallback)
             ?: throw XMTPException("Client does not support Groups")
@@ -627,6 +644,10 @@ data class Conversations(
                 decryptedMessage?.let {
                     trySend(it)
                 }
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP all group message stream", error.message.toString())
             }
         }
         val stream = libXMTPConversations?.streamAllGroupMessages(messageCallback)
@@ -649,6 +670,10 @@ data class Conversations(
                         decodedMessage?.let { trySend(it) }
                     }
                 }
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP all message stream", error.message.toString())
             }
         }
 
@@ -674,6 +699,10 @@ data class Conversations(
                         decryptedMessage?.let { trySend(it) }
                     }
                 }
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP all message stream", error.message.toString())
             }
         }
 

@@ -317,7 +317,7 @@ sealed class Conversation {
                 is V1 -> conversationV1.peerAddress
                 is V2 -> conversationV2.peerAddress
                 is Group -> runBlocking { group.peerInboxIds().joinToString(",") }
-                is Dm -> runBlocking { dm.peerInboxId() }
+                is Dm -> dm.peerInboxId
             }
         }
 
@@ -327,7 +327,7 @@ sealed class Conversation {
                 is V1 -> listOf(conversationV1.peerAddress)
                 is V2 -> listOf(conversationV2.peerAddress)
                 is Group -> runBlocking { group.peerInboxIds() }
-                is Dm -> runBlocking { listOf(dm.peerInboxId()) }
+                is Dm -> listOf(dm.peerInboxId)
             }
         }
 
