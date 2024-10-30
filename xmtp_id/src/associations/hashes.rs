@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 
+/// Helper function to generate a SHA256 hash as a hex string.
 fn sha256_string(input: String) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
@@ -7,6 +8,18 @@ fn sha256_string(input: String) -> String {
     format!("{:x}", result)
 }
 
-pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> String {
-    sha256_string(format!("{}{}", account_address.to_lowercase(), nonce))
+/// Validates that the account address is exactly 42 characters, starts with "0x", 
+/// and contains only valid hex digits.
+fn is_valid_address(account_address: &str) -> bool {
+    account_address.len() == 42
+        && account_address.starts_with("0x")
+        && account_address[2..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Generates an inbox ID if the account address is valid.
+pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> Result<String, String> {
+    if !is_valid_address(account_address) {
+        return Err("Invalid account address: Must be 42 hex characters, starting with '0x'.".to_string());
+    }
+    Ok(sha256_string(format!("{}{}", account_address.to_lowercase(), nonce)))
 }
