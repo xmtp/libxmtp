@@ -1,5 +1,7 @@
-use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+use crate::mls_client::WasmClient;
 
 #[wasm_bindgen]
 #[derive(Clone, serde::Serialize)]
@@ -73,5 +75,36 @@ impl From<WasmConsent> for StoredConsentRecord {
       state: consent.state.into(),
       entity: consent.entity,
     }
+  }
+}
+
+#[wasm_bindgen]
+impl WasmClient {
+  #[wasm_bindgen(js_name = setConsentStates)]
+  pub async fn set_consent_states(&self, records: Vec<WasmConsent>) -> Result<(), JsError> {
+    let stored_records: Vec<StoredConsentRecord> =
+      records.into_iter().map(StoredConsentRecord::from).collect();
+
+    self
+      .inner_client()
+      .set_consent_states(&stored_records)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = getConsentState)]
+  pub async fn get_consent_state(
+    &self,
+    entity_type: WasmConsentEntityType,
+    entity: String,
+  ) -> Result<WasmConsentState, JsError> {
+    let result = self
+      .inner_client()
+      .get_consent_state(entity_type.into(), entity)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(result.into())
   }
 }

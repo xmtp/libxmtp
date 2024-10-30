@@ -11,11 +11,9 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 
-use crate::consent_state::{WasmConsent, WasmConsentEntityType, WasmConsentState};
 use crate::conversations::WasmConversations;
 use crate::inbox_state::WasmInboxState;
 
@@ -353,34 +351,6 @@ impl WasmClient {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(state.into())
-  }
-
-  #[wasm_bindgen(js_name = setConsentStates)]
-  pub async fn set_consent_states(&self, records: Vec<WasmConsent>) -> Result<(), JsError> {
-    let inner = self.inner_client.as_ref();
-    let stored_records: Vec<StoredConsentRecord> =
-      records.into_iter().map(StoredConsentRecord::from).collect();
-
-    inner
-      .set_consent_states(&stored_records)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = getConsentState)]
-  pub async fn get_consent_state(
-    &self,
-    entity_type: WasmConsentEntityType,
-    entity: String,
-  ) -> Result<WasmConsentState, JsError> {
-    let inner = self.inner_client.as_ref();
-    let result = inner
-      .get_consent_state(entity_type.into(), entity)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(result.into())
   }
 
   #[wasm_bindgen]
