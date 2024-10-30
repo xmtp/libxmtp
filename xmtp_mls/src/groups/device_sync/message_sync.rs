@@ -129,9 +129,9 @@ pub(crate) mod tests {
         group.send_message(&[1, 2, 3]).await.unwrap();
 
         // Ensure that groups and messages now exists.
-        let syncable_groups = amal_a.syncable_groups(&amal_a_conn).unwrap();
+        let syncable_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
         assert_eq!(syncable_groups.len(), 1);
-        let syncable_messages = amal_a.syncable_messages(&amal_a_conn).unwrap();
+        let syncable_messages = amal_a.syncable_messages(amal_a_conn).unwrap();
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // The first installation should have zero sync groups.
@@ -172,8 +172,8 @@ pub(crate) mod tests {
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(
             &[
-                amal_a.syncable_groups(&amal_a_conn).unwrap(),
-                amal_a.syncable_messages(&amal_a_conn).unwrap(),
+                amal_a.syncable_groups(amal_a_conn).unwrap(),
+                amal_a.syncable_messages(amal_a_conn).unwrap(),
             ],
             reply.encryption_key.unwrap().try_into().unwrap(),
         )
@@ -188,8 +188,8 @@ pub(crate) mod tests {
             .create();
 
         // The second installation has no groups
-        assert_eq!(amal_b.syncable_groups(&amal_b_conn).unwrap().len(), 0);
-        assert_eq!(amal_b.syncable_messages(&amal_b_conn).unwrap().len(), 0);
+        assert_eq!(amal_b.syncable_groups(amal_b_conn).unwrap().len(), 0);
+        assert_eq!(amal_b.syncable_messages(amal_b_conn).unwrap().len(), 0);
 
         // Have the second installation process the reply.
         amal_b
@@ -198,10 +198,10 @@ pub(crate) mod tests {
             .unwrap();
 
         // Load consents of both installations
-        let groups_a = amal_a.syncable_groups(&amal_a_conn).unwrap();
-        let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
-        let messages_a = amal_a.syncable_messages(&amal_a_conn).unwrap();
-        let messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap();
+        let groups_a = amal_a.syncable_groups(amal_a_conn).unwrap();
+        let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
+        let messages_a = amal_a.syncable_messages(amal_a_conn).unwrap();
+        let messages_b = amal_b.syncable_messages(amal_b_conn).unwrap();
 
         // Ensure the groups and messages are synced.
         assert_eq!(groups_a.len(), 1);
