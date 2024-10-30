@@ -142,7 +142,6 @@ where
         mut api_client,
         mut store,
         identity_strategy,
-        #[cfg(feature = "message-history")]
         history_sync_url,
         app_version,
         mut scw_verifier,
@@ -185,7 +184,6 @@ where
     )
     .await?;
 
-    #[cfg(feature = "message-history")]
     let client = Client::new(
         api_client_wrapper,
         identity,
@@ -193,9 +191,6 @@ where
         scw_verifier,
         history_sync_url,
     );
-
-    #[cfg(not(feature = "message-history"))]
-    let client = Client::new(api_client_wrapper, identity, store, scw_verifier);
 
     Ok(client)
 }

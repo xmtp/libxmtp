@@ -20,7 +20,8 @@ use kv_log_macro::{error, info};
 use prost::Message;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::client::FindGroupParams;
-use xmtp_mls::groups::message_history::MessageHistoryContent;
+
+use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 
 use crate::{
@@ -39,7 +40,7 @@ use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
-    groups::{message_history::MessageHistoryUrls, GroupMetadataOptions},
+    groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
@@ -117,6 +118,7 @@ enum Commands {
     RequestHistorySync {},
     ReplyToHistorySyncRequest {},
     ProcessHistorySyncReply {},
+    ProcessConsentSyncReply {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
@@ -203,9 +205,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
 
             client
-                .sync_welcomes()
+                .sync_welcomes(&conn)
                 .await
                 .expect("failed to sync welcomes");
 
@@ -283,7 +286,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(account_addresses.clone())
+                .add_members(account_addresses)
                 .await
                 .expect("failed to add member");
 
@@ -305,7 +308,7 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(account_addresses.clone())
+                .remove_members(account_addresses)
                 .await
                 .expect("failed to add member");
 
@@ -349,9 +352,11 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            client.sync_welcomes().await.unwrap();
-            client.enable_history_sync().await.unwrap();
-            let (group_id, _) = client.send_history_request().await.unwrap();
+            let conn = client.store().conn().unwrap();
+            let provider = client.mls_provider().unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
+            client.enable_sync(&provider).await.unwrap();
+            let (group_id, _) = client.send_history_sync_request(&provider).await.unwrap();
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
@@ -359,9 +364,13 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let provider = client.mls_provider().unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
-            let reply = client.reply_to_history_request().await.unwrap();
+            let reply = client
+                .reply_to_history_sync_request(&provider)
+                .await
+                .unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);
@@ -370,18 +379,34 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            client.sync_welcomes().await.unwrap();
-            client.enable_history_sync().await.unwrap();
-            client.process_history_reply().await.unwrap();
+            let conn = client.store().conn().unwrap();
+            let provider = client.mls_provider().unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
+            client.enable_sync(&provider).await.unwrap();
+            client.process_history_sync_reply(&provider).await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
+        }
+        Commands::ProcessConsentSyncReply {} => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let conn = client.store().conn().unwrap();
+            let provider = client.mls_provider().unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
+            client.enable_sync(&provider).await.unwrap();
+            client.process_consent_sync_reply(&provider).await.unwrap();
+
+            info!("Consent bundle downloaded and inserted into user DB", {})
         }
         Commands::ListHistorySyncMessages {} => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            client.sync_welcomes().await.unwrap();
-            client.enable_history_sync().await.unwrap();
+            let conn = client.store().conn().unwrap();
+            let provider = client.mls_provider().unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
+            client.enable_sync(&provider).await.unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await.unwrap();
@@ -390,15 +415,14 @@ async fn main() {
                 .unwrap();
             info!("Listing history sync messages", { group_id: group_id_str, messages: messages.len()});
             for message in messages {
-                let message_history_content = serde_json::from_slice::<MessageHistoryContent>(
-                    &message.decrypted_message_bytes,
-                );
+                let message_history_content =
+                    serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes);
 
                 match message_history_content {
-                    Ok(MessageHistoryContent::Request(ref request)) => {
+                    Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(MessageHistoryContent::Reply(ref reply)) => {
+                    Ok(DeviceSyncContent::Reply(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {
@@ -483,7 +507,8 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
 }
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
-    client.sync_welcomes().await?;
+    let conn = client.store().conn().unwrap();
+    client.sync_welcomes(&conn).await?;
     let group = client.group(group_id)?;
     group
         .sync()

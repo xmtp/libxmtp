@@ -1,5 +1,14 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 
+use super::{
+    consent_record::StoredConsentRecord,
+    db_connection::DbConnection,
+    schema::groups::{self, dsl},
+    Sqlite,
+};
+use crate::{
+    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
+};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -8,17 +17,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-
 use serde::{Deserialize, Serialize};
-
-use super::{
-    db_connection::DbConnection,
-    schema::{groups, groups::dsl},
-    Sqlite,
-};
-use crate::{
-    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
-};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -42,10 +41,10 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The last time the leaf node encryption key was rotated
-    pub rotated_at_ns: i64,
     /// The inbox_id of the DM target
     pub dm_inbox_id: Option<String>,
+    /// The last time the leaf node encryption key was rotated
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -162,12 +161,17 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
-    /// Return only the [`Purpose::Sync`] groups
-    pub fn find_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-        query = query.filter(dsl::purpose.eq(Purpose::Sync));
+    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
+    }
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+    pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::purpose.eq(Purpose::Sync))
+            .limit(1);
+
+        Ok(self.raw_query(|conn| query.load(conn))?.pop())
     }
 
     /// Return a single group that matches the given ID
@@ -537,8 +541,8 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.find_sync_groups().unwrap();
-            assert_eq!(synced_groups.len(), 0);
+            let synced_groups = conn.latest_sync_group().unwrap();
+            assert!(synced_groups.is_none());
 
             // test that dm groups are included
             let dm_results = conn.find_groups(None, None, None, None, None).unwrap();
@@ -617,9 +621,9 @@ pub(crate) mod tests {
 
             sync_group.store(conn).unwrap();
 
-            let found = conn.find_sync_groups().unwrap();
-            assert_eq!(found.len(), 1);
-            assert_eq!(found[0].purpose, Purpose::Sync)
+            let found = conn.latest_sync_group().unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().purpose, Purpose::Sync)
         })
         .await
     }

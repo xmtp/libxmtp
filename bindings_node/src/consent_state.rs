@@ -74,7 +74,7 @@ impl NapiClient {
 
     self
       .inner_client()
-      .set_consent_states(stored_records)
+      .set_consent_states(&stored_records)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())

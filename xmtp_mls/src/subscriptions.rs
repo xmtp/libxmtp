@@ -267,7 +267,8 @@ where
         conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
     {
-        self.sync_welcomes().await?;
+        let conn = self.store().conn()?;
+        self.sync_welcomes(&conn).await?;
 
         let mut group_id_to_info = self
             .store()
@@ -426,7 +427,7 @@ pub(crate) mod tests {
 
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
-            .add_members_by_inbox_id(vec![bob.inbox_id()])
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -449,10 +450,13 @@ pub(crate) mod tests {
 
         // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
-            .add_members_by_inbox_id(vec![bob.inbox_id()])
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_group = bob.sync_welcomes().await.unwrap();
+        let bob_group = bob
+            .sync_welcomes(&bob.store().conn().unwrap())
+            .await
+            .unwrap();
         let bob_group = bob_group.first().unwrap();
 
         let notify = Delivery::new(None);
@@ -495,7 +499,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -503,7 +507,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
         crate::sleep(core::time::Duration::from_millis(100)).await;
@@ -556,7 +560,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -584,7 +588,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -604,7 +608,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group_2
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -654,7 +658,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -687,7 +691,7 @@ pub(crate) mod tests {
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
             new_group
-                .add_members_by_inbox_id(vec![caro.inbox_id()])
+                .add_members_by_inbox_id(&[caro.inbox_id()])
                 .await
                 .unwrap();
             new_group
@@ -747,7 +751,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![alix.inbox_id()])
+            .add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
 
@@ -759,7 +763,9 @@ pub(crate) mod tests {
         }
 
         // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes().await.unwrap();
+        alix.sync_welcomes(&alix.store().conn().unwrap())
+            .await
+            .unwrap();
         let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
 
         {
@@ -801,7 +807,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -833,7 +839,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -869,7 +875,7 @@ pub(crate) mod tests {
         }
 
         let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
-        dm.add_members_by_inbox_id(vec![alix.inbox_id()])
+        dm.add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -882,7 +888,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -905,7 +911,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 

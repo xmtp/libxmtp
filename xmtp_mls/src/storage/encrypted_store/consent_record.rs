@@ -17,7 +17,7 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
@@ -60,7 +60,7 @@ impl DbConnection {
     /// Insert consent_records, and replace existing entries
     pub fn insert_or_replace_consent_records(
         &self,
-        records: Vec<StoredConsentRecord>,
+        records: &[StoredConsentRecord],
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| -> diesel::QueryResult<_> {
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -77,6 +77,30 @@ impl DbConnection {
         })?;
 
         Ok(())
+    }
+
+    pub fn maybe_insert_consent_record_return_existing(
+        &self,
+        record: &StoredConsentRecord,
+    ) -> Result<Option<StoredConsentRecord>, StorageError> {
+        self.raw_query(|conn| {
+            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+                diesel::insert_into(dsl::consent_records)
+                    .values(record)
+                    .on_conflict_do_nothing()
+                    .get_result(conn)
+                    .optional()?;
+
+            // if record was not inserted...
+            if maybe_inserted_consent_record.is_none() {
+                return Ok(dsl::consent_records
+                    .find((&record.entity_type, &record.entity))
+                    .first(conn)
+                    .optional()?);
+            }
+
+            Ok(None)
+        })
     }
 }
 
@@ -186,7 +210,7 @@ mod tests {
             );
             let consent_record_entity = consent_record.entity.clone();
 
-            conn.insert_or_replace_consent_records(vec![consent_record])
+            conn.insert_or_replace_consent_records(&[consent_record])
                 .expect("should store without error");
 
             let consent_record = conn
@@ -194,6 +218,27 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
+
+            let conflict = generate_consent_record(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                inbox_id.to_string(),
+            );
+
+            let existing = conn
+                .maybe_insert_consent_record_return_existing(&conflict)
+                .unwrap();
+            assert!(existing.is_some());
+            let existing = existing.unwrap();
+            // we want the old record to be returned.
+            assert_eq!(existing.state, ConsentState::Denied);
+
+            let db_cr = conn
+                .get_consent_record(existing.entity, existing.entity_type)
+                .unwrap()
+                .unwrap();
+            // ensure the db matches the state of what was returned
+            assert_eq!(db_cr.state, existing.state);
         })
         .await;
     }
