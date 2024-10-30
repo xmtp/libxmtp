@@ -107,7 +107,10 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub async fn enable_history_sync(&self) -> Result<(), GroupError> {
+    pub async fn enable_history_sync(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), GroupError> {
         // look for the sync group, create if not found
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
@@ -118,7 +121,7 @@ where
         };
 
         // sync the group
-        sync_group.sync().await?;
+        sync_group.sync_with_conn(provider).await?;
 
         Ok(())
     }
@@ -132,10 +135,10 @@ where
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync().await?;
+        sync_group.sync_with_conn(provider).await?;
 
         // lookup if a request has already been made
-        if let Ok((_msg, request)) = self.pending_sync_request(request.kind).await {
+        if let Ok((_msg, request)) = self.pending_sync_request(provider, request.kind).await {
             return Ok((request.request_id, request.pin_code));
         }
 
@@ -167,16 +170,17 @@ where
 
     async fn send_sync_reply(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
+        let conn = provider.conn_ref();
         // find the sync group
         let sync_group = self.get_sync_group()?;
 
         // sync the group
-        sync_group.sync().await?;
+        sync_group.sync_with_conn(provider).await?;
 
-        let (msg, _request) = self.pending_sync_request(contents.kind()).await?;
+        let (msg, _request) = self.pending_sync_request(provider, contents.kind()).await?;
 
         // add original sender to all groups on this device on the node
         self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
@@ -211,11 +215,11 @@ where
 
     async fn pending_sync_request(
         &self,
+        provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
-
-        sync_group.sync().await?;
+        sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
@@ -240,11 +244,12 @@ where
     /// Look for sync reply by kind, returns NoReplyToProcess error if not found.
     async fn sync_reply(
         &self,
+        provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
 
-        sync_group.sync().await?;
+        sync_group.sync_with_conn(provider).await?;
         let messages = sync_group
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
@@ -267,10 +272,11 @@ where
 
     async fn process_sync_reply(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(), DeviceSyncError> {
-        let reply = self.sync_reply(kind).await?;
+        let reply = self.sync_reply(provider, kind).await?;
+        let conn = provider.conn_ref();
 
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
         if time_diff > NS_IN_HOUR as u64 {
@@ -283,7 +289,7 @@ where
         };
 
         let enc_payload = download_history_payload(&reply.url).await?;
-        insert_encrypted_syncables(&conn, enc_payload, &enc_key.try_into()?)?;
+        insert_encrypted_syncables(conn, enc_payload, &enc_key.try_into()?)?;
 
         self.sync_welcomes().await?;
 

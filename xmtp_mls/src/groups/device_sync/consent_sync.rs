@@ -14,11 +14,14 @@ where
 
     pub async fn reply_to_consent_sync_request(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let (_msg, request) = self.pending_sync_request(DeviceSyncKind::Consent).await?;
+        let conn = provider.conn_ref();
+        let (_msg, request) = self
+            .pending_sync_request(provider, DeviceSyncKind::Consent)
+            .await?;
 
-        let consent_records = self.syncable_consent_records()?;
+        let consent_records = self.syncable_consent_records(conn)?;
 
         let reply = self
             .create_sync_reply(
@@ -27,20 +30,23 @@ where
                 DeviceSyncKind::Consent,
             )
             .await?;
-        self.send_sync_reply(conn, reply.clone()).await?;
+        self.send_sync_reply(provider, reply.clone()).await?;
 
         Ok(reply)
     }
 
     pub async fn process_consent_sync_reply(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        self.process_sync_reply(conn, DeviceSyncKind::Consent).await
+        self.process_sync_reply(provider, DeviceSyncKind::Consent)
+            .await
     }
 
-    fn syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let conn = self.store().conn()?;
+    fn syncable_consent_records(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
         let consent_records = conn
             .consent_records()?
             .into_iter()
@@ -86,7 +92,8 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
-        let amal_a_conn = amal_a.store().conn().unwrap();
+        let amal_a_provider = amal_a.mls_provider().unwrap();
+        let amal_a_conn = amal_a_provider.conn_ref();
 
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
@@ -98,7 +105,7 @@ pub(crate) mod tests {
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
 
         // Ensure that consent record now exists.
-        let syncable_consent_records = amal_a.syncable_consent_records().unwrap();
+        let syncable_consent_records = amal_a.syncable_consent_records(&amal_a_conn).unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
         // The first installation should have zero sync groups.
@@ -107,9 +114,10 @@ pub(crate) mod tests {
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b_conn = amal_b.store().conn().unwrap();
+        let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_conn = amal_b_provider.conn_ref();
         // Turn on history sync for the second installation.
-        assert_ok!(amal_b.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         // Have the second installation request for a consent sync.
@@ -128,13 +136,13 @@ pub(crate) mod tests {
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
         let reply = amal_a
-            .reply_to_consent_sync_request(&amal_a_conn)
+            .reply_to_consent_sync_request(&amal_a_provider)
             .await
             .unwrap();
 
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a.syncable_consent_records().unwrap()],
+            &[amal_a.syncable_consent_records(amal_a_conn).unwrap()],
             reply.encryption_key.unwrap().try_into().unwrap(),
         )
         .unwrap();
@@ -153,7 +161,7 @@ pub(crate) mod tests {
 
         // Have the second installation process the reply.
         amal_b
-            .process_consent_sync_reply(&amal_b_conn)
+            .process_consent_sync_reply(&amal_b_provider)
             .await
             .unwrap();
 

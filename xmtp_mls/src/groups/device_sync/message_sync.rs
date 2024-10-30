@@ -18,10 +18,11 @@ where
 
     pub async fn reply_to_history_sync_request(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+        let conn = provider.conn_ref();
         let (_msg, request) = self
-            .pending_sync_request(DeviceSyncKind::MessageHistory)
+            .pending_sync_request(provider, DeviceSyncKind::MessageHistory)
             .await?;
 
         let groups = self.syncable_groups(conn)?;
@@ -34,16 +35,16 @@ where
                 DeviceSyncKind::MessageHistory,
             )
             .await?;
-        self.send_sync_reply(conn, reply.clone()).await?;
+        self.send_sync_reply(provider, reply.clone()).await?;
 
         Ok(reply)
     }
 
     pub async fn process_history_sync_reply(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        self.process_sync_reply(conn, DeviceSyncKind::MessageHistory)
+        self.process_sync_reply(provider, DeviceSyncKind::MessageHistory)
             .await
     }
 
@@ -80,7 +81,14 @@ pub(crate) mod tests {
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
-    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{
+        assert_ok,
+        builder::ClientBuilder,
+        groups::{
+            scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
+            GroupMetadataOptions,
+        },
+    };
     use mockito;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
@@ -89,7 +97,11 @@ pub(crate) mod tests {
     async fn test_enable_history_sync() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(client.enable_history_sync().await);
+        assert_ok!(
+            client
+                .enable_history_sync(&client.mls_provider().unwrap())
+                .await
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -113,6 +125,7 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
+        let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a.store().conn().unwrap();
 
         // Create an alix client.
@@ -142,9 +155,10 @@ pub(crate) mod tests {
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b.store().conn().unwrap();
         // Turn on history sync for the second installation.
-        assert_ok!(amal_b.enable_history_sync().await);
+        assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes().await.expect("sync_welcomes");
         // Have the second installation request for a consent sync.
@@ -163,7 +177,7 @@ pub(crate) mod tests {
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
         let reply = amal_a
-            .reply_to_history_sync_request(&amal_a_conn)
+            .reply_to_history_sync_request(&amal_a_provider)
             .await
             .unwrap();
 
@@ -191,7 +205,7 @@ pub(crate) mod tests {
 
         // Have the second installation process the reply.
         amal_b
-            .process_history_sync_reply(&amal_b_conn)
+            .process_history_sync_reply(&amal_b_provider)
             .await
             .unwrap();
 
@@ -235,12 +249,19 @@ pub(crate) mod tests {
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal.enable_history_sync().await);
+        assert_ok!(
+            amal.enable_history_sync(&amal.mls_provider().unwrap())
+                .await
+        );
         amal.sync_welcomes().await.expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
         let external_client = ClientBuilder::new_test_client(&external_wallet).await;
-        assert_ok!(external_client.enable_history_sync().await);
+        assert_ok!(
+            external_client
+                .enable_history_sync(&external_client.mls_provider().unwrap())
+                .await
+        );
         external_client
             .sync_welcomes()
             .await
