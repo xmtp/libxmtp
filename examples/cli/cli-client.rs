@@ -205,9 +205,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
 
             client
-                .sync_welcomes()
+                .sync_welcomes(&conn)
                 .await
                 .expect("failed to sync welcomes");
 
@@ -351,8 +352,9 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes().await.unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
             client.enable_history_sync(&provider).await.unwrap();
             let (group_id, _) = client.send_history_sync_request().await.unwrap();
             let group_id_str = hex::encode(group_id);
@@ -377,8 +379,9 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes().await.unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
             client.enable_history_sync(&provider).await.unwrap();
             client.process_history_sync_reply(&provider).await.unwrap();
 
@@ -388,8 +391,9 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes().await.unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
             client.enable_history_sync(&provider).await.unwrap();
             client.process_consent_sync_reply(&provider).await.unwrap();
 
@@ -399,8 +403,9 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes().await.unwrap();
+            client.sync_welcomes(&conn).await.unwrap();
             client.enable_history_sync(&provider).await.unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id.clone());
@@ -502,7 +507,8 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
 }
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
-    client.sync_welcomes().await?;
+    let conn = client.store().conn().unwrap();
+    client.sync_welcomes(&conn).await?;
     let group = client.group(group_id)?;
     group
         .sync()

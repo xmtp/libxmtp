@@ -119,7 +119,7 @@ pub(crate) mod tests {
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a.store().conn().unwrap();
+        let amal_a_conn = amal_a_provider.conn_ref();
 
         // Create an alix client.
         let alix_wallet = generate_local_wallet();
@@ -149,11 +149,14 @@ pub(crate) mod tests {
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b.store().conn().unwrap();
+        let amal_b_conn = amal_b_provider.conn_ref();
         // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
+        amal_a
+            .sync_welcomes(amal_a_conn)
+            .await
+            .expect("sync_welcomes");
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
             .send_history_sync_request()
@@ -246,7 +249,9 @@ pub(crate) mod tests {
             amal.enable_history_sync(&amal.mls_provider().unwrap())
                 .await
         );
-        amal.sync_welcomes().await.expect("sync welcomes");
+        amal.sync_welcomes(&amal.store().conn().unwrap())
+            .await
+            .expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
         let external_client = ClientBuilder::new_test_client(&external_wallet).await;
@@ -256,7 +261,7 @@ pub(crate) mod tests {
                 .await
         );
         external_client
-            .sync_welcomes()
+            .sync_welcomes(&external_client.store().conn().unwrap())
             .await
             .expect("sync welcomes");
 

@@ -822,7 +822,8 @@ impl FfiConversations {
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        inner.sync_welcomes().await?;
+        let conn = inner.store().conn()?;
+        inner.sync_welcomes(&conn).await?;
         Ok(())
     }
 
@@ -3019,6 +3020,8 @@ mod tests {
         let bo = new_test_client().await;
         let caro = new_test_client().await;
 
+        let caro_conn = caro.inner_client.store().conn().unwrap();
+
         let alix_group = alix
             .conversations()
             .create_group(
@@ -3047,7 +3050,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = caro.inner_client.sync_welcomes().await.unwrap();
+        let _ = caro.inner_client.sync_welcomes(&caro_conn).await.unwrap();
 
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -3066,6 +3069,8 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
+        let bola_conn = bola.inner_client.store().conn().unwrap();
+
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
@@ -3075,7 +3080,7 @@ mod tests {
             .await
             .unwrap();
 
-        bola.inner_client.sync_welcomes().await.unwrap();
+        bola.inner_client.sync_welcomes(&bola_conn).await.unwrap();
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = RustStreamCallback::default();

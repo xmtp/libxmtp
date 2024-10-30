@@ -167,9 +167,14 @@ impl WasmConversations {
 
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .sync_welcomes()
+      .sync_welcomes(&conn)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(())

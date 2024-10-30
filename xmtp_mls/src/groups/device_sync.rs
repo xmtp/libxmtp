@@ -291,7 +291,7 @@ where
         let enc_payload = download_history_payload(&reply.url).await?;
         insert_encrypted_syncables(conn, enc_payload, &enc_key.try_into()?)?;
 
-        self.sync_welcomes().await?;
+        self.sync_welcomes(provider.conn_ref()).await?;
 
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {

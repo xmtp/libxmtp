@@ -118,7 +118,11 @@ pub(crate) mod tests {
         // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync(&amal_b_provider).await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a.sync_welcomes().await.expect("sync_welcomes");
+        amal_a
+            .sync_welcomes(amal_a_conn)
+            .await
+            .expect("sync_welcomes");
+
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
             .send_consent_sync_request()
@@ -126,7 +130,7 @@ pub(crate) mod tests {
             .expect("history request");
 
         // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        let amal_a_sync_groups = amal_a_conn.latest_sync_group().unwrap();
         assert!(amal_a_sync_groups.is_some());
 
         // Have first installation reply.

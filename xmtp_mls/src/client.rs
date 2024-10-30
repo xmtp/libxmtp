@@ -777,8 +777,11 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self>>, ClientError> {
-        let envelopes = self.query_welcome_messages(&self.store().conn()?).await?;
+    pub async fn sync_welcomes(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+        let envelopes = self.query_welcome_messages(conn).await?;
         let num_envelopes = envelopes.len();
         let id = self.installation_public_key();
 
@@ -1120,14 +1123,20 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+        let bob_received_groups = bob
+            .sync_welcomes(&bob.store().conn().unwrap())
+            .await
+            .unwrap();
         assert_eq!(bob_received_groups.len(), 1);
         assert_eq!(
             bob_received_groups.first().unwrap().group_id,
             alice_bob_group.group_id
         );
 
-        let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
+        let duplicate_received_groups = bob
+            .sync_welcomes(&bob.store().conn().unwrap())
+            .await
+            .unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
@@ -1155,7 +1164,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let bob_received_groups = bo.sync_welcomes().await.unwrap();
+        let bob_received_groups = bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();
@@ -1231,7 +1240,9 @@ pub(crate) mod tests {
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
         tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
-        bola.sync_welcomes().await.unwrap();
+        bola.sync_welcomes(&bola.store().conn().unwrap())
+            .await
+            .unwrap();
         let bola_groups = bola.find_groups(FindGroupParams::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
@@ -1250,7 +1261,9 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
-        bola.sync_welcomes().await.unwrap();
+        bola.sync_welcomes(&bola.store().conn().unwrap())
+            .await
+            .unwrap();
 
         // Send a message from Amal, now that Bola is back in the group
         amal_group
@@ -1340,18 +1353,20 @@ pub(crate) mod tests {
         .await
         .unwrap();
 
-        bo.sync_welcomes().await.unwrap();
+        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
 
         let bo_new_key = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
-        bo.sync_welcomes().await.unwrap();
+        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
         let bo_new_key_2 = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
-        alix.sync_welcomes().await.unwrap();
+        alix.sync_welcomes(&alix.store().conn().unwrap())
+            .await
+            .unwrap();
         let alix_key_2 = get_key_package_init_key(&alix, &alix.installation_public_key()).await;
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
@@ -1363,7 +1378,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        bo.sync_welcomes().await.unwrap();
+        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
 
         // Bo should have two groups now
         let bo_groups = bo.find_groups(FindGroupParams::default()).unwrap();

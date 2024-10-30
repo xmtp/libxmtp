@@ -267,7 +267,8 @@ where
         conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
     {
-        self.sync_welcomes().await?;
+        let conn = self.store().conn()?;
+        self.sync_welcomes(&conn).await?;
 
         let mut group_id_to_info = self
             .store()
@@ -452,7 +453,10 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_group = bob.sync_welcomes().await.unwrap();
+        let bob_group = bob
+            .sync_welcomes(&bob.store().conn().unwrap())
+            .await
+            .unwrap();
         let bob_group = bob_group.first().unwrap();
 
         let notify = Delivery::new(None);
@@ -759,7 +763,9 @@ pub(crate) mod tests {
         }
 
         // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes().await.unwrap();
+        alix.sync_welcomes(&alix.store().conn().unwrap())
+            .await
+            .unwrap();
         let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
 
         {

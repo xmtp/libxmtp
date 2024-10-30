@@ -293,7 +293,10 @@ pub(crate) mod tests {
             .unwrap();
 
         // Get bola's version of the same group
-        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola
+            .sync_welcomes(&bola.store().conn().unwrap())
+            .await
+            .unwrap();
         let bola_group = Arc::new(bola_groups.first().unwrap().clone());
 
         let bola_group_ptr = bola_group.clone();

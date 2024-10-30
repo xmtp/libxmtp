@@ -234,9 +234,14 @@ impl NapiConversations {
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .sync_welcomes()
+      .sync_welcomes(&conn)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
