@@ -451,7 +451,7 @@ pub(crate) mod tests {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(account_address.into(), nonce)
@@ -474,7 +474,7 @@ pub(crate) mod tests {
         let account_address = wallet.get_address();
         let installation_key_id = installation_key.verifying_key().as_bytes().to_vec();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let existing_member_identifier: MemberIdentifier = account_address.into();
         let new_member_identifier: MemberIdentifier = installation_key_id.into();
 
@@ -501,7 +501,7 @@ pub(crate) mod tests {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let existing_member_identifier: MemberIdentifier = account_address.clone().into();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
@@ -526,7 +526,7 @@ pub(crate) mod tests {
     async fn attempt_adding_unknown_signer() {
         let account_address = "account_address".to_string();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(account_address.into(), nonce)
             .build();

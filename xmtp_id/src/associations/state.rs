@@ -180,7 +180,7 @@ impl AssociationState {
     }
 
     pub fn new(account_address: String, nonce: u64, chain_id: Option<u64>) -> Self {
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce)?;
         let identifier = MemberIdentifier::Address(account_address.clone());
         let new_member = Member::new(identifier.clone(), None, None, chain_id);
         Self {

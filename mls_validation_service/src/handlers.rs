@@ -362,7 +362,7 @@ mod tests {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let address = format!("0x{}", hex::encode(wallet.address()));
 
-        let inbox_id = generate_inbox_id(&address, &0);
+        let inbox_id = generate_inbox_id(&address, &0).unwrap();
 
         (inbox_id, signing_key)
     }
@@ -413,7 +413,7 @@ mod tests {
     async fn test_get_association_state() {
         let account_address = rand_string();
         let nonce = rand_u64();
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let update = UnverifiedIdentityUpdate::new_test(
             vec![UnverifiedAction::new_test_create_inbox(
                 &account_address,

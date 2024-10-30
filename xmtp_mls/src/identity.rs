@@ -291,7 +291,7 @@ impl Identity {
                 ));
             }
             // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            if inbox_id != generate_inbox_id(&address, &nonce) {
+            if inbox_id != generate_inbox_id(&address, &nonce)? {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
@@ -348,7 +348,7 @@ impl Identity {
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
-            let inbox_id = generate_inbox_id(&address, &nonce);
+            let inbox_id = generate_inbox_id(&address, &nonce)?;
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
             builder = builder.create_inbox(member_identifier.clone(), nonce);
 

@@ -142,7 +142,7 @@ impl IdentityAction for AddAssociation {
             && existing_state.inbox_id().ne(&generate_inbox_id(
                 existing_member_identifier.to_string().as_str(),
                 &0,
-            ))
+            )?)
         {
             return Err(AssociationError::LegacySignatureReuse);
         }

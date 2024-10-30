@@ -167,7 +167,7 @@ pub async fn get_inbox_id_for_address(
 #[allow(unused)]
 #[uniffi::export]
 pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
-    xmtp_id_generate_inbox_id(&account_address, &nonce)
+    xmtp_id_generate_inbox_id(&account_address, &nonce)?
 }
 
 #[derive(uniffi::Object)]
@@ -1804,7 +1804,7 @@ mod tests {
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1862,7 +1862,7 @@ mod tests {
         let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
 
         let client = create_client(
             Box::new(MockLogger {}),
@@ -1886,7 +1886,7 @@ mod tests {
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let path = tmp_path();
 
@@ -1937,7 +1937,7 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let path = tmp_path();
 
@@ -2011,7 +2011,7 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -2077,7 +2077,7 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -2163,7 +2163,7 @@ mod tests {
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce);
+        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce).unwrap();
         let path = tmp_path();
 
         let client = create_client(
@@ -2189,9 +2189,9 @@ mod tests {
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce);
+        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce).unwrap();
         let bola = LocalWalletInboxOwner::new();
-        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce);
+        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce).unwrap();
         let path = tmp_path();
 
         let client_amal = create_client(

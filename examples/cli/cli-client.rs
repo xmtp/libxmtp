@@ -455,7 +455,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     };
 
     let nonce = 0;
-    let inbox_id = generate_inbox_id(&w.get_address(), &nonce);
+    let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
     let client = create_client(
         cli,
         IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
