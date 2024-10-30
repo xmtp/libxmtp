@@ -15,6 +15,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
@@ -397,10 +398,15 @@ impl FfiXmtpClient {
     }
 
     pub async fn request_history_sync(&self) -> Result<(), GenericError> {
+        let provider = self
+            .inner_client
+            .mls_provider()
+            .map_err(GenericError::from_error)?;
         self.inner_client
-            .send_history_sync_request()
+            .send_history_sync_request(&provider)
             .await
             .map_err(GenericError::from_error)?;
+
         Ok(())
     }
 

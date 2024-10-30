@@ -9,6 +9,7 @@ use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_mls::builder::ClientBuilder;
+use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::consent_record::StoredConsentRecord;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
@@ -287,9 +288,13 @@ impl WasmClient {
 
   #[wasm_bindgen(js_name = requestHistorySync)]
   pub async fn request_history_sync(&self) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let _ = self
       .inner_client
-      .send_history_sync_request()
+      .send_history_sync_request(&provider)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
