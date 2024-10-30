@@ -8,8 +8,8 @@ use napi::JsFunction;
 use napi_derive::napi;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
-use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group::GroupMembershipState;
+use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::messages::NapiMessage;
 use crate::permissions::NapiGroupPermissionsOptions;
