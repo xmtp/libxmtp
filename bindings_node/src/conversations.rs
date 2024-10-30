@@ -83,12 +83,16 @@ pub struct NapiListConversationsOptions {
 }
 
 impl From<NapiListConversationsOptions> for GroupQueryArgs {
-  fn from(opts: NapiListConversationsOptions) -> GroupQueryArgs {
-    GroupQueryArgs::default()
-      .maybe_created_after_ns(opts.created_after_ns)
-      .maybe_created_before_ns(opts.created_before_ns)
-      .maybe_limit(opts.limit)
-  }
+    fn from(opts: NapiListConversationsOptions) -> GroupQueryArgs {
+        GroupQueryArgs::default()
+            .maybe_allowed_states(
+                opts.allowed_states.map(|states| states.into_iter().map(From::from).collect())
+            )
+            .maybe_conversation_type(opts.conversation_type.map(|ct| ct.into()))
+            .maybe_created_after_ns(opts.created_after_ns)
+            .maybe_created_before_ns(opts.created_before_ns)
+            .maybe_limit(opts.limit)
+    }
 }
 
 #[napi(object)]
