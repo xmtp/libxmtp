@@ -89,8 +89,8 @@ impl DbConnection {
 
 impl<'a, ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
@@ -544,8 +544,8 @@ pub(crate) mod tests {
         inbox_id: String,
     ) -> AssociationState
     where
-        ApiClient: XmtpApi + Clone,
-        Verifier: SmartContractSignatureVerifier + Clone,
+        ApiClient: XmtpApi,
+        Verifier: SmartContractSignatureVerifier,
     {
         let conn = client.store().conn().unwrap();
         load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])

@@ -16,7 +16,8 @@ pub async fn get_inbox_id_for_address(
   let api_client = ApiClientWrapper::new(
     TonicApiClient::create(host.clone(), is_secure)
       .await
-      .map_err(ErrorWrapper::from)?,
+      .map_err(ErrorWrapper::from)?
+      .into(),
     Retry::default(),
   );
 

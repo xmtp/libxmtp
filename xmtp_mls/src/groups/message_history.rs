@@ -107,8 +107,8 @@ enum SyncableTables {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;

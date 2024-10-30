@@ -18,10 +18,12 @@ use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use futures::future::join_all;
 use kv_log_macro::{error, info};
 use prost::Message;
+use xmtp_api_grpc::replication_client::ClientV4;
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_mls::XmtpApi;
 
 use crate::{
     json_logger::make_value,
@@ -29,7 +31,7 @@ use crate::{
 };
 use serializable::maybe_get_text;
 use thiserror::Error;
-use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
+use xmtp_api_grpc::grpc_api_helper::Client as ClientV3;
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
@@ -48,8 +50,8 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner,
 };
-type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
+
+type Client = xmtp_mls::client::Client<Box<dyn XmtpApi>>;
 type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
 
 /// A fictional versioning CLI
@@ -66,6 +68,8 @@ struct Cli {
     local: bool,
     #[clap(long, default_value_t = false)]
     json: bool,
+    #[clap(long, default_value_t = false)]
+    testnet: bool,
 }
 
 #[derive(ValueEnum, Debug, Copy, Clone)]
@@ -178,13 +182,40 @@ async fn main() {
     }
     info!("Starting CLI Client....");
 
+    let grpc = match (cli.testnet, cli.local) {
+        (true, true) => Box::new(
+            ClientV4::create("http://localhost:5050".into(), false)
+                .await
+                .unwrap(),
+        ) as Box<dyn XmtpApi>,
+        (true, false) => Box::new(
+            ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true)
+                .await
+                .unwrap(),
+        ) as Box<dyn XmtpApi>,
+        (false, true) => Box::new(
+            ClientV3::create("http://localhost:5556".into(), false)
+                .await
+                .unwrap(),
+        ) as Box<dyn XmtpApi>,
+        (false, false) => Box::new(
+            ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true)
+                .await
+                .unwrap(),
+        ) as Box<dyn XmtpApi>,
+    };
+
     if let Commands::Register { seed_phrase } = &cli.command {
         info!("Register");
-        if let Err(e) = register(&cli, seed_phrase.clone()).await {
+        if let Err(e) = register(&cli, seed_phrase.clone(), grpc).await {
             error!("Registration failed: {:?}", e)
         }
         return;
     }
+
+    let client = create_client(&cli, IdentityStrategy::CachedOnly, grpc)
+        .await
+        .unwrap();
 
     match &cli.command {
         #[allow(unused_variables)]
@@ -193,19 +224,12 @@ async fn main() {
         }
         Commands::Info {} => {
             info!("Info");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let installation_id = hex::encode(client.installation_public_key());
             info!("identity info", { command_output: true, account_address: client.inbox_id(), installation_id: installation_id });
         }
         Commands::ListGroups {} => {
             info!("List Groups");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let conn = client.store().conn().unwrap();
-
             client
                 .sync_welcomes(&conn)
                 .await
@@ -235,9 +259,6 @@ async fn main() {
         }
         Commands::Send { group_id, msg } => {
             info!("Sending message to group", { group_id: group_id, message: msg });
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             info!("Inbox ID is: {}", client.inbox_id());
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
@@ -247,9 +268,6 @@ async fn main() {
         }
         Commands::ListGroupMessages { group_id } => {
             info!("Recv");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
 
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
@@ -276,10 +294,6 @@ async fn main() {
             group_id,
             account_addresses,
         } => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
-
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
@@ -298,10 +312,6 @@ async fn main() {
             group_id,
             account_addresses,
         } => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
-
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
@@ -323,10 +333,6 @@ async fn main() {
                     xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly
                 }
             };
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
-
             let group = client
                 .create_group(
                     Some(group_permissions.to_policy_set()),
@@ -337,9 +343,6 @@ async fn main() {
             info!("Created group {}", group_id, { command_output: true, group_id: group_id})
         }
         Commands::GroupInfo { group_id } => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let group = &client
                 .group(hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
@@ -348,9 +351,6 @@ async fn main() {
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
         Commands::RequestHistorySync {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
@@ -360,9 +360,6 @@ async fn main() {
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
         Commands::ReplyToHistorySyncRequest {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let provider = client.mls_provider().unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
@@ -375,9 +372,6 @@ async fn main() {
             info!("Reply: {:?}", reply);
         }
         Commands::ProcessHistorySyncReply {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
@@ -387,9 +381,6 @@ async fn main() {
             info!("History bundle downloaded and inserted into user DB", {})
         }
         Commands::ProcessConsentSyncReply {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
@@ -399,9 +390,6 @@ async fn main() {
             info!("Consent bundle downloaded and inserted into user DB", {})
         }
         Commands::ListHistorySyncMessages {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
-                .await
-                .unwrap();
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
@@ -436,6 +424,28 @@ async fn main() {
     }
 }
 
+async fn create_client<C: XmtpApi>(
+    cli: &Cli,
+    account: IdentityStrategy,
+    grpc: C,
+) -> Result<xmtp_mls::client::Client<C>, CliError> {
+    let msg_store = get_encrypted_store(&cli.db).await.unwrap();
+    let mut builder = xmtp_mls::builder::ClientBuilder::<C>::new(account).store(msg_store);
+
+    builder = builder.api_client(grpc);
+
+    if cli.local {
+        builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
+    } else {
+        builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
+    }
+
+    let client = builder.build().await.map_err(CliError::ClientBuilder)?;
+
+    Ok(client)
+}
+
+/*
 async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(&cli.db).await.unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
@@ -464,8 +474,16 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
 
     Ok(client)
 }
+*/
 
-async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), CliError> {
+async fn register<C>(
+    cli: &Cli,
+    maybe_seed_phrase: Option<String>,
+    client: C,
+) -> Result<(), CliError>
+where
+    C: XmtpApi,
+{
     let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(
             MnemonicBuilder::<English>::default()
@@ -482,6 +500,7 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
     let client = create_client(
         cli,
         IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
+        client,
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();

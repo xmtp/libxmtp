@@ -75,6 +75,8 @@ where
     Error::new(ErrorKind::MetadataError).with(e)
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl ClientWithMetadata for XmtpHttpApiClient {
     fn set_app_version(&mut self, version: String) -> Result<(), Error> {
         self.app_version = Some(version);
@@ -123,6 +125,8 @@ impl ClientWithMetadata for XmtpHttpApiClient {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsClient for XmtpHttpApiClient {
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
         let res = self
@@ -233,6 +237,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for XmtpHttpApiClient {
     // hard to avoid boxing here:
     // 1.) use `hyper` instead of `reqwest` and create our own `Stream` type
@@ -275,6 +281,8 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpIdentityClient for XmtpHttpApiClient {
     async fn publish_identity_update(
         &self,

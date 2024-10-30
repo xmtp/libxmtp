@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use ethers::types::{BlockNumber, Bytes};
@@ -11,11 +13,11 @@ use xmtp_proto::{
 };
 
 pub struct RemoteSignatureVerifier<C> {
-    identity_client: C,
+    identity_client: Arc<C>,
 }
 
 impl<C> RemoteSignatureVerifier<C> {
-    pub fn new(identity_client: C) -> Self {
+    pub fn new(identity_client: Arc<C>) -> Self {
         Self { identity_client }
     }
 }

@@ -4,8 +4,8 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     pub async fn send_consent_sync_request(
         &self,

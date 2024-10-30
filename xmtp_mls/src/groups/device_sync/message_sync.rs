@@ -7,8 +7,8 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone,
-    V: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
 {
     // returns (request_id, pin_code)
     pub async fn send_history_sync_request(
