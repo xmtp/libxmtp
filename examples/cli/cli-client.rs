@@ -361,9 +361,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
-            let reply = client.reply_to_history_sync_request().await.unwrap();
+            let reply = client.reply_to_history_sync_request(&conn).await.unwrap();
 
             info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
             info!("Reply: {:?}", reply);
@@ -372,9 +373,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             client.sync_welcomes().await.unwrap();
             client.enable_history_sync().await.unwrap();
-            client.process_history_sync_reply().await.unwrap();
+            client.process_history_sync_reply(&conn).await.unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
         }
@@ -382,9 +384,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
+            let conn = client.store().conn().unwrap();
             client.sync_welcomes().await.unwrap();
             client.enable_history_sync().await.unwrap();
-            client.process_consent_sync_reply().await.unwrap();
+            client.process_consent_sync_reply(&conn).await.unwrap();
 
             info!("Consent bundle downloaded and inserted into user DB", {})
         }

@@ -12,18 +12,20 @@ where
     // returns (request_id, pin_code)
     pub async fn send_history_sync_request(&self) -> Result<(String, String), DeviceSyncError> {
         let request = DeviceSyncRequest::new(DeviceSyncKind::MessageHistory);
-        self.send_sync_request(request).await
+
+        self.send_sync_request(&self.mls_provider()?, request).await
     }
 
     pub async fn reply_to_history_sync_request(
         &self,
+        conn: &DbConnection,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let (_msg, request) = self
             .pending_sync_request(DeviceSyncKind::MessageHistory)
             .await?;
 
-        let groups = self.syncable_groups()?;
-        let messages = self.syncable_messages()?;
+        let groups = self.syncable_groups(conn)?;
+        let messages = self.syncable_messages(conn)?;
 
         let reply = self
             .create_sync_reply(
@@ -32,18 +34,20 @@ where
                 DeviceSyncKind::MessageHistory,
             )
             .await?;
-        self.send_sync_reply(reply.clone()).await?;
+        self.send_sync_reply(conn, reply.clone()).await?;
 
         Ok(reply)
     }
 
-    pub async fn process_history_sync_reply(&self) -> Result<(), DeviceSyncError> {
-        self.process_sync_reply(DeviceSyncKind::MessageHistory)
+    pub async fn process_history_sync_reply(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<(), DeviceSyncError> {
+        self.process_sync_reply(conn, DeviceSyncKind::MessageHistory)
             .await
     }
 
-    fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let conn = self.store().conn()?;
+    fn syncable_groups(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups = conn
             .find_groups(None, None, None, None, Some(ConversationType::Group))?
             .into_iter()
@@ -52,8 +56,7 @@ where
         Ok(groups)
     }
 
-    fn syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let conn = self.store().conn()?;
+    fn syncable_messages(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
 
         let mut all_messages = vec![];
@@ -110,6 +113,7 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         amal_a.history_sync_url = Some(history_sync_url.clone());
+        let amal_a_conn = amal_a.store().conn().unwrap();
 
         // Create an alix client.
         let alix_wallet = generate_local_wallet();
@@ -127,9 +131,9 @@ pub(crate) mod tests {
         group.send_message(&[1, 2, 3]).await.unwrap();
 
         // Ensure that groups and messages now exists.
-        let syncable_groups = amal_a.syncable_groups().unwrap();
+        let syncable_groups = amal_a.syncable_groups(&amal_a_conn).unwrap();
         assert_eq!(syncable_groups.len(), 1);
-        let syncable_messages = amal_a.syncable_messages().unwrap();
+        let syncable_messages = amal_a.syncable_messages(&amal_a_conn).unwrap();
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // The first installation should have zero sync groups.
@@ -138,6 +142,7 @@ pub(crate) mod tests {
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b_conn = amal_b.store().conn().unwrap();
         // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_history_sync().await);
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
@@ -157,13 +162,16 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
-        let reply = amal_a.reply_to_history_sync_request().await.unwrap();
+        let reply = amal_a
+            .reply_to_history_sync_request(&amal_a_conn)
+            .await
+            .unwrap();
 
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let (enc_payload, _key) = encrypt_syncables_with_key(
             &[
-                amal_a.syncable_groups().unwrap(),
-                amal_a.syncable_messages().unwrap(),
+                amal_a.syncable_groups(&amal_a_conn).unwrap(),
+                amal_a.syncable_messages(&amal_a_conn).unwrap(),
             ],
             reply.encryption_key.unwrap().try_into().unwrap(),
         )
@@ -178,17 +186,20 @@ pub(crate) mod tests {
             .create();
 
         // The second installation has no groups
-        assert_eq!(amal_b.syncable_groups().unwrap().len(), 0);
-        assert_eq!(amal_b.syncable_messages().unwrap().len(), 0);
+        assert_eq!(amal_b.syncable_groups(&amal_b_conn).unwrap().len(), 0);
+        assert_eq!(amal_b.syncable_messages(&amal_b_conn).unwrap().len(), 0);
 
         // Have the second installation process the reply.
-        amal_b.process_history_sync_reply().await.unwrap();
+        amal_b
+            .process_history_sync_reply(&amal_b_conn)
+            .await
+            .unwrap();
 
         // Load consents of both installations
-        let groups_a = amal_a.syncable_groups().unwrap();
-        let groups_b = amal_b.syncable_groups().unwrap();
-        let messages_a = amal_a.syncable_messages().unwrap();
-        let messages_b = amal_b.syncable_messages().unwrap();
+        let groups_a = amal_a.syncable_groups(&amal_a_conn).unwrap();
+        let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
+        let messages_a = amal_a.syncable_messages(&amal_a_conn).unwrap();
+        let messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap();
 
         // Ensure the groups and messages are synced.
         assert_eq!(groups_a.len(), 1);
@@ -214,7 +225,9 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let result = amal_a.syncable_groups().unwrap();
+        let result = amal_a
+            .syncable_groups(&amal_a.store().conn().unwrap())
+            .unwrap();
         assert_eq!(result.len(), 2);
     }
 

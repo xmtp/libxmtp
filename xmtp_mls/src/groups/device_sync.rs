@@ -4,6 +4,7 @@ use crate::configuration::NS_IN_HOUR;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::utils::time::now_ns;
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::Store;
 use crate::{
     client::ClientError,
@@ -124,10 +125,10 @@ where
 
     async fn send_sync_request(
         &self,
+        provider: &XmtpOpenMlsProvider,
         request: DeviceSyncRequest,
     ) -> Result<(String, String), DeviceSyncError> {
         // find the sync group
-        let conn = self.store().conn()?;
         let sync_group = self.get_sync_group()?;
 
         // sync the group
@@ -146,26 +147,30 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
-            PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    message_type: Some(Request(request)),
-                    idempotency_key: new_request_id(),
-                })),
-            }
-        })?;
+        let _message_id =
+            sync_group.prepare_message(&content_bytes, provider.conn_ref(), move |_time_ns| {
+                PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(Request(request)),
+                        idempotency_key: new_request_id(),
+                    })),
+                }
+            })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(&conn.into()).await {
+        if let Err(err) = sync_group.publish_intents(provider).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
         Ok((request_id, pin_code))
     }
 
-    async fn send_sync_reply(&self, contents: DeviceSyncReplyProto) -> Result<(), DeviceSyncError> {
+    async fn send_sync_reply(
+        &self,
+        conn: &DbConnection,
+        contents: DeviceSyncReplyProto,
+    ) -> Result<(), DeviceSyncError> {
         // find the sync group
-        let conn = self.store().conn()?;
         let sync_group = self.get_sync_group()?;
 
         // sync the group
@@ -174,7 +179,7 @@ where
         let (msg, _request) = self.pending_sync_request(contents.kind()).await?;
 
         // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(&msg.sender_inbox_id)
+        self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
             .await?;
 
         // the reply message
@@ -188,7 +193,7 @@ where
             (content_bytes, contents)
         };
 
-        let _message_id = sync_group.prepare_message(&content_bytes, &conn, move |_time_ns| {
+        let _message_id = sync_group.prepare_message(&content_bytes, conn, move |_time_ns| {
             PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     idempotency_key: new_request_id(),
@@ -260,9 +265,11 @@ where
         Err(DeviceSyncError::NoReplyToProcess)
     }
 
-    async fn process_sync_reply(&self, kind: DeviceSyncKind) -> Result<(), DeviceSyncError> {
-        let conn = self.store().conn()?;
-
+    async fn process_sync_reply(
+        &self,
+        conn: &DbConnection,
+        kind: DeviceSyncKind,
+    ) -> Result<(), DeviceSyncError> {
         let reply = self.sync_reply(kind).await?;
 
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
@@ -289,8 +296,11 @@ where
         Ok(())
     }
 
-    async fn ensure_member_of_all_groups(&self, inbox_id: &str) -> Result<(), GroupError> {
-        let conn = self.store().conn()?;
+    async fn ensure_member_of_all_groups(
+        &self,
+        conn: &DbConnection,
+        inbox_id: &str,
+    ) -> Result<(), GroupError> {
         let groups = conn.find_groups(None, None, None, None, Some(ConversationType::Group))?;
         for group in groups {
             let group = self.group(group.id)?;
