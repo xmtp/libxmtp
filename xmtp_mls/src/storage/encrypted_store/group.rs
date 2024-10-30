@@ -245,32 +245,35 @@ impl DbConnection {
         query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
 
         let groups = if let Some(consent_state) = consent_state {
-            let query = if *consent_state == ConsentState::Unknown {
-                query
-                    .inner_join(
+            if *consent_state == ConsentState::Unknown {
+                let query = query
+                    .left_join(
                         consent_dsl::consent_records
                             .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
                                 .eq(consent_dsl::entity)),
                     )
                     .filter(
                         consent_dsl::state
-                            .is_null() // No consent record exists.
-                            .or(consent_dsl::state.eq(ConsentState::Unknown)), // Or consent state is "Unknown".
+                            .is_null()
+                            .or(consent_dsl::state.eq(ConsentState::Unknown)),
                     )
                     .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc())
+                    .order(groups_dsl::created_at_ns.asc());
+
+                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
             } else {
-                query
+                let query = query
                     .inner_join(
                         consent_dsl::consent_records
                             .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
                                 .eq(consent_dsl::entity)),
                     )
-                    .filter(consent_dsl::state.eq(consent_state))
+                    .filter(consent_dsl::state.eq(*consent_state))
                     .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc())
-            };
-            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+                    .order(groups_dsl::created_at_ns.asc());
+
+                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+            }
         } else {
             self.raw_query(|conn| query.load::<StoredGroup>(conn))?
         };
