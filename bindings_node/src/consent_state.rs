@@ -1,5 +1,8 @@
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_mls::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+use crate::{mls_client::NapiClient, ErrorWrapper};
 
 #[napi]
 pub enum NapiConsentState {
@@ -59,5 +62,36 @@ impl From<NapiConsent> for StoredConsentRecord {
       state: consent.state.into(),
       entity: consent.entity,
     }
+  }
+}
+
+#[napi]
+impl NapiClient {
+  #[napi]
+  pub async fn set_consent_states(&self, records: Vec<NapiConsent>) -> Result<()> {
+    let stored_records: Vec<StoredConsentRecord> =
+      records.into_iter().map(StoredConsentRecord::from).collect();
+
+    self
+      .inner_client()
+      .set_consent_states(stored_records)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn get_consent_state(
+    &self,
+    entity_type: NapiConsentEntityType,
+    entity: String,
+  ) -> Result<NapiConsentState> {
+    let result = self
+      .inner_client()
+      .get_consent_state(entity_type.into(), entity)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(result.into())
   }
 }
