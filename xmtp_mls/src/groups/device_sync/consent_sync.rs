@@ -7,9 +7,12 @@ where
     ApiClient: XmtpApi + Clone,
     V: SmartContractSignatureVerifier + Clone,
 {
-    pub async fn send_consent_sync_request(&self) -> Result<(String, String), DeviceSyncError> {
+    pub async fn send_consent_sync_request(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(String, String), DeviceSyncError> {
         let request = DeviceSyncRequest::new(DeviceSyncKind::Consent);
-        self.send_sync_request(&self.mls_provider()?, request).await
+        self.send_sync_request(provider, request).await
     }
 
     pub async fn reply_to_consent_sync_request(
@@ -125,7 +128,7 @@ pub(crate) mod tests {
 
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
-            .send_consent_sync_request()
+            .send_consent_sync_request(&amal_b_provider)
             .await
             .expect("history request");
 

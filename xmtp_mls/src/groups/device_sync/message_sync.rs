@@ -10,10 +10,13 @@ where
     V: SmartContractSignatureVerifier + Clone,
 {
     // returns (request_id, pin_code)
-    pub async fn send_history_sync_request(&self) -> Result<(String, String), DeviceSyncError> {
+    pub async fn send_history_sync_request(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(String, String), DeviceSyncError> {
         let request = DeviceSyncRequest::new(DeviceSyncKind::MessageHistory);
 
-        self.send_sync_request(&self.mls_provider()?, request).await
+        self.send_sync_request(provider, request).await
     }
 
     pub async fn reply_to_history_sync_request(
@@ -143,7 +146,7 @@ pub(crate) mod tests {
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // The first installation should have zero sync groups.
-        let amal_a_sync_group = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        let amal_a_sync_group = amal_a_conn.latest_sync_group().unwrap();
         assert!(amal_a_sync_group.is_none());
 
         // Create a second installation for amal.
@@ -159,12 +162,12 @@ pub(crate) mod tests {
             .expect("sync_welcomes");
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
-            .send_history_sync_request()
+            .send_history_sync_request(&amal_b_provider)
             .await
             .expect("history request");
 
         // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_group = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
+        let amal_a_sync_group = amal_a_conn.latest_sync_group().unwrap();
         assert!(amal_a_sync_group.is_some());
 
         // Have first installation reply.
