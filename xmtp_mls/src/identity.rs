@@ -37,6 +37,7 @@ use thiserror::Error;
 use tracing::debug;
 use tracing::info;
 use xmtp_id::associations::unverified::{UnverifiedInstallationKeySignature, UnverifiedSignature};
+use xmtp_id::associations::AssociationError;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
