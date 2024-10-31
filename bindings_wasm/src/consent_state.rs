@@ -1,7 +1,7 @@
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 
-use crate::mls_client::WasmClient;
+use crate::{groups::WasmGroup, mls_client::WasmClient};
 
 #[wasm_bindgen]
 #[derive(Clone, serde::Serialize)]
@@ -106,5 +106,29 @@ impl WasmClient {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(result.into())
+  }
+}
+
+#[wasm_bindgen]
+impl WasmGroup {
+  #[wasm_bindgen]
+  pub fn consent_state(&self) -> Result<WasmConsentState, JsError> {
+    let group = self.to_mls_group();
+    let state = group
+      .consent_state()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(state.into())
+  }
+
+  #[wasm_bindgen]
+  pub fn update_consent_state(&self, state: WasmConsentState) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .update_consent_state(state.into())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
   }
 }
