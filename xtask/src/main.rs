@@ -5,7 +5,7 @@ use color_eyre::eyre::Result;
 use std::env;
 
 pub use cmds::flags;
-// pub const WASM_RUSTFLAGS: &str = "-Ctarget-feature=+bulk-memory,+mutable-globals";
+pub const WASM_RUSTFLAGS: &str = "-Ctarget-feature=+bulk-memory,+mutable-globals";
 
 pub mod tasks {
     use super::*;

@@ -8,7 +8,7 @@ use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::ClientBuilder;
-use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;

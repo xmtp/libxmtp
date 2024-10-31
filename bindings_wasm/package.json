@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "yarn clean && yarn build:web && yarn clean:release",
-    "build:web": "cargo xtask build BindingsWasm --out-dir ./dist -- --release",
+    "build:web": "cargo xtask build BindingsWasm --out-dir ./dist --plain -- --release",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "format:check": "cargo fmt --check",
