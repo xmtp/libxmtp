@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
     paths:
-      - ".github/workflows/lint.yaml"
+      - ".github/workflows/lint-workspace.yaml"
       - "mls_validation_service/**"
       - "xmtp_api_grpc/**"
       - "xmtp_api_http/**"
@@ -35,6 +35,7 @@ jobs:
           workspaces: |
             .
       - name: Run clippy and fail on warnings
-        run: cargo clippy --all-features --all-targets --no-deps -- -Dwarnings
+        # Exclude bindings_wasm since it only compiles for wasm32
+        run: cargo clippy --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
       - name: Run format check
         run: cargo fmt --check
