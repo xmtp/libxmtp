@@ -17,6 +17,7 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 static LOGGER_INIT: Once = Once::new();
@@ -179,14 +180,75 @@ impl NapiClient {
   }
 
   #[napi]
-  pub async fn request_history_sync(&self) -> Result<()> {
+  pub async fn send_history_sync_request(&self) -> Result<()> {
+    self.send_sync_request(DeviceSyncKind::MessageHistory).await
+  }
+
+  #[napi]
+  pub async fn send_consent_sync_request(&self) -> Result<()> {
+    self.send_sync_request(DeviceSyncKind::Consent).await
+  }
+
+  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<()> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
     let _ = self
       .inner_client
-      .send_history_sync_request(&provider)
+      .send_sync_request(&provider, kind)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn reply_to_history_sync_request(&self) -> Result<()> {
+    self
+      .reply_to_sync_request(DeviceSyncKind::MessageHistory)
+      .await
+  }
+
+  #[napi]
+  pub async fn reply_to_consent_sync_request(&self) -> Result<()> {
+    self.reply_to_sync_request(DeviceSyncKind::Consent).await
+  }
+
+  async fn reply_to_sync_request(&self, kind: DeviceSyncKind) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
+    let _ = self
+      .inner_client
+      .reply_to_sync_request(&provider, kind)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn process_history_sync_reply(&self) -> Result<()> {
+    self
+      .process_sync_reply(DeviceSyncKind::MessageHistory)
+      .await
+  }
+
+  #[napi]
+  pub async fn process_consent_sync_reply(&self) -> Result<()> {
+    self.process_sync_reply(DeviceSyncKind::Consent).await
+  }
+
+  async fn process_sync_reply(&self, kind: DeviceSyncKind) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
+    let _ = self
+      .inner_client
+      .process_sync_reply(&provider, kind)
       .await
       .map_err(ErrorWrapper::from)?;
 
