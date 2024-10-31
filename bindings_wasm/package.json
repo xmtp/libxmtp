@@ -28,7 +28,7 @@
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "format:check": "cargo fmt --check",
-    "lint": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
+    "lint": "cargo clippy --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
   },
@@ -52,6 +52,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
+    "binaryen": "^120.0.0",
     "wasm-pack": "^0.13.0"
   },
   "packageManager": "yarn@4.5.1"

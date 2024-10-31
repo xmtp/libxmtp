@@ -150,7 +150,8 @@ pub fn step_run_wasm_opt<T>(out_dir: &Path, _f: impl Fn(&str) -> T) -> Result<()
 
         let sh = Shell::new()?;
         let tmp = path.with_extension("wasm-opt.wasm");
-        let mut cmd = cmd!(sh, "wasm-opt {path} -o {tmp} -Oz");
+        // use `wasm-opt` installed via `yarn`
+        let mut cmd = cmd!(sh, "yarn wasm-opt {path} -o {tmp} -Oz");
         println!("\n{cmd}");
         cmd.set_quiet(true);
         if let Err(e) = cmd.run() {
