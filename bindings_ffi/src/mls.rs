@@ -44,6 +44,7 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 /// It returns a new client of the specified `inbox_id`.
@@ -399,15 +400,29 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
-        let provider = self
-            .inner_client
-            .mls_provider()
-            .map_err(GenericError::from_error)?;
+    pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
         self.inner_client
-            .send_history_sync_request(&provider)
-            .await
-            .map_err(GenericError::from_error)?;
+            .send_sync_request(&provider, kind.into())
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn reply_to_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        self.inner_client
+            .reply_to_sync_request(&provider, kind.into())
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn process_sync_reply(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        self.inner_client
+            .process_sync_reply(&provider, kind.into())
+            .await?;
 
         Ok(())
     }
@@ -1050,6 +1065,21 @@ impl From<FfiConsentState> for ConsentState {
             FfiConsentState::Unknown => ConsentState::Unknown,
             FfiConsentState::Allowed => ConsentState::Allowed,
             FfiConsentState::Denied => ConsentState::Denied,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiDeviceSyncKind {
+    Messages,
+    Consent,
+}
+
+impl From<FfiDeviceSyncKind> for DeviceSyncKind {
+    fn from(value: FfiDeviceSyncKind) -> Self {
+        match value {
+            FfiDeviceSyncKind::Consent => DeviceSyncKind::Consent,
+            FfiDeviceSyncKind::Messages => DeviceSyncKind::MessageHistory,
         }
     }
 }

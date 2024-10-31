@@ -7,46 +7,7 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn send_consent_sync_request(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(String, String), DeviceSyncError> {
-        let request = DeviceSyncRequest::new(DeviceSyncKind::Consent);
-        self.send_sync_request(provider, request).await
-    }
-
-    pub async fn reply_to_consent_sync_request(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let conn = provider.conn_ref();
-        let (_msg, request) = self
-            .pending_sync_request(provider, DeviceSyncKind::Consent)
-            .await?;
-
-        let consent_records = self.syncable_consent_records(conn)?;
-
-        let reply = self
-            .create_sync_reply(
-                &request.request_id,
-                &[consent_records],
-                DeviceSyncKind::Consent,
-            )
-            .await?;
-        self.send_sync_reply(provider, reply.clone()).await?;
-
-        Ok(reply)
-    }
-
-    pub async fn process_consent_sync_reply(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), DeviceSyncError> {
-        self.process_sync_reply(provider, DeviceSyncKind::Consent)
-            .await
-    }
-
-    fn syncable_consent_records(
+    pub(super) fn syncable_consent_records(
         &self,
         conn: &DbConnection,
     ) -> Result<Vec<Syncable>, DeviceSyncError> {
@@ -128,7 +89,7 @@ pub(crate) mod tests {
 
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
-            .send_consent_sync_request(&amal_b_provider)
+            .send_sync_request(&amal_b_provider, DeviceSyncKind::Consent)
             .await
             .expect("history request");
 
@@ -142,7 +103,7 @@ pub(crate) mod tests {
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
         let reply = amal_a
-            .reply_to_consent_sync_request(&amal_a_provider)
+            .reply_to_sync_request(&amal_a_provider, DeviceSyncKind::Consent)
             .await
             .unwrap();
 
@@ -167,7 +128,7 @@ pub(crate) mod tests {
 
         // Have the second installation process the reply.
         amal_b
-            .process_consent_sync_reply(&amal_b_provider)
+            .process_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
             .await
             .unwrap();
 
