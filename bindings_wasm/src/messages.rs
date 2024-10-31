@@ -1,7 +1,9 @@
 use js_sys::Uint8Array;
 use prost::Message;
 use wasm_bindgen::prelude::wasm_bindgen;
-use xmtp_mls::storage::group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage};
+use xmtp_mls::storage::group_message::{
+  DeliveryStatus, GroupMessageKind, MsgQueryArgs, SortDirection, StoredGroupMessage,
+};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::encoded_content::WasmEncodedContent;
@@ -50,12 +52,44 @@ impl From<WasmDeliveryStatus> for DeliveryStatus {
   }
 }
 
+#[wasm_bindgen]
+#[derive(Clone)]
+pub enum WasmDirection {
+  Ascending,
+  Descending,
+}
+
+impl From<WasmDirection> for SortDirection {
+  fn from(direction: WasmDirection) -> Self {
+    match direction {
+      WasmDirection::Ascending => SortDirection::Ascending,
+      WasmDirection::Descending => SortDirection::Descending,
+    }
+  }
+}
+
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Default)]
 pub struct WasmListMessagesOptions {
   pub sent_before_ns: Option<i64>,
   pub sent_after_ns: Option<i64>,
   pub limit: Option<i64>,
   pub delivery_status: Option<WasmDeliveryStatus>,
+  pub direction: Option<WasmDirection>,
+}
+
+impl From<WasmListMessagesOptions> for MsgQueryArgs {
+  fn from(opts: WasmListMessagesOptions) -> MsgQueryArgs {
+    let delivery_status = opts.delivery_status.map(Into::into);
+    let direction = opts.direction.map(Into::into);
+
+    MsgQueryArgs::default()
+      .maybe_sent_before_ns(opts.sent_before_ns)
+      .maybe_sent_after_ns(opts.sent_after_ns)
+      .maybe_delivery_status(delivery_status)
+      .maybe_limit(opts.limit)
+      .maybe_direction(direction)
+  }
 }
 
 #[wasm_bindgen]
@@ -66,12 +100,14 @@ impl WasmListMessagesOptions {
     sent_after_ns: Option<i64>,
     limit: Option<i64>,
     delivery_status: Option<WasmDeliveryStatus>,
+    direction: Option<WasmDirection>,
   ) -> Self {
     Self {
       sent_before_ns,
       sent_after_ns,
       limit,
       delivery_status,
+      direction,
     }
   }
 }

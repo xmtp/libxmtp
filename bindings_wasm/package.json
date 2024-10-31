@@ -27,6 +27,8 @@
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist -- --release",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
+    "format:check": "cargo fmt --check",
+    "lint": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
   },
