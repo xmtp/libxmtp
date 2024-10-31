@@ -131,7 +131,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_batch_read() {
         with_connection(|conn| {
-            let association_state = AssociationState::new("1234".to_string(), 0, None);
+            let association_state = AssociationState::new("1234".to_string(), 0, None).unwrap();
             let inbox_id = association_state.inbox_id().clone();
             StoredAssociationState::write_to_cache(
                 conn,
@@ -141,7 +141,7 @@ pub(crate) mod tests {
             )
             .unwrap();
 
-            let association_state_2 = AssociationState::new("456".to_string(), 2, None);
+            let association_state_2 = AssociationState::new("456".to_string(), 2, None).unwrap();
             let inbox_id_2 = association_state_2.inbox_id().clone();
             StoredAssociationState::write_to_cache(
                 conn,

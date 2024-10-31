@@ -166,8 +166,8 @@ pub async fn get_inbox_id_for_address(
 
 #[allow(unused)]
 #[uniffi::export]
-pub fn generate_inbox_id(account_address: String, nonce: u64) -> String {
-    xmtp_id_generate_inbox_id(&account_address, &nonce)?
+pub fn generate_inbox_id(account_address: String, nonce: u64) -> Result<String, GenericError> {
+    Ok(xmtp_id_generate_inbox_id(&account_address, &nonce)?)
 }
 
 #[derive(uniffi::Object)]
