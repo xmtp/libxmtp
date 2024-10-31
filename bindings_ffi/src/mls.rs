@@ -409,24 +409,6 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    pub async fn reply_to_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .reply_to_sync_request(&provider, kind.into())
-            .await?;
-
-        Ok(())
-    }
-
-    pub async fn process_sync_reply(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .process_sync_reply(&provider, kind.into())
-            .await?;
-
-        Ok(())
-    }
-
     /// Adds an identity - really a wallet address - to the existing client
     pub async fn add_wallet(
         &self,
