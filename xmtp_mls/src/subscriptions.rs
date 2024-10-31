@@ -40,9 +40,17 @@ impl<C> LocalEvents<C> {
     fn group_filter(self) -> Option<MlsGroup<C>> {
         use LocalEvents::*;
         // this is just to protect against any future variants
-        #[allow(unreachable_patterns)]
         match self {
             NewGroup(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn sync_filter(self) -> Option<LocalEvents<C>> {
+        use LocalEvents::*;
+        match self {
+            SyncRequest { message_id } => Some(SyncRequest { message_id }),
+            SyncReply { message_id } => Some(SyncReply { message_id }),
             _ => None,
         }
     }

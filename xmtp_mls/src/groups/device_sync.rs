@@ -4,6 +4,7 @@ use crate::configuration::NS_IN_HOUR;
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
+use crate::subscriptions::LocalEvents;
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::Store;
@@ -28,6 +29,7 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -108,6 +110,15 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    pub async fn spawn_sync_worker(&self) {
+        let event_queue =
+            BroadcastStream::new(self.local_events.subscribe()).filter_map(|event| async {
+                crate::optify!(event, "Missed message due to event queue lag")
+                    .and_then(LocalEvents::<_>::sync_filter)
+                    .map(Result::Ok)
+            });
+    }
+
     pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
