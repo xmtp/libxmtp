@@ -171,7 +171,7 @@ impl WasmClient {
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let _ = self
+    self
       .inner_client
       .send_sync_request(&provider, kind)
       .await
@@ -197,7 +197,7 @@ impl WasmClient {
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let _ = self
+    self
       .inner_client
       .reply_to_sync_request(&provider, kind)
       .await
@@ -223,7 +223,7 @@ impl WasmClient {
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let _ = self
+    self
       .inner_client
       .process_sync_reply(&provider, kind)
       .await
