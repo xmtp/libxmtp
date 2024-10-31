@@ -1,7 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
-
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::oneshot, task::JoinHandle};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
@@ -9,11 +8,12 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
     groups::{group_metadata::ConversationType, subscriptions, GroupError, MlsGroup},
-    retry::Retry,
-    retry::RetryableError,
+    retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
-        group::GroupQueryArgs, group::StoredGroup, group_message::StoredGroupMessage, StorageError,
+        group::{GroupQueryArgs, StoredGroup},
+        group_message::StoredGroupMessage,
+        StorageError,
     },
     Client, XmtpApi,
 };
@@ -26,11 +26,14 @@ pub struct StreamHandle<T> {
     start: Option<oneshot::Receiver<()>>,
 }
 
-/// Events local to this client
+/// Events local to this clientsubscriptions::SyncReplyEvent
 /// are broadcast across all senders/receivers of streams
+#[derive(Clone)]
 pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
+    SyncRequest { message_id: Vec<u8> },
+    SyncReply { message_id: Vec<u8> },
 }
 
 impl<C> LocalEvents<C> {
@@ -41,15 +44,6 @@ impl<C> LocalEvents<C> {
         match self {
             NewGroup(c) => Some(c),
             _ => None,
-        }
-    }
-}
-
-impl<ScopedClient> Clone for LocalEvents<ScopedClient> {
-    fn clone(&self) -> LocalEvents<ScopedClient> {
-        use LocalEvents::*;
-        match self {
-            NewGroup(group) => NewGroup(group.clone()),
         }
     }
 }

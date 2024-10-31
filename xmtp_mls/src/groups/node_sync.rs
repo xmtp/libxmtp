@@ -35,6 +35,7 @@ use crate::{
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
     },
+    subscriptions::LocalEvents,
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
@@ -417,7 +418,7 @@ where
 
                             // store the request message
                             StoredGroupMessage {
-                                id: message_id,
+                                id: message_id.clone(),
                                 group_id: self.group_id.clone(),
                                 decrypted_message_bytes: content_bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
@@ -427,6 +428,10 @@ where
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store_or_ignore(provider.conn_ref())?;
+
+                            self.client
+                                .local_events()
+                                .send(LocalEvents::SyncRequest { message_id });
                         }
 
                         Some(Reply(history_reply)) => {
@@ -441,7 +446,7 @@ where
 
                             // store the reply message
                             StoredGroupMessage {
-                                id: message_id,
+                                id: message_id.clone(),
                                 group_id: self.group_id.clone(),
                                 decrypted_message_bytes: content_bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
@@ -451,6 +456,10 @@ where
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store_or_ignore(provider.conn_ref())?;
+
+                            self.client
+                                .local_events()
+                                .send(LocalEvents::SyncReply { message_id });
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
