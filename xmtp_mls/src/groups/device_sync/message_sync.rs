@@ -10,49 +10,10 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    // returns (request_id, pin_code)
-    pub async fn send_history_sync_request(
+    pub(super) fn syncable_groups(
         &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(String, String), DeviceSyncError> {
-        let request = DeviceSyncRequest::new(DeviceSyncKind::MessageHistory);
-
-        self.send_sync_request(provider, request).await
-    }
-
-    pub async fn reply_to_history_sync_request(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let conn = provider.conn_ref();
-        let (_msg, request) = self
-            .pending_sync_request(provider, DeviceSyncKind::MessageHistory)
-            .await?;
-
-        let groups = self.syncable_groups(conn)?;
-        let messages = self.syncable_messages(conn)?;
-
-        let reply = self
-            .create_sync_reply(
-                &request.request_id,
-                &[groups, messages],
-                DeviceSyncKind::MessageHistory,
-            )
-            .await?;
-        self.send_sync_reply(provider, reply.clone()).await?;
-
-        Ok(reply)
-    }
-
-    pub async fn process_history_sync_reply(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), DeviceSyncError> {
-        self.process_sync_reply(provider, DeviceSyncKind::MessageHistory)
-            .await
-    }
-
-    fn syncable_groups(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups = conn
             .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?
             .into_iter()
@@ -61,7 +22,10 @@ where
         Ok(groups)
     }
 
-    fn syncable_messages(&self, conn: &DbConnection) -> Result<Vec<Syncable>, DeviceSyncError> {
+    pub(super) fn syncable_messages(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
 
@@ -153,7 +117,7 @@ pub(crate) mod tests {
             .expect("sync_welcomes");
         // Have the second installation request for a consent sync.
         let (_group_id, _pin_code) = amal_b
-            .send_history_sync_request(&amal_b_provider)
+            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
             .await
             .expect("history request");
 
@@ -167,7 +131,7 @@ pub(crate) mod tests {
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
         let reply = amal_a
-            .reply_to_history_sync_request(&amal_a_provider)
+            .reply_to_sync_request(&amal_a_provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
 
@@ -195,7 +159,7 @@ pub(crate) mod tests {
 
         // Have the second installation process the reply.
         amal_b
-            .process_history_sync_reply(&amal_b_provider)
+            .process_sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
 

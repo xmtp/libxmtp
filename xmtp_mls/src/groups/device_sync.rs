@@ -108,6 +108,30 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    pub async fn reply_to_sync_request(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        kind: DeviceSyncKind,
+    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+        let conn = provider.conn_ref();
+
+        let (_msg, request) = self.pending_sync_request(provider, kind).await?;
+        let records = match kind {
+            DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
+            DeviceSyncKind::MessageHistory => {
+                vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
+            }
+            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
+        };
+
+        let reply = self
+            .create_sync_reply(&request.request_id, &records, kind)
+            .await?;
+        self.send_sync_reply(provider, reply.clone()).await?;
+
+        Ok(reply)
+    }
+
     pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
@@ -123,11 +147,13 @@ where
         Ok(())
     }
 
-    async fn send_sync_request(
+    pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        request: DeviceSyncRequest,
+        kind: DeviceSyncKind,
     ) -> Result<(String, String), DeviceSyncError> {
+        let request = DeviceSyncRequest::new(kind);
+
         // find the sync group
         let sync_group = self.get_sync_group()?;
 
@@ -267,7 +293,7 @@ where
         Err(DeviceSyncError::NoReplyToProcess)
     }
 
-    async fn process_sync_reply(
+    pub async fn process_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
