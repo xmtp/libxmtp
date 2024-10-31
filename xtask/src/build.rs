@@ -23,7 +23,7 @@ pub fn build(extra_args: &[String], flags: flags::Build) -> Result<()> {
     } else {
         sp_running = Some(sp.start());
         Box::new(|s: &str| {
-            sp_running.as_ref().unwrap().text(s).update();
+            sp_running.as_ref().unwrap().text(s.trim()).update();
         }) as Box<dyn Fn(&str)>
     };
 
@@ -180,7 +180,7 @@ fn pretty_print<T>(cmd: xshell::Cmd, f: impl Fn(&str) -> T) -> Result<()> {
             let mut buf = String::new();
             reader.read_line(&mut buf)?;
             if !buf.is_empty() {
-                f(buf.trim());
+                f(&buf);
             }
         }
     }
