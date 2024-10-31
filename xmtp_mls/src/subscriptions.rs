@@ -4,7 +4,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use tokio::{sync::oneshot, task::JoinHandle};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
@@ -12,8 +12,9 @@ use crate::{
     retry::Retry,
     retry::RetryableError,
     retry_async, retryable,
-    storage::StorageError,
-    storage::{group::StoredGroup, group_message::StoredGroupMessage},
+    storage::{
+        group::GroupQueryArgs, group::StoredGroup, group_message::StoredGroupMessage, StorageError,
+    },
     Client, XmtpApi,
 };
 
@@ -44,11 +45,11 @@ impl<C> LocalEvents<C> {
     }
 }
 
-impl<ScopedClient: Clone> Clone for LocalEvents<ScopedClient> {
+impl<ScopedClient> Clone for LocalEvents<ScopedClient> {
     fn clone(&self) -> LocalEvents<ScopedClient> {
         use LocalEvents::*;
         match self {
-            NewGroup(c) => NewGroup(c.clone()),
+            NewGroup(group) => NewGroup(group.clone()),
         }
     }
 }
@@ -127,8 +128,8 @@ impl RetryableError for SubscribeError {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     async fn process_streamed_welcome(
         &self,
@@ -189,7 +190,10 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError> {
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
         let event_queue = tokio_stream::wrappers::BroadcastStream::new(
             self.local_events.subscribe(),
         )
@@ -239,8 +243,8 @@ where
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + Clone + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Clone + Send + Sync + 'static,
+    ApiClient: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,
@@ -267,12 +271,13 @@ where
         conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
     {
-        self.sync_welcomes().await?;
+        let conn = self.store().conn()?;
+        self.sync_welcomes(&conn).await?;
 
         let mut group_id_to_info = self
             .store()
             .conn()?
-            .find_groups(None, None, None, None, conversation_type)?
+            .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
             .into_iter()
             .map(Into::into)
             .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
@@ -384,9 +389,8 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        client::FindGroupParams,
         groups::{group_metadata::ConversationType, GroupMetadataOptions},
-        storage::group_message::StoredGroupMessage,
+        storage::{group::GroupQueryArgs, group_message::StoredGroupMessage},
         utils::test::{Delivery, FullXmtpClient, TestClient},
         Client, StreamHandle,
     };
@@ -426,7 +430,7 @@ pub(crate) mod tests {
 
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
-            .add_members_by_inbox_id(vec![bob.inbox_id()])
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
 
@@ -449,10 +453,13 @@ pub(crate) mod tests {
 
         // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
-            .add_members_by_inbox_id(vec![bob.inbox_id()])
+            .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_group = bob.sync_welcomes().await.unwrap();
+        let bob_group = bob
+            .sync_welcomes(&bob.store().conn().unwrap())
+            .await
+            .unwrap();
         let bob_group = bob_group.first().unwrap();
 
         let notify = Delivery::new(None);
@@ -495,7 +502,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -503,7 +510,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
         crate::sleep(core::time::Duration::from_millis(100)).await;
@@ -556,7 +563,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -584,7 +591,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         bo_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -604,7 +611,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group_2
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -654,7 +661,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
@@ -687,7 +694,7 @@ pub(crate) mod tests {
                 .create_group(None, GroupMetadataOptions::default())
                 .unwrap();
             new_group
-                .add_members_by_inbox_id(vec![caro.inbox_id()])
+                .add_members_by_inbox_id(&[caro.inbox_id()])
                 .await
                 .unwrap();
             new_group
@@ -747,7 +754,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![alix.inbox_id()])
+            .add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
 
@@ -759,8 +766,10 @@ pub(crate) mod tests {
         }
 
         // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes().await.unwrap();
-        let find_groups_results = alix.find_groups(FindGroupParams::default()).unwrap();
+        alix.sync_welcomes(&alix.store().conn().unwrap())
+            .await
+            .unwrap();
+        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
 
         {
             let grps = groups.lock();
@@ -801,7 +810,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -833,7 +842,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -869,7 +878,7 @@ pub(crate) mod tests {
         }
 
         let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
-        dm.add_members_by_inbox_id(vec![alix.inbox_id()])
+        dm.add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -882,7 +891,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 
@@ -905,7 +914,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
 

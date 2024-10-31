@@ -1,26 +1,24 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
-
-use diesel::{
-    backend::Backend,
-    deserialize::{self, FromSql, FromSqlRow},
-    expression::AsExpression,
-    prelude::*,
-    serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
-};
-
-use serde::{Deserialize, Serialize};
-
 use super::{
+    consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
-    schema::{groups, groups::dsl},
+    schema::groups::{self, dsl},
     Sqlite,
 };
 use crate::{
     groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
 };
+use diesel::{
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    dsl::sql,
+    expression::AsExpression,
+    prelude::*,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Integer,
+};
+use serde::{Deserialize, Serialize};
 
-/// The Group ID type.
 pub type ID = Vec<u8>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
@@ -42,10 +40,10 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The last time the leaf node encryption key was rotated
-    pub rotated_at_ns: i64,
     /// The inbox_id of the DM target
     pub dm_inbox_id: Option<String>,
+    /// The last time the leaf node encryption key was rotated
+    pub rotated_at_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -117,57 +115,180 @@ impl StoredGroup {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct GroupQueryArgs {
+    pub allowed_states: Option<Vec<GroupMembershipState>>,
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+    pub conversation_type: Option<ConversationType>,
+    pub consent_state: Option<ConsentState>,
+}
+
+impl AsRef<GroupQueryArgs> for GroupQueryArgs {
+    fn as_ref(&self) -> &GroupQueryArgs {
+        self
+    }
+}
+
+impl GroupQueryArgs {
+    pub fn allowed_states(self, allowed_states: Vec<GroupMembershipState>) -> Self {
+        self.maybe_allowed_states(Some(allowed_states))
+    }
+
+    pub fn maybe_allowed_states(
+        mut self,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+    ) -> Self {
+        self.allowed_states = allowed_states;
+        self
+    }
+
+    pub fn created_after_ns(self, created_after_ns: i64) -> Self {
+        self.maybe_created_after_ns(Some(created_after_ns))
+    }
+
+    pub fn maybe_created_after_ns(mut self, created_after_ns: Option<i64>) -> Self {
+        self.created_after_ns = created_after_ns;
+        self
+    }
+
+    pub fn created_before_ns(self, created_before_ns: i64) -> Self {
+        self.maybe_created_before_ns(Some(created_before_ns))
+    }
+
+    pub fn maybe_created_before_ns(mut self, created_before_ns: Option<i64>) -> Self {
+        self.created_before_ns = created_before_ns;
+        self
+    }
+
+    pub fn limit(self, limit: i64) -> Self {
+        self.maybe_limit(Some(limit))
+    }
+
+    pub fn maybe_limit(mut self, limit: Option<i64>) -> Self {
+        self.limit = limit;
+        self
+    }
+
+    pub fn conversation_type(self, conversation_type: ConversationType) -> Self {
+        self.maybe_conversation_type(Some(conversation_type))
+    }
+
+    pub fn maybe_conversation_type(mut self, conversation_type: Option<ConversationType>) -> Self {
+        self.conversation_type = conversation_type;
+        self
+    }
+
+    pub fn consent_state(self, consent_state: ConsentState) -> Self {
+        self.maybe_consent_state(Some(consent_state))
+    }
+
+    pub fn maybe_consent_state(mut self, consent_state: Option<ConsentState>) -> Self {
+        self.consent_state = consent_state;
+        self
+    }
+}
+
 impl DbConnection {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
-    pub fn find_groups(
+    pub fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
-        allowed_states: Option<Vec<GroupMembershipState>>,
-        created_after_ns: Option<i64>,
-        created_before_ns: Option<i64>,
-        limit: Option<i64>,
-        conversation_type: Option<ConversationType>,
+        args: A,
     ) -> Result<Vec<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        use crate::storage::schema::consent_records::dsl as consent_dsl;
+        use crate::storage::schema::groups::dsl as groups_dsl;
+        let GroupQueryArgs {
+            allowed_states,
+            created_after_ns,
+            created_before_ns,
+            limit,
+            conversation_type,
+            consent_state,
+        } = args.as_ref();
+
+        let mut query = groups_dsl::groups
+            .order(groups_dsl::created_at_ns.asc())
+            .into_boxed();
+
+        if let Some(limit) = limit {
+            query = query.limit(*limit);
+        }
 
         if let Some(allowed_states) = allowed_states {
-            query = query.filter(dsl::membership_state.eq_any(allowed_states));
+            query = query.filter(groups_dsl::membership_state.eq_any(allowed_states));
         }
 
         if let Some(created_after_ns) = created_after_ns {
-            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+            query = query.filter(groups_dsl::created_at_ns.gt(created_after_ns));
         }
 
         if let Some(created_before_ns) = created_before_ns {
-            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
-        }
-
-        if let Some(limit) = limit {
-            query = query.limit(limit);
+            query = query.filter(groups_dsl::created_at_ns.lt(created_before_ns));
         }
 
         if let Some(conversation_type) = conversation_type {
             match conversation_type {
                 ConversationType::Group => {
-                    query = query.filter(dsl::dm_inbox_id.is_null());
+                    query = query.filter(groups_dsl::dm_inbox_id.is_null());
                 }
                 ConversationType::Dm => {
-                    query = query.filter(dsl::dm_inbox_id.is_not_null());
+                    query = query.filter(groups_dsl::dm_inbox_id.is_not_null());
                 }
                 ConversationType::Sync => {}
             }
         }
 
-        query = query.filter(dsl::purpose.eq(Purpose::Conversation));
+        query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        let groups = if let Some(consent_state) = consent_state {
+            if *consent_state == ConsentState::Unknown {
+                let query = query
+                    .left_join(
+                        consent_dsl::consent_records
+                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
+                                .eq(consent_dsl::entity)),
+                    )
+                    .filter(
+                        consent_dsl::state
+                            .is_null()
+                            .or(consent_dsl::state.eq(ConsentState::Unknown)),
+                    )
+                    .select(groups_dsl::groups::all_columns())
+                    .order(groups_dsl::created_at_ns.asc());
+
+                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+            } else {
+                let query = query
+                    .inner_join(
+                        consent_dsl::consent_records
+                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
+                                .eq(consent_dsl::entity)),
+                    )
+                    .filter(consent_dsl::state.eq(*consent_state))
+                    .select(groups_dsl::groups::all_columns())
+                    .order(groups_dsl::created_at_ns.asc());
+
+                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+            }
+        } else {
+            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+        };
+
+        Ok(groups)
     }
 
-    /// Return only the [`Purpose::Sync`] groups
-    pub fn find_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-        query = query.filter(dsl::purpose.eq(Purpose::Sync));
+    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
+    }
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+    pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::purpose.eq(Purpose::Sync))
+            .limit(1);
+
+        Ok(self.raw_query(|conn| query.load(conn))?.pop())
     }
 
     /// Return a single group that matches the given ID
@@ -399,7 +520,10 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         assert_ok,
-        storage::encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
+        storage::{
+            consent_record::{ConsentType, StoredConsentRecord},
+            encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
+        },
         utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };
@@ -416,6 +540,19 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             None,
         )
+    }
+
+    /// Generate a test consent
+    fn generate_consent_record(
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type,
+            state,
+            entity,
+        }
     }
 
     /// Generate a test dm group
@@ -501,17 +638,15 @@ pub(crate) mod tests {
             test_group_3.store(conn).unwrap();
 
             let all_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Group))
+                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
                 .find_groups(
-                    Some(vec![GroupMembershipState::Pending]),
-                    None,
-                    None,
-                    None,
-                    Some(ConversationType::Group),
+                    GroupQueryArgs::default()
+                        .allowed_states(vec![GroupMembershipState::Pending])
+                        .conversation_type(ConversationType::Group),
                 )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
@@ -519,29 +654,32 @@ pub(crate) mod tests {
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(None, None, None, Some(1), Some(ConversationType::Group))
+                .find_groups(
+                    GroupQueryArgs::default()
+                        .limit(1)
+                        .conversation_type(ConversationType::Group),
+                )
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = conn
                 .find_groups(
-                    None,
-                    Some(test_group_1.created_at_ns),
-                    None,
-                    Some(1),
-                    Some(ConversationType::Group),
+                    GroupQueryArgs::default()
+                        .created_after_ns(test_group_1.created_at_ns)
+                        .conversation_type(ConversationType::Group)
+                        .limit(1),
                 )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.find_sync_groups().unwrap();
-            assert_eq!(synced_groups.len(), 0);
+            let synced_groups = conn.latest_sync_group().unwrap();
+            assert!(synced_groups.is_none());
 
             // test that dm groups are included
-            let dm_results = conn.find_groups(None, None, None, None, None).unwrap();
+            let dm_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(dm_results.len(), 3);
             assert_eq!(dm_results[2].id, test_group_3.id);
 
@@ -551,7 +689,7 @@ pub(crate) mod tests {
 
             // test only dms are returned
             let dm_results = conn
-                .find_groups(None, None, None, None, Some(ConversationType::Dm))
+                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Dm))
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
@@ -617,9 +755,64 @@ pub(crate) mod tests {
 
             sync_group.store(conn).unwrap();
 
-            let found = conn.find_sync_groups().unwrap();
-            assert_eq!(found.len(), 1);
-            assert_eq!(found[0].purpose, Purpose::Sync)
+            let found = conn.latest_sync_group().unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().purpose, Purpose::Sync)
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_groups_by_consent_state() {
+        with_connection(|conn| {
+            let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_1.store(conn).unwrap();
+            let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_2.store(conn).unwrap();
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_3.store(conn).unwrap();
+            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_4.store(conn).unwrap();
+
+            let test_group_1_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_1.id.clone()),
+            );
+            test_group_1_consent.store(conn).unwrap();
+            let test_group_2_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(test_group_2.id.clone()),
+            );
+            test_group_2_consent.store(conn).unwrap();
+            let test_group_3_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_3.id.clone()),
+            );
+            test_group_3_consent.store(conn).unwrap();
+
+            let all_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            assert_eq!(all_results.len(), 4);
+
+            let allowed_results = conn
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Allowed))
+                .unwrap();
+            assert_eq!(allowed_results.len(), 2);
+
+            let denied_results = conn
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Denied))
+                .unwrap();
+            assert_eq!(denied_results.len(), 1);
+            assert_eq!(denied_results[0].id, test_group_2.id);
+
+            let unknown_results = conn
+                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Unknown))
+                .unwrap();
+            assert_eq!(unknown_results.len(), 1);
+            assert_eq!(unknown_results[0].id, test_group_4.id);
         })
         .await
     }

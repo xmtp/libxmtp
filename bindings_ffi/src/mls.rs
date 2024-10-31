@@ -15,12 +15,13 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError, FindGroupParams},
+    client::{Client as MlsClient, ClientError},
     groups::{
         group_metadata::{ConversationType, GroupMetadata},
         group_mutable_metadata::MetadataField,
@@ -37,12 +38,13 @@ use xmtp_mls::{
     retry::Retry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 /// It returns a new client of the specified `inbox_id`.
@@ -152,7 +154,9 @@ pub async fn get_inbox_id_for_address(
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
     let api_client = ApiClientWrapper::new(
-        TonicApiClient::create(host.clone(), is_secure).await?,
+        TonicApiClient::create(host.clone(), is_secure)
+            .await?
+            .into(),
         Retry::default(),
     );
 
@@ -281,7 +285,7 @@ impl FfiXmtpClient {
     ) -> Result<HashMap<String, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: HashMap<String, bool> = inner.can_message(account_addresses).await?;
+        let results: HashMap<String, bool> = inner.can_message(&account_addresses).await?;
 
         Ok(results)
     }
@@ -353,7 +357,7 @@ impl FfiXmtpClient {
         let stored_records: Vec<StoredConsentRecord> =
             records.into_iter().map(StoredConsentRecord::from).collect();
 
-        inner.set_consent_states(stored_records).await?;
+        inner.set_consent_states(&stored_records).await?;
         Ok(())
     }
 
@@ -396,11 +400,12 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    pub async fn request_history_sync(&self) -> Result<(), GenericError> {
+    pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
         self.inner_client
-            .send_history_request()
-            .await
-            .map_err(GenericError::from_error)?;
+            .send_sync_request(&provider, kind.into())
+            .await?;
+
         Ok(())
     }
 
@@ -521,6 +526,17 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub consent_state: Option<FfiConsentState>,
+}
+
+impl From<FfiListConversationsOptions> for GroupQueryArgs {
+    fn from(opts: FfiListConversationsOptions) -> GroupQueryArgs {
+        GroupQueryArgs::default()
+            .maybe_created_before_ns(opts.created_before_ns)
+            .maybe_created_after_ns(opts.created_after_ns)
+            .maybe_limit(opts.limit)
+            .maybe_consent_state(opts.consent_state.map(Into::into))
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -790,7 +806,7 @@ impl FfiConversations {
                 .create_group(group_permissions, metadata_options)?
         } else {
             self.inner_client
-                .create_group_with_members(account_addresses, group_permissions, metadata_options)
+                .create_group_with_members(&account_addresses, group_permissions, metadata_options)
                 .await?
         };
 
@@ -822,16 +838,14 @@ impl FfiConversations {
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        inner.sync_welcomes().await?;
+        let conn = inner.store().conn()?;
+        inner.sync_welcomes(&conn).await?;
         Ok(())
     }
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(FindGroupParams {
-            conversation_type: None,
-            ..FindGroupParams::default()
-        })?;
+        let groups = inner.find_groups(GroupQueryArgs::default())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",
@@ -853,13 +867,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: None,
-            })?
+            .find_groups(opts.into())?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();
@@ -873,13 +881,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: Some(ConversationType::Group),
-            })?
+            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Group))?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();
@@ -893,13 +895,7 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(FindGroupParams {
-                allowed_states: None,
-                created_after_ns: opts.created_after_ns,
-                created_before_ns: opts.created_before_ns,
-                limit: opts.limit,
-                conversation_type: Some(ConversationType::Dm),
-            })?
+            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
             .into_iter()
             .map(|group| Arc::new(group.into()))
             .collect();
@@ -1056,6 +1052,21 @@ impl From<FfiConsentState> for ConsentState {
 }
 
 #[derive(uniffi::Enum)]
+pub enum FfiDeviceSyncKind {
+    Messages,
+    Consent,
+}
+
+impl From<FfiDeviceSyncKind> for DeviceSyncKind {
+    fn from(value: FfiDeviceSyncKind) -> Self {
+        match value {
+            FfiDeviceSyncKind::Consent => DeviceSyncKind::Consent,
+            FfiDeviceSyncKind::Messages => DeviceSyncKind::MessageHistory,
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
 pub enum FfiConsentEntityType {
     ConversationId,
     InboxId,
@@ -1206,7 +1217,8 @@ impl FfiConversation {
 
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         log::info!("adding members: {}", account_addresses.join(","));
-        self.inner.add_members(account_addresses).await?;
+
+        self.inner.add_members(&account_addresses).await?;
 
         Ok(())
     }
@@ -1216,15 +1228,16 @@ impl FfiConversation {
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
         log::info!("adding members by inbox id: {}", inbox_ids.join(","));
+
         self.inner
-            .add_members_by_inbox_id(inbox_ids)
+            .add_members_by_inbox_id(&inbox_ids)
             .await
             .map_err(Into::into)
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         self.inner
-            .remove_members(account_addresses)
+            .remove_members(&account_addresses)
             .await
             .map_err(Into::into)
     }
@@ -1233,7 +1246,7 @@ impl FfiConversation {
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
-        self.inner.remove_members_by_inbox_id(inbox_ids).await?;
+        self.inner.remove_members_by_inbox_id(&inbox_ids).await?;
         Ok(())
     }
 
@@ -3017,6 +3030,8 @@ mod tests {
         let bo = new_test_client().await;
         let caro = new_test_client().await;
 
+        let caro_conn = caro.inner_client.store().conn().unwrap();
+
         let alix_group = alix
             .conversations()
             .create_group(
@@ -3045,7 +3060,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = caro.inner_client.sync_welcomes().await.unwrap();
+        let _ = caro.inner_client.sync_welcomes(&caro_conn).await.unwrap();
 
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -3064,6 +3079,8 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
+        let bola_conn = bola.inner_client.store().conn().unwrap();
+
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
@@ -3073,7 +3090,7 @@ mod tests {
             .await
             .unwrap();
 
-        bola.inner_client.sync_welcomes().await.unwrap();
+        bola.inner_client.sync_welcomes(&bola_conn).await.unwrap();
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = RustStreamCallback::default();

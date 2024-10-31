@@ -11,7 +11,7 @@ pub async fn get_inbox_id_for_address(
 ) -> Result<Option<String>, JsError> {
   let account_address = account_address.to_lowercase();
   let api_client = ApiClientWrapper::new(
-    XmtpHttpApiClient::new(host.clone()).unwrap(),
+    XmtpHttpApiClient::new(host.clone()).unwrap().into(),
     Retry::default(),
   );
 

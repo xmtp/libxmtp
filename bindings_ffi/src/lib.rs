@@ -46,6 +46,8 @@ pub enum GenericError {
     FailedToConvertToU32,
     #[error("Association error: {0}")]
     Association(#[from] xmtp_id::associations::AssociationError),
+    #[error(transparent)]
+    DeviceSync(#[from] xmtp_mls::groups::device_sync::DeviceSyncError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

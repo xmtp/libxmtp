@@ -142,7 +142,7 @@ pub enum AddressValidationError {
 }
 
 pub fn sanitize_evm_addresses(
-    account_addresses: Vec<String>,
+    account_addresses: &[String],
 ) -> Result<Vec<String>, AddressValidationError> {
     let mut invalid = account_addresses
         .iter()

@@ -17,11 +17,10 @@ uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["message-history"] }
+xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
-tonic.workspace = true
 
 [build-dependencies]
 uniffi = { version = "0.28.0", features = ["build"] }
@@ -37,7 +36,6 @@ rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
+xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
-

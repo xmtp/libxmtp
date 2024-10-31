@@ -17,6 +17,8 @@ pub mod flags {
                 cmd BindingsWasm {
                     optional -o,--out-dir path: PathBuf
                 }
+                /// plain output, dont show a spinner
+                optional --plain
             }
         }
     }
@@ -36,6 +38,7 @@ pub mod flags {
 
     #[derive(Debug)]
     pub struct Build {
+        pub plain: bool,
         pub subcommand: BuildCmd,
     }
 

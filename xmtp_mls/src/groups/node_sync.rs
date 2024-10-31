@@ -13,8 +13,8 @@ use super::{
     validated_commit::extract_group_membership,
     GroupError, MlsGroup, ScopedGroupClient,
 };
-#[cfg(feature = "message-history")]
-use crate::groups::message_history::MessageHistoryContent;
+
+use crate::groups::device_sync::DeviceSyncContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -73,7 +73,6 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
-#[cfg(feature = "message-history")]
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
     Reply, Request,
 };
@@ -402,15 +401,13 @@ where
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
-                    #[cfg_attr(not(feature = "message-history"), allow(unused_variables))]
                     Some(Content::V2(V2 {
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        #[cfg(feature = "message-history")]
                         Some(Request(history_request)) => {
-                            let content: MessageHistoryContent =
-                                MessageHistoryContent::Request(history_request);
+                            let content: DeviceSyncContent =
+                                DeviceSyncContent::Request(history_request);
                             let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,
@@ -431,10 +428,10 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
                         }
-                        #[cfg(feature = "message-history")]
+
                         Some(Reply(history_reply)) => {
-                            let content: MessageHistoryContent =
-                                MessageHistoryContent::Reply(history_reply);
+                            let content: DeviceSyncContent =
+                                DeviceSyncContent::Reply(history_reply);
                             let content_bytes = serde_json::to_vec(&content)?;
                             let message_id = calculate_message_id(
                                 &self.group_id,
@@ -966,7 +963,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), GroupError> {
         let intent_data = self
-            .get_membership_update_intent(provider, vec![], vec![])
+            .get_membership_update_intent(provider, &[], &[])
             .await?;
 
         // If there is nothing to do, stop here
@@ -995,15 +992,15 @@ where
     pub(super) async fn get_membership_update_intent(
         &self,
         provider: &XmtpOpenMlsProvider,
-        inbox_ids_to_add: Vec<InboxId>,
-        inbox_ids_to_remove: Vec<InboxId>,
+        inbox_ids_to_add: &[InboxId],
+        inbox_ids_to_remove: &[InboxId],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         let mls_group = self.load_mls_group(provider)?;
         let existing_group_membership = extract_group_membership(mls_group.extensions())?;
 
         // TODO:nm prevent querying for updates on members who are being removed
         let mut inbox_ids = existing_group_membership.inbox_ids();
-        inbox_ids.extend(inbox_ids_to_add);
+        inbox_ids.extend_from_slice(inbox_ids_to_add);
         let conn = provider.conn_ref();
         // Load any missing updates from the network
         load_identity_updates(self.client.api(), conn, inbox_ids.clone()).await?;
@@ -1045,7 +1042,7 @@ where
 
         Ok(UpdateGroupMembershipIntentData::new(
             changed_inbox_ids,
-            inbox_ids_to_remove,
+            inbox_ids_to_remove.to_vec(),
         ))
     }
 
@@ -1090,7 +1087,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_DATA_LIMIT / usize::from(MAX_GROUP_SIZE));
+                .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.client.api();

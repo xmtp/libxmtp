@@ -14,7 +14,7 @@ pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
 const NS_IN_SEC: i64 = 1_000_000_000;
 
-const NS_IN_HOUR: i64 = NS_IN_SEC * 60 * 60;
+pub const NS_IN_HOUR: i64 = NS_IN_SEC * 60 * 60;
 
 const NS_IN_DAY: i64 = NS_IN_HOUR * 24;
 
@@ -24,7 +24,7 @@ pub const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
-pub const MAX_GROUP_SIZE: u16 = 400;
+pub const MAX_GROUP_SIZE: usize = 400;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 

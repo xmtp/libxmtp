@@ -139,8 +139,8 @@ pub trait ScopedGroupClient: Sized {
 
 impl<ApiClient, Verifier> ScopedGroupClient for Client<ApiClient, Verifier>
 where
-    ApiClient: XmtpApi + Clone,
-    Verifier: SmartContractSignatureVerifier + Clone,
+    ApiClient: XmtpApi,
+    Verifier: SmartContractSignatureVerifier,
 {
     type ApiClient = ApiClient;
 
@@ -149,7 +149,7 @@ where
     }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
-        self.context()
+        Client::<ApiClient, Verifier>::context(self)
     }
 
     fn intents(&self) -> &Arc<Intents> {

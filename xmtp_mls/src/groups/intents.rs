@@ -788,7 +788,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
         group_a
-            .add_members_by_inbox_id(vec![client_b.inbox_id()])
+            .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
             .unwrap();
         group_a.send_message(b"First message from A").await.unwrap();
@@ -798,7 +798,10 @@ pub(crate) mod tests {
         verify_num_payloads_in_group(&group_a, 2).await;
 
         // Client B sends a message to Client A
-        let groups_b = client_b.sync_welcomes().await.unwrap();
+        let groups_b = client_b
+            .sync_welcomes(&client_b.store().conn().unwrap())
+            .await
+            .unwrap();
         assert_eq!(groups_b.len(), 1);
         let group_b = groups_b[0].clone();
         group_b
