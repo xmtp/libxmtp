@@ -12,6 +12,7 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::WasmConversations;
 use crate::signatures::WasmSignatureRequestType;
@@ -155,15 +156,76 @@ impl WasmClient {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = requestHistorySync)]
-  pub async fn request_history_sync(&self) -> Result<(), JsError> {
+  #[wasm_bindgen(js_name = sendHistorySyncRequest)]
+  pub async fn send_history_sync_request(&self) -> Result<(), JsError> {
+    self.send_sync_request(DeviceSyncKind::MessageHistory).await
+  }
+
+  #[wasm_bindgen(js_name = sendConsentSyncRequest)]
+  pub async fn send_consent_sync_request(&self) -> Result<(), JsError> {
+    self.send_sync_request(DeviceSyncKind::Consent).await
+  }
+
+  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let _ = self
       .inner_client
-      .send_history_sync_request(&provider)
+      .send_sync_request(&provider, kind)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = replyToHistorySyncRequest)]
+  pub async fn reply_to_history_sync_request(&self) -> Result<(), JsError> {
+    self
+      .reply_to_sync_request(DeviceSyncKind::MessageHistory)
+      .await
+  }
+
+  #[wasm_bindgen(js_name = replyToConsentSyncRequest)]
+  pub async fn reply_to_consent_sync_request(&self) -> Result<(), JsError> {
+    self.reply_to_sync_request(DeviceSyncKind::Consent).await
+  }
+
+  async fn reply_to_sync_request(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let _ = self
+      .inner_client
+      .reply_to_sync_request(&provider, kind)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = processHistorySyncReply)]
+  pub async fn process_history_sync_reply(&self) -> Result<(), JsError> {
+    self
+      .process_sync_reply(DeviceSyncKind::MessageHistory)
+      .await
+  }
+
+  #[wasm_bindgen(js_name = processConsentSyncReply)]
+  pub async fn process_consent_sync_reply(&self) -> Result<(), JsError> {
+    self.process_sync_reply(DeviceSyncKind::Consent).await
+  }
+
+  async fn process_sync_reply(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let _ = self
+      .inner_client
+      .process_sync_reply(&provider, kind)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
