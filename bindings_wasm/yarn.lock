@@ -9,6 +9,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@xmtp/wasm-bindings@workspace:."
   dependencies:
+    binaryen: "npm:^120.0.0"
     wasm-pack: "npm:^0.13.0"
   languageName: unknown
   linkType: soft
@@ -37,6 +38,23 @@ __metadata:
     rimraf: "npm:^3.0.2"
     tar: "npm:^6.1.11"
   checksum: 10/78121e9c32981c101cc090f1564fbd0453d976a1b40c599a5ca623184d739b0a7c49f5ba5f91c05142eb6ff9b2816959bb9e09a3aecd12e4e3e82398bed9b8f0
+  languageName: node
+  linkType: hard
+
+"binaryen@npm:^120.0.0":
+  version: 120.0.0
+  resolution: "binaryen@npm:120.0.0"
+  bin:
+    wasm-as: bin/wasm-as
+    wasm-ctor-eval: bin/wasm-ctor-eval
+    wasm-dis: bin/wasm-dis
+    wasm-merge: bin/wasm-merge
+    wasm-metadce: bin/wasm-metadce
+    wasm-opt: bin/wasm-opt
+    wasm-reduce: bin/wasm-reduce
+    wasm-shell: bin/wasm-shell
+    wasm2js: bin/wasm2js
+  checksum: 10/4e995bcaa263e20f8d2cb33c96cbdc5f372c2844b1350fa1334950c492ee5147ce182d43f6ebfceb9813d2a748a00a614d11ea0e19981ca473facb1890180bf7
   languageName: node
   linkType: hard
 
