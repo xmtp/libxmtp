@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_mls::storage::group_message::MsgQueryArgs;
 
 use crate::encoded_content::WasmEncodedContent;
 use crate::messages::{WasmListMessagesOptions, WasmMessage};
