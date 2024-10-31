@@ -24,6 +24,7 @@ use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_mls::XmtpApi;
+use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::{
     json_logger::make_value,
@@ -355,7 +356,10 @@ async fn main() {
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
             client.enable_sync(&provider).await.unwrap();
-            let (group_id, _) = client.send_history_sync_request(&provider).await.unwrap();
+            let (group_id, _) = client
+                .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
+                .await
+                .unwrap();
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
@@ -364,7 +368,7 @@ async fn main() {
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id);
             let reply = client
-                .reply_to_history_sync_request(&provider)
+                .reply_to_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
                 .unwrap();
 
@@ -376,7 +380,10 @@ async fn main() {
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
             client.enable_sync(&provider).await.unwrap();
-            client.process_history_sync_reply(&provider).await.unwrap();
+            client
+                .process_sync_reply(&provider, DeviceSyncKind::MessageHistory)
+                .await
+                .unwrap();
 
             info!("History bundle downloaded and inserted into user DB", {})
         }
@@ -385,7 +392,10 @@ async fn main() {
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
             client.enable_sync(&provider).await.unwrap();
-            client.process_consent_sync_reply(&provider).await.unwrap();
+            client
+                .process_sync_reply(&provider, DeviceSyncKind::Consent)
+                .await
+                .unwrap();
 
             info!("Consent bundle downloaded and inserted into user DB", {})
         }
