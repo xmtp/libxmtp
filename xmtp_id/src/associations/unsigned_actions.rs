@@ -158,7 +158,8 @@ pub(crate) mod tests {
             nonce: 0,
             account_address: account_address.clone(),
         };
-        let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
             new_member_identifier: MemberIdentifier::Address(new_member_address.clone()),

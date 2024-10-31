@@ -126,7 +126,8 @@ pub(crate) mod tests {
 
     pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
-        let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id);
 
@@ -159,7 +160,8 @@ pub(crate) mod tests {
     #[test]
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
-        let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
         let account_address = create_request.account_address.clone();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
@@ -393,7 +395,8 @@ pub(crate) mod tests {
     #[test]
     fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
-        let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
         let create_request = Action::CreateInbox(create_inbox);
         // The default here will create an AddAssociation from a random wallet
         let update = Action::AddAssociation(AddAssociation {

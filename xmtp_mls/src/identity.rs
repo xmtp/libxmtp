@@ -348,7 +348,7 @@ impl Identity {
             Ok(identity)
         } else {
             let generated_inbox_id = generate_inbox_id(&address, &nonce)?;
-            if inbox_id !=  generated_inbox_id{
+            if inbox_id != generated_inbox_id {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));

@@ -10,7 +10,7 @@ fn sha256_string(input: String) -> String {
     format!("{:x}", result)
 }
 
-/// Validates that the account address is exactly 42 characters, starts with "0x", 
+/// Validates that the account address is exactly 42 characters, starts with "0x",
 /// and contains only valid hex digits.
 fn is_valid_address(account_address: &str) -> bool {
     account_address.len() == 42
@@ -23,5 +23,9 @@ pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> Result<String, A
     if !is_valid_address(account_address) {
         return Err(AssociationError::InvalidAccountAddress);
     }
-    Ok(sha256_string(format!("{}{}", account_address.to_lowercase(), nonce)))
+    Ok(sha256_string(format!(
+        "{}{}",
+        account_address.to_lowercase(),
+        nonce
+    )))
 }
