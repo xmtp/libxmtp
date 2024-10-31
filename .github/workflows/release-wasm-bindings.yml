@@ -26,10 +26,10 @@ jobs:
             .
             bindings_wasm
 
-      - name: Install wasm-bindgen and wasm-opt
+      - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen, wasm-opt
+          tool: wasm-bindgen
 
       - name: Setup node
         uses: actions/setup-node@v4
