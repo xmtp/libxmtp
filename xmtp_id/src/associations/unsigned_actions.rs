@@ -149,10 +149,10 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
-        let account_address = "0x123".to_string();
+        let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
         let client_timestamp_ns: u64 = 12;
-        let new_member_address = "0x456".to_string();
-        let new_recovery_address = "0x789".to_string();
+        let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
+        let new_recovery_address = "0x7890abcdef1234567890abcdef12345678123456".to_string();
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,
@@ -196,21 +196,21 @@ pub(crate) mod tests {
         let signature_text = identity_update.signature_text();
         let expected_text = "XMTP : Authenticate to inbox
 
-Inbox ID: 0b3a92b07ade747bc8d601ac6e173a4f3496f908395496c053b80458a39e1ced
+Inbox ID: fcd18d86276d7a99fe522dba9660c420f03c8648785ada7c5daae232a3df77a9
 Current time: 1970-01-01T00:00:00Z
 
 - Create inbox
-  (Owner: 0x123)
+  (Owner: 0x1234567890abcdef1234567890abcdef12345678)
 - Link address to inbox
-  (Address: 0x456)
+  (Address: 0x4567890abcdef1234567890abcdef12345678123)
 - Grant messaging access to app
   (ID: 010203)
 - Unlink address from inbox
-  (Address: 0x456)
+  (Address: 0x4567890abcdef1234567890abcdef12345678123)
 - Revoke messaging access from app
   (ID: 010203)
 - Change inbox recovery address
-  (Address: 0x789)
+  (Address: 0x7890abcdef1234567890abcdef12345678123456)
 
 For more info: https://xmtp.org/signatures";
         assert_eq!(signature_text, expected_text)
