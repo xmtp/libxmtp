@@ -37,6 +37,7 @@ use thiserror::Error;
 use tracing::debug;
 use tracing::info;
 use xmtp_id::associations::unverified::{UnverifiedInstallationKeySignature, UnverifiedSignature};
+use xmtp_id::associations::AssociationError;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -187,6 +188,8 @@ pub enum IdentityError {
     NewIdentity(String),
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
 }
 
 impl RetryableError for IdentityError {
@@ -291,7 +294,8 @@ impl Identity {
                 ));
             }
             // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            if inbox_id != generate_inbox_id(&address, &nonce) {
+            let generated_inbox_id = generate_inbox_id(&address, &nonce)?;
+            if inbox_id != generated_inbox_id {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
@@ -343,12 +347,12 @@ impl Identity {
 
             Ok(identity)
         } else {
-            if inbox_id != generate_inbox_id(&address, &nonce) {
+            let generated_inbox_id = generate_inbox_id(&address, &nonce)?;
+            if inbox_id != generated_inbox_id {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
-            let inbox_id = generate_inbox_id(&address, &nonce);
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
             builder = builder.create_inbox(member_identifier.clone(), nonce);
 

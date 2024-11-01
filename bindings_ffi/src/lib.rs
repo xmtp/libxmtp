@@ -44,6 +44,8 @@ pub enum GenericError {
     Verifier(#[from] xmtp_id::scw_verifier::VerifierError),
     #[error("Failed to convert to u32")]
     FailedToConvertToU32,
+    #[error("Association error: {0}")]
+    Association(#[from] xmtp_id::associations::AssociationError),
     #[error(transparent)]
     DeviceSync(#[from] xmtp_mls::groups::device_sync::DeviceSyncError),
 }

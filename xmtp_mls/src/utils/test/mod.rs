@@ -156,7 +156,7 @@ where
     A: XmtpApi,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
+    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
     let client = Client::<A>::builder(IdentityStrategy::CreateIfNotFound(
         inbox_id,
@@ -188,7 +188,7 @@ where
     V: SmartContractSignatureVerifier,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce);
+    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
     let client = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
         inbox_id,
