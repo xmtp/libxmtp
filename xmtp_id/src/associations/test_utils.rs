@@ -15,17 +15,19 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::Bytes,
 };
-use rand::{distributions::Alphanumeric, Rng};
+use rand::Rng;
 use sha2::{Digest, Sha512};
 
 pub fn rand_string() -> String {
-    let v: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
+    let hex_chars = "0123456789abcdef";
+    let v: String = (0..40)
+        .map(|_| {
+            let idx = rand::thread_rng().gen_range(0..hex_chars.len());
+            hex_chars.chars().nth(idx).unwrap()
+        })
         .collect();
 
-    v.to_lowercase()
+    format!("0x{}", v)
 }
 
 pub fn rand_u64() -> u64 {
