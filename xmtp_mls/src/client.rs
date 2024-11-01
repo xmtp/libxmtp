@@ -47,16 +47,15 @@ use crate::{
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
-    storage::group::GroupQueryArgs,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
-        group::{GroupMembershipState, StoredGroup},
+        group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::LocalEvents,
+    subscriptions::{LocalEvents, SubscribeError},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -108,6 +107,8 @@ pub enum ClientError {
     Group(Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
+    // #[error(transparent)]
+    // LocalEvents(#[from] SubscribeError),
 }
 
 impl From<GroupError> for ClientError {
@@ -311,7 +312,7 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
-        let (tx, _) = broadcast::channel(10);
+        let (tx, _) = broadcast::channel(32);
         Self {
             api_client: api_client.into(),
             context,

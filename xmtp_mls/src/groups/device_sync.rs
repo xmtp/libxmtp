@@ -2,8 +2,10 @@ use super::group_metadata::ConversationType;
 use super::scoped_client::LocalScopedGroupClient;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::groups::scoped_client::ScopedGroupClient;
 use crate::storage::group::GroupQueryArgs;
-use crate::storage::group_message::MsgQueryArgs;
+use crate::storage::group_message::{self, MsgQueryArgs};
+use crate::storage::schema::group_messages::{self, dsl};
 use crate::storage::DbConnection;
 use crate::subscriptions::{LocalEvents, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
@@ -24,6 +26,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use diesel::prelude::*;
 use futures::{Stream, StreamExt};
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -106,6 +109,8 @@ pub enum DeviceSyncError {
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
     SyncReplyTimestamp,
+    #[error(transparent)]
+    Subscribe(#[from] SubscribeError),
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -115,10 +120,7 @@ where
 {
     pub async fn stream_sync_messages(
         &self,
-    ) -> Result<impl Stream<Item = Result<SyncMessage, SubscribeError>> + '_, ClientError>
-    where
-        ApiClient: XmtpMlsStreams,
-    {
+    ) -> Result<impl Stream<Item = Result<SyncMessage, SubscribeError>> + '_, ClientError> {
         let event_queue =
             BroadcastStream::new(self.local_events.subscribe()).filter_map(|event| async {
                 crate::optify!(event, "Missed message due to event queue lag")
@@ -129,15 +131,63 @@ where
         Ok(event_queue)
     }
 
+    pub async fn sync_worker(self) -> Result<(), DeviceSyncError> {
+        let stream = self.stream_sync_messages().await?;
+        futures::pin_mut!(stream);
+
+        let provider = self.mls_provider()?;
+
+        while let Some(msg) = stream.next().await {
+            let msg = msg?;
+            match msg {
+                SyncMessage::Reply { message_id } => {
+                    let conn = provider.conn_ref();
+                    let Some(msg) = conn.get_group_message(&message_id)? else {
+                        tracing::error!("Sync reply message not found.");
+                        continue;
+                    };
+
+                    let msg_content: DeviceSyncContent =
+                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                    let DeviceSyncContent::Reply(reply) = msg_content else {
+                        // This should never happen, but we should still log it if it does.
+                        tracing::error!("Sync reply does not match it's payload.");
+                        continue;
+                    };
+
+                    self.process_sync_reply(&provider, reply).await?;
+                }
+                SyncMessage::Request { message_id } => {
+                    let conn = provider.conn_ref();
+                    let Some(msg) = conn.get_group_message(&message_id)? else {
+                        tracing::error!("Sync request message not found.");
+                        continue;
+                    };
+
+                    let msg_content: DeviceSyncContent =
+                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                    let DeviceSyncContent::Request(request) = msg_content else {
+                        // This should never happen, but we should still log it if it does.
+                        tracing::error!("Sync request does not match it's payload.");
+                        continue;
+                    };
+
+                    self.reply_to_sync_request(&provider, request).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn reply_to_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        request: DeviceSyncRequestProto,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let conn = provider.conn_ref();
 
-        let (_msg, request) = self.pending_sync_request(provider, kind).await?;
-        let records = match kind {
+        let records = match request.kind() {
             DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
             DeviceSyncKind::MessageHistory => {
                 vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
@@ -146,7 +196,7 @@ where
         };
 
         let reply = self
-            .create_sync_reply(&request.request_id, &records, kind)
+            .create_sync_reply(&request.request_id, &records, request.kind())
             .await?;
         self.send_sync_reply(provider, reply.clone()).await?;
 
@@ -317,9 +367,8 @@ where
     pub async fn process_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let reply = self.sync_reply(provider, kind).await?;
         let conn = provider.conn_ref();
 
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
