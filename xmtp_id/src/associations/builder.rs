@@ -524,7 +524,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn attempt_adding_unknown_signer() {
-        let account_address = "account_address".to_string();
+        let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)

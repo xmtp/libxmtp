@@ -24,9 +24,10 @@ pub async fn get_inbox_id_for_address(
 }
 
 #[wasm_bindgen(js_name = generateInboxId)]
-pub fn generate_inbox_id(account_address: String) -> String {
+pub fn generate_inbox_id(account_address: String) -> Result<String, JsError>  {
   let account_address = account_address.to_lowercase();
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
-  xmtp_id_generate_inbox_id(&account_address, &1)
+  let result = xmtp_id_generate_inbox_id(&account_address, &1).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  Ok(result)
 }
