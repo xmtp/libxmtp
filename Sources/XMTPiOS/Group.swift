@@ -9,6 +9,10 @@ import Foundation
 import LibXMTP
 
 final class MessageCallback: FfiMessageCallback {
+	func onError(error: LibXMTP.FfiSubscribeError) {
+		print("Error MessageCallback \(error)")
+	}
+
 	let client: Client
 	let callback: (LibXMTP.FfiMessage) -> Void
 
@@ -34,7 +38,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var id: String {
 		ffiGroup.id().toHex
 	}
-	
+
 	public var topic: String {
 		Topic.groupMessage(id).description
 	}
@@ -42,10 +46,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 	func metadata() throws -> FfiConversationMetadata {
 		return try ffiGroup.groupMetadata()
 	}
-    
-    func permissions() throws -> FfiGroupPermissions {
-        return try ffiGroup.groupPermissions()
-    }
+
+	func permissions() throws -> FfiGroupPermissions {
+		return try ffiGroup.groupPermissions()
+	}
 
 	public func sync() async throws {
 		try await ffiGroup.sync()
@@ -66,47 +70,48 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func isCreator() throws -> Bool {
 		return try metadata().creatorInboxId() == client.inboxID
 	}
-    
-    public func isAdmin(inboxId: String) throws -> Bool {
-        return try ffiGroup.isAdmin(inboxId: inboxId)
-    }
-    
-    public func isSuperAdmin(inboxId: String) throws -> Bool {
-        return try ffiGroup.isSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func addAdmin(inboxId: String) async throws {
-        try await ffiGroup.addAdmin(inboxId: inboxId)
-    }
-    
-    public func removeAdmin(inboxId: String) async throws {
-        try await ffiGroup.removeAdmin(inboxId: inboxId)
-    }
-    
-    public func addSuperAdmin(inboxId: String) async throws {
-        try await ffiGroup.addSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func removeSuperAdmin(inboxId: String) async throws {
-        try await ffiGroup.removeSuperAdmin(inboxId: inboxId)
-    }
-    
-    public func listAdmins() throws -> [String] {
-        try ffiGroup.adminList()
-    }
-    
-    public func listSuperAdmins() throws -> [String] {
-        try ffiGroup.superAdminList()
-    }
+
+	public func isAdmin(inboxId: String) throws -> Bool {
+		return try ffiGroup.isAdmin(inboxId: inboxId)
+	}
+
+	public func isSuperAdmin(inboxId: String) throws -> Bool {
+		return try ffiGroup.isSuperAdmin(inboxId: inboxId)
+	}
+
+	public func addAdmin(inboxId: String) async throws {
+		try await ffiGroup.addAdmin(inboxId: inboxId)
+	}
+
+	public func removeAdmin(inboxId: String) async throws {
+		try await ffiGroup.removeAdmin(inboxId: inboxId)
+	}
+
+	public func addSuperAdmin(inboxId: String) async throws {
+		try await ffiGroup.addSuperAdmin(inboxId: inboxId)
+	}
+
+	public func removeSuperAdmin(inboxId: String) async throws {
+		try await ffiGroup.removeSuperAdmin(inboxId: inboxId)
+	}
+
+	public func listAdmins() throws -> [String] {
+		try ffiGroup.adminList()
+	}
+
+	public func listSuperAdmins() throws -> [String] {
+		try ffiGroup.superAdminList()
+	}
 
 	public func permissionPolicySet() throws -> PermissionPolicySet {
-        return PermissionPolicySet.fromFfiPermissionPolicySet(try permissions().policySet())
+		return PermissionPolicySet.fromFfiPermissionPolicySet(
+			try permissions().policySet())
 	}
 
 	public func creatorInboxId() throws -> String {
 		return try metadata().creatorInboxId()
 	}
-	
+
 	public func addedByInboxId() throws -> String {
 		return try ffiGroup.addedByInboxId()
 	}
@@ -140,7 +145,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func removeMembers(addresses: [String]) async throws {
 		try await ffiGroup.removeMembers(accountAddresses: addresses)
 	}
-	
+
 	public func addMembersByInboxId(inboxIds: [String]) async throws {
 		try await ffiGroup.addMembersByInboxId(inboxIds: inboxIds)
 	}
@@ -148,11 +153,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func removeMembersByInboxId(inboxIds: [String]) async throws {
 		try await ffiGroup.removeMembersByInboxId(inboxIds: inboxIds)
 	}
-    
-    public func groupName() throws -> String {
-        return try ffiGroup.groupName()
-    }
-	
+
+	public func groupName() throws -> String {
+		return try ffiGroup.groupName()
+	}
+
 	public func groupImageUrlSquare() throws -> String {
 		return try ffiGroup.groupImageUrlSquare()
 	}
@@ -165,57 +170,106 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.groupPinnedFrameUrl()
 	}
 
-    public func updateGroupName(groupName: String) async throws {
-        try await ffiGroup.updateGroupName(groupName: groupName)
-    }
-	
+	public func updateGroupName(groupName: String) async throws {
+		try await ffiGroup.updateGroupName(groupName: groupName)
+	}
+
 	public func updateGroupImageUrlSquare(imageUrlSquare: String) async throws {
-		try await ffiGroup.updateGroupImageUrlSquare(groupImageUrlSquare: imageUrlSquare)
+		try await ffiGroup.updateGroupImageUrlSquare(
+			groupImageUrlSquare: imageUrlSquare)
 	}
 
 	public func updateGroupDescription(groupDescription: String) async throws {
-		try await ffiGroup.updateGroupDescription(groupDescription: groupDescription)
+		try await ffiGroup.updateGroupDescription(
+			groupDescription: groupDescription)
 	}
 
-	public func updateGroupPinnedFrameUrl(groupPinnedFrameUrl: String) async throws {
-		try await ffiGroup.updateGroupPinnedFrameUrl(pinnedFrameUrl: groupPinnedFrameUrl)
+	public func updateGroupPinnedFrameUrl(groupPinnedFrameUrl: String)
+		async throws
+	{
+		try await ffiGroup.updateGroupPinnedFrameUrl(
+			pinnedFrameUrl: groupPinnedFrameUrl)
 	}
 
-	public func updateAddMemberPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.addMember, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
+	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
+		async throws
+	{
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.addMember,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption), metadataField: nil)
 	}
 
-	public func updateRemoveMemberPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.removeMember, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
+	public func updateRemoveMemberPermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.removeMember,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption), metadataField: nil)
 	}
 
-	public func updateAddAdminPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.addAdmin, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
+	public func updateAddAdminPermission(newPermissionOption: PermissionOption)
+		async throws
+	{
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.addAdmin,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption), metadataField: nil)
 	}
 
-	public func updateRemoveAdminPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.removeAdmin, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: nil)
+	public func updateRemoveAdminPermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.removeAdmin,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption), metadataField: nil)
 	}
 
-	public func updateGroupNamePermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.groupName)
+	public func updateGroupNamePermission(newPermissionOption: PermissionOption)
+		async throws
+	{
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption),
+			metadataField: FfiMetadataField.groupName)
 	}
 
-	public func updateGroupDescriptionPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.description)
+	public func updateGroupDescriptionPermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption),
+			metadataField: FfiMetadataField.description)
 	}
 
-	public func updateGroupImageUrlSquarePermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.imageUrlSquare)
+	public func updateGroupImageUrlSquarePermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption),
+			metadataField: FfiMetadataField.imageUrlSquare)
 	}
 
-	public func updateGroupPinnedFrameUrlPermission(newPermissionOption: PermissionOption) async throws {
-        try await ffiGroup.updatePermissionPolicy(permissionUpdateType: FfiPermissionUpdateType.updateMetadata, permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(option: newPermissionOption), metadataField: FfiMetadataField.pinnedFrameUrl)
+	public func updateGroupPinnedFrameUrlPermission(
+		newPermissionOption: PermissionOption
+	) async throws {
+		try await ffiGroup.updatePermissionPolicy(
+			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
+			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
+				option: newPermissionOption),
+			metadataField: FfiMetadataField.pinnedFrameUrl)
 	}
 
 	public func updateConsentState(state: ConsentState) async throws {
-		if (client.hasV2Client) {
-			switch (state) {
+		if client.hasV2Client {
+			switch state {
 			case .allowed: try await client.contacts.allowGroups(groupIds: [id])
 			case .denied: try await client.contacts.denyGroups(groupIds: [id])
 			case .unknown: ()
@@ -225,33 +279,42 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try ffiGroup.updateConsentState(state: state.toFFI)
 	}
 
-	public func consentState() throws -> ConsentState{
+	public func consentState() throws -> ConsentState {
 		return try ffiGroup.consentState().fromFFI
 	}
-	
+
 	public func processMessage(envelopeBytes: Data) async throws -> MessageV3 {
-		let message = try await ffiGroup.processStreamedConversationMessage(envelopeBytes: envelopeBytes)
+		let message = try await ffiGroup.processStreamedConversationMessage(
+			envelopeBytes: envelopeBytes)
 		return MessageV3(client: client, ffiMessage: message)
 	}
 
-	public func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
-		let encodeContent = try await encodeContent(content: content, options: options)
+	public func send<T>(content: T, options: SendOptions? = nil) async throws
+		-> String
+	{
+		let encodeContent = try await encodeContent(
+			content: content, options: options)
 		return try await send(encodedContent: encodeContent)
 	}
 
 	public func send(encodedContent: EncodedContent) async throws -> String {
-		if (try consentState() == .unknown) {
+		if try consentState() == .unknown {
 			try await updateConsentState(state: .allowed)
 		}
 
-		let messageId = try await ffiGroup.send(contentBytes: encodedContent.serializedData())
+		let messageId = try await ffiGroup.send(
+			contentBytes: encodedContent.serializedData())
 		return messageId.toHex
 	}
 
-	public func encodeContent<T>(content: T, options: SendOptions?) async throws -> EncodedContent {
+	public func encodeContent<T>(content: T, options: SendOptions?) async throws
+		-> EncodedContent
+	{
 		let codec = client.codecRegistry.find(for: options?.contentType)
 
-		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
+		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws
+			-> EncodedContent
+		{
 			if let content = content as? Codec.T {
 				return try codec.encode(content: content, client: client)
 			} else {
@@ -261,7 +324,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		var encoded = try encode(codec: codec, content: content)
 
-		func fallback<Codec: ContentCodec>(codec: Codec, content: Any) throws -> String? {
+		func fallback<Codec: ContentCodec>(codec: Codec, content: Any) throws
+			-> String?
+		{
 			if let content = content as? Codec.T {
 				return try codec.fallback(content: content)
 			} else {
@@ -279,14 +344,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		return encoded
 	}
-	
-	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> String {
-		if (try consentState() == .unknown) {
+
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
+		async throws -> String
+	{
+		if try consentState() == .unknown {
 			try await updateConsentState(state: .allowed)
 		}
-		
-		let encodeContent = try await encodeContent(content: content, options: options)
-		return try ffiGroup.sendOptimistic(contentBytes: try encodeContent.serializedData()).toHex
+
+		let encodeContent = try await encodeContent(
+			content: content, options: options)
+		return try ffiGroup.sendOptimistic(
+			contentBytes: try encodeContent.serializedData()
+		).toHex
 	}
 
 	public func publishMessages() async throws {
@@ -301,20 +371,24 @@ public struct Group: Identifiable, Equatable, Hashable {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiGroup.stream(
-					messageCallback: MessageCallback(client: self.client) { message in
+					messageCallback: MessageCallback(client: self.client) {
+						message in
 						guard !Task.isCancelled else {
 							continuation.finish()
 							return
 						}
 						do {
-							continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
+							continuation.yield(
+								try MessageV3(
+									client: self.client, ffiMessage: message
+								).decode())
 						} catch {
 							print("Error onMessage \(error)")
 							continuation.finish(throwing: error)
 						}
 					}
 				)
-				
+
 				continuation.onTermination = { @Sendable reason in
 					self.streamHolder.stream?.end()
 				}
@@ -327,24 +401,30 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+	public func streamDecryptedMessages() -> AsyncThrowingStream<
+		DecryptedMessage, Error
+	> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiGroup.stream(
-					messageCallback: MessageCallback(client: self.client) { message in
+					messageCallback: MessageCallback(client: self.client) {
+						message in
 						guard !Task.isCancelled else {
 							continuation.finish()
 							return
 						}
 						do {
-							continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decrypt())
+							continuation.yield(
+								try MessageV3(
+									client: self.client, ffiMessage: message
+								).decrypt())
 						} catch {
 							print("Error onMessage \(error)")
 							continuation.finish(throwing: error)
 						}
 					}
 				)
-				
+
 				continuation.onTermination = { @Sendable reason in
 					self.streamHolder.stream?.end()
 				}
@@ -373,11 +453,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 
 		if let before {
-			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
+			options.sentBeforeNs = Int64(
+				before.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let after {
-			options.sentAfterNs = Int64(after.millisecondsSinceEpoch * 1_000_000)
+			options.sentAfterNs = Int64(
+				after.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let limit {
@@ -398,7 +480,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}()
 
 		options.deliveryStatus = status
-		
+
 		let direction: FfiDirection? = {
 			switch direction {
 			case .ascending:
@@ -410,8 +492,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
-			return MessageV3(client: self.client, ffiMessage: ffiMessage).decodeOrNull()
+		return try ffiGroup.findMessages(opts: options).compactMap {
+			ffiMessage in
+			return MessageV3(client: self.client, ffiMessage: ffiMessage)
+				.decodeOrNull()
 		}
 	}
 
@@ -431,17 +515,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 
 		if let before {
-			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
+			options.sentBeforeNs = Int64(
+				before.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let after {
-			options.sentAfterNs = Int64(after.millisecondsSinceEpoch * 1_000_000)
+			options.sentAfterNs = Int64(
+				after.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		
+
 		let status: FfiDeliveryStatus? = {
 			switch deliveryStatus {
 			case .published:
@@ -454,9 +540,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 				return nil
 			}
 		}()
-		
+
 		options.deliveryStatus = status
-		
+
 		let direction: FfiDirection? = {
 			switch direction {
 			case .ascending:
@@ -468,8 +554,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
-			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()
+		return try ffiGroup.findMessages(opts: options).compactMap {
+			ffiMessage in
+			return MessageV3(client: self.client, ffiMessage: ffiMessage)
+				.decryptOrNull()
 		}
 	}
 }

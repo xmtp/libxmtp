@@ -39,6 +39,7 @@ extension GenericErrorDescribing {
 			let .GroupMutablePermissions(message),
 			let .SignatureRequestError(message),
 			let .Erc1271SignatureError(message),
+			let	.FailedToConvertToU32(message),
 			let .Verifier(message):
 			return message
 		}
