@@ -37,7 +37,7 @@ use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
-use xmtp_id::associations::generate_inbox_id;
+use xmtp_id::associations::{generate_inbox_id, AssociationError};
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
@@ -141,6 +141,8 @@ enum CliError {
     StorageError(#[from] StorageError),
     #[error("generic:{0}")]
     Generic(String),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
 }
 
 impl From<String> for CliError {
@@ -506,7 +508,7 @@ where
     };
 
     let nonce = 0;
-    let inbox_id = generate_inbox_id(&w.get_address(), &nonce);
+    let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
     let client = create_client(
         cli,
         IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),

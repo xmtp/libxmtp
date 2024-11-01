@@ -5,7 +5,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberKind};
+use super::{
+    hashes::generate_inbox_id, member::Member, AssociationError, MemberIdentifier, MemberKind,
+};
 
 #[derive(Debug, Clone)]
 pub struct AssociationStateDiff {
@@ -179,16 +181,20 @@ impl AssociationState {
         }
     }
 
-    pub fn new(account_address: String, nonce: u64, chain_id: Option<u64>) -> Self {
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+    pub fn new(
+        account_address: String,
+        nonce: u64,
+        chain_id: Option<u64>,
+    ) -> Result<Self, AssociationError> {
+        let inbox_id = generate_inbox_id(&account_address, &nonce)?;
         let identifier = MemberIdentifier::Address(account_address.clone());
         let new_member = Member::new(identifier.clone(), None, None, chain_id);
-        Self {
+        Ok(Self {
             members: HashMap::from_iter([(identifier, new_member)]),
             seen_signatures: HashSet::new(),
             recovery_address: account_address.to_lowercase(),
             inbox_id,
-        }
+        })
     }
 }
 
@@ -204,7 +210,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
-        let starting_state = AssociationState::new(rand_string(), 0, None);
+        let starting_state = AssociationState::new(rand_string(), 0, None).unwrap();
         let new_entity = Member::default();
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
@@ -214,7 +220,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
-        let starting_state = AssociationState::new(rand_string(), 0, None);
+        let starting_state = AssociationState::new(rand_string(), 0, None).unwrap();
         let entity_1 = Member::default();
         let entity_2 = Member::default();
         let entity_3 = Member::default();

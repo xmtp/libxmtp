@@ -36,6 +36,8 @@ pub enum AssociationError {
     MissingIdentityUpdate,
     #[error("Wrong chain id. Initially added with {0} but now signing from {1}")]
     ChainIdMismatch(u64, u64),
+    #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
+    InvalidAccountAddress,
 }
 
 pub trait IdentityAction: Send {
@@ -90,11 +92,11 @@ impl IdentityAction for CreateInbox {
             return Err(AssociationError::LegacySignatureReuse);
         }
 
-        Ok(AssociationState::new(
+        AssociationState::new(
             account_address,
             self.nonce,
             self.initial_address_signature.chain_id,
-        ))
+        )
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
@@ -140,7 +142,7 @@ impl IdentityAction for AddAssociation {
             && existing_state.inbox_id().ne(&generate_inbox_id(
                 existing_member_identifier.to_string().as_str(),
                 &0,
-            ))
+            )?)
         {
             return Err(AssociationError::LegacySignatureReuse);
         }

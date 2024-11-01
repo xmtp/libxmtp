@@ -583,7 +583,7 @@ pub(crate) mod tests {
     fn test_round_trip_unverified() {
         let account_address = rand_string();
         let nonce = rand_u64();
-        let inbox_id = generate_inbox_id(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let client_timestamp_ns = rand_u64();
         let signature_bytes = rand_vec();
 

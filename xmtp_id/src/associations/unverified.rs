@@ -411,7 +411,7 @@ mod tests {
         let account_address = rand_string();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
-            inbox_id: generate_inbox_id(account_address.as_str(), &nonce),
+            inbox_id: generate_inbox_id(account_address.as_str(), &nonce).unwrap(),
             client_timestamp_ns: 10,
             actions: vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action: UnsignedCreateInbox {
