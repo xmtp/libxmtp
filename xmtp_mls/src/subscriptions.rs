@@ -26,14 +26,18 @@ pub struct StreamHandle<T> {
     start: Option<oneshot::Receiver<()>>,
 }
 
-/// Events local to this clientsubscriptions::SyncReplyEvent
+/// Events local to this client
 /// are broadcast across all senders/receivers of streams
 #[derive(Clone)]
 pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
-    SyncRequest { message_id: Vec<u8> },
-    SyncReply { message_id: Vec<u8> },
+    SyncMessage(SyncMessage),
+}
+#[derive(Clone)]
+pub enum SyncMessage {
+    Request { message_id: Vec<u8> },
+    Reply { message_id: Vec<u8> },
 }
 
 impl<C> LocalEvents<C> {
@@ -46,11 +50,10 @@ impl<C> LocalEvents<C> {
         }
     }
 
-    pub(crate) fn sync_filter(self) -> Option<LocalEvents<C>> {
+    pub(crate) fn sync_filter(self) -> Option<SyncMessage> {
         use LocalEvents::*;
         match self {
-            SyncRequest { message_id } => Some(SyncRequest { message_id }),
-            SyncReply { message_id } => Some(SyncReply { message_id }),
+            SyncMessage(msg) => Some(msg),
             _ => None,
         }
     }
@@ -201,7 +204,7 @@ where
         )
         .filter_map(|event| async {
             crate::optify!(event, "Missed messages due to event queue lag")
-                .and_then(LocalEvents::<_>::group_filter)
+                .and_then(LocalEvents::group_filter)
                 .map(Result::Ok)
         });
 

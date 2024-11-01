@@ -18,7 +18,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, error::SendError};
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{

@@ -1,10 +1,11 @@
 use super::group_metadata::ConversationType;
+use super::scoped_client::LocalScopedGroupClient;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::subscriptions::LocalEvents;
+use crate::subscriptions::{LocalEvents, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::Store;
@@ -23,6 +24,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use futures::{Stream, StreamExt};
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -34,6 +36,7 @@ use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -107,16 +110,23 @@ pub enum DeviceSyncError {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
-    pub async fn spawn_sync_worker(&self) {
+    pub async fn stream_sync_messages(
+        &self,
+    ) -> Result<impl Stream<Item = Result<SyncMessage, SubscribeError>> + '_, ClientError>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
         let event_queue =
             BroadcastStream::new(self.local_events.subscribe()).filter_map(|event| async {
                 crate::optify!(event, "Missed message due to event queue lag")
-                    .and_then(LocalEvents::<_>::sync_filter)
+                    .and_then(LocalEvents::sync_filter)
                     .map(Result::Ok)
             });
+
+        Ok(event_queue)
     }
 
     pub async fn reply_to_sync_request(

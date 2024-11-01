@@ -14,7 +14,6 @@ use super::{
     GroupError, MlsGroup, ScopedGroupClient,
 };
 
-use crate::groups::device_sync::DeviceSyncContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -40,6 +39,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
+use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
 use openmls::{
     credentials::BasicCredential,
@@ -429,9 +429,9 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
 
-                            self.client
-                                .local_events()
-                                .send(LocalEvents::SyncRequest { message_id });
+                            self.client.local_events().send(LocalEvents::SyncMessage(
+                                SyncMessage::Request { message_id },
+                            ));
                         }
 
                         Some(Reply(history_reply)) => {
@@ -459,7 +459,7 @@ where
 
                             self.client
                                 .local_events()
-                                .send(LocalEvents::SyncReply { message_id });
+                                .send(LocalEvents::SyncMessage(SyncMessage::Reply { message_id }));
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
