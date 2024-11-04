@@ -3,6 +3,7 @@ edition = "2021"
 name = "xmtp_v2"
 rust-version = "1.64"
 version.workspace = true
+license.workspace = true
 
 [dependencies]
 aes-gcm = "0.10.1"
