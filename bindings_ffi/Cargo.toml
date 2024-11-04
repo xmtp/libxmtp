@@ -2,6 +2,7 @@
 edition = "2021"
 name = "xmtpv3"
 version.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
