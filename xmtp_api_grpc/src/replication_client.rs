@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
+use prost::Message;
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
@@ -14,8 +15,17 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
+use xmtp_proto::xmtp::xmtpv4::envelopes::{
+    ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
+};
 use xmtp_proto::xmtp::xmtpv4::message_api::replication_api_client::ReplicationApiClient;
+use xmtp_proto::xmtp::xmtpv4::message_api::{
+    EnvelopesQuery, PublishPayerEnvelopesRequest, QueryEnvelopesRequest,
+};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -290,7 +300,13 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 impl XmtpMlsClient for ClientV4 {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        unimplemented!();
+        let client = &mut self.client.clone();
+        let payload = wrap_client_envelope(ClientEnvelope::from(req));
+        let res = client.publish_payer_envelopes(payload).await;
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -401,7 +417,13 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        unimplemented!()
+        let client = &mut self.client.clone();
+        let payload = wrap_client_envelope(ClientEnvelope::from(request));
+        let res = client.publish_payer_envelopes(payload).await;
+        match res {
+            Ok(_) => Ok(PublishIdentityUpdateResponse {}),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -439,7 +461,32 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        unimplemented!()
+        let topics = request
+            .requests
+            .iter()
+            .map(|r| build_identity_update_topic(r.inbox_id.clone()))
+            .collect();
+        let v4_envelopes = self.query_v4_envelopes(topics).await?;
+        let joined_data = v4_envelopes
+            .into_iter()
+            .zip(request.requests.into_iter())
+            .collect::<Vec<_>>();
+        let responses = joined_data
+            .iter()
+            .map(|(envelopes, inner_req)| {
+                let identity_updates = envelopes
+                    .iter()
+                    .map(convert_v4_envelope_to_identity_update)
+                    .collect::<Result<Vec<IdentityUpdateLog>, Error>>()?;
+
+                Ok(get_identity_updates_response::Response {
+                    inbox_id: inner_req.inbox_id.clone(),
+                    updates: identity_updates,
+                })
+            })
+            .collect::<Result<Vec<get_identity_updates_response::Response>, Error>>()?;
+
+        Ok(GetIdentityUpdatesV2Response { responses })
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -460,5 +507,84 @@ impl XmtpTestClient for ClientV4 {
 
     async fn create_dev() -> Self {
         todo!()
+    }
+}
+
+pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
+    format!("i/{}", inbox_id).into_bytes()
+}
+
+impl ClientV4 {
+    #[tracing::instrument(level = "trace", skip_all)]
+    async fn query_v4_envelopes(
+        &self,
+        topics: Vec<Vec<u8>>,
+    ) -> Result<Vec<Vec<OriginatorEnvelope>>, Error> {
+        let requests = topics.iter().map(|topic| async {
+            let client = &mut self.client.clone();
+            let v4_envelopes = client
+                .query_envelopes(QueryEnvelopesRequest {
+                    query: Some(EnvelopesQuery {
+                        topics: topics.clone(),
+                        originator_node_ids: vec![],
+                        last_seen: None,
+                    }),
+                    limit: 100,
+                })
+                .await
+                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
+
+            Ok(v4_envelopes.into_inner().envelopes)
+        });
+
+        Ok(futures::future::try_join_all(requests).await?)
+    }
+}
+
+fn convert_v4_envelope_to_identity_update(
+    envelope: &OriginatorEnvelope,
+) -> Result<IdentityUpdateLog, Error> {
+    let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
+    let originator_envelope = UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)
+        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+
+    let payer_envelope = originator_envelope
+        .payer_envelope
+        .ok_or(Error::new(ErrorKind::IdentityError).with("Payer envelope is None"))?;
+
+    // TODO: validate payer signatures
+    let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
+
+    let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)
+        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+    let payload = client_envelope
+        .payload
+        .ok_or(Error::new(ErrorKind::IdentityError).with("Payload is None"))?;
+
+    let identity_update = match payload {
+        Payload::IdentityUpdate(update) => update,
+        _ => {
+            return Err(
+                Error::new(ErrorKind::IdentityError).with("Payload is not an identity update")
+            )
+        }
+    };
+
+    Ok(IdentityUpdateLog {
+        sequence_id: originator_envelope.originator_sequence_id,
+        server_timestamp_ns: originator_envelope.originator_ns as u64,
+        update: Some(identity_update),
+    })
+}
+
+pub fn wrap_client_envelope(req: ClientEnvelope) -> PublishPayerEnvelopesRequest {
+    let mut buf = vec![];
+    req.encode(&mut buf).unwrap();
+
+    PublishPayerEnvelopesRequest {
+        payer_envelopes: vec![PayerEnvelope {
+            unsigned_client_envelope: buf,
+            payer_signature: None,
+        }],
     }
 }
