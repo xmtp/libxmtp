@@ -13,11 +13,12 @@ public struct PreparedMessage {
     // Any more are for required intros/invites etc.
     // A client can just publish these when it has connectivity.
     public let envelopes: [Envelope]
+	public let encodedContent: EncodedContent?
 
     // Note: we serialize as a PublishRequest as a convenient `envelopes` wrapper.
     public static func fromSerializedData(_ serializedData: Data) throws -> PreparedMessage {
         let req = try Xmtp_MessageApi_V1_PublishRequest(serializedData: serializedData)
-        return PreparedMessage(envelopes: req.envelopes)
+		return PreparedMessage(envelopes: req.envelopes, encodedContent: nil)
     }
 
     // Note: we serialize as a PublishRequest as a convenient `envelopes` wrapper.

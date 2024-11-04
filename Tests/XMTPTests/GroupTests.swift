@@ -87,6 +87,63 @@ class GroupTests: XCTestCase {
 			davonV3Client: davonV3Client
 		)
 	}
+	
+	func testCanDualSendConversations() async throws {
+		let fixtures = try await localFixtures()
+		let v2Convo = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.walletAddress)
+
+		try await fixtures.aliceClient.conversations.sync()
+		try await fixtures.bobClient.conversations.sync()
+
+		let alixDm = try await fixtures.aliceClient.findDm(address: fixtures.bob.walletAddress)
+		let boDm = try await fixtures.bobClient.findDm(address: fixtures.alice.walletAddress)
+
+		XCTAssertEqual(alixDm?.id, boDm?.id)
+
+		let alixConversationsListCount = try await fixtures.aliceClient.conversations.list().count
+		XCTAssertEqual(alixConversationsListCount, 1)
+
+		let alixDmsListCount = try await fixtures.aliceClient.conversations.dms().count
+		XCTAssertEqual(alixDmsListCount, 1)
+
+		let boDmsListCount = try await fixtures.bobClient.conversations.dms().count
+		XCTAssertEqual(boDmsListCount, 1)
+
+		let boConversationsListCount = try await fixtures.bobClient.conversations.list().count
+		XCTAssertEqual(boConversationsListCount, 1)
+
+		let boFirstTopic = try await fixtures.bobClient.conversations.list().first?.topic
+		XCTAssertEqual(v2Convo.topic, boFirstTopic)
+	}
+
+	func testCanDualSendMessages() async throws {
+		let fixtures = try await localFixtures()
+		let alixV2Convo = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.walletAddress)
+		let boV2Convo = try await fixtures.bobClient.conversations.list().first!
+
+		try await fixtures.bobClient.conversations.sync()
+
+		let alixDm = try await fixtures.aliceClient.findDm(address: fixtures.bob.walletAddress)
+		let boDm = try await fixtures.bobClient.findDm(address: fixtures.alice.walletAddress)
+
+		try await alixV2Convo.send(content: "first")
+		try await boV2Convo.send(content: "second")
+
+		try await alixDm?.sync()
+		try await boDm?.sync()
+
+		let alixV2ConvoMessageCount = try await alixV2Convo.messages().count
+		XCTAssertEqual(alixV2ConvoMessageCount, 2)
+
+		let boV2ConvoMessageCount = try await boV2Convo.messages().count
+		XCTAssertEqual(alixV2ConvoMessageCount, boV2ConvoMessageCount)
+
+		let boDmMessageCount = try await boDm?.messages().count
+		XCTAssertEqual(boDmMessageCount, 2)
+
+		let alixDmMessageCount = try await alixDm?.messages().count
+		XCTAssertEqual(alixDmMessageCount, 3) // Including the group membership update in the DM
+	}
 
 	func testCanCreateAGroupWithDefaultPermissions() async throws {
 		let fixtures = try await localFixtures()

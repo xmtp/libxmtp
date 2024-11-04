@@ -96,7 +96,7 @@ public struct ConversationV2 {
 		let topic = options?.ephemeral == true ? ephemeralTopic : topic
 
 		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
-		return PreparedMessage(envelopes: [envelope])
+		return PreparedMessage(envelopes: [envelope], encodedContent: encodedContent)
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
@@ -255,6 +255,16 @@ public struct ConversationV2 {
 	}
 
     @discardableResult func send(prepared: PreparedMessage) async throws -> String {
+		if (client.v3Client != nil) {
+			do {
+				let dm = try await client.conversations.findOrCreateDm(with: peerAddress)
+				if let encodedContent = prepared.encodedContent {
+					try await dm.send(encodedContent: encodedContent)
+				}
+			} catch {
+				print("ConversationV2 send \(error)")
+			}
+		}
         try await client.publish(envelopes: prepared.envelopes)
         if((try await client.contacts.consentList.state(address: peerAddress)) == .unknown) {
             try await client.contacts.allow(addresses: [peerAddress])

@@ -183,11 +183,6 @@ public actor Conversations {
 	public func dms(
 		createdAfter: Date? = nil, createdBefore: Date? = nil, limit: Int? = nil
 	) async throws -> [Dm] {
-		if client.hasV2Client {
-			throw ConversationError.v2NotSupported(
-				"Only supported with V3 only clients use newConversation instead"
-			)
-		}
 		guard let v3Client = client.v3Client else {
 			return []
 		}
@@ -214,11 +209,6 @@ public actor Conversations {
 		limit: Int? = nil, order: ConversationOrder = .createdAt,
 		consentState: ConsentState? = nil
 	) async throws -> [Conversation] {
-		if client.hasV2Client {
-			throw ConversationError.v2NotSupported(
-				"Only supported with V3 only clients use list instead")
-		}
-		// Todo: add ability to order and consent state
 		guard let v3Client = client.v3Client else {
 			return []
 		}
@@ -350,13 +340,6 @@ public actor Conversations {
 		Conversation, Error
 	> {
 		AsyncThrowingStream { continuation in
-			if client.hasV2Client {
-				continuation.finish(
-					throwing: ConversationError.v2NotSupported(
-						"Only supported with V3 only clients use stream instead"
-					))
-				return
-			}
 			let ffiStreamActor = FfiStreamActor()
 			let task = Task {
 				let stream = await self.client.v3Client?.conversations().stream(
@@ -405,12 +388,6 @@ public actor Conversations {
 	}
 
 	public func findOrCreateDm(with peerAddress: String) async throws -> Dm {
-		if client.hasV2Client {
-			throw ConversationError.v2NotSupported(
-				"Only supported with V3 only clients use newConversation instead"
-			)
-		}
-
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
 		}
@@ -537,13 +514,6 @@ public actor Conversations {
 		DecodedMessage, Error
 	> {
 		AsyncThrowingStream { continuation in
-			if client.hasV2Client {
-				continuation.finish(
-					throwing: ConversationError.v2NotSupported(
-						"Only supported with V3 clients. Use streamAllMessages instead."
-					))
-				return
-			}
 			let ffiStreamActor = FfiStreamActor()
 			let task = Task {
 				let stream = await self.client.v3Client?.conversations()
@@ -583,13 +553,6 @@ public actor Conversations {
 		DecryptedMessage, Error
 	> {
 		AsyncThrowingStream { continuation in
-			if client.hasV2Client {
-				continuation.finish(
-					throwing: ConversationError.v2NotSupported(
-						"Only supported with V3 clients. Use streamAllMessages instead."
-					))
-				return
-			}
 			let ffiStreamActor = FfiStreamActor()
 			let task = Task {
 				let stream = await self.client.v3Client?.conversations()
@@ -852,6 +815,13 @@ public actor Conversations {
 		let conversation: Conversation = .v2(conversationV2)
 		Task {
 			await self.addConversation(conversation)
+		}
+		if client.v3Client != nil {
+			do {
+				try await client.conversations.findOrCreateDm(with: peerAddress)
+			} catch {
+				print("newConversation \(error)")
+			}
 		}
 		return conversation
 	}

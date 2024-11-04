@@ -88,7 +88,7 @@ public struct ConversationV1 {
 					await client.contacts.markIntroduced(peerAddress, true)
         }
 
-		return PreparedMessage(envelopes: envelopes)
+		return PreparedMessage(envelopes: envelopes, encodedContent: encodedContent)
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
@@ -139,6 +139,16 @@ public struct ConversationV1 {
 	}
 
     @discardableResult func send(prepared: PreparedMessage) async throws -> String {
+		if (client.v3Client != nil) {
+			do {
+				let dm = try await client.conversations.findOrCreateDm(with: peerAddress)
+				if let encodedContent = prepared.encodedContent {
+					try await dm.send(encodedContent: encodedContent)
+				}
+			} catch {
+				print("ConversationV1 send \(error)")
+			}
+		}
         try await client.publish(envelopes: prepared.envelopes)
         if((try await client.contacts.consentList.state(address: peerAddress)) == .unknown) {
             try await client.contacts.allow(addresses: [peerAddress])
