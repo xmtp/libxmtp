@@ -1,0 +1,22 @@
+name: Cargo-Deny Checker
+on: [push, pull_request]
+
+jobs:
+  cargo-deny:
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans
+          - licenses
+          - sources
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check ${{ matrix.checks }}
+
+    # Prevent sudden announcement of a new advisory from failing CI
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
