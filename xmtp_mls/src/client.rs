@@ -289,6 +289,25 @@ impl XmtpMlsLocalContext {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    pub async fn with_sync(self) -> Self {
+        crate::spawn(None, {
+            let client = self.clone();
+
+            let receiver = client.local_events.subscribe();
+            let sync_stream = receiver.stream_sync_messages();
+
+            async move { client.sync_worker(sync_stream).await }
+        });
+
+        self
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
@@ -315,24 +334,14 @@ where
         });
         let (tx, _) = broadcast::channel(32);
 
-        let client = Self {
+        Self {
             api_client: api_client.into(),
             context,
             history_sync_url,
             local_events: tx,
             scw_verifier: scw_verifier.into(),
             intents,
-        };
-
-        crate::spawn(None, {
-            let client = client.clone();
-            let receiver = client.local_events.subscribe();
-            let sync_stream = receiver.stream_sync_messages();
-
-            async move { client.sync_worker(sync_stream).await }
-        });
-
-        client
+        }
     }
 
     pub fn scw_verifier(&self) -> &V {
