@@ -586,6 +586,30 @@ class GroupTest {
     }
 
     @Test
+    fun testCanListGroupMessagesAfter() {
+        val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        val messageId = runBlocking {
+            group.send("howdy")
+            group.send("gm")
+        }
+        val message = boClient.findMessage(messageId)
+        assertEquals(group.messages().size, 3)
+        assertEquals(group.messages(afterNs = message?.sentAtNs).size, 0)
+        runBlocking {
+            group.send("howdy")
+            group.send("gm")
+        }
+        assertEquals(group.messages().size, 5)
+        assertEquals(group.messages(afterNs = message?.sentAtNs).size, 2)
+
+        runBlocking { alixClient.conversations.syncConversations() }
+        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
+        runBlocking { sameGroup.sync() }
+        assertEquals(sameGroup.messages().size, 4)
+        assertEquals(sameGroup.messages(afterNs = message?.sentAtNs).size, 2)
+    }
+
+    @Test
     fun testCanSendContentTypesToGroup() {
         Client.register(codec = ReactionCodec())
 

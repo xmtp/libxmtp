@@ -45,6 +45,8 @@ import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.nio.charset.StandardCharsets
 import java.util.Date
+import kotlin.time.Duration.Companion.nanoseconds
+import kotlin.time.DurationUnit
 
 @RunWith(AndroidJUnit4::class)
 class ConversationTest {
@@ -418,7 +420,12 @@ class ConversationTest {
             val messages = aliceConversation.messages(limit = 1)
             assertEquals(1, messages.size)
             assertEquals("hey alice 3", messages[0].body)
-            val messages2 = aliceConversation.messages(limit = 1, after = date)
+            val messages2 = aliceConversation.messages(
+                limit = 1,
+                afterNs = date.time.nanoseconds.toLong(
+                    DurationUnit.NANOSECONDS
+                )
+            )
             assertEquals(1, messages2.size)
             assertEquals("hey alice 3", messages2[0].body)
             val messagesAsc =

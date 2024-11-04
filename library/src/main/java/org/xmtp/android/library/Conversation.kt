@@ -169,50 +169,71 @@ sealed class Conversation {
      */
     suspend fun messages(
         limit: Int? = null,
-        before: Date? = null,
-        after: Date? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
         direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecodedMessage> {
         return when (this) {
             is V1 -> conversationV1.messages(
                 limit = limit,
-                before = before,
-                after = after,
+                before = beforeNs?.let { Date(it / 1_000_000) },
+                after = afterNs?.let { Date(it / 1_000_000) },
                 direction = direction,
             )
 
             is V2 ->
                 conversationV2.messages(
                     limit = limit,
-                    before = before,
-                    after = after,
+                    before = beforeNs?.let { Date(it / 1_000_000) },
+                    after = afterNs?.let { Date(it / 1_000_000) },
                     direction = direction,
                 )
 
             is Group -> {
                 group.messages(
                     limit = limit,
-                    before = before,
-                    after = after,
+                    beforeNs = beforeNs,
+                    afterNs = afterNs,
                     direction = direction,
                 )
             }
 
-            is Dm -> dm.messages(limit, before, after, direction)
+            is Dm -> dm.messages(limit, beforeNs, afterNs, direction)
         }
     }
 
     suspend fun decryptedMessages(
         limit: Int? = null,
-        before: Date? = null,
-        after: Date? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
         direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecryptedMessage> {
         return when (this) {
-            is V1 -> conversationV1.decryptedMessages(limit, before, after, direction)
-            is V2 -> conversationV2.decryptedMessages(limit, before, after, direction)
-            is Group -> group.decryptedMessages(limit, before, after, direction)
-            is Dm -> dm.decryptedMessages(limit, before, after, direction)
+            is V1 -> conversationV1.decryptedMessages(
+                limit = limit,
+                before = beforeNs?.let { Date(it / 1_000_000) },
+                after = afterNs?.let { Date(it / 1_000_000) },
+                direction = direction,
+            )
+
+            is V2 ->
+                conversationV2.decryptedMessages(
+                    limit = limit,
+                    before = beforeNs?.let { Date(it / 1_000_000) },
+                    after = afterNs?.let { Date(it / 1_000_000) },
+                    direction = direction,
+                )
+
+            is Group -> {
+                group.decryptedMessages(
+                    limit = limit,
+                    beforeNs = beforeNs,
+                    afterNs = afterNs,
+                    direction = direction,
+                )
+            }
+
+            is Dm -> dm.decryptedMessages(limit, beforeNs, afterNs, direction)
         }
     }
 

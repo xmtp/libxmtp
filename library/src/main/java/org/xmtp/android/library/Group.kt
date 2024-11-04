@@ -29,8 +29,6 @@ import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
 import java.util.Date
-import kotlin.time.Duration.Companion.nanoseconds
-import kotlin.time.DurationUnit
 
 class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
     val id: String
@@ -121,15 +119,15 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
 
     fun messages(
         limit: Int? = null,
-        before: Date? = null,
-        after: Date? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
         direction: PagingInfoSortDirection = SORT_DIRECTION_DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
     ): List<DecodedMessage> {
         return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
-                sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                sentBeforeNs = beforeNs,
+                sentAfterNs = afterNs,
                 limit = limit?.toLong(),
                 deliveryStatus = when (deliveryStatus) {
                     MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
@@ -149,15 +147,15 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
 
     fun decryptedMessages(
         limit: Int? = null,
-        before: Date? = null,
-        after: Date? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
         direction: PagingInfoSortDirection = SORT_DIRECTION_DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
     ): List<DecryptedMessage> {
         return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
-                sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                sentBeforeNs = beforeNs,
+                sentAfterNs = afterNs,
                 limit = limit?.toLong(),
                 deliveryStatus = when (deliveryStatus) {
                     MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED

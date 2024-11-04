@@ -29,6 +29,8 @@ import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundle
 import uniffi.xmtpv3.createV2Client
 import java.util.Date
+import kotlin.time.Duration.Companion.nanoseconds
+import kotlin.time.DurationUnit
 
 @RunWith(AndroidJUnit4::class)
 class LocalInstrumentedTest {
@@ -163,10 +165,19 @@ class LocalInstrumentedTest {
             assertEquals(2, messagesLimit.size)
             val nowMessage = messages[0]
             assertEquals("now", nowMessage.body)
-            val messages2 = convo.messages(limit = 1, before = nowMessage.sent)
+            val messages2 = convo.messages(
+                limit = 1,
+                beforeNs = nowMessage.sent.time.nanoseconds.toLong(
+                    DurationUnit.NANOSECONDS
+                )
+            )
             val tenSecondsAgoMessage = messages2[0]
             assertEquals("now first", tenSecondsAgoMessage.body)
-            val messages3 = convo.messages(after = tenSecondsAgoMessage.sent)
+            val messages3 = convo.messages(
+                afterNs = tenSecondsAgoMessage.sent.time.nanoseconds.toLong(
+                    DurationUnit.NANOSECONDS
+                )
+            )
             val nowMessage2 = messages3[0]
             assertEquals("now", nowMessage2.body)
             val messagesAsc =

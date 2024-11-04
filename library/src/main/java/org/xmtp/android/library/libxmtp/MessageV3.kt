@@ -29,6 +29,9 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
     val sentAt: Date
         get() = Date(libXMTPMessage.sentAtNs / 1_000_000)
 
+    val sentAtNs: Long
+        get() = libXMTPMessage.sentAtNs
+
     val deliveryStatus: MessageDeliveryStatus
         get() = when (libXMTPMessage.deliveryStatus) {
             FfiDeliveryStatus.UNPUBLISHED -> MessageDeliveryStatus.UNPUBLISHED
