@@ -47,6 +47,7 @@ pub enum ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     api_client: Option<ApiClient>,
+    enable_sync: bool,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
@@ -66,6 +67,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
+            enable_sync: true,
             identity: None,
             store: None,
             identity_strategy: strategy,
@@ -77,6 +79,11 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
     pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
+        self
+    }
+
+    pub fn without_sync(mut self) -> Self {
+        self.enable_sync = false;
         self
     }
 
@@ -108,8 +115,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
@@ -120,7 +127,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + 'static,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
@@ -161,13 +168,14 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    C: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
 {
     let ClientBuilder {
         mut store,
         identity_strategy,
         history_sync_url,
+        enable_sync,
         mut scw_verifier,
         ..
     } = client;
@@ -198,13 +206,17 @@ where
     )
     .await?;
 
-    let client = Client::new(
+    let mut client = Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url,
     );
+
+    if enable_sync {
+        client = client.with_sync().await;
+    }
 
     Ok(client)
 }
