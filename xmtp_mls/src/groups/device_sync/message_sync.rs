@@ -81,7 +81,7 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_a_provider = amal_a.mls_provider().unwrap();
-        amal_a.enable_sync(&amal_a_provider).await.unwrap();
+        assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
 
         amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_a_provider = amal_a.mls_provider().unwrap();
@@ -101,16 +101,11 @@ pub(crate) mod tests {
             .unwrap();
         group.send_message(&[1, 2, 3]).await.unwrap();
 
-        info!("here");
         // Ensure that groups and messages now exists.
         let syncable_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
         assert_eq!(syncable_groups.len(), 1);
         let syncable_messages = amal_a.syncable_messages(amal_a_conn).unwrap();
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
-
-        // The first installation should have zero sync groups.
-        let amal_a_sync_group = amal_a_conn.latest_sync_group().unwrap();
-        assert!(amal_a_sync_group.is_none());
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
@@ -138,8 +133,8 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
-        let (_msg, request) = amal_b
-            .pending_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
+        let (_msg, request) = amal_a
+            .pending_sync_request(&amal_a_provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
         let reply = amal_a

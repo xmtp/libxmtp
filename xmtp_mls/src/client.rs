@@ -291,27 +291,6 @@ impl XmtpMlsLocalContext {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
-{
-    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        self.sync_init(&provider).await?;
-
-        crate::spawn(None, {
-            let client = self.clone();
-
-            let receiver = client.local_events.subscribe();
-            let sync_stream = receiver.stream_sync_messages();
-
-            async move { client.sync_worker(sync_stream).await }
-        });
-
-        Ok(())
-    }
-}
-
-impl<ApiClient, V> Client<ApiClient, V>
-where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {

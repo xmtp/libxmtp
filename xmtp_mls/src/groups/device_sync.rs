@@ -5,7 +5,7 @@ use crate::configuration::NS_IN_HOUR;
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::subscriptions::{LocalEvents, SubscribeError, SyncMessage};
+use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::Store;
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::warn;
+use tracing::{info, warn};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -113,6 +113,27 @@ pub enum DeviceSyncError {
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+        self.sync_init(&provider).await?;
+
+        crate::spawn(None, {
+            let client = self.clone();
+
+            let receiver = client.local_events.subscribe();
+            let sync_stream = receiver.stream_sync_messages();
+
+            async move { client.sync_worker(sync_stream).await }
+        });
+
+        Ok(())
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
@@ -178,10 +199,10 @@ where
             let sync_group = self.ensure_sync_group(provider).await?;
             // If there's more than one installation.
             if sync_group.members().await?.len() > 1 {
-                // self.send_sync_request(provider, DeviceSyncKind::Consent)
-                // .await?;
-                // self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-                // .await?;
+                self.send_sync_request(provider, DeviceSyncKind::Consent)
+                    .await?;
+                self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+                    .await?;
             }
         }
 
@@ -344,6 +365,33 @@ where
         Err(DeviceSyncError::NoPendingRequest)
     }
 
+    #[cfg(test)]
+    async fn sync_reply(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        kind: DeviceSyncKind,
+    ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
+        let sync_group = self.get_sync_group()?;
+        sync_group.sync_with_conn(provider).await?;
+
+        let messages = sync_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
+        info!("{}", messages.len());
+
+        for msg in messages.into_iter().rev() {
+            let msg_content: DeviceSyncContent =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            match msg_content {
+                DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
+                    return Ok(Some((msg, reply)));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(None)
+    }
+
     pub async fn process_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -435,7 +483,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
     Reply(DeviceSyncReplyProto),

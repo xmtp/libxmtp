@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, info};
 
 use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
@@ -182,8 +182,6 @@ where
         ..
     } = client;
 
-    debug!("Building client");
-
     let scw_verifier = scw_verifier
         .take()
         .ok_or(ClientBuilderError::MissingParameter {
@@ -216,10 +214,11 @@ where
         history_sync_url,
     );
 
-    if with_sync {
-        let provider = client.mls_provider()?;
-        client.enable_sync(&provider).await?;
-    }
+    // if with_sync {
+    // info!("Enabling device sync.");
+    // let provider = client.store().conn()?.into();
+    // client.enable_sync(&provider).await?;
+    // }
 
     Ok(client)
 }

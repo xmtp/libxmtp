@@ -190,14 +190,14 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let client = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
+    let builder = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
         inbox_id,
         owner.get_address(),
         nonce,
         None,
     ));
 
-    let client = client
+    let client = builder
         .temp_store()
         .await
         .api_client(api_client)
