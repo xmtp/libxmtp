@@ -61,7 +61,7 @@ tokio = { version = "1.35.1", default-features = false }
 # Test with Android and Swift first.
 # Its probably preferable to one day use https://github.com/rustls/rustls-native-certs
 # Until then, always test agains iOS/Android after updating these dependencies & making a PR
-tonic = { version = "0.12", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
+tonic = { version = "0.12.3", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
 rustls = { version = "=0.23.7", features = ["ring"] }
 # Pinned Dependencies
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
