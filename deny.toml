@@ -1,0 +1,33 @@
+[advisories]
+ignore = [
+    {id="RUSTSEC-2021-0139", reason="The maintainer has advised that this crate is deprecated and will not receive any maintenance. https://rustsec.org/advisories/RUSTSEC-2021-0139.html"},
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "GPL-3.0",
+    "CC0-1.0",
+    "BSD-2-Clause"
+]
+confidence-threshold = 1.0
+
+exceptions = [
+    { allow = ["OpenSSL"], name = "ring", version = "*" },
+    { allow = ["Unlicense"], name = "pharos", version = "0.5.3" },
+    { allow = ["Unlicense"], name = "async_io_stream", version = "0.3.3" },
+    { allow = ["Unlicense"], name = "ws_stream_wasm", version = "0.7.4" },
+]
+
+[[licenses.clarify]]
+name = "ring"
+version = "*"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
