@@ -433,7 +433,7 @@ where
 
                             // Ignore this installation's sync messages
                             if !sent_from_this_installation {
-                                self.client.local_events().send(LocalEvents::SyncMessage(
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Request { message_id },
                                 ));
                             }
@@ -464,7 +464,7 @@ where
 
                             // Ignore this installation's sync messages
                             if !sent_from_this_installation {
-                                self.client.local_events().send(LocalEvents::SyncMessage(
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Reply { message_id },
                                 ));
                             }

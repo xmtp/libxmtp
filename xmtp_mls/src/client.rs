@@ -18,7 +18,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
-use tokio::sync::broadcast::{self, error::SendError};
+use tokio::sync::broadcast::{self};
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
@@ -30,9 +30,12 @@ use xmtp_id::{
     InboxId,
 };
 
-use xmtp_proto::xmtp::mls::api::v1::{
-    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-    GroupMessage, WelcomeMessage,
+use xmtp_proto::{
+    api_client,
+    xmtp::mls::api::v1::{
+        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+        GroupMessage, WelcomeMessage,
+    },
 };
 
 use crate::{
@@ -55,7 +58,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{LocalEvents, SubscribeError},
+    subscriptions::{LocalEvents, StreamMessages},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -107,8 +110,6 @@ pub enum ClientError {
     Group(Box<GroupError>),
     #[error("generic:{0}")]
     Generic(String),
-    // #[error(transparent)]
-    // LocalEvents(#[from] SubscribeError),
 }
 
 impl From<GroupError> for ClientError {
@@ -313,14 +314,25 @@ where
             context: context.clone(),
         });
         let (tx, _) = broadcast::channel(32);
-        Self {
+
+        let client = Self {
             api_client: api_client.into(),
             context,
             history_sync_url,
             local_events: tx,
             scw_verifier: scw_verifier.into(),
             intents,
-        }
+        };
+
+        crate::spawn(None, {
+            let client = client.clone();
+            let receiver = client.local_events.subscribe();
+            let sync_stream = receiver.stream_sync_messages();
+
+            async move { client.sync_worker(sync_stream).await }
+        });
+
+        client
     }
 
     pub fn scw_verifier(&self) -> &V {

@@ -1,7 +1,11 @@
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
-use tokio::{sync::oneshot, task::JoinHandle};
+use tokio::{
+    sync::{broadcast, oneshot},
+    task::JoinHandle,
+};
+use tokio_stream::wrappers::BroadcastStream;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
@@ -56,6 +60,24 @@ impl<C> LocalEvents<C> {
             SyncMessage(msg) => Some(msg),
             _ => None,
         }
+    }
+}
+
+pub(crate) trait StreamMessages {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>>;
+}
+impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
+where
+    C: Clone + Send + Sync + 'static,
+{
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
+        let event_queue = BroadcastStream::new(self).filter_map(|event| async {
+            crate::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::sync_filter)
+                .map(Result::Ok)
+        });
+
+        event_queue
     }
 }
 
