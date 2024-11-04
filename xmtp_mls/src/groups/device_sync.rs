@@ -376,7 +376,6 @@ where
 
         let messages = sync_group
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
-        info!("{}", messages.len());
 
         for msg in messages.into_iter().rev() {
             let msg_content: DeviceSyncContent =

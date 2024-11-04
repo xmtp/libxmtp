@@ -141,34 +141,26 @@ pub(crate) mod tests {
         assert_eq!(consent_records.len(), 0);
 
         // Have the second installation process the reply.
-        let messages = amal_b
-            .get_sync_group()
+        let (_msg, reply) = amal_b
+            .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+            .await
             .unwrap()
-            .find_messages(&MsgQueryArgs::default())
             .unwrap();
-        for msg in messages {
-            let content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes).unwrap();
-            info!("{content:?}");
-        }
 
-        //        let DeviceSyncContent::Reply(reply) = content else {
-        //unreachable!();
-        //        };
-        //        amal_b
-        //.process_sync_reply(&amal_b_provider, reply)
-        //.await
-        //.unwrap();
-        //
-        //        // Load consents of both installations
-        //        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
-        //        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
-        //
-        //        // Ensure the consent is synced.
-        //        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
-        //        assert_eq!(consent_records_b.len(), 2);
-        //        for record in &consent_records_a {
-        //assert!(consent_records_b.contains(record));
-        //        }
+        amal_b
+            .process_sync_reply(&amal_b_provider, reply)
+            .await
+            .unwrap();
+
+        // Load consents of both installations
+        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
+        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
+
+        // Ensure the consent is synced.
+        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
+        assert_eq!(consent_records_b.len(), 2);
+        for record in &consent_records_a {
+            assert!(consent_records_b.contains(record));
+        }
     }
 }
