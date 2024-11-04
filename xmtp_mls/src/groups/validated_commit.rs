@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
-    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
+    group::{MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
@@ -228,18 +228,18 @@ impl ValidatedCommit {
         let group_permissions: GroupMutablePermissions = extensions.try_into()?;
         let current_group_members = get_current_group_members(openmls_group);
 
-        let existing_group_context = openmls_group.export_group_context();
-        let new_group_context = staged_commit.group_context();
+        let existing_group_extensions = openmls_group.extensions();
+        let new_group_extensions = staged_commit.group_context().extensions();
 
         let metadata_changes = extract_metadata_changes(
             &immutable_metadata,
             &mutable_metadata,
-            existing_group_context,
-            new_group_context,
+            existing_group_extensions,
+            new_group_extensions,
         )?;
 
         let permissions_changed =
-            extract_permissions_changed(&group_permissions, new_group_context)?;
+            extract_permissions_changed(&group_permissions, new_group_extensions)?;
         // Get the actor who created the commit.
         // Because we don't allow for multiple actors in a commit, this will error if two proposals come from different authors.
         let actor = extract_actor(
@@ -278,7 +278,7 @@ impl ValidatedCommit {
             conn,
             &client,
             staged_commit,
-            existing_group_context,
+            existing_group_extensions,
             &immutable_metadata,
             &mutable_metadata,
         )
@@ -465,11 +465,11 @@ async fn extract_expected_diff<'diff>(
     conn: &DbConnection,
     client: impl ScopedGroupClient,
     staged_commit: &StagedCommit,
-    existing_group_context: &GroupContext,
+    existing_group_extensions: &Extensions,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
 ) -> Result<ExpectedDiff, CommitValidationError> {
-    let old_group_membership = extract_group_membership(existing_group_context.extensions())?;
+    let old_group_membership = extract_group_membership(existing_group_extensions)?;
     let new_group_membership = get_latest_group_membership(staged_commit)?;
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
@@ -626,12 +626,12 @@ fn extract_metadata_changes(
     immutable_metadata: &GroupMetadata,
     // We already have the old mutable metadata, so save parsing it a second time
     old_mutable_metadata: &GroupMutableMetadata,
-    old_group_context: &GroupContext,
-    new_group_context: &GroupContext,
+    old_group_extensions: &Extensions,
+    new_group_extensions: &Extensions,
 ) -> Result<MutableMetadataChanges, CommitValidationError> {
-    let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_context.extensions())
+    let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_extensions)
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
-    let new_mutable_metadata_ext = find_mutable_metadata_extension(new_group_context.extensions())
+    let new_mutable_metadata_ext = find_mutable_metadata_extension(new_group_extensions)
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
 
     // Before even decoding the new metadata, make sure that something has changed. Otherwise we know there is
@@ -678,10 +678,9 @@ fn extract_metadata_changes(
 // Returns true if the permissions have changed, false otherwise
 fn extract_permissions_changed(
     old_group_permissions: &GroupMutablePermissions,
-    new_group_context: &GroupContext,
+    new_group_extensions: &Extensions,
 ) -> Result<bool, CommitValidationError> {
-    let new_group_permissions: GroupMutablePermissions =
-        new_group_context.extensions().try_into()?;
+    let new_group_permissions: GroupMutablePermissions = new_group_extensions.try_into()?;
     Ok(!old_group_permissions.eq(&new_group_permissions))
 }
 

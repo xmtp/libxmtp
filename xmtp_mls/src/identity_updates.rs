@@ -248,13 +248,16 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = generate_inbox_id(&wallet_address, &nonce)?;
-        let installation_public_key = self.identity().installation_keys.public();
+        let installation_public_key = self.identity().installation_keys.verifying_key();
         let member_identifier: MemberIdentifier = wallet_address.to_lowercase().into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder
             .create_inbox(member_identifier.clone(), nonce)
-            .add_association(installation_public_key.to_vec().into(), member_identifier)
+            .add_association(
+                installation_public_key.as_bytes().to_vec().into(),
+                member_identifier,
+            )
             .build();
 
         let sig_bytes = self
@@ -266,7 +269,7 @@ where
             .add_signature(
                 UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
                     sig_bytes,
-                    installation_public_key.to_vec(),
+                    installation_public_key,
                 )),
                 &self.scw_verifier,
             )

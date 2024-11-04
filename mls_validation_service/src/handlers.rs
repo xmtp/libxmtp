@@ -317,7 +317,6 @@ mod tests {
     use std::sync::Arc;
 
     use associations::AccountId;
-    use ed25519_dalek::SigningKey;
     use ethers::{
         abi::Token,
         signers::{LocalWallet, Signer as _},
@@ -325,11 +324,11 @@ mod tests {
     };
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
+        key_packages::KeyPackage,
         prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
-        prelude_test::KeyPackage,
     };
-    use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
+    use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
         associations::{
             generate_inbox_id,
@@ -356,8 +355,8 @@ mod tests {
         }
     }
 
-    fn generate_inbox_id_credential() -> (String, SigningKey) {
-        let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
+        let signing_key = XmtpInstallationCredential::new();
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let address = format!("0x{}", hex::encode(wallet.address()));
@@ -368,7 +367,7 @@ mod tests {
     }
 
     fn build_key_package_bytes(
-        keypair: &SignatureKeyPair,
+        keypair: &XmtpInstallationCredential,
         credential_with_key: &CredentialWithKey,
         account_address: Option<String>,
     ) -> Vec<u8> {
@@ -393,17 +392,6 @@ mod tests {
             )
             .unwrap();
         kp.key_package().tls_serialize_detached().unwrap()
-    }
-
-    fn to_signature_keypair(key: SigningKey) -> SignatureKeyPair {
-        let secret = key.to_bytes();
-        let public = key.verifying_key().to_bytes();
-
-        SignatureKeyPair::from_raw(
-            CIPHERSUITE.signature_algorithm(),
-            secret.into(),
-            public.into(),
-        )
     }
 
     // this test will panic until signature recovery is added
@@ -439,8 +427,6 @@ mod tests {
     #[tokio::test]
     async fn test_validate_inbox_id_key_package_happy_path() {
         let (inbox_id, keypair) = generate_inbox_id_credential();
-        let keypair = to_signature_keypair(keypair);
-
         let credential: OpenMlsCredential = InboxIdMlsCredential {
             inbox_id: inbox_id.clone(),
         }
@@ -449,7 +435,7 @@ mod tests {
 
         let credential_with_key = CredentialWithKey {
             credential,
-            signature_key: keypair.to_public_vec().into(),
+            signature_key: keypair.public_slice().into(),
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);
@@ -465,9 +451,13 @@ mod tests {
             .await
             .unwrap();
 
-        let first_response = &res.into_inner().responses[0];
+        let res = res.into_inner();
+        let first_response = &res.responses[0];
         assert!(first_response.is_ok);
-        assert_eq!(first_response.installation_public_key, keypair.public());
+        assert_eq!(
+            first_response.installation_public_key,
+            keypair.public_bytes()
+        );
         assert_eq!(
             first_response.credential.as_ref().unwrap().inbox_id,
             inbox_id
@@ -479,9 +469,6 @@ mod tests {
         let (inbox_id, keypair) = generate_inbox_id_credential();
         let (_, other_keypair) = generate_inbox_id_credential();
 
-        let keypair = to_signature_keypair(keypair);
-        let other_keypair = to_signature_keypair(other_keypair);
-
         let credential: OpenMlsCredential = InboxIdMlsCredential {
             inbox_id: inbox_id.clone(),
         }
@@ -490,7 +477,7 @@ mod tests {
 
         let credential_with_key = CredentialWithKey {
             credential,
-            signature_key: other_keypair.to_public_vec().into(),
+            signature_key: other_keypair.public_slice().into(),
         };
 
         let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key, None);

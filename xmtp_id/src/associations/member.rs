@@ -1,3 +1,5 @@
+use xmtp_cryptography::XmtpInstallationCredential;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
     Installation,
@@ -69,6 +71,18 @@ impl From<String> for MemberIdentifier {
 impl From<Vec<u8>> for MemberIdentifier {
     fn from(installation: Vec<u8>) -> Self {
         MemberIdentifier::Installation(installation)
+    }
+}
+
+impl<'a> From<&'a XmtpInstallationCredential> for MemberIdentifier {
+    fn from(cred: &'a XmtpInstallationCredential) -> MemberIdentifier {
+        MemberIdentifier::Installation(cred.public_slice().to_vec())
+    }
+}
+
+impl From<XmtpInstallationCredential> for MemberIdentifier {
+    fn from(cred: XmtpInstallationCredential) -> MemberIdentifier {
+        MemberIdentifier::Installation(cred.public_slice().to_vec())
     }
 }
 

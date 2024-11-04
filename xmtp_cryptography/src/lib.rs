@@ -1,6 +1,9 @@
+pub mod basic_credential;
 pub mod hash;
 pub mod signature;
 pub mod utils;
+
+pub use basic_credential::*;
 
 #[cfg(test)]
 pub mod tests {

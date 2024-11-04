@@ -1,14 +1,11 @@
 #![allow(dead_code)]
-
-use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey as Ed25519VerifyingKey};
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
-use sha2::{Digest, Sha512};
 use xmtp_cryptography::signature::h160addr_to_string;
+use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
-use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
@@ -87,21 +84,11 @@ impl VerifiedSignature {
     pub fn from_installation_key<Text: AsRef<str>>(
         signature_text: Text,
         signature_bytes: &[u8],
-        verifying_key_bytes: &[u8],
+        verifying_key: ed25519_dalek::VerifyingKey,
     ) -> Result<Self, SignatureError> {
-        let signature = Ed25519Signature::from_bytes(signature_bytes.try_into()?);
-        let verifying_key = Ed25519VerifyingKey::from_bytes(verifying_key_bytes.try_into()?)?;
-        let mut prehashed = Sha512::new();
-        prehashed.update(signature_text.as_ref());
-
-        verifying_key.verify_prehashed(
-            prehashed,
-            Some(INSTALLATION_KEY_SIGNATURE_CONTEXT),
-            &signature,
-        )?;
-
+        verifying_key.credential_verify(signature_text, signature_bytes.try_into()?)?;
         Ok(Self::new(
-            MemberIdentifier::Installation(verifying_key_bytes.to_vec()),
+            MemberIdentifier::Installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
             None,
@@ -188,12 +175,11 @@ mod tests {
             verified_signature::VerifiedSignature,
             MemberIdentifier, SignatureKind,
         },
-        constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
         InboxOwner,
     };
-    use ed25519_dalek::SigningKey as Ed25519SigningKey;
     use ethers::signers::{LocalWallet, Signer};
     use prost::Message;
+    use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
     use xmtp_proto::xmtp::message_contents::{
         signature::Union as SignatureUnion, signed_private_key,
         SignedPrivateKey as LegacySignedPrivateKeyProto,
@@ -231,41 +217,32 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_installation_key() {
-        let signing_key = Ed25519SigningKey::generate(&mut rand::thread_rng());
-        let verifying_key = signing_key.verifying_key();
-
+        let key = XmtpInstallationCredential::new();
+        let verifying_key = key.verifying_key();
         let signature_text = "test signature text";
-        let mut prehashed: Sha512 = Sha512::new();
-        prehashed.update(signature_text);
+        let sig = key.credential_sign(signature_text).unwrap();
 
-        let sig = signing_key
-            .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-            .unwrap();
-
-        let verified_sig = VerifiedSignature::from_installation_key(
-            signature_text,
-            sig.to_bytes().as_slice(),
-            verifying_key.as_bytes(),
-        )
-        .expect("should succeed");
+        let verified_sig =
+            VerifiedSignature::from_installation_key(signature_text, sig.as_slice(), verifying_key)
+                .expect("should succeed");
         let expected = MemberIdentifier::Installation(verifying_key.as_bytes().to_vec());
         assert_eq!(expected, verified_sig.signer);
         assert_eq!(SignatureKind::InstallationKey, verified_sig.kind);
-        assert_eq!(verified_sig.raw_bytes, sig.to_bytes().as_slice());
+        assert_eq!(verified_sig.raw_bytes, sig.as_slice());
 
         // Make sure it fails with the wrong signature text
         VerifiedSignature::from_installation_key(
             "wrong signature text",
-            sig.to_bytes().as_slice(),
-            verifying_key.as_bytes(),
+            sig.as_slice(),
+            verifying_key,
         )
         .expect_err("should fail with incorrect signature text");
 
         // Make sure it fails with the wrong verifying key
         VerifiedSignature::from_installation_key(
             signature_text,
-            sig.to_bytes().as_slice(),
-            &[verifying_key.as_bytes().as_slice(), vec![2, 3].as_slice()].concat(),
+            sig.as_slice(),
+            XmtpInstallationCredential::new().verifying_key(),
         )
         .expect_err("should fail with incorrect verifying key");
     }

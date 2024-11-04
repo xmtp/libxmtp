@@ -256,7 +256,7 @@ impl UnverifiedSignature {
             UnverifiedSignature::InstallationKey(sig) => VerifiedSignature::from_installation_key(
                 signature_text,
                 &sig.signature_bytes,
-                &sig.verifying_key,
+                *sig.verifying_key(),
             ),
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)
@@ -283,7 +283,10 @@ impl UnverifiedSignature {
         Self::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(signature))
     }
 
-    pub fn new_installation_key(signature: Vec<u8>, verifying_key: Vec<u8>) -> Self {
+    pub fn new_installation_key(
+        signature: Vec<u8>,
+        verifying_key: ed25519_dalek::VerifyingKey,
+    ) -> Self {
         Self::InstallationKey(UnverifiedInstallationKeySignature::new(
             signature,
             verifying_key,
@@ -316,15 +319,25 @@ impl UnverifiedSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedInstallationKeySignature {
     pub(crate) signature_bytes: Vec<u8>,
-    pub(crate) verifying_key: Vec<u8>,
+    /// The Signature Verifying Key
+    // boxing avoids large enum variants if an enum contains multiple signature
+    pub(crate) verifying_key: Box<ed25519_dalek::VerifyingKey>,
 }
 
 impl UnverifiedInstallationKeySignature {
-    pub fn new(signature_bytes: Vec<u8>, verifying_key: Vec<u8>) -> Self {
+    pub fn new(signature_bytes: Vec<u8>, verifying_key: ed25519_dalek::VerifyingKey) -> Self {
         Self {
             signature_bytes,
-            verifying_key,
+            verifying_key: Box::new(verifying_key),
         }
+    }
+
+    pub fn verifying_key(&self) -> &ed25519_dalek::VerifyingKey {
+        self.verifying_key.as_ref()
+    }
+
+    pub fn verifying_key_bytes(&self) -> Vec<u8> {
+        self.verifying_key.as_ref().as_ref().to_vec()
     }
 }
 
