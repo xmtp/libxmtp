@@ -76,11 +76,11 @@ pub(crate) mod tests {
         let amal_a_sync_groups = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
         assert!(amal_a_sync_groups.is_none());
 
-        // Create a second installation for amal.
+        // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
-        // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
+
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(amal_a_conn)
@@ -102,8 +102,12 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
+        let (_msg, request) = amal_b
+            .pending_sync_request(&amal_b_provider, DeviceSyncKind::Consent)
+            .await
+            .unwrap();
         let reply = amal_a
-            .reply_to_sync_request(&amal_a_provider, DeviceSyncKind::Consent)
+            .reply_to_sync_request(&amal_a_provider, request)
             .await
             .unwrap();
 
@@ -127,8 +131,22 @@ pub(crate) mod tests {
         assert_eq!(consent_records.len(), 0);
 
         // Have the second installation process the reply.
+        let msg = amal_b
+            .get_sync_group()
+            .unwrap()
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .into_iter()
+            .rev()
+            .nth(0)
+            .unwrap();
+        let content: DeviceSyncContent =
+            serde_json::from_slice(&msg.decrypted_message_bytes).unwrap();
+        let DeviceSyncContent::Reply(reply) = content else {
+            unreachable!();
+        };
         amal_b
-            .process_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+            .process_sync_reply(&amal_b_provider, reply)
             .await
             .unwrap();
 

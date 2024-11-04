@@ -178,10 +178,10 @@ where
             let sync_group = self.ensure_sync_group(provider).await?;
             // If there's more than one installation.
             if sync_group.members().await?.len() > 1 {
-                self.send_sync_request(provider, DeviceSyncKind::Consent)
-                    .await?;
-                self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-                    .await?;
+                // self.send_sync_request(provider, DeviceSyncKind::Consent)
+                // .await?;
+                // self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+                // .await?;
             }
         }
 

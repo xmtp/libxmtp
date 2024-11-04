@@ -20,6 +20,7 @@ use prost::EncodeError;
 use thiserror::Error;
 use tokio::sync::broadcast::{self};
 
+use tracing::info;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
     associations::{
@@ -30,19 +31,20 @@ use xmtp_id::{
     InboxId,
 };
 
-use xmtp_proto::{
-    api_client,
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
+use xmtp_proto::xmtp::mls::api::v1::{
+    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+    GroupMessage, WelcomeMessage,
 };
 
 use crate::{
     api::ApiClientWrapper,
+    builder::ClientBuilderError,
     groups::{
-        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-        GroupMetadataOptions, IntentError, MlsGroup,
+        device_sync::DeviceSyncError,
+        group_permissions::PolicySet,
+        scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
+        validated_commit::CommitValidationError,
+        GroupError, GroupMetadataOptions, IntentError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -292,7 +294,9 @@ where
     ApiClient: XmtpApi + 'static,
     V: SmartContractSignatureVerifier + 'static,
 {
-    pub async fn with_sync(self) -> Self {
+    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+        self.sync_init(&provider).await?;
+
         crate::spawn(None, {
             let client = self.clone();
 
@@ -302,7 +306,7 @@ where
             async move { client.sync_worker(sync_stream).await }
         });
 
-        self
+        Ok(())
     }
 }
 

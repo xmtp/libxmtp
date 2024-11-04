@@ -50,8 +50,13 @@ pub(crate) mod tests {
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
-    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{
+        assert_ok,
+        builder::ClientBuilder,
+        groups::{scoped_client::LocalScopedGroupClient, GroupMetadataOptions},
+    };
     use mockito;
+    use tracing::info;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -75,6 +80,9 @@ pub(crate) mod tests {
 
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_a_provider = amal_a.mls_provider().unwrap();
+        amal_a.enable_sync(&amal_a_provider).await.unwrap();
+
         amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
@@ -84,7 +92,6 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
 
         // Have amal_a create a group and add alix to that group, then send a message.
-
         let group = amal_a
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -94,6 +101,7 @@ pub(crate) mod tests {
             .unwrap();
         group.send_message(&[1, 2, 3]).await.unwrap();
 
+        info!("here");
         // Ensure that groups and messages now exists.
         let syncable_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
         assert_eq!(syncable_groups.len(), 1);
@@ -130,8 +138,12 @@ pub(crate) mod tests {
         // verifies the pin code,
         // has no problem packaging the consent records,
         // and sends a reply message to the first installation.
+        let (_msg, request) = amal_b
+            .pending_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
+            .await
+            .unwrap();
         let reply = amal_a
-            .reply_to_sync_request(&amal_a_provider, DeviceSyncKind::MessageHistory)
+            .reply_to_sync_request(&amal_a_provider, request)
             .await
             .unwrap();
 
@@ -158,8 +170,23 @@ pub(crate) mod tests {
         assert_eq!(amal_b.syncable_messages(amal_b_conn).unwrap().len(), 0);
 
         // Have the second installation process the reply.
+        let msg = amal_b
+            .get_sync_group()
+            .unwrap()
+            .find_messages(&MsgQueryArgs::default())
+            .unwrap()
+            .into_iter()
+            .rev()
+            .nth(0)
+            .unwrap();
+        let content: DeviceSyncContent =
+            serde_json::from_slice(&msg.decrypted_message_bytes).unwrap();
+        let DeviceSyncContent::Reply(reply) = content else {
+            unreachable!();
+        };
+
         amal_b
-            .process_sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
+            .process_sync_reply(&amal_b_provider, reply)
             .await
             .unwrap();
 
@@ -203,18 +230,16 @@ pub(crate) mod tests {
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&wallet).await;
-        assert_ok!(amal.enable_sync(&amal.mls_provider().unwrap()).await);
+        let amal_provider = amal.mls_provider().unwrap();
+        assert_ok!(amal.enable_sync(&amal_provider).await);
         amal.sync_welcomes(&amal.store().conn().unwrap())
             .await
             .expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
         let external_client = ClientBuilder::new_test_client(&external_wallet).await;
-        assert_ok!(
-            external_client
-                .enable_sync(&external_client.mls_provider().unwrap())
-                .await
-        );
+        let external_provider = external_client.mls_provider().unwrap();
+        assert_ok!(external_client.enable_sync(&external_provider).await);
         external_client
             .sync_welcomes(&external_client.store().conn().unwrap())
             .await

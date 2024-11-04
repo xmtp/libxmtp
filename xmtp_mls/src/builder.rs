@@ -43,11 +43,13 @@ pub enum ClientBuilderError {
     GroupError(#[from] crate::groups::GroupError),
     #[error(transparent)]
     ApiError(#[from] xmtp_proto::api_client::Error),
+    #[error(transparent)]
+    DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
 }
 
 pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     api_client: Option<ApiClient>,
-    enable_sync: bool,
+    with_sync: bool,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
@@ -67,7 +69,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
-            enable_sync: true,
+            with_sync: true,
             identity: None,
             store: None,
             identity_strategy: strategy,
@@ -83,7 +85,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     }
 
     pub fn without_sync(mut self) -> Self {
-        self.enable_sync = false;
+        self.with_sync = false;
         self
     }
 
@@ -175,7 +177,7 @@ where
         mut store,
         identity_strategy,
         history_sync_url,
-        enable_sync,
+        with_sync,
         mut scw_verifier,
         ..
     } = client;
@@ -206,7 +208,7 @@ where
     )
     .await?;
 
-    let mut client = Client::new(
+    let client = Client::new(
         api_client_wrapper,
         identity,
         store,
@@ -214,8 +216,9 @@ where
         history_sync_url,
     );
 
-    if enable_sync {
-        client = client.with_sync().await;
+    if with_sync {
+        let provider = client.mls_provider()?;
+        client.enable_sync(&provider).await?;
     }
 
     Ok(client)

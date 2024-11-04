@@ -120,9 +120,6 @@ enum Commands {
         account_addresses: Vec<String>,
     },
     RequestHistorySync {},
-    ReplyToHistorySyncRequest {},
-    ProcessHistorySyncReply {},
-    ProcessConsentSyncReply {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
@@ -365,42 +362,6 @@ async fn main() {
             let group_id_str = hex::encode(group_id);
             info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
         }
-        Commands::ReplyToHistorySyncRequest {} => {
-            let provider = client.mls_provider().unwrap();
-            let group = client.get_sync_group().unwrap();
-            let group_id_str = hex::encode(group.group_id);
-            let reply = client
-                .reply_to_sync_request(&provider, DeviceSyncKind::MessageHistory)
-                .await
-                .unwrap();
-
-            info!("Sent history sync reply in sync group {group_id_str}", { group_id: group_id_str});
-            info!("Reply: {:?}", reply);
-        }
-        Commands::ProcessHistorySyncReply {} => {
-            let conn = client.store().conn().unwrap();
-            let provider = client.mls_provider().unwrap();
-            client.sync_welcomes(&conn).await.unwrap();
-            client.enable_sync(&provider).await.unwrap();
-            client
-                .process_sync_reply(&provider, DeviceSyncKind::MessageHistory)
-                .await
-                .unwrap();
-
-            info!("History bundle downloaded and inserted into user DB", {})
-        }
-        Commands::ProcessConsentSyncReply {} => {
-            let conn = client.store().conn().unwrap();
-            let provider = client.mls_provider().unwrap();
-            client.sync_welcomes(&conn).await.unwrap();
-            client.enable_sync(&provider).await.unwrap();
-            client
-                .process_sync_reply(&provider, DeviceSyncKind::Consent)
-                .await
-                .unwrap();
-
-            info!("Consent bundle downloaded and inserted into user DB", {})
-        }
         Commands::ListHistorySyncMessages {} => {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
@@ -436,7 +397,7 @@ async fn main() {
     }
 }
 
-async fn create_client<C: XmtpApi>(
+async fn create_client<C: XmtpApi + 'static>(
     cli: &Cli,
     account: IdentityStrategy,
     grpc: C,
@@ -494,7 +455,7 @@ async fn register<C>(
     client: C,
 ) -> Result<(), CliError>
 where
-    C: XmtpApi,
+    C: XmtpApi + 'static,
 {
     let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(
