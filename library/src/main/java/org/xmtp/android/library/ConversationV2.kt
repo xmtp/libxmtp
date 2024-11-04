@@ -200,6 +200,16 @@ data class ConversationV2(
     }
 
     suspend fun send(prepared: PreparedMessage): String {
+        if (client.v3Client != null) {
+            try {
+                val dm = client.conversations.findOrCreateDm(peerAddress)
+                prepared.encodedContent?.let {
+                    dm.send(it)
+                }
+            } catch (e: Exception) {
+                Log.e("ConversationV1 send", e.message.toString())
+            }
+        }
         client.publish(envelopes = prepared.envelopes)
         if (client.contacts.consentList.state(address = peerAddress) == ConsentState.UNKNOWN) {
             client.contacts.allow(addresses = listOf(peerAddress))
@@ -270,7 +280,7 @@ data class ConversationV2(
             timestamp = Date(),
             message = MessageBuilder.buildFromMessageV2(v2 = message.messageV2).toByteArray(),
         )
-        return PreparedMessage(listOf(envelope))
+        return PreparedMessage(listOf(envelope), encodedContent)
     }
 
     private fun generateId(envelope: Envelope): String =

@@ -76,6 +76,46 @@ class GroupTest {
     }
 
     @Test
+    fun testsCanDualSendConversations() {
+        val v2Convo = runBlocking { alixClient.conversations.newConversation(bo.walletAddress) }
+        runBlocking {
+            alixClient.conversations.syncConversations()
+            boClient.conversations.syncConversations()
+        }
+        val alixDm = runBlocking { alixClient.findDm(bo.walletAddress) }
+        val boDm = runBlocking { boClient.findDm(alix.walletAddress) }
+
+        assertEquals(alixDm?.id, boDm?.id)
+        assertEquals(runBlocking { alixClient.conversations.list().size }, 1)
+        assertEquals(runBlocking { alixClient.conversations.listDms().size }, 1)
+        assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
+        assertEquals(runBlocking { boClient.conversations.list().size }, 1)
+        assertEquals(v2Convo.topic, runBlocking { boClient.conversations.list().first().topic })
+    }
+
+    @Test
+    fun testsCanDualSendMessages() {
+        val alixV2Convo = runBlocking { alixClient.conversations.newConversation(bo.walletAddress) }
+        val boV2Convo = runBlocking { boClient.conversations.list().first() }
+        runBlocking { boClient.conversations.syncConversations() }
+        val alixDm = runBlocking { alixClient.findDm(bo.walletAddress) }
+        val boDm = runBlocking { boClient.findDm(alix.walletAddress) }
+
+        runBlocking { alixV2Convo.send("first") }
+        runBlocking { boV2Convo.send("second") }
+
+        runBlocking {
+            alixDm?.sync()
+            boDm?.sync()
+        }
+
+        assertEquals(runBlocking { alixV2Convo.messages().size }, 2)
+        assertEquals(runBlocking { alixV2Convo.messages().size }, runBlocking { boV2Convo.messages().size })
+        assertEquals(boDm?.messages()?.size, 2)
+        assertEquals(alixDm?.messages()?.size, 3) // We send the group membership update to the dm
+    }
+
+    @Test
     fun testCanCreateAGroupWithDefaultPermissions() {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(listOf(alix.walletAddress))
