@@ -49,7 +49,7 @@ pub(crate) mod tests {
         };
         let mut server = mockito::Server::new_with_opts_async(options).await;
 
-        let _m = server
+        server
             .mock("POST", "/upload")
             .with_status(201)
             .with_body("12345")
@@ -85,6 +85,9 @@ pub(crate) mod tests {
         let amal_b_conn = amal_b_provider.conn_ref();
         assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
 
+        let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
+        assert_eq!(consent_records_b.len(), 0);
+
         let old_group_id = amal_a.get_sync_group().unwrap().group_id;
 
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
@@ -109,7 +112,7 @@ pub(crate) mod tests {
         .unwrap();
         // have the mock server reply with the payload
 
-        let _m = server
+        server
             .mock("GET", &*format!("/files/12345"))
             .with_status(200)
             .with_body(&enc_payload)
@@ -144,8 +147,7 @@ pub(crate) mod tests {
         let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
 
         // Ensure the consent is synced.
-
-        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
+        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and new installation
         assert_eq!(consent_records_b.len(), amal_a_syncables_len);
         for record in &consent_records_b {
             assert!(consent_records_a.contains(record));
