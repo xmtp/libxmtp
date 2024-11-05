@@ -113,7 +113,7 @@ where
     V: SmartContractSignatureVerifier + 'static,
 {
     pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        self.sync_init(&provider).await?;
+        self.sync_init(provider).await?;
 
         crate::spawn(None, {
             let client = self.clone();

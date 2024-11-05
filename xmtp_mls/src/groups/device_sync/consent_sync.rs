@@ -43,7 +43,6 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
 
-        // amal_a.history_sync_url = Some(history_sync_url);
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
 
@@ -65,7 +64,7 @@ pub(crate) mod tests {
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
 
-        let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
+        let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
         let old_group_id = amal_a.get_sync_group().unwrap().group_id;
@@ -98,7 +97,7 @@ pub(crate) mod tests {
         let mut consent_b = 0;
         let start = Instant::now();
         while consent_b != consent_a {
-            consent_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap().len();
+            consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
 
             if start.elapsed() > Duration::from_secs(3) {
                 panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
