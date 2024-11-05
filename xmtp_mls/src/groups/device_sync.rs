@@ -1,4 +1,6 @@
 use std::pin::Pin;
+use std::thread;
+use std::time::Duration;
 
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
@@ -147,15 +149,25 @@ where
 
         let provider = self.mls_provider()?;
 
+        let get_message_debounce = |conn: &DbConnection, message_id: &[u8]| {
+            let mut tries = 0;
+            while tries < 3 {
+                if let Some(msg) = conn.get_group_message(&message_id)? {
+                    return Ok(msg);
+                }
+                thread::sleep(Duration::from_millis(20));
+                tries += 1;
+            }
+
+            Err(DeviceSyncError::NoPendingRequest)
+        };
+
         while let Some(msg) = sync_stream.next().await {
             let msg = msg?;
             match msg {
                 SyncMessage::Reply { message_id } => {
                     let conn = provider.conn_ref();
-                    let Some(msg) = conn.get_group_message(&message_id)? else {
-                        tracing::error!("Sync reply message not found.");
-                        continue;
-                    };
+                    let msg = get_message_debounce(conn, &message_id)?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
@@ -171,10 +183,7 @@ where
                 }
                 SyncMessage::Request { message_id } => {
                     let conn = provider.conn_ref();
-                    let Some(msg) = conn.get_group_message(&message_id)? else {
-                        tracing::error!("Sync request message not found.");
-                        continue;
-                    };
+                    let msg = get_message_debounce(conn, &message_id)?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
