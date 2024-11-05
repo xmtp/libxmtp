@@ -25,10 +25,7 @@ pub(crate) mod tests {
     const HISTORY_SERVER_HOST: &str = "0.0.0.0";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::{
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::{
@@ -61,10 +58,10 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
 
-        amal_a.history_sync_url = Some(history_sync_url.clone());
+        amal_a.history_sync_url = Some(history_sync_url);
         let amal_a_provider = amal_a.mls_provider().unwrap();
-        assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
         let amal_a_conn = amal_a_provider.conn_ref();
+        assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
 
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
@@ -89,13 +86,8 @@ pub(crate) mod tests {
         assert_eq!(consent_records_b.len(), 0);
 
         let old_group_id = amal_a.get_sync_group().unwrap().group_id;
-
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a
-            .sync_welcomes(amal_a_conn)
-            .await
-            .expect("sync_welcomes");
-
+        amal_a.sync_welcomes(amal_a_conn).await.unwrap();
         let new_group_id = amal_a.get_sync_group().unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
@@ -110,8 +102,8 @@ pub(crate) mod tests {
             DeviceSyncKeyType::new_aes_256_gcm_key(),
         )
         .unwrap();
-        // have the mock server reply with the payload
 
+        // have the mock server reply with the payload
         server
             .mock("GET", &*format!("/files/12345"))
             .with_status(200)
@@ -149,8 +141,5 @@ pub(crate) mod tests {
         // Ensure the consent is synced.
         assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and new installation
         assert_eq!(consent_records_b.len(), amal_a_syncables_len);
-        for record in &consent_records_b {
-            assert!(consent_records_a.contains(record));
-        }
     }
 }

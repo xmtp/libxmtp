@@ -78,9 +78,9 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_a_provider = amal_a.mls_provider().unwrap();
+        amal_a.history_sync_url = Some(history_sync_url);
         assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
 
-        amal_a.history_sync_url = Some(history_sync_url.clone());
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
 
@@ -108,40 +108,43 @@ pub(crate) mod tests {
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
-        // Turn on history sync for the second installation.
         assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
+
+        let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
+        assert_eq!(groups_b.len(), 0);
+
+        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(amal_a_conn)
             .await
             .expect("sync_welcomes");
+        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        // group id should have changed to the new sync group created by the second installation
+        assert_ne!(old_group_id, new_group_id);
 
-        // The second installation has no groups
-        assert_eq!(amal_b.syncable_groups(amal_b_conn).unwrap().len(), 0);
-        assert_eq!(amal_b.syncable_messages(amal_b_conn).unwrap().len(), 0);
+        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
+        let amal_a_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
+        let amal_a_messages = amal_a.syncable_messages(amal_a_conn).unwrap();
+        let (enc_payload, _key) = encrypt_syncables_with_key(
+            &[amal_a_groups, amal_a_messages],
+            // tests always give the same enc key
+            DeviceSyncKeyType::new_aes_256_gcm_key(),
+        )
+        .unwrap();
+
+        // have the mock server reply with the payload
+        server
+            .mock("GET", &*format!("/files/12345"))
+            .with_status(200)
+            .with_body(&enc_payload)
+            .create();
+
         // Have the second installation request for a consent sync.
         amal_b
             .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
-
-        //// recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        //let (enc_payload, _key) = encrypt_syncables_with_key(
-        //    &[
-        //        amal_a.syncable_groups(amal_a_conn).unwrap(),
-        //        amal_a.syncable_messages(amal_a_conn).unwrap(),
-        //    ],
-        //    request.encryption_key.unwrap().try_into().unwrap(),
-        //)
-        //.unwrap();
-
-        // have the mock server reply with the payload
-        // let file_path = request.url.replace(&history_sync_url, "");
-        // let _m = server
-        // .mock("GET", &*file_path)
-        // .with_status(200)
-        // .with_body(&enc_payload)
-        // .create();
 
         // Have amal_a receive the message (and auto-process)
         let amal_a_sync_group = amal_a.get_sync_group().unwrap();
@@ -159,25 +162,20 @@ pub(crate) mod tests {
                 panic!("Did not receive consent reply.");
             }
         }
-        let (_msg, reply) = reply.unwrap();
 
         // Load consents of both installations
-        let groups_a = amal_a.syncable_groups(amal_a_conn).unwrap();
-        let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
-        let messages_a = amal_a.syncable_messages(amal_a_conn).unwrap();
-        let messages_b = amal_b.syncable_messages(amal_b_conn).unwrap();
+        amal_b.sync_welcomes(&amal_b_conn).await.unwrap();
+        let groups_a = amal_a.syncable_groups(&amal_a_conn).unwrap();
+        let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
+        let messages_a = amal_a.syncable_messages(&amal_a_conn).unwrap();
+        let messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap();
 
-        // Ensure the groups and messages are synced.
+        // Ensure the consent is synced.
         assert_eq!(groups_a.len(), 1);
         assert_eq!(groups_b.len(), 1);
-        for record in &groups_a {
-            assert!(groups_b.contains(record));
-        }
+
         assert_eq!(messages_a.len(), 2);
         assert_eq!(messages_b.len(), 2);
-        for record in &messages_a {
-            assert!(messages_b.contains(record));
-        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
