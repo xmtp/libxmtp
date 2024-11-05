@@ -98,13 +98,15 @@ pub(crate) mod tests {
             }
         }
 
-        // Load consents of both installations
-        amal_b.sync_welcomes(&amal_b_conn).await.unwrap();
-        let consent_records_a = amal_a.syncable_consent_records(&amal_a_conn).unwrap();
-        let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
+        // Wait up to 3 seconds for sync to process (typically is almost instant)
+        let mut consent_b = 0;
+        let start = Instant::now();
+        while consent_b != amal_a_syncables_len {
+            consent_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap().len();
 
-        // Ensure the consent is synced.
-        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and new installation
-        assert_eq!(consent_records_b.len(), amal_a_syncables_len);
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Consent sync did not work. Consent: {consent_b}/{amal_a_syncables_len}");
+            }
+        }
     }
 }

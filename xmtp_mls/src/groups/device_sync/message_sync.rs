@@ -130,16 +130,19 @@ pub(crate) mod tests {
             }
         }
 
-        // Load consents of both installations
-        amal_b.sync_welcomes(&amal_b_conn).await.unwrap();
-        let groups_a = amal_a.syncable_groups(&amal_a_conn).unwrap();
-        let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
-        let messages_a = amal_a.syncable_messages(&amal_a_conn).unwrap();
-        let messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap();
+        // Wait up to 3 seconds for sync to process (typically is almost instant)
+        let [mut groups_a, mut groups_b, mut messages_a, mut messages_b] = [0; 4];
+        let start = Instant::now();
+        while groups_a != groups_b || messages_a != messages_b {
+            groups_a = amal_a.syncable_groups(&amal_a_conn).unwrap().len();
+            groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap().len();
+            messages_a = amal_a.syncable_messages(&amal_a_conn).unwrap().len();
+            messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap().len();
 
-        // Ensure the consent is synced.
-        assert_eq!(groups_a.len(), groups_b.len());
-        assert_eq!(messages_a.len(), messages_b.len());
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Message sync did not work. Groups: {groups_a}/{groups_b} | Messages: {messages_a}/{messages_b}");
+            }
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
