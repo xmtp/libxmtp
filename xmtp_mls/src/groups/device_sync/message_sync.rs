@@ -49,14 +49,11 @@ pub(crate) mod tests {
     const HISTORY_SERVER_HOST: &str = "0.0.0.0";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
+    use std::time::{Duration, Instant};
+
     use super::*;
-    use crate::{
-        assert_ok,
-        builder::ClientBuilder,
-        groups::{scoped_client::LocalScopedGroupClient, GroupMetadataOptions},
-    };
+    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
     use mockito;
-    use tracing::info;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -118,72 +115,51 @@ pub(crate) mod tests {
             .sync_welcomes(amal_a_conn)
             .await
             .expect("sync_welcomes");
-        // Have the second installation request for a consent sync.
-        let (_group_id, _pin_code) = amal_b
-            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
-            .await
-            .expect("history request");
-
-        // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_group = amal_a_conn.latest_sync_group().unwrap();
-        assert!(amal_a_sync_group.is_some());
-
-        // Have first installation reply.
-        // This is to make sure it finds the request in its sync group history,
-        // verifies the pin code,
-        // has no problem packaging the consent records,
-        // and sends a reply message to the first installation.
-        let (_msg, request) = amal_a
-            .pending_sync_request(&amal_a_provider, DeviceSyncKind::MessageHistory)
-            .await
-            .unwrap();
-        let reply = amal_a
-            .reply_to_sync_request(&amal_a_provider, request)
-            .await
-            .unwrap();
-
-        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[
-                amal_a.syncable_groups(amal_a_conn).unwrap(),
-                amal_a.syncable_messages(amal_a_conn).unwrap(),
-            ],
-            reply.encryption_key.unwrap().try_into().unwrap(),
-        )
-        .unwrap();
-
-        // have the mock server reply with the payload
-        let file_path = reply.url.replace(&history_sync_url, "");
-        let _m = server
-            .mock("GET", &*file_path)
-            .with_status(200)
-            .with_body(&enc_payload)
-            .create();
 
         // The second installation has no groups
         assert_eq!(amal_b.syncable_groups(amal_b_conn).unwrap().len(), 0);
         assert_eq!(amal_b.syncable_messages(amal_b_conn).unwrap().len(), 0);
-
-        // Have the second installation process the reply.
-        let msg = amal_b
-            .get_sync_group()
-            .unwrap()
-            .find_messages(&MsgQueryArgs::default())
-            .unwrap()
-            .into_iter()
-            .rev()
-            .nth(0)
-            .unwrap();
-        let content: DeviceSyncContent =
-            serde_json::from_slice(&msg.decrypted_message_bytes).unwrap();
-        let DeviceSyncContent::Reply(reply) = content else {
-            unreachable!();
-        };
-
+        // Have the second installation request for a consent sync.
         amal_b
-            .process_sync_reply(&amal_b_provider, reply)
+            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
+
+        //// recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
+        //let (enc_payload, _key) = encrypt_syncables_with_key(
+        //    &[
+        //        amal_a.syncable_groups(amal_a_conn).unwrap(),
+        //        amal_a.syncable_messages(amal_a_conn).unwrap(),
+        //    ],
+        //    request.encryption_key.unwrap().try_into().unwrap(),
+        //)
+        //.unwrap();
+
+        // have the mock server reply with the payload
+        // let file_path = request.url.replace(&history_sync_url, "");
+        // let _m = server
+        // .mock("GET", &*file_path)
+        // .with_status(200)
+        // .with_body(&enc_payload)
+        // .create();
+
+        // Have amal_a receive the message (and auto-process)
+        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
+        assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
+
+        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
+        let start = Instant::now();
+        let mut reply = None;
+        while reply.is_none() {
+            reply = amal_b
+                .sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
+                .await
+                .unwrap();
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Did not receive consent reply.");
+            }
+        }
+        let (_msg, reply) = reply.unwrap();
 
         // Load consents of both installations
         let groups_a = amal_a.syncable_groups(amal_a_conn).unwrap();

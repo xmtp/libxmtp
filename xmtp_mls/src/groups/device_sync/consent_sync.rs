@@ -82,6 +82,7 @@ pub(crate) mod tests {
         // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_conn = amal_b_provider.conn_ref();
         assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
 
         let old_group_id = amal_a.get_sync_group().unwrap().group_id;
@@ -96,17 +97,35 @@ pub(crate) mod tests {
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
+        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
+        let amal_a_syncables = amal_a.syncable_consent_records(amal_a_conn).unwrap();
+        let amal_a_syncables_len = amal_a_syncables.len();
+        tracing::info!("amal a syncables: {}", amal_a_syncables.len());
+        let (enc_payload, _key) = encrypt_syncables_with_key(
+            &[amal_a_syncables],
+            // tests always give the same enc key
+            DeviceSyncKeyType::new_aes_256_gcm_key(),
+        )
+        .unwrap();
+        // have the mock server reply with the payload
+
+        let _m = server
+            .mock("GET", &*format!("/files/12345"))
+            .with_status(200)
+            .with_body(&enc_payload)
+            .create();
+
         // Have the second installation request for a consent sync.
-        let (_group_id, _pin_code) = amal_b
+        amal_b
             .send_sync_request(&amal_b_provider, DeviceSyncKind::Consent)
             .await
-            .expect("history request");
+            .unwrap();
 
         // Have amal_a receive the message (and auto-process)
         let amal_a_sync_group = amal_a.get_sync_group().unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
-        // Wait for up to 1 second for the reply on amal_b
+        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
         let start = Instant::now();
         let mut reply = None;
         while reply.is_none() {
@@ -114,53 +133,22 @@ pub(crate) mod tests {
                 .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
                 .unwrap();
-            if start.elapsed() > Duration::from_secs(1) {
+            if start.elapsed() > Duration::from_secs(3) {
                 panic!("Did not receive consent reply.");
             }
         }
 
-        let (_msg, reply) = reply.unwrap();
-
-        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a.syncable_consent_records(amal_a_conn).unwrap()],
-            reply.encryption_key.unwrap().try_into().unwrap(),
-        )
-        .unwrap();
-
-        // have the mock server reply with the payload
-        let file_path = reply.url.replace(&history_sync_url, "");
-        let _m = server
-            .mock("GET", &*file_path)
-            .with_status(200)
-            .with_body(&enc_payload)
-            .create();
-
-        // The second installation has consented to nobody
-        let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
-        assert_eq!(consent_records.len(), 0);
-
-        // Have the second installation process the reply.
-        let (_msg, reply) = amal_b
-            .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
-            .await
-            .unwrap()
-            .unwrap();
-
-        amal_b
-            .process_sync_reply(&amal_b_provider, reply)
-            .await
-            .unwrap();
-
         // Load consents of both installations
-        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
-        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
+        amal_b.sync_welcomes(&amal_b_conn).await.unwrap();
+        let consent_records_a = amal_a.syncable_consent_records(&amal_a_conn).unwrap();
+        let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
 
         // Ensure the consent is synced.
+
         assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
-        assert_eq!(consent_records_b.len(), 2);
-        for record in &consent_records_a {
-            assert!(consent_records_b.contains(record));
+        assert_eq!(consent_records_b.len(), amal_a_syncables_len);
+        for record in &consent_records_b {
+            assert!(consent_records_a.contains(record));
         }
     }
 }

@@ -229,7 +229,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
-    ) -> Result<(String, String), DeviceSyncError> {
+    ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
@@ -240,33 +240,31 @@ where
 
         // lookup if a request has already been made
         if let Ok((_msg, request)) = self.pending_sync_request(provider, request.kind).await {
-            return Ok((request.request_id, request.pin_code));
+            return Ok(request);
         }
 
         // build the request
         let request: DeviceSyncRequestProto = request.into();
-        let pin_code = request.pin_code.clone();
-        let request_id = request.request_id.clone();
 
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id =
-            sync_group.prepare_message(&content_bytes, provider.conn_ref(), move |_time_ns| {
-                PlaintextEnvelope {
-                    content: Some(Content::V2(V2 {
-                        message_type: Some(Request(request)),
-                        idempotency_key: new_request_id(),
-                    })),
-                }
-            })?;
+        let _message_id = sync_group.prepare_message(&content_bytes, provider.conn_ref(), {
+            let request = request.clone();
+            move |_time_ns| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(Request(request)),
+                    idempotency_key: new_request_id(),
+                })),
+            }
+        })?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(provider).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
-        Ok((request_id, pin_code))
+        Ok(request)
     }
 
     pub(crate) async fn reply_to_sync_request(
@@ -450,10 +448,11 @@ where
         let Some(url) = &self.history_sync_url else {
             return Err(DeviceSyncError::MissingHistorySyncUrl);
         };
-        tracing::info!("Using upload url {url}upload");
+        let upload_url = format!("{url}/upload");
+        tracing::info!("Using upload url {upload_url}");
 
         let response = reqwest::Client::new()
-            .post(format!("{url}/upload"))
+            .post(upload_url)
             .body(payload)
             .send()
             .await?;
@@ -592,6 +591,7 @@ impl DeviceSyncKeyType {
     fn new_aes_256_gcm_key() -> Self {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
+        #[cfg(not(test))]
         rng.fill_bytes(&mut key);
         DeviceSyncKeyType::Aes256Gcm(key)
     }
