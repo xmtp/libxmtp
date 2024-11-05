@@ -196,14 +196,12 @@ where
     pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
         // If there is no sync group.
         if let Err(_) = self.get_sync_group() {
-            let sync_group = self.ensure_sync_group(provider).await?;
-            // If there's more than one installation.
-            if sync_group.members().await?.len() > 1 {
-                self.send_sync_request(provider, DeviceSyncKind::Consent)
-                    .await?;
-                self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-                    .await?;
-            }
+            self.ensure_sync_group(provider).await?;
+
+            self.send_sync_request(provider, DeviceSyncKind::Consent)
+                .await?;
+            self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+                .await?;
         }
 
         Ok(())

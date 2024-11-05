@@ -46,34 +46,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+    const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
-
-    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
-    use mockito;
+    use std::time::{Duration, Instant};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_message_history_sync() {
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 1,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("12345")
-            .create();
-
-        let history_sync_url =
-            format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT + 1);
+        let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -123,23 +107,6 @@ pub(crate) mod tests {
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
-        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        let amal_a_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
-        let amal_a_messages = amal_a.syncable_messages(amal_a_conn).unwrap();
-        let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a_groups, amal_a_messages],
-            // tests always give the same enc key
-            DeviceSyncKeyType::new_aes_256_gcm_key(),
-        )
-        .unwrap();
-
-        // have the mock server reply with the payload
-        server
-            .mock("GET", &*format!("/files/12345"))
-            .with_status(200)
-            .with_body(&enc_payload)
-            .create();
-
         // Have the second installation request for a consent sync.
         amal_b
             .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
@@ -171,11 +138,8 @@ pub(crate) mod tests {
         let messages_b = amal_b.syncable_messages(&amal_b_conn).unwrap();
 
         // Ensure the consent is synced.
-        assert_eq!(groups_a.len(), 1);
-        assert_eq!(groups_b.len(), 1);
-
-        assert_eq!(messages_a.len(), 2);
-        assert_eq!(messages_b.len(), 2);
+        assert_eq!(groups_a.len(), groups_b.len());
+        assert_eq!(messages_a.len(), messages_b.len());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

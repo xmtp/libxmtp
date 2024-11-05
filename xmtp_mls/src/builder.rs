@@ -49,7 +49,6 @@ pub enum ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     api_client: Option<ApiClient>,
-    with_sync: bool,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
@@ -69,7 +68,6 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
-            with_sync: true,
             identity: None,
             store: None,
             identity_strategy: strategy,
@@ -81,11 +79,6 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
     pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
-        self
-    }
-
-    pub fn without_sync(mut self) -> Self {
-        self.with_sync = false;
         self
     }
 
@@ -177,10 +170,11 @@ where
         mut store,
         identity_strategy,
         history_sync_url,
-        with_sync,
         mut scw_verifier,
         ..
     } = client;
+
+    debug!("Building client");
 
     let scw_verifier = scw_verifier
         .take()
@@ -211,10 +205,10 @@ where
         identity,
         store,
         scw_verifier,
-        history_sync_url,
+        history_sync_url.clone(),
     );
 
-    // if with_sync {
+    // if history_sync_url.is_some() {
     // info!("Enabling device sync.");
     // let provider = client.store().conn()?.into();
     // client.enable_sync(&provider).await?;

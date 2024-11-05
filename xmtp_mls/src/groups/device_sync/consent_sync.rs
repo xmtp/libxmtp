@@ -22,7 +22,7 @@ where
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
 pub(crate) mod tests {
-    const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+    const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use std::time::{Duration, Instant};
@@ -33,27 +33,12 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         storage::consent_record::{ConsentState, ConsentType},
     };
-    use mockito;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_consent_sync() {
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 1,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("12345")
-            .create();
-
-        let history_sync_url =
-            format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT + 1);
+        let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
         let wallet = generate_local_wallet();
         let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -95,26 +80,6 @@ pub(crate) mod tests {
         // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
         let amal_a_syncables = amal_a.syncable_consent_records(amal_a_conn).unwrap();
         let amal_a_syncables_len = amal_a_syncables.len();
-        tracing::info!("amal a syncables: {}", amal_a_syncables.len());
-        let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a_syncables],
-            // tests always give the same enc key
-            DeviceSyncKeyType::new_aes_256_gcm_key(),
-        )
-        .unwrap();
-
-        // have the mock server reply with the payload
-        server
-            .mock("GET", &*format!("/files/12345"))
-            .with_status(200)
-            .with_body(&enc_payload)
-            .create();
-
-        // Have the second installation request for a consent sync.
-        amal_b
-            .send_sync_request(&amal_b_provider, DeviceSyncKind::Consent)
-            .await
-            .unwrap();
 
         // Have amal_a receive the message (and auto-process)
         let amal_a_sync_group = amal_a.get_sync_group().unwrap();
