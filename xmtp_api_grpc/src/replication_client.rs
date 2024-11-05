@@ -26,6 +26,8 @@ use xmtp_proto::xmtp::xmtpv4::message_api::replication_api_client::ReplicationAp
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, PublishPayerEnvelopesRequest, QueryEnvelopesRequest,
 };
+use xmtp_proto::xmtp::xmtpv4::payer_api::payer_api_client::PayerApiClient;
+use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -90,6 +92,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
 #[derive(Debug, Clone)]
 pub struct ClientV4 {
     pub(crate) client: ReplicationApiClient<Channel>,
+    pub(crate) payer_client: PayerApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
 }
@@ -111,10 +114,13 @@ impl ClientV4 {
                 .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
         };
 
+        // TODO(mkysel) for now we assume both payer and replication are on the same host
         let client = ReplicationApiClient::new(channel.clone());
+        let payer_client = PayerApiClient::new(channel.clone());
 
         Ok(Self {
             client,
+            payer_client,
             app_version,
             libxmtp_version,
         })
@@ -300,9 +306,10 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 impl XmtpMlsClient for ClientV4 {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        let client = &mut self.client.clone();
-        let payload = wrap_client_envelope(ClientEnvelope::from(req));
-        let res = client.publish_payer_envelopes(payload).await;
+        let client = &mut self.payer_client.clone();
+        let res = client
+            .publish_client_envelopes(PublishClientEnvelopesRequest::from(req))
+            .await;
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -417,9 +424,8 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        let client = &mut self.client.clone();
-        let payload = wrap_client_envelope(ClientEnvelope::from(request));
-        let res = client.publish_payer_envelopes(payload).await;
+        let client = &mut self.payer_client.clone();
+        let res = client.publish_client_envelopes(PublishClientEnvelopesRequest::from(request)).await;
         match res {
             Ok(_) => Ok(PublishIdentityUpdateResponse {}),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -575,16 +581,4 @@ fn convert_v4_envelope_to_identity_update(
         server_timestamp_ns: originator_envelope.originator_ns as u64,
         update: Some(identity_update),
     })
-}
-
-pub fn wrap_client_envelope(req: ClientEnvelope) -> PublishPayerEnvelopesRequest {
-    let mut buf = vec![];
-    req.encode(&mut buf).unwrap();
-
-    PublishPayerEnvelopesRequest {
-        payer_envelopes: vec![PayerEnvelope {
-            unsigned_client_envelope: buf,
-            payer_signature: None,
-        }],
-    }
 }

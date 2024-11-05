@@ -91,7 +91,7 @@ xmtp_proto = { path = "xmtp_proto" }
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,
 # and we don't rely on it for debugging that much.
-debug = 0
+#debug = 0
 
 # Setting opt-level to 3 for proc macros/build scripts
 # speeds up buildtime

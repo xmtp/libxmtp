@@ -2,6 +2,7 @@ use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
 use crate::xmtp::mls::api::v1::{KeyPackageUpload, UploadKeyPackageRequest};
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope};
+use crate::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::ProtocolVersion;
@@ -37,25 +38,29 @@ mod inbox_id {
     }
 }
 
-impl From<UploadKeyPackageRequest> for ClientEnvelope {
+impl From<UploadKeyPackageRequest> for PublishClientEnvelopesRequest {
     fn from(req: UploadKeyPackageRequest) -> Self {
-        ClientEnvelope {
-            aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
-                &req.key_package.as_ref().unwrap(),
-            ))),
-            payload: Some(Payload::UploadKeyPackage(req)),
+        PublishClientEnvelopesRequest {
+            envelopes: vec![ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
+                    &req.key_package.as_ref().unwrap(),
+                ))),
+                payload: Some(Payload::UploadKeyPackage(req)),
+            }],
         }
     }
 }
 
-impl From<PublishIdentityUpdateRequest> for ClientEnvelope {
+impl From<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
     fn from(req: PublishIdentityUpdateRequest) -> Self {
         let identity_update = req.identity_update.unwrap();
-        ClientEnvelope {
-            aad: Some(AuthenticatedData::with_topic(build_identity_update_topic(
-                identity_update.inbox_id.clone(),
-            ))),
-            payload: Some(Payload::IdentityUpdate(identity_update)),
+        PublishClientEnvelopesRequest {
+            envelopes: vec![ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(build_identity_update_topic(
+                    identity_update.inbox_id.clone(),
+                ))),
+                payload: Some(Payload::IdentityUpdate(identity_update)),
+            }],
         }
     }
 }
@@ -93,7 +98,7 @@ pub fn build_key_package_topic(installation_id: &[u8]) -> Vec<u8> {
 pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
     [
         vec![TopicKind::IdentityUpdatesV1 as u8],
-        format!("i/{}", inbox_id).into_bytes(),
+        inbox_id.into_bytes()
     ]
     .concat()
 }
