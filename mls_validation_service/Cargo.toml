@@ -1,8 +1,9 @@
 [package]
 edition = "2021"
 name = "mls_validation_service"
-version = "0.1.0"
+version = "0.1.0" # Intentionally decoupled from the Workspace versioning
 build = "build.rs"
+license.workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
