@@ -71,13 +71,11 @@ where
     C: Clone + Send + Sync + 'static,
 {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
-        let event_queue = BroadcastStream::new(self).filter_map(|event| async {
+        BroadcastStream::new(self).filter_map(|event| async {
             crate::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::sync_filter)
                 .map(Result::Ok)
-        });
-
-        event_queue
+        })
     }
 }
 

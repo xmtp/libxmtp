@@ -152,7 +152,7 @@ where
         let get_message_debounce = |conn: &DbConnection, message_id: &[u8]| {
             let mut tries = 0;
             while tries < 3 {
-                if let Some(msg) = conn.get_group_message(&message_id)? {
+                if let Some(msg) = conn.get_group_message(message_id)? {
                     return Ok(msg);
                 }
                 thread::sleep(Duration::from_millis(20));
@@ -210,7 +210,7 @@ where
      */
     pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
         // If there is no sync group.
-        if let Err(_) = self.get_sync_group() {
+        if self.get_sync_group().is_err() {
             self.ensure_sync_group(provider).await?;
 
             self.send_sync_request(provider, DeviceSyncKind::Consent)
