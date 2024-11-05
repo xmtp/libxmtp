@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};

@@ -20,7 +20,6 @@ use prost::EncodeError;
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-use tracing::info;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
     associations::{
@@ -38,13 +37,9 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
-    builder::ClientBuilderError,
     groups::{
-        device_sync::DeviceSyncError,
-        group_permissions::PolicySet,
-        scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
-        validated_commit::CommitValidationError,
-        GroupError, GroupMetadataOptions, IntentError, MlsGroup,
+        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
+        GroupMetadataOptions, IntentError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -60,7 +55,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{LocalEvents, StreamMessages},
+    subscriptions::LocalEvents,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,

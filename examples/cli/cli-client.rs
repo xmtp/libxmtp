@@ -355,12 +355,11 @@ async fn main() {
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
             client.enable_sync(&provider).await.unwrap();
-            let (group_id, _) = client
+            client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
                 .unwrap();
-            let group_id_str = hex::encode(group_id);
-            info!("Sent history sync request in sync group {group_id_str}", { group_id: group_id_str})
+            info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
             let conn = client.store().conn().unwrap();

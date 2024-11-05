@@ -1,11 +1,10 @@
 use super::group_metadata::ConversationType;
-use super::scoped_client::ScopedGroupClient;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
+use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::Store;
@@ -31,13 +30,10 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
-use tracing::{info, warn};
+use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::api_client::XmtpApiClient;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
