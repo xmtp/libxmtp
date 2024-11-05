@@ -1,3 +1,5 @@
+use std::pin::Pin;
+
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
@@ -119,9 +121,13 @@ where
             let client = self.clone();
 
             let receiver = client.local_events.subscribe();
-            let sync_stream = receiver.stream_sync_messages();
+            let mut sync_stream = Box::pin(receiver.stream_sync_messages());
 
-            async move { client.sync_worker(sync_stream).await }
+            async move {
+                while let Err(err) = client.sync_worker(&mut sync_stream).await {
+                    tracing::error!("Sync worker error: {err}");
+                }
+            }
         });
 
         Ok(())
@@ -134,10 +140,10 @@ where
     V: SmartContractSignatureVerifier,
 {
     pub(crate) async fn sync_worker(
-        self,
-        sync_stream: impl Stream<Item = Result<SyncMessage, SubscribeError>> + '_,
+        &self,
+        sync_stream: &mut Pin<Box<impl Stream<Item = Result<SyncMessage, SubscribeError>>>>,
     ) -> Result<(), DeviceSyncError> {
-        futures::pin_mut!(sync_stream);
+        let mut sync_stream = sync_stream.as_mut();
 
         let provider = self.mls_provider()?;
 
@@ -159,7 +165,9 @@ where
                         continue;
                     };
 
-                    self.process_sync_reply(&provider, reply).await?;
+                    if let Err(err) = self.process_sync_reply(&provider, reply).await {
+                        tracing::warn!("Sync worker error: {err}");
+                    }
                 }
                 SyncMessage::Request { message_id } => {
                     let conn = provider.conn_ref();
@@ -176,7 +184,9 @@ where
                         continue;
                     };
 
-                    self.reply_to_sync_request(&provider, request).await?;
+                    if let Err(err) = self.reply_to_sync_request(&provider, request).await {
+                        tracing::warn!("Sync worker error: {err}");
+                    }
                 }
             }
         }
