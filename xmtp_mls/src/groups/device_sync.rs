@@ -586,17 +586,11 @@ pub(crate) enum DeviceSyncKeyType {
 }
 
 impl DeviceSyncKeyType {
-    #[cfg(not(test))]
     fn new_aes_256_gcm_key() -> Self {
         let mut rng = crypto_utils::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
         DeviceSyncKeyType::Aes256Gcm(key)
-    }
-
-    #[cfg(test)]
-    fn new_aes_256_gcm_key() -> Self {
-        DeviceSyncKeyType::Aes256Gcm([10u8; ENC_KEY_SIZE])
     }
 
     #[cfg(test)]

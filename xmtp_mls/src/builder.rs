@@ -200,21 +200,13 @@ where
     )
     .await?;
 
-    let client = Client::new(
+    Ok(Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
-    );
-
-    // if history_sync_url.is_some() {
-    // info!("Enabling device sync.");
-    // let provider = client.store().conn()?.into();
-    // client.enable_sync(&provider).await?;
-    // }
-
-    Ok(client)
+    ))
 }
 
 #[cfg(test)]

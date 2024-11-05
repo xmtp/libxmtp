@@ -60,10 +60,7 @@ pub(crate) mod tests {
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
         let wallet = generate_local_wallet();
-        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        amal_a.history_sync_url = Some(history_sync_url);
-        assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
+        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
 
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
@@ -89,10 +86,9 @@ pub(crate) mod tests {
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
-        assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
 
         let groups_b = amal_b.syncable_groups(&amal_b_conn).unwrap();
         assert_eq!(groups_b.len(), 0);
@@ -164,18 +160,17 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_externals_cant_join_sync_group() {
+        let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
         let wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client(&wallet).await;
-        let amal_provider = amal.mls_provider().unwrap();
-        assert_ok!(amal.enable_sync(&amal_provider).await);
+        let amal = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         amal.sync_welcomes(&amal.store().conn().unwrap())
             .await
             .expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
-        let external_client = ClientBuilder::new_test_client(&external_wallet).await;
-        let external_provider = external_client.mls_provider().unwrap();
-        assert_ok!(external_client.enable_sync(&external_provider).await);
+        let external_client =
+            ClientBuilder::new_test_client_with_history(&external_wallet, &history_sync_url).await;
+
         external_client
             .sync_welcomes(&external_client.store().conn().unwrap())
             .await

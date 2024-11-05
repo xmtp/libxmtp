@@ -110,6 +110,22 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
+        )
+        .await
+    }
+
+    pub async fn new_test_client_with_history(
+        owner: &impl InboxOwner,
+        history_sync_url: &str,
+    ) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            Some(history_sync_url),
         )
         .await
     }
@@ -124,6 +140,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
         )
         .await
     }
@@ -182,6 +199,7 @@ async fn build_with_verifier<A, V>(
     owner: impl InboxOwner,
     api_client: A,
     scw_verifier: V,
+    history_sync_url: Option<&str>,
 ) -> Client<A, V>
 where
     A: XmtpApi + 'static,
@@ -190,23 +208,29 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let builder = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
+    let mut builder = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
         inbox_id,
         owner.get_address(),
         nonce,
         None,
-    ));
+    ))
+    .temp_store()
+    .await
+    .api_client(api_client)
+    .scw_signature_verifier(scw_verifier);
 
-    let client = builder
-        .temp_store()
-        .await
-        .api_client(api_client)
-        .scw_signature_verifier(scw_verifier)
-        .build_with_verifier()
-        .await
-        .unwrap();
+    if let Some(history_sync_url) = history_sync_url {
+        builder = builder.history_sync_url(history_sync_url);
+    }
+
+    let client = builder.build_with_verifier().await.unwrap();
 
     register_client(&client, owner).await;
+
+    if client.history_sync_url.is_some() {
+        let provider = client.mls_provider().unwrap();
+        client.enable_sync(&provider).await.unwrap();
+    }
 
     client
 }

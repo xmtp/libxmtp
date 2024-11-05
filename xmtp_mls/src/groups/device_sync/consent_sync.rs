@@ -41,12 +41,11 @@ pub(crate) mod tests {
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
         let wallet = generate_local_wallet();
-        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
 
-        amal_a.history_sync_url = Some(history_sync_url);
+        // amal_a.history_sync_url = Some(history_sync_url);
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
-        assert_ok!(amal_a.enable_sync(&amal_a_provider).await);
 
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
@@ -62,10 +61,9 @@ pub(crate) mod tests {
         assert_eq!(syncable_consent_records.len(), 1);
 
         // Create a second installation for amal with sync.
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
-        assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
 
         let consent_records_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
@@ -77,9 +75,7 @@ pub(crate) mod tests {
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
-        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        let amal_a_syncables = amal_a.syncable_consent_records(amal_a_conn).unwrap();
-        let amal_a_syncables_len = amal_a_syncables.len();
+        let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
         // Have amal_a receive the message (and auto-process)
         let amal_a_sync_group = amal_a.get_sync_group().unwrap();
@@ -101,11 +97,11 @@ pub(crate) mod tests {
         // Wait up to 3 seconds for sync to process (typically is almost instant)
         let mut consent_b = 0;
         let start = Instant::now();
-        while consent_b != amal_a_syncables_len {
+        while consent_b != consent_a {
             consent_b = amal_b.syncable_consent_records(&amal_b_conn).unwrap().len();
 
             if start.elapsed() > Duration::from_secs(3) {
-                panic!("Consent sync did not work. Consent: {consent_b}/{amal_a_syncables_len}");
+                panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
             }
         }
     }
