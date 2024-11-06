@@ -91,7 +91,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<Self>>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()

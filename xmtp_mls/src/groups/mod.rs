@@ -221,7 +221,6 @@ impl RetryableError for GroupError {
     }
 }
 
-// #[derive(Clone)]
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
@@ -229,7 +228,7 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
-// C is wrapped in an Arc, and so is the Mutex
+// C is wrapped in an Arc, and so is the Mutex, so this is fine.
 unsafe impl<C> Send for MlsGroup<C> {}
 unsafe impl<C> Sync for MlsGroup<C> {}
 
