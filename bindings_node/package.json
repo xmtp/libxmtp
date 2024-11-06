@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/node-bindings",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
@@ -20,14 +20,17 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release",
+    "build": "yarn build:clean && yarn build:release && yarn build:finish",
     "build:clean": "rm -rf dist",
     "build:debug": "napi build --platform",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
-    "build:release": "yarn build:clean && yarn build && yarn build:finish",
+    "build:release": "napi build --platform --release",
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
+    "lint": "yarn lint:clippy && yarn lint:fmt",
+    "lint:clippy": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
+    "lint:fmt": "cargo fmt --check",
     "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },
