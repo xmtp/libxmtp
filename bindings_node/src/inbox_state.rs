@@ -3,23 +3,23 @@ use napi_derive::napi;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
-use crate::{mls_client::NapiClient, ErrorWrapper};
+use crate::{client::Client, ErrorWrapper};
 
 #[napi(object)]
-pub struct NapiInstallation {
+pub struct Installation {
   pub id: String,
   pub client_timestamp_ns: Option<BigInt>,
 }
 
 #[napi(object)]
-pub struct NapiInboxState {
+pub struct InboxState {
   pub inbox_id: String,
   pub recovery_address: String,
-  pub installations: Vec<NapiInstallation>,
+  pub installations: Vec<Installation>,
   pub account_addresses: Vec<String>,
 }
 
-impl From<AssociationState> for NapiInboxState {
+impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
     Self {
       inbox_id: state.inbox_id().to_string(),
@@ -29,7 +29,7 @@ impl From<AssociationState> for NapiInboxState {
         .into_iter()
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Address(_) => None,
-          MemberIdentifier::Installation(inst) => Some(NapiInstallation {
+          MemberIdentifier::Installation(inst) => Some(Installation {
             id: ed25519_public_key_to_address(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns.map(BigInt::from),
           }),
@@ -41,7 +41,7 @@ impl From<AssociationState> for NapiInboxState {
 }
 
 #[napi]
-impl NapiClient {
+impl Client {
   /**
    * Get the client's inbox state.
    *
@@ -49,7 +49,7 @@ impl NapiClient {
    * Otherwise, the state will be read from the local database.
    */
   #[napi]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<NapiInboxState> {
+  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState> {
     let state = self
       .inner_client()
       .inbox_state(refresh_from_network)
@@ -59,7 +59,7 @@ impl NapiClient {
   }
 
   #[napi]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<NapiInboxState> {
+  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState> {
     let conn = self
       .inner_client()
       .store()

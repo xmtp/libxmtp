@@ -8,35 +8,35 @@ use napi::{
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::{
   groups::{
-    group_metadata::{ConversationType, GroupMetadata},
-    members::PermissionLevel,
+    group_metadata::{ConversationType, GroupMetadata as XmtpGroupMetadata},
+    members::PermissionLevel as XmtpPermissionLevel,
     MlsGroup, UpdateAdminListType,
   },
   storage::group_message::MsgQueryArgs,
 };
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
-  consent_state::NapiConsentState,
-  encoded_content::NapiEncodedContent,
-  messages::{NapiListMessagesOptions, NapiMessage},
-  mls_client::RustXmtpClient,
-  permissions::NapiGroupPermissions,
-  streams::NapiStreamCloser,
+  client::RustXmtpClient,
+  consent_state::ConsentState,
+  encoded_content::EncodedContent,
+  message::{ListMessagesOptions, Message},
+  permissions::GroupPermissions,
+  streams::StreamCloser,
   ErrorWrapper,
 };
 
-use prost::Message;
+use prost::Message as ProstMessage;
 
 use napi_derive::napi;
 
 #[napi]
-pub struct NapiGroupMetadata {
-  inner: GroupMetadata,
+pub struct GroupMetadata {
+  inner: XmtpGroupMetadata,
 }
 
 #[napi]
-impl NapiGroupMetadata {
+impl GroupMetadata {
   #[napi]
   pub fn creator_inbox_id(&self) -> String {
     self.inner.creator_inbox_id.clone()
@@ -53,31 +53,31 @@ impl NapiGroupMetadata {
 }
 
 #[napi]
-pub enum NapiPermissionLevel {
+pub enum PermissionLevel {
   Member,
   Admin,
   SuperAdmin,
 }
 
 #[napi]
-pub struct NapiGroupMember {
+pub struct GroupMember {
   pub inbox_id: String,
   pub account_addresses: Vec<String>,
   pub installation_ids: Vec<String>,
-  pub permission_level: NapiPermissionLevel,
-  pub consent_state: NapiConsentState,
+  pub permission_level: PermissionLevel,
+  pub consent_state: ConsentState,
 }
 
 #[napi]
-pub struct NapiGroup {
+pub struct Conversation {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
   created_at_ns: i64,
 }
 
-impl From<MlsGroup<RustXmtpClient>> for NapiGroup {
+impl From<MlsGroup<RustXmtpClient>> for Conversation {
   fn from(mls_group: MlsGroup<RustXmtpClient>) -> Self {
-    NapiGroup {
+    Conversation {
       group_id: mls_group.group_id,
       created_at_ns: mls_group.created_at_ns,
       inner_client: mls_group.client,
@@ -86,7 +86,7 @@ impl From<MlsGroup<RustXmtpClient>> for NapiGroup {
 }
 
 #[napi]
-impl NapiGroup {
+impl Conversation {
   pub fn new(inner_client: Arc<RustXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
     Self {
       inner_client,
@@ -101,8 +101,8 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub async fn send(&self, encoded_content: NapiEncodedContent) -> Result<String> {
-    let encoded_content: EncodedContent = encoded_content.into();
+  pub async fn send(&self, encoded_content: EncodedContent) -> Result<String> {
+    let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -116,10 +116,9 @@ impl NapiGroup {
     Ok(hex::encode(message_id.clone()))
   }
 
-  /// send a message without immediately publishing to the delivery service.
   #[napi]
-  pub fn send_optimistic(&self, encoded_content: NapiEncodedContent) -> Result<String> {
-    let encoded_content: EncodedContent = encoded_content.into();
+  pub fn send_optimistic(&self, encoded_content: EncodedContent) -> Result<String> {
+    let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -133,7 +132,6 @@ impl NapiGroup {
     Ok(hex::encode(id.clone()))
   }
 
-  /// Publish all unpublished messages
   #[napi]
   pub async fn publish_messages(&self) -> Result<()> {
     let group = MlsGroup::new(
@@ -159,7 +157,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn find_messages(&self, opts: Option<NapiListMessagesOptions>) -> Result<Vec<NapiMessage>> {
+  pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
 
     let group = MlsGroup::new(
@@ -171,7 +169,7 @@ impl NapiGroup {
     let delivery_status = opts.delivery_status.map(|status| status.into());
     let direction = opts.direction.map(|dir| dir.into());
 
-    let messages: Vec<NapiMessage> = group
+    let messages: Vec<Message> = group
       .find_messages(
         &MsgQueryArgs::default()
           .maybe_sent_before_ns(opts.sent_before_ns)
@@ -192,7 +190,7 @@ impl NapiGroup {
   pub async fn process_streamed_group_message(
     &self,
     envelope_bytes: Uint8Array,
-  ) -> Result<NapiMessage> {
+  ) -> Result<Message> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -208,19 +206,19 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub async fn list_members(&self) -> Result<Vec<NapiGroupMember>> {
+  pub async fn list_members(&self) -> Result<Vec<GroupMember>> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
 
-    let members: Vec<NapiGroupMember> = group
+    let members: Vec<GroupMember> = group
       .members()
       .await
       .map_err(ErrorWrapper::from)?
       .into_iter()
-      .map(|member| NapiGroupMember {
+      .map(|member| GroupMember {
         inbox_id: member.inbox_id,
         account_addresses: member.account_addresses,
         installation_ids: member
@@ -229,9 +227,9 @@ impl NapiGroup {
           .map(|id| ed25519_public_key_to_address(id.as_slice()))
           .collect(),
         permission_level: match member.permission_level {
-          PermissionLevel::Member => NapiPermissionLevel::Member,
-          PermissionLevel::Admin => NapiPermissionLevel::Admin,
-          PermissionLevel::SuperAdmin => NapiPermissionLevel::SuperAdmin,
+          XmtpPermissionLevel::Member => PermissionLevel::Member,
+          XmtpPermissionLevel::Admin => PermissionLevel::Admin,
+          XmtpPermissionLevel::SuperAdmin => PermissionLevel::SuperAdmin,
         },
         consent_state: member.consent_state.into(),
       })
@@ -359,7 +357,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn group_permissions(&self) -> Result<NapiGroupPermissions> {
+  pub fn group_permissions(&self) -> Result<GroupPermissions> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -368,7 +366,7 @@ impl NapiGroup {
 
     let permissions = group.permissions().map_err(ErrorWrapper::from)?;
 
-    Ok(NapiGroupPermissions::new(permissions))
+    Ok(GroupPermissions::new(permissions))
   }
 
   #[napi]
@@ -543,9 +541,9 @@ impl NapiGroup {
     Ok(group_pinned_frame_url)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
-  pub fn stream(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
-    let tsfn: ThreadsafeFunction<NapiMessage, ErrorStrategy::CalleeHandled> =
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  pub fn stream(&self, callback: JsFunction) -> Result<StreamCloser> {
+    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_client.clone(),
@@ -554,7 +552,7 @@ impl NapiGroup {
       move |message| {
         tsfn.call(
           message
-            .map(NapiMessage::from)
+            .map(Message::from)
             .map_err(ErrorWrapper::from)
             .map_err(napi::Error::from),
           ThreadsafeFunctionCallMode::Blocking,
@@ -562,7 +560,7 @@ impl NapiGroup {
       },
     );
 
-    Ok(NapiStreamCloser::new(stream_closer))
+    Ok(StreamCloser::new(stream_closer))
   }
 
   #[napi]
@@ -597,7 +595,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn group_metadata(&self) -> Result<NapiGroupMetadata> {
+  pub fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -608,11 +606,11 @@ impl NapiGroup {
       .metadata(group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(NapiGroupMetadata { inner: metadata })
+    Ok(GroupMetadata { inner: metadata })
   }
 
   #[napi]
-  pub fn consent_state(&self) -> Result<NapiConsentState> {
+  pub fn consent_state(&self) -> Result<ConsentState> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -625,7 +623,7 @@ impl NapiGroup {
   }
 
   #[napi]
-  pub fn update_consent_state(&self, state: NapiConsentState) -> Result<()> {
+  pub fn update_consent_state(&self, state: ConsentState) -> Result<()> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),

@@ -2,22 +2,23 @@ use napi::bindgen_prelude::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use xmtp_mls::{
-  client::ClientError, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
+  client::ClientError, AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle,
+  StreamHandleError,
 };
 
 use napi_derive::napi;
 
-type NapiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type StreamHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
 
 #[napi]
-pub struct NapiStreamCloser {
-  handle: Arc<Mutex<Option<NapiHandle>>>,
+pub struct StreamCloser {
+  handle: Arc<Mutex<Option<StreamHandle>>>,
   abort: Arc<Box<dyn AbortHandle>>,
 }
 
-impl NapiStreamCloser {
+impl StreamCloser {
   pub fn new(
-    handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+    handle: impl XmtpStreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
   ) -> Self {
     let abort = handle.abort_handle();
     Self {
@@ -28,7 +29,7 @@ impl NapiStreamCloser {
 }
 
 #[napi]
-impl NapiStreamCloser {
+impl StreamCloser {
   /// Signal the stream to end
   /// Does not wait for the stream to end.
   #[napi]
