@@ -28,6 +28,9 @@
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
+    "lint": "yarn lint:clippy && yarn lint:fmt",
+    "lint:clippy": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
+    "lint:fmt": "cargo fmt --check",
     "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },
