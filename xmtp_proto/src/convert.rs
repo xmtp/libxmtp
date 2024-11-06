@@ -1,12 +1,15 @@
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
-use crate::xmtp::mls::api::v1::{KeyPackageUpload, UploadKeyPackageRequest};
+use crate::xmtp::mls::api::v1::{group_message_input::Version as GroupMessageInputVersion, GroupMessageInput, KeyPackageUpload, UploadKeyPackageRequest};
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope};
+use crate::xmtp::xmtpv4::envelopes::{
+    AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
+};
 use crate::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
-use openmls::prelude::ProtocolVersion;
+use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
 use openmls_rust_crypto::RustCrypto;
+use prost::Message;
 
 pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
@@ -65,6 +68,23 @@ impl From<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
     }
 }
 
+impl From<GroupMessageInput> for PublishClientEnvelopesRequest {
+    fn from(req: GroupMessageInput) -> Self {
+
+        let version = match req.version.as_ref().unwrap() {
+            GroupMessageInputVersion::V1(v1) => v1,
+        };
+
+        PublishClientEnvelopesRequest {
+            envelopes: vec![ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(get_group_message_topic(version.data.clone()))),
+                payload: Some(Payload::GroupMessage(req)),
+            }],
+        }
+    }
+}
+
+
 impl AuthenticatedData {
     pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
@@ -100,7 +120,59 @@ pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
     // I suspect we need a EIP-155 address, this just takes the first 32 bytes...
     let mut topic = vec![TopicKind::IdentityUpdatesV1 as u8];
 
-    let mut inbox_bytes = inbox_id.into_bytes();
+    let inbox_bytes = inbox_id.into_bytes();
     topic.extend_from_slice(&inbox_bytes[..32]);
     topic
+}
+
+pub fn extract_unsigned_originator_envelope(
+    req: &OriginatorEnvelope,
+) -> UnsignedOriginatorEnvelope {
+    let mut unsigned_bytes = req.unsigned_originator_envelope.as_slice();
+    UnsignedOriginatorEnvelope::decode(&mut unsigned_bytes)
+        .expect("Failed to decode unsigned originator envelope")
+}
+
+pub fn extract_client_envelope(req: &OriginatorEnvelope) -> ClientEnvelope {
+    let unsigned_originator = extract_unsigned_originator_envelope(req);
+
+    let payer_envelope = unsigned_originator.payer_envelope.unwrap();
+    let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
+    ClientEnvelope::decode(&mut payer_bytes).expect("Failed to decode client envelope")
+}
+
+pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Vec<u8> {
+    let topic_str = String::from_utf8(topic).expect("Failed to convert topic to string");
+    let group_id = topic_str
+        .split("/")
+        .nth(1)
+        .expect("Failed to extract group id from topic");
+    group_id.as_bytes().to_vec()
+}
+
+pub fn build_group_message_topic(group_id: &[u8]) -> Vec<u8> {
+    [
+        vec![TopicKind::GroupMessagesV1 as u8],
+        format!("g/{}", hex::encode(group_id)).into_bytes(),
+    ]
+        .concat()
+}
+
+pub fn build_welcome_message_topic(installation_id: &[u8]) -> Vec<u8> {
+    [
+        vec![TopicKind::WelcomeMessagesV1 as u8],
+        format!("w/{}", hex::encode(installation_id)).into_bytes(),
+    ]
+        .concat()
+}
+
+fn get_group_message_topic(message: Vec<u8>) -> Vec<u8> {
+    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
+        .expect("Failed to deserialize message");
+
+    let protocol_message: ProtocolMessage = msg_result
+        .try_into_protocol_message()
+        .expect("Failed to convert to protocol message");
+
+    build_group_message_topic(protocol_message.group_id().as_slice())
 }
