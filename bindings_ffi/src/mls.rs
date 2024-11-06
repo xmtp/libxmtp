@@ -394,6 +394,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Starts the sync worker if the history sync url is present.
     async fn maybe_start_sync_worker(&self) -> Result<(), GenericError> {
         if self.inner_client.history_sync_url().is_none() {
             return Ok(());
