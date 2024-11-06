@@ -38,6 +38,7 @@ pub enum LocalEvents<C> {
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
 }
+
 #[derive(Clone)]
 pub enum SyncMessage {
     Request { message_id: Vec<u8> },
@@ -69,7 +70,7 @@ pub(crate) trait StreamMessages {
 
 impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
 where
-    C: Clone + Send + Sync + 'static,
+    LocalEvents<C>: Clone + Send + Sync + 'static,
 {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {

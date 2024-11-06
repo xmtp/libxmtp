@@ -221,6 +221,7 @@ impl RetryableError for GroupError {
     }
 }
 
+// #[derive(Clone)]
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
