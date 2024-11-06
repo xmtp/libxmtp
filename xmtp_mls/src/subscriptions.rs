@@ -66,6 +66,22 @@ impl<C> LocalEvents<C> {
 pub(crate) trait StreamMessages {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>>;
 }
+
+#[cfg(target_arch = "wasm32")]
+impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
+where
+    C: Clone + 'static,
+{
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            crate::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::sync_filter)
+                .map(Result::Ok)
+        })
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
 where
     C: Clone + Send + Sync + 'static,
