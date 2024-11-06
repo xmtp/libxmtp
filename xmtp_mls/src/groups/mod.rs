@@ -228,6 +228,9 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
+unsafe impl<C> Send for MlsGroup<C> {}
+unsafe impl<C> Sync for MlsGroup<C> {}
+
 #[derive(Default)]
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
