@@ -250,10 +250,6 @@ impl NapiConversations {
 
   #[napi]
   pub async fn list(&self, opts: Option<NapiListConversationsOptions>) -> Result<Vec<NapiGroup>> {
-    // let opts = match opts {
-    //   Some(options) => options,
-    //   None => NapiListConversationsOptions::default(),
-    // };
     let convo_list: Vec<NapiGroup> = self
       .inner_client
       .find_groups(opts.unwrap_or_default().into())
@@ -291,7 +287,7 @@ impl NapiConversations {
       .await
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup | undefined) => void")]
   pub fn stream(
     &self,
     callback: JsFunction,
@@ -316,17 +312,17 @@ impl NapiConversations {
     Ok(NapiStreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup | undefined) => void")]
   pub fn stream_groups(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     self.stream(callback, Some(NapiConversationType::Group))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiGroup | undefined) => void")]
   pub fn stream_dms(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     self.stream(callback, Some(NapiConversationType::Dm))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage | undefined) => void")]
   pub fn stream_all_messages(
     &self,
     callback: JsFunction,
@@ -351,12 +347,12 @@ impl NapiConversations {
     Ok(NapiStreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage | undefined) => void")]
   pub fn stream_all_group_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     self.stream_all_messages(callback, Some(NapiConversationType::Group))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: NapiMessage | undefined) => void")]
   pub fn stream_all_dm_messages(&self, callback: JsFunction) -> Result<NapiStreamCloser> {
     self.stream_all_messages(callback, Some(NapiConversationType::Dm))
   }
