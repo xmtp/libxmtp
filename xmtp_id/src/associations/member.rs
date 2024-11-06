@@ -49,6 +49,26 @@ impl MemberIdentifier {
             None
         }
     }
+
+    /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
+    /// in the process
+    pub fn to_address(self) -> Option<String> {
+        if let Self::Address(address) = self {
+            Some(address)
+        } else {
+            None
+        }
+    }
+
+    /// Get the value for [`MemberIdentifier::Installation`] variant.
+    /// Returns `None` if the type is not the correct variant.
+    pub fn to_installation(&self) -> Option<&[u8]> {
+        if let Self::Installation(ref installation) = self {
+            Some(installation)
+        } else {
+            None
+        }
+    }
 }
 
 impl std::fmt::Display for MemberIdentifier {

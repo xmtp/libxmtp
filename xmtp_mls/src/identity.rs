@@ -306,6 +306,7 @@ impl Identity {
                 .build();
 
             let sig = installation_keys.credential_sign(signature_request.signature_text())?;
+
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(

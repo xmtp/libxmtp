@@ -1,18 +1,15 @@
 use std::io::BufReader;
 
-use ed25519_dalek::{Digest as _, Signature, SigningKey, VerifyingKey};
+use ed25519_dalek::SigningKey;
 use k256::schnorr::CryptoRngCore;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
 use serde::de::Error;
-use sha2::Sha512;
 use tls_codec::SecretTlsVecU8;
 use zeroize::Zeroizing;
 
-/// DO NOT CHANGE. SIGNATURES WILL BREAK
-const INSTALLATION_KEY_SIGNATURE_CONTEXT: &[u8] = b"IDENTITY UPDATE SIGNATURE";
-
+/// Wrapper for [`signatures::SignerError`] that implements [`std::fmt::Display`]
 #[derive(thiserror::Error, Debug)]
 pub struct SignerError {
     inner: signatures::SignerError,
@@ -35,54 +32,37 @@ impl std::fmt::Display for SignerError {
     }
 }
 
-/// Sign with some public/private keypair credential
-pub trait CredentialSign {
-    /// the hashed context this credential signature takes place in
-    const CONTEXT: &[u8];
+mod private {
+    /// A rudimentary form of specialization
+    /// this allows implementing CredentialSigning
+    /// on `XmtpInstallationCredential` in foreign crates.
+    /// A `private::NotSpecialized` trait may only be defined in `xmtp_cryptography`.
+    /// Since it is not defined, implementations in their own crates are preferred.
+    pub struct NotSpecialized;
+}
 
-    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, SignerError>;
+/// Sign with some public/private keypair credential
+pub trait CredentialSign<SP = private::NotSpecialized> {
+    /// the hashed context this credential signature takes place in
+    // If this is not defined the context will be empty
+    const CONTEXT: &[u8] = b"";
+    type Error;
+
+    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, Self::Error>;
 }
 
 /// Verify a credential signature with its public key
-pub trait CredentialVerify {
+pub trait CredentialVerify<SP = private::NotSpecialized> {
     /// the hashed context this credential signature verification takes place in
-    const CONTEXT: &[u8];
+    /// if this is not defined, the context will be empty
+    const CONTEXT: &[u8] = b"";
+    type Error;
 
     fn credential_verify(
         &self,
         signature_text: impl AsRef<str>,
         signature_bytes: &[u8; 64],
-    ) -> Result<(), ed25519_dalek::SignatureError>;
-}
-
-impl CredentialVerify for VerifyingKey {
-    const CONTEXT: &[u8] = INSTALLATION_KEY_SIGNATURE_CONTEXT;
-
-    fn credential_verify(
-        &self,
-        signature_text: impl AsRef<str>,
-        signature_bytes: &[u8; 64],
-    ) -> Result<(), ed25519_dalek::SignatureError> {
-        let signature = Signature::from_bytes(signature_bytes);
-        let mut prehashed = Sha512::new();
-        prehashed.update(signature_text.as_ref());
-        self.verify_prehashed(prehashed, Some(Self::CONTEXT), &signature)?;
-        Ok(())
-    }
-}
-
-impl CredentialSign for XmtpInstallationCredential {
-    const CONTEXT: &[u8] = INSTALLATION_KEY_SIGNATURE_CONTEXT;
-
-    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, SignerError> {
-        let mut prehashed: Sha512 = Sha512::new();
-        prehashed.update(text.as_ref());
-        let sig = self
-            .0
-            .sign_prehashed(prehashed, Some(Self::CONTEXT))
-            .map_err(|_| SignerError::from(signatures::SignerError::SigningError))?;
-        Ok(sig.to_bytes().into())
-    }
+    ) -> Result<(), Self::Error>;
 }
 
 /// The credential for an XMTP Installation
@@ -111,6 +91,7 @@ impl XmtpInstallationCredential {
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]
+    /// Can be used to verify signatures
     pub fn verifying_key(&self) -> ed25519_dalek::VerifyingKey {
         self.0.verifying_key()
     }
@@ -128,6 +109,13 @@ impl XmtpInstallationCredential {
     /// get the scheme, prefer the public [`Signer::signature_scheme`]
     fn scheme(&self) -> SignatureScheme {
         SignatureScheme::ED25519
+    }
+
+    pub fn with_context<'k, 'v>(
+        &'k self,
+        context: &'v [u8],
+    ) -> Result<ed25519_dalek::Context<'k, 'v, SigningKey>, ed25519_dalek::SignatureError> {
+        self.0.with_context(context)
     }
 
     /// Internal helper function to safely create a credential from its raw parts

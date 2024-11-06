@@ -2,36 +2,35 @@
 default-run = "xmtp_cli"
 edition = "2021"
 keywords = ["xmtp", "messaging", "web3", "group-chat"]
-license = "MIT"
 name = "xmtp_cli"
 readme = "README.md"
 repository = "https://github.com/xmtp/libxmtp"
-version = "0.1.0"
+version.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "xmtp_cli"
 path = "cli-client.rs"
 
 [dependencies]
+tracing = { workspace = true, features = ["valuable"] }
+tracing-subscriber = { workspace = true, features = ["json", "valuable", "env-filter", "ansi", "chrono"] }
+valuable = { version = "0.1", features = ["derive"] }
+valuable-serde = "0.1"
 clap = { version = "4.4.6", features = ["derive"] }
-ethers = "2.0.4"
-femme = "2.2.1"
+ethers.workspace = true
 futures.workspace = true
-hex = "0.4.3"
-kv-log-macro = "1.0.7"
-log = { version = "0.4", features = [
-    "kv_unstable",
-    "std",
-    "kv_unstable_serde",
-] }
+hex.workspace = true
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
 timeago = "0.4.1"
-tokio = "1.28.1"
+tokio.workspace = true
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
+color-eyre = "0.6"
+owo-colors = "4.1"

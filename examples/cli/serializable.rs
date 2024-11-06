@@ -1,5 +1,6 @@
 use prost::Message;
 use serde::Serialize;
+use valuable::Valuable;
 use xmtp_mls::{
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
@@ -8,13 +9,13 @@ use xmtp_mls::{
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Valuable)]
 pub struct SerializableGroupMetadata {
     creator_inbox_id: String,
     policy: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Valuable)]
 pub struct SerializableGroup {
     pub group_id: String,
     pub members: Vec<String>,
@@ -55,7 +56,7 @@ impl SerializableGroup {
     }
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Valuable)]
 pub struct SerializableMessage {
     sender_inbox_id: String,
     sent_at_ns: u64,
@@ -80,7 +81,7 @@ pub fn maybe_get_text(msg: &StoredGroupMessage) -> Option<String> {
         return None;
     };
     let Ok(decoded) = TextCodec::decode(encoded_content) else {
-        log::warn!("Skipping over unrecognized codec");
+        warn!("Skipping over unrecognized codec");
         return None;
     };
     Some(decoded)

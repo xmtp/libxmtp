@@ -1,8 +1,10 @@
 #![warn(clippy::unwrap_used)]
 
 pub mod associations;
+pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
+
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
