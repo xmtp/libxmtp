@@ -128,8 +128,13 @@ pub async fn create_client(
     let xmtp_client = builder.build().await?;
 
     if history_sync_url.is_some() {
-        let provider = xmtp_client.mls_provider().unwrap();
-        xmtp_client.enable_sync(&provider).await.unwrap();
+        let provider = xmtp_client
+            .mls_provider()
+            .map_err(GenericError::from_error)?;
+        xmtp_client
+            .enable_sync(&provider)
+            .await
+            .map_err(GenericError::from_error)?;
     }
 
     log::info!(
