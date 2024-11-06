@@ -1,5 +1,11 @@
 # @xmtp/node-bindings
 
+## 0.0.17
+
+- Removed all `Napi` prefixes
+- Fixed stream callback argument types
+- Renamed `NapiGroup` to `Conversation`
+
 ## 0.0.16
 
 - Added sort direction to `NapiListMessagesOptions`
