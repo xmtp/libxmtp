@@ -162,7 +162,9 @@ where
                 tries += 1;
             }
 
-            Err(DeviceSyncError::NoPendingRequest)
+            Err(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                "Message id {message_id:?} not found."
+            ))))
         };
 
         while let Some(msg) = sync_stream.next().await {
