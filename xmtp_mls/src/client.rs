@@ -397,7 +397,7 @@ where
 
         let inbox_ids: Vec<Option<String>> = sanitized_addresses
             .iter()
-            .map(|address| results.get(address).cloned())
+            .map(|address| results.remove(address))
             .collect();
 
         Ok(inbox_ids)
