@@ -52,6 +52,7 @@ use xmtp_proto::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
 };
+use xmtp_proto::convert::build_identity_update_topic;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
@@ -515,11 +516,6 @@ impl XmtpTestClient for ClientV4 {
         todo!()
     }
 }
-
-pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
-    format!("i/{}", inbox_id).into_bytes()
-}
-
 impl ClientV4 {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn query_v4_envelopes(

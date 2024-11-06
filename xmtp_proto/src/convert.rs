@@ -96,9 +96,11 @@ pub fn build_key_package_topic(installation_id: &[u8]) -> Vec<u8> {
 }
 
 pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
-    [
-        vec![TopicKind::IdentityUpdatesV1 as u8],
-        inbox_id.into_bytes()
-    ]
-    .concat()
+    //TODO(mkysel) this is not how this should work
+    // I suspect we need a EIP-155 address, this just takes the first 32 bytes...
+    let mut topic = vec![TopicKind::IdentityUpdatesV1 as u8];
+
+    let mut inbox_bytes = inbox_id.into_bytes();
+    topic.extend_from_slice(&inbox_bytes[..32]);
+    topic
 }
