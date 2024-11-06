@@ -175,9 +175,7 @@ where
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
                     let DeviceSyncContent::Reply(reply) = msg_content else {
-                        // This should never happen
-                        tracing::error!("Sync reply does not match it's payload.");
-                        continue;
+                        unreachable!();
                     };
 
                     if let Err(err) = self.process_sync_reply(&provider, reply).await {
@@ -191,9 +189,7 @@ where
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
                     let DeviceSyncContent::Request(request) = msg_content else {
-                        // This should never happen
-                        tracing::error!("Sync request does not match it's payload.");
-                        continue;
+                        unreachable!();
                     };
 
                     if let Err(err) = self.reply_to_sync_request(&provider, request).await {
