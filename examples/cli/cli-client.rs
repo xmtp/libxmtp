@@ -354,7 +354,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_sync(&provider).await.unwrap();
+            client.start_sync_worker(&provider).await.unwrap();
             client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
@@ -365,7 +365,7 @@ async fn main() {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.enable_sync(&provider).await.unwrap();
+            client.start_sync_worker(&provider).await.unwrap();
             let group = client.get_sync_group().unwrap();
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await.unwrap();

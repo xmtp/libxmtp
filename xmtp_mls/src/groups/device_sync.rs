@@ -116,7 +116,10 @@ where
     ApiClient: XmtpApi + 'static,
     V: SmartContractSignatureVerifier + 'static,
 {
-    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+    pub async fn start_sync_worker(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), DeviceSyncError> {
         self.sync_init(provider).await?;
 
         crate::spawn(None, {

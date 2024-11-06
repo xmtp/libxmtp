@@ -127,16 +127,6 @@ pub async fn create_client(
 
     let xmtp_client = builder.build().await?;
 
-    if history_sync_url.is_some() {
-        let provider = xmtp_client
-            .mls_provider()
-            .map_err(GenericError::from_error)?;
-        xmtp_client
-            .enable_sync(&provider)
-            .await
-            .map_err(GenericError::from_error)?;
-    }
-
     log::info!(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
@@ -398,6 +388,25 @@ impl FfiXmtpClient {
         self.inner_client
             .register_identity(signature_request.clone())
             .await?;
+
+        self.maybe_start_sync_worker().await?;
+
+        Ok(())
+    }
+
+    async fn maybe_start_sync_worker(&self) -> Result<(), GenericError> {
+        if self.inner_client.history_sync_url().is_none() {
+            return Ok(());
+        }
+
+        let provider = self
+            .inner_client
+            .mls_provider()
+            .map_err(GenericError::from_error)?;
+        self.inner_client
+            .start_sync_worker(&provider)
+            .await
+            .map_err(GenericError::from_error)?;
 
         Ok(())
     }

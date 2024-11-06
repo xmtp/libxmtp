@@ -229,7 +229,7 @@ where
 
     if client.history_sync_url.is_some() {
         let provider = client.mls_provider().unwrap();
-        client.enable_sync(&provider).await.unwrap();
+        client.start_sync_worker(&provider).await.unwrap();
     }
 
     client

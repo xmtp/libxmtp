@@ -350,6 +350,10 @@ where
         self.context.mls_provider()
     }
 
+    pub fn history_sync_url(&self) -> Option<&String> {
+        self.history_sync_url.as_ref()
+    }
+
     /// Calls the server to look up the `inbox_id` associated with a given address
     pub async fn find_inbox_id_from_address(
         &self,
