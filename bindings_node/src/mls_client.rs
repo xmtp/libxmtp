@@ -1,6 +1,6 @@
-use crate::conversations::NapiConversations;
-use crate::inbox_state::NapiInboxState;
-use crate::signatures::NapiSignatureRequestType;
+use crate::conversations::Conversations;
+use crate::inbox_state::InboxState;
+use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -23,20 +23,18 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 static LOGGER_INIT: Once = Once::new();
 
 #[napi]
-pub struct NapiClient {
+pub struct Client {
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<NapiSignatureRequestType, SignatureRequest>>>,
+  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
   pub account_address: String,
 }
 
-impl NapiClient {
+impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
   }
 
-  pub fn signature_requests(
-    &self,
-  ) -> &Arc<Mutex<HashMap<NapiSignatureRequestType, SignatureRequest>>> {
+  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
     &self.signature_requests
   }
 }
@@ -56,7 +54,7 @@ pub async fn create_client(
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   env_filter: Option<String>,
-) -> Result<NapiClient> {
+) -> Result<Client> {
   LOGGER_INIT.call_once(|| {
     let filter = EnvFilter::builder()
       .with_regex(false)
@@ -114,7 +112,7 @@ pub async fn create_client(
       .map_err(ErrorWrapper::from)?,
   };
 
-  Ok(NapiClient {
+  Ok(Client {
     inner_client: Arc::new(xmtp_client),
     account_address,
     signature_requests: Arc::new(Mutex::new(HashMap::new())),
@@ -122,7 +120,7 @@ pub async fn create_client(
 }
 
 #[napi]
-impl NapiClient {
+impl Client {
   #[napi]
   pub fn inbox_id(&self) -> String {
     self.inner_client.inbox_id()
@@ -160,7 +158,7 @@ impl NapiClient {
     let mut signature_requests = self.signature_requests.lock().await;
 
     let signature_request = signature_requests
-      .get(&NapiSignatureRequestType::CreateInbox)
+      .get(&SignatureRequestType::CreateInbox)
       .ok_or(Error::from_reason("No signature request found"))?;
 
     self
@@ -169,14 +167,14 @@ impl NapiClient {
       .await
       .map_err(ErrorWrapper::from)?;
 
-    signature_requests.remove(&NapiSignatureRequestType::CreateInbox);
+    signature_requests.remove(&SignatureRequestType::CreateInbox);
 
     Ok(())
   }
 
   #[napi]
-  pub fn conversations(&self) -> NapiConversations {
-    NapiConversations::new(self.inner_client.clone())
+  pub fn conversations(&self) -> Conversations {
+    Conversations::new(self.inner_client.clone())
   }
 
   #[napi]
@@ -219,7 +217,7 @@ impl NapiClient {
     &self,
     refresh_from_network: bool,
     inbox_ids: Vec<String>,
-  ) -> Result<Vec<NapiInboxState>> {
+  ) -> Result<Vec<InboxState>> {
     let state = self
       .inner_client
       .inbox_addresses(refresh_from_network, inbox_ids)

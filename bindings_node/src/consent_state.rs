@@ -1,62 +1,64 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use xmtp_mls::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+use xmtp_mls::storage::consent_record::{
+  ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
+};
 
-use crate::{mls_client::NapiClient, ErrorWrapper};
+use crate::{mls_client::Client, ErrorWrapper};
 
 #[napi]
-pub enum NapiConsentState {
+pub enum ConsentState {
   Unknown,
   Allowed,
   Denied,
 }
 
-impl From<ConsentState> for NapiConsentState {
-  fn from(state: ConsentState) -> Self {
+impl From<XmtpConsentState> for ConsentState {
+  fn from(state: XmtpConsentState) -> Self {
     match state {
-      ConsentState::Unknown => NapiConsentState::Unknown,
-      ConsentState::Allowed => NapiConsentState::Allowed,
-      ConsentState::Denied => NapiConsentState::Denied,
+      XmtpConsentState::Unknown => ConsentState::Unknown,
+      XmtpConsentState::Allowed => ConsentState::Allowed,
+      XmtpConsentState::Denied => ConsentState::Denied,
     }
   }
 }
 
-impl From<NapiConsentState> for ConsentState {
-  fn from(state: NapiConsentState) -> Self {
+impl From<ConsentState> for XmtpConsentState {
+  fn from(state: ConsentState) -> Self {
     match state {
-      NapiConsentState::Unknown => ConsentState::Unknown,
-      NapiConsentState::Allowed => ConsentState::Allowed,
-      NapiConsentState::Denied => ConsentState::Denied,
+      ConsentState::Unknown => XmtpConsentState::Unknown,
+      ConsentState::Allowed => XmtpConsentState::Allowed,
+      ConsentState::Denied => XmtpConsentState::Denied,
     }
   }
 }
 
 #[napi]
-pub enum NapiConsentEntityType {
+pub enum ConsentEntityType {
   GroupId,
   InboxId,
   Address,
 }
 
-impl From<NapiConsentEntityType> for ConsentType {
-  fn from(entity_type: NapiConsentEntityType) -> Self {
+impl From<ConsentEntityType> for XmtpConsentType {
+  fn from(entity_type: ConsentEntityType) -> Self {
     match entity_type {
-      NapiConsentEntityType::GroupId => ConsentType::ConversationId,
-      NapiConsentEntityType::InboxId => ConsentType::InboxId,
-      NapiConsentEntityType::Address => ConsentType::Address,
+      ConsentEntityType::GroupId => XmtpConsentType::ConversationId,
+      ConsentEntityType::InboxId => XmtpConsentType::InboxId,
+      ConsentEntityType::Address => XmtpConsentType::Address,
     }
   }
 }
 
 #[napi(object)]
-pub struct NapiConsent {
-  pub entity_type: NapiConsentEntityType,
-  pub state: NapiConsentState,
+pub struct Consent {
+  pub entity_type: ConsentEntityType,
+  pub state: ConsentState,
   pub entity: String,
 }
 
-impl From<NapiConsent> for StoredConsentRecord {
-  fn from(consent: NapiConsent) -> Self {
+impl From<Consent> for StoredConsentRecord {
+  fn from(consent: Consent) -> Self {
     Self {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
@@ -66,9 +68,9 @@ impl From<NapiConsent> for StoredConsentRecord {
 }
 
 #[napi]
-impl NapiClient {
+impl Client {
   #[napi]
-  pub async fn set_consent_states(&self, records: Vec<NapiConsent>) -> Result<()> {
+  pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<()> {
     let stored_records: Vec<StoredConsentRecord> =
       records.into_iter().map(StoredConsentRecord::from).collect();
 
@@ -83,9 +85,9 @@ impl NapiClient {
   #[napi]
   pub async fn get_consent_state(
     &self,
-    entity_type: NapiConsentEntityType,
+    entity_type: ConsentEntityType,
     entity: String,
-  ) -> Result<NapiConsentState> {
+  ) -> Result<ConsentState> {
     let result = self
       .inner_client()
       .get_consent_state(entity_type.into(), entity)

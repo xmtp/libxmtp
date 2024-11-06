@@ -1,4 +1,4 @@
-use crate::mls_client::NapiClient;
+use crate::mls_client::Client;
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -7,7 +7,7 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 
 #[napi]
 #[derive(Eq, Hash, PartialEq)]
-pub enum NapiSignatureRequestType {
+pub enum SignatureRequestType {
   AddWallet,
   CreateInbox,
   RevokeWallet,
@@ -15,7 +15,7 @@ pub enum NapiSignatureRequestType {
 }
 
 #[napi]
-impl NapiClient {
+impl Client {
   #[napi]
   pub async fn create_inbox_signature_text(&self) -> Result<Option<String>> {
     let signature_request = match self.inner_client().identity().signature_request() {
@@ -26,7 +26,7 @@ impl NapiClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(NapiSignatureRequestType::CreateInbox, signature_request);
+    signature_requests.insert(SignatureRequestType::CreateInbox, signature_request);
 
     Ok(Some(signature_text))
   }
@@ -47,7 +47,7 @@ impl NapiClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(NapiSignatureRequestType::AddWallet, signature_request);
+    signature_requests.insert(SignatureRequestType::AddWallet, signature_request);
 
     Ok(signature_text)
   }
@@ -62,7 +62,7 @@ impl NapiClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(NapiSignatureRequestType::RevokeWallet, signature_request);
+    signature_requests.insert(SignatureRequestType::RevokeWallet, signature_request);
 
     Ok(signature_text)
   }
@@ -88,10 +88,7 @@ impl NapiClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(
-      NapiSignatureRequestType::RevokeInstallations,
-      signature_request,
-    );
+    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
     Ok(signature_text)
   }
@@ -99,7 +96,7 @@ impl NapiClient {
   #[napi]
   pub async fn add_signature(
     &self,
-    signature_type: NapiSignatureRequestType,
+    signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
@@ -122,10 +119,10 @@ impl NapiClient {
   pub async fn apply_signature_requests(&self) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
 
-    let request_types: Vec<NapiSignatureRequestType> = signature_requests.keys().cloned().collect();
+    let request_types: Vec<SignatureRequestType> = signature_requests.keys().cloned().collect();
     for signature_request_type in request_types {
       // ignore the create inbox request since it's applied with register_identity
-      if signature_request_type == NapiSignatureRequestType::CreateInbox {
+      if signature_request_type == SignatureRequestType::CreateInbox {
         continue;
       }
 

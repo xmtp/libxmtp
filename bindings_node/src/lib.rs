@@ -2,12 +2,12 @@
 #![warn(clippy::unwrap_used)]
 
 mod consent_state;
+mod conversation;
 mod conversations;
 mod encoded_content;
-mod groups;
 pub mod inbox_id;
 mod inbox_state;
-mod messages;
+mod message;
 pub mod mls_client;
 mod permissions;
 mod signatures;
