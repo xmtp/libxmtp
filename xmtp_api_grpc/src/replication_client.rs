@@ -15,9 +15,10 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
+use xmtp_proto::convert::{build_group_message_topic, build_identity_update_topic, build_key_package_topic, build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
-use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::mls::api::v1::{fetch_key_packages_response, group_message, group_message_input, welcome_message, welcome_message_input, GroupMessage, WelcomeMessage};
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
@@ -52,7 +53,6 @@ use xmtp_proto::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
 };
-use xmtp_proto::convert::build_identity_update_topic;
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
@@ -322,12 +322,47 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
-        unimplemented!();
+        let topics = req
+            .installation_keys
+            .iter()
+            .map(|key| build_key_package_topic(key.as_slice()))
+            .collect();
+
+        let envelopes = self.query_v4_envelopes(topics).await?;
+        let key_packages = envelopes
+            .iter()
+            .map(|envelopes| {
+                // The last envelope should be the newest key package upload
+                let unsigned = envelopes.last().unwrap();
+                let client_env = extract_client_envelope(unsigned);
+                if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
+                    fetch_key_packages_response::KeyPackage {
+                        key_package_tls_serialized: upload_key_package
+                            .key_package
+                            .unwrap()
+                            .key_package_tls_serialized,
+                    }
+                } else {
+                    panic!("Payload is not a key package");
+                }
+            })
+            .collect();
+
+        Ok(FetchKeyPackagesResponse { key_packages })
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        unimplemented!();
+        let client = &mut self.payer_client.clone();
+        for message in req.messages {
+            let res = client
+                .publish_client_envelopes(PublishClientEnvelopesRequest::from(message))
+                .await;
+            if let Err(e) = res {
+                return Err(Error::new(ErrorKind::MlsError).with(e));
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -340,7 +375,51 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
-        unimplemented!();
+        let client = &mut self.client.clone();
+        let res = client
+            .query_envelopes(QueryEnvelopesRequest {
+                query: Some(EnvelopesQuery {
+                    topics: vec![build_group_message_topic(
+                        req.group_id.as_slice(),
+                    )],
+                    originator_node_ids: vec![],
+                    last_seen: None,
+                }),
+                limit: 100,
+            })
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let envelopes = res.into_inner().envelopes;
+        let response = QueryGroupMessagesResponse {
+            messages: envelopes
+                .iter()
+                .map(|envelope| {
+                    let unsigned_originator_envelope =
+                        extract_unsigned_originator_envelope(envelope);
+                    let client_envelope = extract_client_envelope(envelope);
+                    let Payload::GroupMessage(group_message) = client_envelope.payload.unwrap()
+                    else {
+                        panic!("Payload is not a group message");
+                    };
+
+                    let group_message_input::Version::V1(v1_group_message) =
+                        group_message.version.unwrap();
+
+                    GroupMessage {
+                        version: Some(group_message::Version::V1(group_message::V1 {
+                            id: unsigned_originator_envelope.originator_sequence_id,
+                            created_ns: unsigned_originator_envelope.originator_ns as u64,
+                            group_id: req.group_id.clone(),
+                            data: v1_group_message.data,
+                            sender_hmac: v1_group_message.sender_hmac,
+                        })),
+                    }
+                })
+                .collect(),
+            paging_info: None,
+        };
+        Ok(response)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -348,7 +427,48 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
-        unimplemented!();
+        let client = &mut self.client.clone();
+        let res = client
+            .query_envelopes(QueryEnvelopesRequest {
+                query: Some(EnvelopesQuery {
+                    topics: vec![build_welcome_message_topic(req.installation_key.as_slice())],
+                    originator_node_ids: vec![],
+                    last_seen: None,
+                }),
+                limit: 100,
+            })
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let envelopes = res.into_inner().envelopes;
+        let response = QueryWelcomeMessagesResponse {
+            messages: envelopes
+                .iter()
+                .map(|envelope| {
+                    let unsigned_originator_envelope =
+                        extract_unsigned_originator_envelope(envelope);
+                    let client_envelope = extract_client_envelope(envelope);
+                    let Payload::WelcomeMessage(welcome_message) = client_envelope.payload.unwrap()
+                    else {
+                        panic!("Payload is not a group message");
+                    };
+                    let welcome_message_input::Version::V1(v1_welcome_message) =
+                        welcome_message.version.unwrap();
+
+                    WelcomeMessage {
+                        version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                            id: unsigned_originator_envelope.originator_sequence_id,
+                            created_ns: unsigned_originator_envelope.originator_ns as u64,
+                            installation_key: req.installation_key.clone(),
+                            data: v1_welcome_message.data,
+                            hpke_public_key: v1_welcome_message.hpke_public_key,
+                        })),
+                    }
+                })
+                .collect(),
+            paging_info: None,
+        };
+        Ok(response)
     }
 }
 
@@ -426,7 +546,9 @@ impl XmtpIdentityClient for ClientV4 {
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
         let client = &mut self.payer_client.clone();
-        let res = client.publish_client_envelopes(PublishClientEnvelopesRequest::from(request)).await;
+        let res = client
+            .publish_client_envelopes(PublishClientEnvelopesRequest::from(request))
+            .await;
         match res {
             Ok(_) => Ok(PublishIdentityUpdateResponse {}),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
