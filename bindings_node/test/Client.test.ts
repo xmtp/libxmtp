@@ -1,7 +1,12 @@
 import { v4 } from 'uuid'
 import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { createClient, createRegisteredClient, createUser } from '@test/helpers'
+import {
+  createClient,
+  createRegisteredClient,
+  createSCWUser,
+  createUser,
+} from '@test/helpers'
 import {
   NapiConsentEntityType,
   NapiConsentState,
@@ -13,6 +18,9 @@ describe('Client', () => {
     const user = createUser()
     const client = await createClient(user)
     expect(client.isRegistered()).toBe(false)
+    const scwUser = await createSCWUser()
+    const client2 = await createClient(scwUser)
+    expect(client2.isRegistered()).toBe(false)
   })
 
   it('should be registered after registration', async () => {
@@ -23,6 +31,11 @@ describe('Client', () => {
     await createRegisteredClient(user)
     const client = await createClient(user)
     expect(client.isRegistered()).toBe(true)
+
+    const scwUser = await createSCWUser()
+    await createRegisteredClient(scwUser)
+    const client2 = await createClient(scwUser)
+    expect(client2.isRegistered()).toBe(true)
   })
 
   it('should be able to message registered identity', async () => {

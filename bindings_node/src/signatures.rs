@@ -1,12 +1,15 @@
 use crate::mls_client::NapiClient;
 use crate::ErrorWrapper;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
-use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::associations::{
+  unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
+  AccountId,
+};
 
 #[napi]
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Debug)]
 pub enum NapiSignatureRequestType {
   AddWallet,
   CreateInbox,
@@ -109,6 +112,36 @@ impl NapiClient {
 
       signature_request
         .add_signature(signature, &self.inner_client().scw_verifier())
+        .await
+        .map_err(ErrorWrapper::from)?;
+    } else {
+      return Err(Error::from_reason("Signature request not found"));
+    }
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn add_scw_signature(
+    &self,
+    signature_type: NapiSignatureRequestType,
+    signature_bytes: Uint8Array,
+    chain_id: BigInt,
+    block_number: Option<BigInt>,
+  ) -> Result<()> {
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
+      let address = self.account_address.clone();
+      let account_id = AccountId::new_evm(chain_id.get_u64().1, address);
+      let signature = NewUnverifiedSmartContractWalletSignature::new(
+        signature_bytes.deref().to_vec(),
+        account_id,
+        block_number.as_ref().map(|b| b.get_u64().1),
+      );
+
+      signature_request
+        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
         .await
         .map_err(ErrorWrapper::from)?;
     } else {
