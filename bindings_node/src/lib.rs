@@ -1,14 +1,14 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
+pub mod client;
 mod consent_state;
+mod conversation;
 mod conversations;
 mod encoded_content;
-mod groups;
 pub mod inbox_id;
 mod inbox_state;
-mod messages;
-pub mod mls_client;
+mod message;
 mod permissions;
 mod signatures;
 mod streams;

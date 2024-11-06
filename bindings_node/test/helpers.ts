@@ -8,7 +8,7 @@ import {
   createClient as create,
   generateInboxId,
   getInboxIdForAddress,
-  NapiSignatureRequestType,
+  SignatureRequestType,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -57,7 +57,7 @@ export const createRegisteredClient = async (user: User) => {
         message: signatureText,
       })
       await client.addSignature(
-        NapiSignatureRequestType.CreateInbox,
+        SignatureRequestType.CreateInbox,
         toBytes(signature)
       )
     }

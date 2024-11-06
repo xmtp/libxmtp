@@ -2,11 +2,7 @@ import { v4 } from 'uuid'
 import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 import { createClient, createRegisteredClient, createUser } from '@test/helpers'
-import {
-  NapiConsentEntityType,
-  NapiConsentState,
-  NapiSignatureRequestType,
-} from '../dist'
+import { ConsentEntityType, ConsentState, SignatureRequestType } from '../dist'
 
 describe('Client', () => {
   it('should not be registered at first', async () => {
@@ -82,11 +78,11 @@ describe('Client', () => {
     })
 
     await client.addSignature(
-      NapiSignatureRequestType.AddWallet,
+      SignatureRequestType.AddWallet,
       toBytes(signature)
     )
     await client.addSignature(
-      NapiSignatureRequestType.AddWallet,
+      SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
     await client.applySignatureRequests()
@@ -119,11 +115,11 @@ describe('Client', () => {
     })
 
     await client.addSignature(
-      NapiSignatureRequestType.AddWallet,
+      SignatureRequestType.AddWallet,
       toBytes(signature)
     )
     await client.addSignature(
-      NapiSignatureRequestType.AddWallet,
+      SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
     await client.applySignatureRequests()
@@ -139,7 +135,7 @@ describe('Client', () => {
     })
 
     await client.addSignature(
-      NapiSignatureRequestType.RevokeWallet,
+      SignatureRequestType.RevokeWallet,
       toBytes(signature3)
     )
     await client.applySignatureRequests()
@@ -175,7 +171,7 @@ describe('Client', () => {
     })
 
     await client3.addSignature(
-      NapiSignatureRequestType.RevokeInstallations,
+      SignatureRequestType.RevokeInstallations,
       toBytes(signature)
     )
     await client3.applySignatureRequests()
@@ -198,28 +194,28 @@ describe('Client', () => {
     const group2 = client2.conversations().findGroupById(group.id())
 
     expect(
-      await client2.getConsentState(NapiConsentEntityType.GroupId, group2.id())
-    ).toBe(NapiConsentState.Unknown)
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
+    ).toBe(ConsentState.Unknown)
 
     await client2.setConsentStates([
       {
-        entityType: NapiConsentEntityType.GroupId,
+        entityType: ConsentEntityType.GroupId,
         entity: group2.id(),
-        state: NapiConsentState.Allowed,
+        state: ConsentState.Allowed,
       },
     ])
 
     expect(
-      await client2.getConsentState(NapiConsentEntityType.GroupId, group2.id())
-    ).toBe(NapiConsentState.Allowed)
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
+    ).toBe(ConsentState.Allowed)
 
-    expect(group2.consentState()).toBe(NapiConsentState.Allowed)
+    expect(group2.consentState()).toBe(ConsentState.Allowed)
 
-    group2.updateConsentState(NapiConsentState.Denied)
+    group2.updateConsentState(ConsentState.Denied)
 
     expect(
-      await client2.getConsentState(NapiConsentEntityType.GroupId, group2.id())
-    ).toBe(NapiConsentState.Denied)
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
+    ).toBe(ConsentState.Denied)
   })
 
   it('should get inbox addresses', async () => {
