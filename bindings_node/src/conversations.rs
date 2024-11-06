@@ -14,7 +14,7 @@ use xmtp_mls::storage::group::GroupQueryArgs;
 use crate::message::Message;
 use crate::permissions::GroupPermissionsOptions;
 use crate::ErrorWrapper;
-use crate::{conversation::Conversation, mls_client::RustXmtpClient, streams::StreamCloser};
+use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 
 #[napi]
 #[derive(Debug)]

@@ -39,10 +39,13 @@ impl Client {
   }
 }
 
-/// Create an MLS client
-/// Optionally specify a filter for the log level as a string.
-/// It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
-/// By default, logging is set to `info`. `off` completely disables logging.
+/**
+ * Create a client
+ *
+ * Optionally specify a filter for the log level as a string.
+ * It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
+ * By default, logging is disabled.
+ */
 #[allow(clippy::too_many_arguments)]
 #[napi]
 pub async fn create_client(
@@ -53,6 +56,7 @@ pub async fn create_client(
   account_address: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
+  #[napi(ts_arg_type = "\"debug\" | \"info\" | \"warn\" | \"error\" | \"off\" | undefined | null")]
   env_filter: Option<String>,
 ) -> Result<Client> {
   LOGGER_INIT.call_once(|| {

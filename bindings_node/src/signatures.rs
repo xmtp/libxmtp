@@ -1,4 +1,4 @@
-use crate::mls_client::Client;
+use crate::client::Client;
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;

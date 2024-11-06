@@ -3,7 +3,7 @@ use napi_derive::napi;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
-use crate::{mls_client::Client, ErrorWrapper};
+use crate::{client::Client, ErrorWrapper};
 
 #[napi(object)]
 pub struct Installation {

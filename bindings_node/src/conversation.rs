@@ -17,10 +17,10 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
+  client::RustXmtpClient,
   consent_state::ConsentState,
   encoded_content::EncodedContent,
   message::{ListMessagesOptions, Message},
-  mls_client::RustXmtpClient,
   permissions::GroupPermissions,
   streams::StreamCloser,
   ErrorWrapper,
