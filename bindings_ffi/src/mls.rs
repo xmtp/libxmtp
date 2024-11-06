@@ -117,23 +117,20 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let xmtp_client: RustXmtpClient = match history_sync_url {
-        Some(url) => {
-            ClientBuilder::new(identity_strategy)
-                .api_client(api_client)
-                .store(store)
-                .history_sync_url(&url)
-                .build()
-                .await?
-        }
-        None => {
-            ClientBuilder::new(identity_strategy)
-                .api_client(api_client)
-                .store(store)
-                .build()
-                .await?
-        }
-    };
+    let mut builder = ClientBuilder::new(identity_strategy)
+        .api_client(api_client)
+        .store(store);
+
+    if let Some(url) = &history_sync_url {
+        builder = builder.history_sync_url(url);
+    }
+
+    let xmtp_client = builder.build().await?;
+
+    if history_sync_url.is_some() {
+        let provider = xmtp_client.mls_provider().unwrap();
+        xmtp_client.enable_sync(&provider).await.unwrap();
+    }
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
