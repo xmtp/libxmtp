@@ -152,7 +152,7 @@ where
 
         let provider = self.mls_provider()?;
 
-        let get_message_debounce = |conn: &DbConnection, message_id: &[u8]| {
+        let get_message_retry = |conn: &DbConnection, message_id: &[u8]| {
             let mut tries = 0;
             while tries < 3 {
                 if let Some(msg) = conn.get_group_message(message_id)? {
@@ -170,7 +170,7 @@ where
             match msg {
                 SyncMessage::Reply { message_id } => {
                     let conn = provider.conn_ref();
-                    let msg = get_message_debounce(conn, &message_id)?;
+                    let msg = get_message_retry(conn, &message_id)?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
@@ -186,7 +186,7 @@ where
                 }
                 SyncMessage::Request { message_id } => {
                     let conn = provider.conn_ref();
-                    let msg = get_message_debounce(conn, &message_id)?;
+                    let msg = get_message_retry(conn, &message_id)?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
@@ -207,12 +207,10 @@ where
     }
 
     /**
-     * Ideally called when the client is created.
-     * Will auto-send a sync request if there is more than one installation,
-     * and no sync requests in the sync group.
+     * Ideally called when the client is registered.
+     * Will auto-send a sync request if sync group is created.
      */
     pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        // If there is no sync group.
         if self.get_sync_group().is_err() {
             self.ensure_sync_group(provider).await?;
 

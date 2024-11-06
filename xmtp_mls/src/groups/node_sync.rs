@@ -464,7 +464,6 @@ where
 
                             // Ignore this installation's sync messages
                             if !sent_from_this_installation {
-                                tracing::info!("reply here");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Reply { message_id },
                                 ));
