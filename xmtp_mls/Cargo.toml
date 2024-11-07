@@ -1,8 +1,8 @@
 [package]
 edition = "2021"
+license.workspace = true
 name = "xmtp_mls"
 version.workspace = true
-license.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
@@ -39,17 +39,19 @@ test-utils = [
 update-schema = ["toml"]
 
 [dependencies]
-openmls_rust_crypto = { workspace = true }
-openmls_traits = { workspace = true }
 aes-gcm = { version = "0.10.3", features = ["std"] }
 async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
+diesel_migrations.workspace = true
 futures.workspace = true
 hex.workspace = true
+openmls_rust_crypto = { workspace = true }
+openmls_traits = { workspace = true }
 parking_lot.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
+reqwest = { version = "0.12.4", features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror = { workspace = true }
@@ -60,8 +62,7 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 tracing.workspace = true
 trait-variant.workspace = true
 wasm-timer.workspace = true
-reqwest = { version = "0.12.4", features = ["stream"] }
-diesel_migrations.workspace = true
+zeroize.workspace = true
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
@@ -91,16 +92,17 @@ tracing-subscriber = { workspace = true, features = [
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-openmls.workspace = true
-openssl-sys.workspace = true
-openssl.workspace = true
 chrono = { workspace = true, features = ["clock"] }
 diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
     "sqlite",
 ] }
+dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
+openmls.workspace = true
+openssl-sys.workspace = true
+openssl.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "tracing",
@@ -108,10 +110,8 @@ tokio = { workspace = true, features = [
     "rt-multi-thread",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
-dyn-clone.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-openmls = { workspace = true, features = ["js"] }
 chrono = { workspace = true, features = ["wasmbind"] }
 diesel = { workspace = true, features = [
     "r2d2",
@@ -120,23 +120,24 @@ diesel = { workspace = true, features = [
 diesel-wasm-sqlite = { workspace = true }
 getrandom = { workspace = true, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
+openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 
 [dev-dependencies]
-openmls_basic_credential.workspace = true
 anyhow.workspace = true
 mockall = "0.13.0"
+openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["test-utils" ]}
+xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-openmls = { workspace = true }
 ctor.workspace = true
 ethers = { workspace = true, features = ["openssl"] }
 mockito = "1.4.0"
+openmls = { workspace = true }
 tempfile = "3.5.0"
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
@@ -147,13 +148,13 @@ xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-openmls = { workspace = true, features = ["js"] }
 console_error_panic_hook = { version = "0.1" }
 diesel-wasm-sqlite = { workspace = true, features = [
     "unsafe-debug-query",
     "r2d2",
 ] }
 ethers = { workspace = true, features = ["rustls"] }
+openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true
