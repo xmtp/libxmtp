@@ -12,7 +12,6 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
-import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 import org.xmtp.android.library.messages.walletAddress
 import java.security.SecureRandom
 
@@ -20,11 +19,8 @@ object ClientManager {
 
     fun clientOptions(appContext: Context, address: String): ClientOptions {
         val keyUtil = KeyUtil(appContext)
-        var encryptionKey = keyUtil.retrieveKey(address)
-        if (encryptionKey == null || encryptionKey.isEmpty()) {
-            encryptionKey = SecureRandom().generateSeed(32)
-            keyUtil.storeKey(address, encryptionKey)
-        }
+        val encryptionKey = keyUtil.retrieveKey(address)?.takeUnless { it.isEmpty() }
+            ?: SecureRandom().generateSeed(32).also { keyUtil.storeKey(address, it) }
 
         return ClientOptions(
             api = ClientOptions.Api(
@@ -32,7 +28,6 @@ object ClientManager {
                 appVersion = "XMTPAndroidExample/v1.0.0",
                 isSecure = true
             ),
-            enableV3 = true,
             appContext = appContext,
             dbEncryptionKey = encryptionKey
         )
@@ -51,14 +46,12 @@ object ClientManager {
         }
 
     @UiThread
-    fun createClient(encodedPrivateKeyData: String, appContext: Context) {
+    fun createClient(address: String, appContext: Context) {
         if (clientState.value is ClientState.Ready) return
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                val v1Bundle =
-                    PrivateKeyBundleV1Builder.fromEncodedData(data = encodedPrivateKeyData)
                 _client =
-                    Client().buildFrom(v1Bundle, clientOptions(appContext, v1Bundle.walletAddress))
+                    Client().build(address, clientOptions(appContext, address))
                 Client.register(codec = GroupUpdatedCodec())
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {

@@ -24,9 +24,9 @@ class AttachmentTest {
         Client.register(codec = AttachmentCodec())
 
         val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
+        val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
         }
 
         runBlocking {
@@ -36,8 +36,8 @@ class AttachmentTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 1)
-        if (messages.size == 1) {
+        assertEquals(messages.size, 2)
+        if (messages.size == 2) {
             val content: Attachment? = messages[0].content()
             assertEquals("test.txt", content?.filename)
             assertEquals("text/plain", content?.mimeType)

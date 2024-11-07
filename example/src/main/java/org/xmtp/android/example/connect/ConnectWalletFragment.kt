@@ -81,10 +81,7 @@ class ConnectWalletFragment : Fragment() {
         when (uiState) {
             is ConnectWalletViewModel.ConnectUiState.Error -> showError(uiState.message)
             ConnectWalletViewModel.ConnectUiState.Loading -> showLoading()
-            is ConnectWalletViewModel.ConnectUiState.Success -> signIn(
-                uiState.address,
-                uiState.encodedKeyData
-            )
+            is ConnectWalletViewModel.ConnectUiState.Success -> signIn(uiState.address)
 
             ConnectWalletViewModel.ConnectUiState.Unknown -> Unit
         }
@@ -103,10 +100,10 @@ class ConnectWalletFragment : Fragment() {
         }
     }
 
-    private fun signIn(address: String, encodedKey: String) {
+    private fun signIn(address: String) {
         val accountManager = AccountManager.get(requireContext())
         Account(address, resources.getString(R.string.account_type)).also { account ->
-            accountManager.addAccountExplicitly(account, encodedKey, null)
+            accountManager.addAccountExplicitly(account, address, null)
         }
         requireActivity().startActivity(Intent(requireActivity(), MainActivity::class.java))
         requireActivity().finish()

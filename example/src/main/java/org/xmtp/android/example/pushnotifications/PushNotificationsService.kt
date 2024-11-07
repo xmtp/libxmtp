@@ -20,11 +20,8 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.example.utils.KeyUtil
-import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.codecs.GroupUpdated
-import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.Topic
-import java.util.Date
 
 class PushNotificationsService : FirebaseMessagingService() {
 
@@ -70,14 +67,14 @@ class PushNotificationsService : FirebaseMessagingService() {
                 ConversationDetailActivity.intent(
                     this,
                     topic = group.topic,
-                    peerAddress = Conversation.Group(group).peerAddress
+                    peerAddress = group.id
                 ),
                 (PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             )
 
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_xmtp_white)
-                .setContentTitle(Conversation.Group(group).peerAddress.truncatedAddress())
+                .setContentTitle(group.id.truncatedAddress())
                 .setContentText("New Group Chat")
                 .setAutoCancel(true)
                 .setColor(ContextCompat.getColor(this, R.color.black))
@@ -86,19 +83,15 @@ class PushNotificationsService : FirebaseMessagingService() {
                 .setContentIntent(pendingIntent)
         } else {
             val conversation =
-                runBlocking { ClientManager.client.fetchConversation(topic, includeGroups = true) }
+                runBlocking { ClientManager.client.findConversationByTopic(topic) }
             if (conversation == null) {
                 Log.e(TAG, topic)
                 Log.e(TAG, "No keys or conversation persisted")
                 return
             }
-            val decodedMessage = if (conversation is Conversation.Group) {
-                runBlocking { conversation.group.processMessage(encryptedMessageData).decode() }
-            } else {
-                val envelope = EnvelopeBuilder.buildFromString(topic, Date(), encryptedMessageData)
-                conversation.decode(envelope)
-            }
-            val peerAddress = conversation.peerAddress
+            val decodedMessage =
+                runBlocking { conversation.processMessage(encryptedMessageData).decode() }
+            val peerAddress = conversation.id
 
             val body: String = if (decodedMessage.content<Any>() is String) {
                 decodedMessage.body

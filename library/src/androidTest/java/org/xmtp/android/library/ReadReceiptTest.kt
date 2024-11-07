@@ -18,9 +18,9 @@ class ReadReceiptTest {
         Client.register(codec = ReadReceiptCodec())
 
         val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
+        val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
         }
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
@@ -34,8 +34,8 @@ class ReadReceiptTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 3)
+        if (messages.size == 3) {
             val contentType: String = messages.first().encodedContent.type.typeId
             assertEquals(contentType, "readReceipt")
         }

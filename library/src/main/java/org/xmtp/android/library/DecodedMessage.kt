@@ -2,7 +2,7 @@ package org.xmtp.android.library
 
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.codecs.decoded
-import org.xmtp.android.library.messages.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.proto.message.contents.Content
 import java.util.Date
 

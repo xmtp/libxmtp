@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity(),
             ConversationDetailActivity.intent(
                 this,
                 topic = conversation.topic,
-                peerAddress = conversation.peerAddress
+                peerAddress = conversation.id
             )
         )
     }

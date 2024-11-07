@@ -21,7 +21,6 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 
 class ConnectWalletViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -89,8 +88,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                 val client = Client().create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
-                    wallet.address,
-                    PrivateKeyBundleV1Builder.encodeData(client.v1keys)
+                    wallet.address
                 )
             } catch (e: XMTPException) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
@@ -114,8 +112,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
                 val client = Client().create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
-                    wallet.address,
-                    PrivateKeyBundleV1Builder.encodeData(client.v1keys)
+                    wallet.address
                 )
             } catch (e: Exception) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
@@ -132,7 +129,7 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
     sealed class ConnectUiState {
         object Unknown : ConnectUiState()
         object Loading : ConnectUiState()
-        data class Success(val address: String, val encodedKeyData: String) : ConnectUiState()
+        data class Success(val address: String) : ConnectUiState()
         data class Error(val message: String) : ConnectUiState()
     }
 

@@ -92,6 +92,7 @@ dependencies {
     api 'org.xmtp:proto-kotlin:3.71.0'
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'androidx.test:monitor:1.7.2'
     androidTestImplementation 'app.cash.turbine:turbine:1.1.0'
     androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

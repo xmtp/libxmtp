@@ -13,30 +13,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Configure JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'adopt'
           java-version: '17'
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+
       - name: Run build with Gradle Wrapper
         run: ./gradlew build
-      - name: Bump version and push tag
-        id: tag_version
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          release_branches: "release"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create a GitHub release
+
+      - name: Tag version 3.0.0
+        run: |
+          git tag 3.0.0
+          git push origin 3.0.0
+
+      - name: Create a GitHub release for version 3.0.0
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ steps.tag_version.outputs.new_version }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: ${{ steps.tag_version.outputs.changelog }}
+          tag: "3.0.0"
+          name: "Release 3.0.0"
+          body: "A XMTP MLS only SDK 3.0.0"
+
       - name: Gradle Publish
         env:
-          RELEASE_VERSION: ${{ steps.tag_version.outputs.new_version }}
+          RELEASE_VERSION: "3.0.0"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}

@@ -2,7 +2,6 @@ package org.xmtp.android.library.messages
 
 import com.google.protobuf.kotlin.toByteString
 import org.xmtp.android.library.Util
-import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.SignatureOuterClass
 import java.text.SimpleDateFormat
 import java.util.TimeZone
@@ -28,26 +27,6 @@ fun Signature.ethHash(message: String): ByteArray {
     val input = MESSAGE_PREFIX + message.length + message
     return Util.keccak256(input.toByteArray())
 }
-
-/**
- * This is the text that users sign when they want to create
- * an identity key associated with their wallet.
- * @param key bytes contains an unsigned [xmtp.PublicKey] of the identity key to be created.
- * @return The resulting signature is then published to prove that the
- * identity key is authorized on behalf of the wallet.
- */
-fun Signature.createIdentityText(key: ByteArray): String =
-    ("XMTP : Create Identity\n" + "${key.toHex()}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
-
-/**
- * This is the text that users sign when they want to save (encrypt)
- * or to load (decrypt) keys using the network private storage.
- * @param key bytes contains the `walletPreKey` of the encrypted bundle.
- * @return The resulting signature is the shared secret used to encrypt and
- * decrypt the saved keys.
- */
-fun Signature.enableIdentityText(key: ByteArray): String =
-    ("XMTP : Enable Identity\n" + "${key.toHex()}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
 
 fun Signature.consentProofText(peerAddress: String, timestamp: Long): String {
     val formatter = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'")

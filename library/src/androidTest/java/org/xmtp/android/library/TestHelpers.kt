@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.datatypes.DynamicBytes
@@ -12,17 +13,13 @@ import org.web3j.tx.gas.DefaultGasProvider
 import org.web3j.utils.Numeric
 import org.xmtp.android.library.artifact.CoinbaseSmartWallet
 import org.xmtp.android.library.artifact.CoinbaseSmartWalletFactory
-import org.xmtp.android.library.messages.ContactBundle
-import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.Signature
-import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.ethHash
-import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import java.math.BigInteger
-import java.util.Date
+import java.security.SecureRandom
 
 class FakeWallet : SigningKey {
     private var privateKey: PrivateKey
@@ -143,43 +140,30 @@ class FakeSCWWallet : SigningKey {
     }
 }
 
-data class Fixtures(
-    val clientOptions: ClientOptions? = ClientOptions(
-        ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)
-    ),
-) {
-    val aliceAccount = PrivateKeyBuilder()
-    val bobAccount = PrivateKeyBuilder()
+class Fixtures {
+    val key = SecureRandom().generateSeed(32)
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val clientOptions = ClientOptions(
+        ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false),
+        dbEncryptionKey = key,
+        appContext = context,
+    )
+    val alixAccount = PrivateKeyBuilder()
+    val boAccount = PrivateKeyBuilder()
     val caroAccount = PrivateKeyBuilder()
-    val davonV3Account = PrivateKeyBuilder()
 
-    var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var aliceClient: Client =
-        runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
+    var alix: PrivateKey = alixAccount.getPrivateKey()
+    var alixClient: Client =
+        runBlocking { Client().create(account = alixAccount, options = clientOptions) }
 
-    var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client =
-        runBlocking { Client().create(account = bobAccount, options = clientOptions) }
+    var bo: PrivateKey = boAccount.getPrivateKey()
+    var boClient: Client =
+        runBlocking { Client().create(account = boAccount, options = clientOptions) }
 
     var caro: PrivateKey = caroAccount.getPrivateKey()
     var caroClient: Client =
         runBlocking { Client().create(account = caroAccount, options = clientOptions) }
-
-    fun publishLegacyContact(client: Client) {
-        val contactBundle = ContactBundle.newBuilder().also { builder ->
-            builder.v1 = builder.v1.toBuilder().also {
-                it.keyBundle = client.v1keys.toPublicKeyBundle()
-            }.build()
-        }.build()
-        val envelope = Envelope.newBuilder().apply {
-            contentTopic = Topic.contact(client.address).description
-            timestampNs = (Date().time * 1_000_000)
-            message = contactBundle.toByteString()
-        }.build()
-
-        runBlocking { client.publish(envelopes = listOf(envelope)) }
-    }
 }
 
-fun fixtures(clientOptions: ClientOptions? = null): Fixtures =
-    Fixtures(clientOptions)
+fun fixtures(): Fixtures =
+    Fixtures()

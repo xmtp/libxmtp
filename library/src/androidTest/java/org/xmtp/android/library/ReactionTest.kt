@@ -4,7 +4,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteStringUtf8
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeReaction
@@ -13,7 +12,6 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
-import org.xmtp.android.library.messages.MessageV2Builder
 import org.xmtp.android.library.messages.walletAddress
 
 @RunWith(AndroidJUnit4::class)
@@ -68,9 +66,9 @@ class ReactionTest {
         Client.register(codec = ReactionCodec())
 
         val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
+        val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
         }
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
@@ -91,64 +89,13 @@ class ReactionTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 3)
+        if (messages.size == 3) {
             val content: Reaction? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
             assertEquals(ReactionAction.Added, content?.action)
             assertEquals(ReactionSchema.Unicode, content?.schema)
         }
-    }
-
-    @Test
-    @Ignore("Flaky: CI")
-    fun testShouldPushMustBeTrue() {
-        Client.register(codec = ReactionCodec())
-
-        val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        }
-
-        runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
-
-        val messageToReact = runBlocking { aliceConversation.messages()[0] }
-
-        val attachment = Reaction(
-            reference = messageToReact.id,
-            action = ReactionAction.Added,
-            content = "U+1F603",
-            schema = ReactionSchema.Unicode,
-        )
-
-        runBlocking {
-            aliceConversation.send(
-                content = attachment,
-                options = SendOptions(contentType = ContentTypeReaction),
-            )
-        }
-        val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-
-        val message = MessageV2Builder.buildEncode(
-            client = aliceClient,
-            encodedContent = messages[0].encodedContent,
-            topic = aliceConversation.topic,
-            keyMaterial = aliceConversation.keyMaterial!!,
-            codec = ReactionCodec(),
-        )
-
-        if (messages.size == 2) {
-            val content: Reaction? = messages.first().content()
-            assertEquals("U+1F603", content?.content)
-            assertEquals(messageToReact.id, content?.reference)
-            assertEquals(ReactionAction.Added, content?.action)
-            assertEquals(ReactionSchema.Unicode, content?.schema)
-        }
-
-        assertEquals(true, message.shouldPush)
-        assertEquals(true, message.senderHmac?.isNotEmpty())
     }
 }

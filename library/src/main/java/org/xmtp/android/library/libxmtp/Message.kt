@@ -6,8 +6,6 @@ import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.messages.DecryptedMessage
-import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiDeliveryStatus
@@ -15,7 +13,15 @@ import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiMessage
 import java.util.Date
 
-data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage) {
+data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
+    enum class MessageDeliveryStatus {
+        ALL, PUBLISHED, UNPUBLISHED, FAILED
+    }
+
+    enum class SortDirection {
+        ASCENDING,
+        DESCENDING;
+    }
 
     val id: String
         get() = libXMTPMessage.id.toHex()
@@ -66,25 +72,5 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
             Log.d("MESSAGE_V3", "discarding message that failed to decode", e)
             null
         }
-    }
-
-    fun decryptOrNull(): DecryptedMessage? {
-        return try {
-            decrypt()
-        } catch (e: Exception) {
-            Log.d("MESSAGE_V3", "discarding message that failed to decrypt", e)
-            null
-        }
-    }
-
-    fun decrypt(): DecryptedMessage {
-        return DecryptedMessage(
-            id = id,
-            topic = Topic.groupMessage(convoId).description,
-            encodedContent = decode().encodedContent,
-            senderAddress = senderInboxId,
-            sentAt = sentAt,
-            deliveryStatus = deliveryStatus
-        )
     }
 }

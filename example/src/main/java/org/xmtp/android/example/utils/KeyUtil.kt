@@ -23,12 +23,12 @@ class KeyUtil(val context: Context) {
         return accountManager.getPassword(account)
     }
 
-    fun storeKey(address: String, key: ByteArray?) {
+    fun storeKey(address: String, dbEncryptionKey: ByteArray?) {
         val alias = "xmtp-dev-${address.lowercase()}"
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
-        editor.putString(alias, encodeToString(key, NO_WRAP))
+        editor.putString(alias, encodeToString(dbEncryptionKey, NO_WRAP))
         editor.apply()
     }
 

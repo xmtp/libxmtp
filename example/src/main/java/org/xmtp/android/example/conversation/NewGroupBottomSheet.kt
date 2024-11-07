@@ -97,7 +97,7 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                     ConversationDetailActivity.intent(
                         requireContext(),
                         topic = uiState.conversation.topic,
-                        peerAddress = uiState.conversation.peerAddress
+                        peerAddress = uiState.conversation.id
                     )
                 )
                 dismiss()
