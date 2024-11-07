@@ -403,7 +403,7 @@ where
                 .unwrap_or_default();
             let new_entry = WalletEntry {
                 inbox_id: InboxId::from(inbox_id),
-                wallet_address: address.clone(),
+                wallet_address: address,
             };
             new_entry.store(&conn).ok();
         }
