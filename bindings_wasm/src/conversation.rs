@@ -23,12 +23,12 @@ pub struct GroupMetadata {
 
 #[wasm_bindgen]
 impl GroupMetadata {
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = creatorInboxId)]
   pub fn creator_inbox_id(&self) -> String {
     self.inner.creator_inbox_id.clone()
   }
 
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = conversationType)]
   pub fn conversation_type(&self) -> String {
     match self.inner.conversation_type {
       ConversationType::Group => "group".to_string(),
@@ -50,14 +50,19 @@ pub enum PermissionLevel {
 #[derive(Clone, serde::Serialize)]
 pub struct GroupMember {
   #[wasm_bindgen(js_name = inboxId)]
+  #[serde(rename = "inboxId")]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountAddresses)]
+  #[serde(rename = "accountAddresses")]
   pub account_addresses: Vec<String>,
   #[wasm_bindgen(js_name = installationIds)]
+  #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
   #[wasm_bindgen(js_name = permissionLevel)]
+  #[serde(rename = "permissionLevel")]
   pub permission_level: PermissionLevel,
   #[wasm_bindgen(js_name = consentState)]
+  #[serde(rename = "consentState")]
   pub consent_state: ConsentState,
 }
 
