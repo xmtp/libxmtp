@@ -665,7 +665,7 @@ impl ClientV4 {
             Ok(v4_envelopes.into_inner().envelopes)
         });
 
-        Ok(futures::future::try_join_all(requests).await?)
+        futures::future::try_join_all(requests).await
     }
 }
 

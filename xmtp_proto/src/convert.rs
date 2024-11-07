@@ -50,7 +50,7 @@ impl From<UploadKeyPackageRequest> for PublishClientEnvelopesRequest {
         PublishClientEnvelopesRequest {
             envelopes: vec![ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
-                    &req.key_package.as_ref().unwrap(),
+                    req.key_package.as_ref().unwrap(),
                 ))),
                 payload: Some(Payload::UploadKeyPackage(req)),
             }],
@@ -74,9 +74,7 @@ impl From<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
 
 impl From<GroupMessageInput> for PublishClientEnvelopesRequest {
     fn from(req: GroupMessageInput) -> Self {
-        let version = match req.version.as_ref().unwrap() {
-            GroupMessageInputVersion::V1(v1) => v1,
-        };
+        let GroupMessageInputVersion::V1(version) = req.version.as_ref().unwrap();
 
         PublishClientEnvelopesRequest {
             envelopes: vec![ClientEnvelope {
