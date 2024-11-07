@@ -172,7 +172,6 @@ impl TryFrom<DmMembersProto> for DmMembers {
 
 pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, GroupMetadataError> {
     let extension = group
-        .export_group_context()
         .extensions()
         .immutable_metadata()
         .ok_or(GroupMetadataError::MissingExtension)?;

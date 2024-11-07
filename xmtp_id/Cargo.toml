@@ -31,8 +31,8 @@ wasm-timer.workspace = true
 ethers = { workspace = true, features = ["rustls"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
 openmls = { workspace = true, features = ["js"] }
+getrandom = { version = "0.2", features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 openmls.workspace = true

@@ -227,10 +227,9 @@ pub(crate) mod tests {
     };
 
     use openmls::credentials::{Credential, CredentialType};
-    use openmls_basic_credential::SignatureKeyPair;
-    use openmls_traits::types::SignatureScheme;
     use prost::Message;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
+    use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
@@ -444,6 +443,9 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_2nd_time_client_creation() {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+        let id = generate_inbox_id(&legacy_account_address, &0).unwrap();
+        println!("{}", id.len());
+
         let identity_strategy = IdentityStrategy::CreateIfNotFound(
             generate_inbox_id(&legacy_account_address, &0).unwrap(),
             legacy_account_address.clone(),
@@ -613,7 +615,7 @@ pub(crate) mod tests {
 
         let stored: StoredIdentity = (&Identity {
             inbox_id: inbox_id.clone(),
-            installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
+            installation_keys: XmtpInstallationCredential::new(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
             is_ready: AtomicBool::new(true),
@@ -650,7 +652,7 @@ pub(crate) mod tests {
 
         let stored: StoredIdentity = (&Identity {
             inbox_id: stored_inbox_id.clone(),
-            installation_keys: SignatureKeyPair::new(SignatureScheme::ED25519).unwrap(),
+            installation_keys: Default::default(),
             credential: Credential::new(CredentialType::Basic, rand_vec()),
             signature_request: None,
             is_ready: AtomicBool::new(true),

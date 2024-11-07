@@ -1,7 +1,12 @@
+use ed25519_dalek::{DigestSigner, Signature};
 use ethers::signers::{LocalWallet, Signer};
 use prost::Message;
+use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
+use xmtp_cryptography::{
+    CredentialSign, CredentialVerify, SignerError, XmtpInstallationCredential,
+};
 use xmtp_proto::xmtp::message_contents::{
     signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
 };
@@ -42,6 +47,43 @@ pub enum SignatureError {
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
     AccountIdError(#[from] AccountIdError),
+    #[error(transparent)]
+    Signer(#[from] SignerError),
+}
+
+/// Xmtp Installation Credential for Specialized for XMTP Identity
+pub struct InboxIdInstallationCredential;
+
+impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredential {
+    const CONTEXT: &[u8] = crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+    type Error = SignatureError;
+
+    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, Self::Error> {
+        let mut prehashed: Sha512 = Sha512::new();
+        prehashed.update(text.as_ref());
+        let context = self.with_context(Self::CONTEXT)?;
+        let sig = context
+            .try_sign_digest(prehashed)
+            .map_err(SignatureError::from)?;
+        Ok(sig.to_bytes().into())
+    }
+}
+
+impl CredentialVerify<InboxIdInstallationCredential> for ed25519_dalek::VerifyingKey {
+    const CONTEXT: &[u8] = crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+    type Error = SignatureError;
+
+    fn credential_verify(
+        &self,
+        signature_text: impl AsRef<str>,
+        signature_bytes: &[u8; 64],
+    ) -> Result<(), Self::Error> {
+        let signature = Signature::from_bytes(signature_bytes);
+        let mut prehashed = Sha512::new();
+        prehashed.update(signature_text.as_ref());
+        self.verify_prehashed(prehashed, Some(Self::CONTEXT), &signature)?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

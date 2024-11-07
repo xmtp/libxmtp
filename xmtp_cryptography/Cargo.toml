@@ -9,19 +9,24 @@ license.workspace = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
 
 [dependencies]
-tracing.workspace = true
+openmls_basic_credential.workspace = true
+openmls_traits.workspace = true
 curve25519-dalek = "4"
 ecdsa = "0.16.9"
-ethers = { workspace = true }
-hex = { workspace = true }
 k256 = { version = "0.13.3", features = ["ecdh"] }
 rand = { workspace = true }
 rand_chacha = "0.3.1"
+tracing.workspace = true
+ethers = { workspace = true }
+hex = { workspace = true }
 rustc-hex.workspace = true
 serde = { workspace = true }
-sha2 = "0.10.7"
-sha3 = "0.10.6"
+sha2.workspace = true
+sha3.workspace = true
 thiserror = { workspace = true }
+tls_codec.workspace = true
+ed25519-dalek = { workspace = true, features = ["digest"] }
+zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
@@ -32,7 +37,8 @@ wasm-bindgen-futures.workspace = true
 ws = ["ethers/ws"]
 
 [dev-dependencies]
-tokio = { version = "1.28.1", features = ["rt", "macros"] }
+openmls_basic_credential = { workspace = true, features = ["test-utils"] }
+bincode.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

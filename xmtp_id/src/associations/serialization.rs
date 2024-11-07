@@ -70,6 +70,8 @@ pub enum DeserializationError {
     InvalidAccountId,
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
+    #[error("Error creating public key from proto bytes")]
+    Ed25519(#[from] ed25519_dalek::ed25519::Error),
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
@@ -172,9 +174,12 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                     sig.delegated_key.ok_or(DeserializationError::Signature)?,
                 ))
             }
-            SignatureKindProto::InstallationKey(sig) => UnverifiedSignature::InstallationKey(
-                UnverifiedInstallationKeySignature::new(sig.bytes, sig.public_key),
-            ),
+            SignatureKindProto::InstallationKey(sig) => {
+                UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
+                    sig.bytes,
+                    sig.public_key.as_slice().try_into()?,
+                ))
+            }
             SignatureKindProto::Erc6492(sig) => UnverifiedSignature::SmartContractWallet(
                 UnverifiedSmartContractWalletSignature::new(
                     sig.signature,
@@ -266,12 +271,13 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                     signature: sig.signature_bytes,
                 })
             }
-            UnverifiedSignature::InstallationKey(sig) => {
-                SignatureKindProto::InstallationKey(RecoverableEd25519SignatureProto {
-                    bytes: sig.signature_bytes,
-                    public_key: sig.verifying_key,
-                })
-            }
+            UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature {
+                signature_bytes,
+                verifying_key,
+            }) => SignatureKindProto::InstallationKey(RecoverableEd25519SignatureProto {
+                bytes: signature_bytes,
+                public_key: verifying_key.as_bytes().to_vec(),
+            }),
             UnverifiedSignature::LegacyDelegated(sig) => {
                 SignatureKindProto::DelegatedErc191(LegacyDelegatedSignatureProto {
                     delegated_key: Some(sig.signed_public_key_proto),

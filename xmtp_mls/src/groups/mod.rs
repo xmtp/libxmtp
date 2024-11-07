@@ -198,6 +198,8 @@ pub enum GroupError {
     SyncFailedToWait,
     #[error("cannot change metadata of DM")]
     DmGroupMetadataForbidden,
+    #[error("Group intent could not be committed")]
+    IntentNotCommitted,
 }
 
 impl RetryableError for GroupError {
@@ -328,7 +330,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &group_config,
             CredentialWithKey {
                 credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
             },
         )?;
 
@@ -379,7 +381,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &group_config,
             CredentialWithKey {
                 credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
             },
         )?;
 
@@ -535,7 +537,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &group_config,
             CredentialWithKey {
                 credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
             },
         )?;
 
@@ -1109,7 +1111,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &group_config,
             CredentialWithKey {
                 credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.to_public_vec().into(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
             },
         )?;
 
