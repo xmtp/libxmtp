@@ -39,8 +39,7 @@ use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType::{Reply, Request},
-    plaintext_envelope::V2,
+    plaintext_envelope::v2::MessageType, plaintext_envelope::V2,
     DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -261,7 +260,7 @@ where
         sync_group.sync_with_conn(provider).await?;
 
         // lookup if a request has already been made
-        if let Ok((_msg, request)) = self.pending_sync_request(provider, request.kind).await {
+        if let Ok((_msg, request)) = self.get_pending_sync_request(provider, request.kind).await {
             return Ok(request);
         }
 
@@ -275,7 +274,7 @@ where
             let request = request.clone();
             move |_time_ns| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
-                    message_type: Some(Request(request)),
+                    message_type: Some(MessageType::DeviceSyncRequest(request)),
                     idempotency_key: new_request_id(),
                 })),
             }
@@ -324,7 +323,9 @@ where
         // sync the group
         sync_group.sync_with_conn(provider).await?;
 
-        let (msg, _request) = self.pending_sync_request(provider, contents.kind()).await?;
+        let (msg, _request) = self
+            .get_pending_sync_request(provider, contents.kind())
+            .await?;
 
         // add original sender to all groups on this device on the node
         self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
@@ -345,7 +346,7 @@ where
             PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     idempotency_key: new_request_id(),
-                    message_type: Some(Reply(contents)),
+                    message_type: Some(MessageType::DeviceSyncReply(contents)),
                 })),
             }
         })?;
@@ -357,7 +358,7 @@ where
         Ok(())
     }
 
-    async fn pending_sync_request(
+    async fn get_pending_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
@@ -386,7 +387,7 @@ where
     }
 
     #[cfg(test)]
-    async fn sync_reply(
+    async fn get_latest_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,

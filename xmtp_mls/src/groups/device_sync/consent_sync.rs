@@ -85,7 +85,7 @@ pub(crate) mod tests {
         let mut reply = None;
         while reply.is_none() {
             reply = amal_b
-                .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+                .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
                 .unwrap();
             if start.elapsed() > Duration::from_secs(3) {

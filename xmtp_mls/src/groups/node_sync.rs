@@ -74,7 +74,7 @@ use xmtp_proto::xmtp::mls::{
 };
 
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-    Reply, Request,
+    DeviceSyncReply, DeviceSyncRequest,
 };
 
 #[derive(Debug)]
@@ -405,7 +405,7 @@ where
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        Some(Request(history_request)) => {
+                        Some(DeviceSyncRequest(history_request)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Request(history_request);
                             let content_bytes = serde_json::to_vec(&content)?;
@@ -436,7 +436,7 @@ where
                             }
                         }
 
-                        Some(Reply(history_reply)) => {
+                        Some(DeviceSyncReply(history_reply)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Reply(history_reply);
                             let content_bytes = serde_json::to_vec(&content)?;
