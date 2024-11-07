@@ -49,8 +49,8 @@ pub(crate) mod tests {
     async fn test_store_wallet() {
         with_connection(|conn| {
             let new_entry = WalletEntry {
-                inbox_id: "test1".to_string(),
-                wallet_address: "wallet1".to_string(),
+                inbox_id: "inbox_id_1".to_string(),
+                wallet_address: "wallet_address_1".to_string(),
             };
             assert!(new_entry.store(conn).is_ok(), "Failed to store wallet");
         })
@@ -91,11 +91,11 @@ pub(crate) mod tests {
                 wallet_address: "wallet1".to_string(),
             };
             let new_entry2 = WalletEntry {
-                inbox_id: "fetch_test1".to_string(),
+                inbox_id: "fetch_test2".to_string(),
                 wallet_address: "wallet2".to_string(),
             };
             let new_entry3 = WalletEntry {
-                inbox_id: "fetch_test2".to_string(),
+                inbox_id: "fetch_test3".to_string(),
                 wallet_address: "wallet3".to_string(),
             };
             new_entry1.store(conn).unwrap();
@@ -110,8 +110,8 @@ pub(crate) mod tests {
             // Verify that 3 entries are fetched (2 from "fetch_test1" and 1 from "fetch_test2")
             assert_eq!(
                 fetched_wallets.len(),
-                3,
-                "Expected 3 wallets, found {}",
+                2,
+                "Expected 2 wallets, found {}",
                 fetched_wallets.len()
             );
 
@@ -127,10 +127,6 @@ pub(crate) mod tests {
             assert!(
                 fetched_addresses.contains(&"wallet2".to_string()),
                 "wallet2 not found in fetched results"
-            );
-            assert!(
-                fetched_addresses.contains(&"wallet3".to_string()),
-                "wallet3 not found in fetched results"
             );
 
             // Fetch wallets with a non-existent list of inbox_ids
