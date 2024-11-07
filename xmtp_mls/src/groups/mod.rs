@@ -229,8 +229,8 @@ pub struct MlsGroup<C> {
 }
 
 // C is wrapped in an Arc, and so is the Mutex, so this is fine.
-unsafe impl<C> Send for MlsGroup<C> {}
-unsafe impl<C> Sync for MlsGroup<C> {}
+// unsafe impl<C> Send for MlsGroup<C> {}
+// unsafe impl<C> Sync for MlsGroup<C> {}
 
 #[derive(Default)]
 pub struct GroupMetadataOptions {

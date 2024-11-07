@@ -1,17 +1,16 @@
 use std::pin::Pin;
-use std::thread;
 use std::time::Duration;
 
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use crate::Store;
 use crate::{
     client::ClientError,
     storage::{
@@ -22,6 +21,7 @@ use crate::{
     },
     Client,
 };
+use crate::{retry_async, Store};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -111,10 +111,16 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
 }
 
+impl RetryableError for DeviceSyncError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     pub async fn start_sync_worker(
         &self,
@@ -152,27 +158,25 @@ where
 
         let provider = self.mls_provider()?;
 
-        let get_message_retry = |conn: &DbConnection, message_id: &[u8]| {
-            let mut tries = 0;
-            while tries < 3 {
-                if let Some(msg) = conn.get_group_message(message_id)? {
-                    return Ok(msg);
-                }
-                thread::sleep(Duration::from_millis(20));
-                tries += 1;
-            }
-
-            Err(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                "Message id {message_id:?} not found."
-            ))))
-        };
+        let query_retry = RetryBuilder::default()
+            .retries(5)
+            .duration(Duration::from_millis(20))
+            .build();
 
         while let Some(msg) = sync_stream.next().await {
             let msg = msg?;
             match msg {
                 SyncMessage::Reply { message_id } => {
                     let conn = provider.conn_ref();
-                    let msg = get_message_retry(conn, &message_id)?;
+                    let msg = retry_async!(
+                        &query_retry,
+                        (async {
+                            conn.get_group_message(&message_id)?
+                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                    "Message id {message_id:?} not found."
+                                ))))
+                        })
+                    )?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
@@ -186,7 +190,15 @@ where
                 }
                 SyncMessage::Request { message_id } => {
                     let conn = provider.conn_ref();
-                    let msg = get_message_retry(conn, &message_id)?;
+                    let msg = retry_async!(
+                        &query_retry,
+                        (async {
+                            conn.get_group_message(&message_id)?
+                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                    "Message id {message_id:?} not found."
+                                ))))
+                        })
+                    )?;
 
                     let msg_content: DeviceSyncContent =
                         serde_json::from_slice(&msg.decrypted_message_bytes)?;
