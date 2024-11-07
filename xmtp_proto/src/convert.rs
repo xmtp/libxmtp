@@ -1,7 +1,8 @@
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
 use crate::xmtp::mls::api::v1::{
-    group_message_input::Version as GroupMessageInputVersion, GroupMessageInput, KeyPackageUpload,
-    UploadKeyPackageRequest,
+    group_message_input::Version as GroupMessageInputVersion,
+    welcome_message_input::Version as WelcomeMessageVersion, GroupMessageInput, KeyPackageUpload,
+    UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{
@@ -81,6 +82,21 @@ impl From<GroupMessageInput> for PublishClientEnvelopesRequest {
                     version.data.clone(),
                 ))),
                 payload: Some(Payload::GroupMessage(req)),
+            }],
+        }
+    }
+}
+
+impl From<WelcomeMessageInput> for PublishClientEnvelopesRequest {
+    fn from(req: WelcomeMessageInput) -> Self {
+        let WelcomeMessageVersion::V1(version) = req.version.as_ref().unwrap();
+
+        PublishClientEnvelopesRequest {
+            envelopes: vec![ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(build_welcome_message_topic(
+                    version.installation_key.as_slice(),
+                ))),
+                payload: Some(Payload::WelcomeMessage(req)),
             }],
         }
     }

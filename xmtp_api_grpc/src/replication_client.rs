@@ -373,7 +373,16 @@ impl XmtpMlsClient for ClientV4 {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        unimplemented!();
+        let client = &mut self.payer_client.clone();
+        for message in req.messages {
+            let res = client
+                .publish_client_envelopes(PublishClientEnvelopesRequest::from(message))
+                .await;
+            if let Err(e) = res {
+                return Err(Error::new(ErrorKind::MlsError).with(e));
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
