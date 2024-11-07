@@ -1,12 +1,12 @@
-use diesel::{Insertable, Queryable};
-use serde::{Deserialize, Serialize};
-use xmtp_id::{InboxId, WalletAddress};
+use super::schema::wallet_addresses;
+use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_fetch_list_with_key, impl_store, FetchListWithKey};
-use super::{schema::wallet_addresses};
-use diesel::{prelude::*};
+use diesel::prelude::*;
+use diesel::{Insertable, Queryable};
 #[cfg(target_arch = "wasm32")]
 use diesel_wasm_sqlite::dsl::RunQueryDsl;
-use crate::storage::{DbConnection, StorageError};
+use serde::{Deserialize, Serialize};
+use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = wallet_addresses)]
@@ -18,7 +18,10 @@ pub struct WalletEntry {
 
 impl WalletEntry {
     pub fn new(in_id: InboxId, wallet_address: WalletAddress) -> Self {
-        Self { inbox_id: in_id, wallet_address }
+        Self {
+            inbox_id: in_id,
+            wallet_address,
+        }
     }
 }
 
@@ -27,15 +30,18 @@ impl_fetch!(WalletEntry, wallet_addresses);
 impl_fetch_list_with_key!(WalletEntry, wallet_addresses, InboxId, inbox_id);
 
 impl DbConnection {
-    pub fn fetch_wallets_list_with_key(&self, keys: &[InboxId]) -> Result<Vec<WalletEntry>, StorageError> {
+    pub fn fetch_wallets_list_with_key(
+        &self,
+        keys: &[InboxId],
+    ) -> Result<Vec<WalletEntry>, StorageError> {
         self.fetch_list_with_key(keys)
     }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::{storage::encrypted_store::tests::with_connection, FetchListWithKey, Store};
     use crate::storage::wallet_addresses::WalletEntry;
+    use crate::{storage::encrypted_store::tests::with_connection, FetchListWithKey, Store};
 
     // Test storing a single wallet
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -47,7 +53,8 @@ pub(crate) mod tests {
                 wallet_address: "wallet1".to_string(),
             };
             assert!(new_entry.store(conn).is_ok(), "Failed to store wallet");
-        }).await;
+        })
+        .await;
     }
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
@@ -69,7 +76,8 @@ pub(crate) mod tests {
                 result.is_err(),
                 "Duplicated wallet stored without error, expected failure"
             );
-        }).await;
+        })
+        .await;
     }
 
     // Test fetching wallets by a list of inbox_ids
@@ -96,9 +104,8 @@ pub(crate) mod tests {
 
             // Fetch wallets with inbox_ids "fetch_test1" and "fetch_test2"
             let inbox_ids = vec!["fetch_test1".to_string(), "fetch_test2".to_string()];
-            let fetched_wallets: Vec<WalletEntry> = conn
-                .fetch_list_with_key(&inbox_ids)
-                .unwrap_or_default();
+            let fetched_wallets: Vec<WalletEntry> =
+                conn.fetch_list_with_key(&inbox_ids).unwrap_or_default();
 
             // Verify that 3 entries are fetched (2 from "fetch_test1" and 1 from "fetch_test2")
             assert_eq!(
@@ -109,7 +116,10 @@ pub(crate) mod tests {
             );
 
             // Verify contents of fetched entries
-            let fetched_addresses: Vec<String> = fetched_wallets.iter().map(|w| w.wallet_address.clone()).collect();
+            let fetched_addresses: Vec<String> = fetched_wallets
+                .iter()
+                .map(|w| w.wallet_address.clone())
+                .collect();
             assert!(
                 fetched_addresses.contains(&"wallet1".to_string()),
                 "wallet1 not found in fetched results"
@@ -131,7 +141,8 @@ pub(crate) mod tests {
                 non_existent_wallets.is_empty(),
                 "Expected no wallets, found some"
             );
-        }).await;
+        })
+        .await;
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
@@ -164,9 +175,8 @@ pub(crate) mod tests {
 
             // Fetch wallets with inbox_ids "test1" and "test3"
             let inbox_ids = vec!["test1".to_string(), "test3".to_string()];
-            let stored_wallets: Vec<WalletEntry> = conn
-                .fetch_list_with_key(&inbox_ids)
-                .unwrap_or_default();
+            let stored_wallets: Vec<WalletEntry> =
+                conn.fetch_list_with_key(&inbox_ids).unwrap_or_default();
 
             // Verify that 3 entries are fetched (2 from "test1" and 1 from "test3")
             assert_eq!(
@@ -176,7 +186,10 @@ pub(crate) mod tests {
                 stored_wallets.len()
             );
 
-            let fetched_addresses: Vec<String> = stored_wallets.iter().map(|w| w.wallet_address.clone()).collect();
+            let fetched_addresses: Vec<String> = stored_wallets
+                .iter()
+                .map(|w| w.wallet_address.clone())
+                .collect();
             assert!(
                 fetched_addresses.contains(&"wallet1".to_string()),
                 "wallet1 not found in fetched results"
@@ -189,6 +202,7 @@ pub(crate) mod tests {
                 fetched_addresses.contains(&"wallet3".to_string()),
                 "wallet3 not found in fetched results"
             );
-        }).await;
+        })
+        .await;
     }
 }

@@ -35,18 +35,33 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessage, WelcomeMessage,
 };
 
-use crate::{api::ApiClientWrapper, groups::{
-    group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-    GroupMetadataOptions, IntentError, MlsGroup,
-}, identity::{parse_credential, Identity, IdentityError}, identity_updates::{load_identity_updates, IdentityUpdateError}, intents::Intents, mutex_registry::MutexRegistry, retry::Retry, retry_async, retryable, storage::group::GroupQueryArgs, storage::{
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-    db_connection::DbConnection,
-    group::{GroupMembershipState, StoredGroup},
-    group_message::StoredGroupMessage,
-    refresh_state::EntityKind,
-    sql_key_store, EncryptedMessageStore, StorageError,
-}, subscriptions::LocalEvents, verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2}, xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch, Store, XmtpApi};
 use crate::storage::wallet_addresses::WalletEntry;
+use crate::{
+    api::ApiClientWrapper,
+    groups::{
+        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
+        GroupMetadataOptions, IntentError, MlsGroup,
+    },
+    identity::{parse_credential, Identity, IdentityError},
+    identity_updates::{load_identity_updates, IdentityUpdateError},
+    intents::Intents,
+    mutex_registry::MutexRegistry,
+    retry::Retry,
+    retry_async, retryable,
+    storage::group::GroupQueryArgs,
+    storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        db_connection::DbConnection,
+        group::{GroupMembershipState, StoredGroup},
+        group_message::StoredGroupMessage,
+        refresh_state::EntityKind,
+        sql_key_store, EncryptedMessageStore, StorageError,
+    },
+    subscriptions::LocalEvents,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Fetch, Store, XmtpApi,
+};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -358,7 +373,8 @@ where
         let sanitized_addresses = sanitize_evm_addresses(addresses)?;
         let conn = self.store().conn()?;
 
-        let local_results: Vec<WalletEntry> = conn.fetch_wallets_list_with_key(&sanitized_addresses)?;
+        let local_results: Vec<WalletEntry> =
+            conn.fetch_wallets_list_with_key(&sanitized_addresses)?;
 
         let mut results: HashMap<String, String> = local_results
             .into_iter()
@@ -382,12 +398,14 @@ where
         let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
 
         for (address, inbox_id) in &web_results {
-            results.insert(address.clone(), inbox_id.clone()).unwrap_or_default();
-                let new_entry = WalletEntry {
-                    inbox_id: InboxId::from(inbox_id),
-                    wallet_address: address.clone(),
-                };
-                new_entry.store(&conn).ok();
+            results
+                .insert(address.clone(), inbox_id.clone())
+                .unwrap_or_default();
+            let new_entry = WalletEntry {
+                inbox_id: InboxId::from(inbox_id),
+                wallet_address: address.clone(),
+            };
+            new_entry.store(&conn).ok();
         }
 
         let inbox_ids: Vec<Option<String>> = sanitized_addresses
