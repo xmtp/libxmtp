@@ -706,6 +706,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id(&self, inbox_ids: &[String]) -> Result<(), GroupError> {
+        tracing::info!("adding members by inbox id: {:?}", inbox_ids);
         let provider = self.client.mls_provider()?;
         let intent_data = self
             .get_membership_update_intent(&provider, inbox_ids, &[])

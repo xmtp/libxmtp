@@ -501,6 +501,7 @@ where
     };
 
     let nonce = 0;
+    info!("Created new wallet with address", {address: w.get_address()});
     let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
     let client = create_client(
         cli,

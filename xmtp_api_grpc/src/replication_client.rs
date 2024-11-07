@@ -15,10 +15,16 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
-use xmtp_proto::convert::{build_group_message_topic, build_identity_update_topic, build_key_package_topic, build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope};
+use xmtp_proto::convert::{
+    build_group_message_topic, build_identity_update_topic, build_key_package_topic,
+    build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
+};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
-use xmtp_proto::xmtp::mls::api::v1::{fetch_key_packages_response, group_message, group_message_input, welcome_message, welcome_message_input, GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::mls::api::v1::{
+    fetch_key_packages_response, group_message, group_message_input, welcome_message,
+    welcome_message_input, GroupMessage, WelcomeMessage,
+};
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
@@ -115,7 +121,7 @@ impl ClientV4 {
                 .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
         };
 
-        // TODO(mkysel) for now we assume both payer and replication are on the same host
+        // GroupMessageInputTODO(mkysel) for now we assume both payer and replication are on the same host
         let client = ReplicationApiClient::new(channel.clone());
         let payer_client = PayerApiClient::new(channel.clone());
 
@@ -379,9 +385,7 @@ impl XmtpMlsClient for ClientV4 {
         let res = client
             .query_envelopes(QueryEnvelopesRequest {
                 query: Some(EnvelopesQuery {
-                    topics: vec![build_group_message_topic(
-                        req.group_id.as_slice(),
-                    )],
+                    topics: vec![build_group_message_topic(req.group_id.as_slice())],
                     originator_node_ids: vec![],
                     last_seen: None,
                 }),
