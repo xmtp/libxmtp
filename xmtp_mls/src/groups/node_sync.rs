@@ -14,7 +14,6 @@ use super::{
     GroupError, MlsGroup, ScopedGroupClient,
 };
 
-use crate::groups::device_sync::DeviceSyncContent;
 use crate::{
     client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -35,10 +34,12 @@ use crate::{
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
     },
+    subscriptions::LocalEvents,
     utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
+use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
 use openmls::{
     credentials::BasicCredential,
@@ -362,6 +363,8 @@ where
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+        let sent_from_this_installation =
+            sender_installation_id == self.context().installation_public_key();
         tracing::info!(
             "[{}] extracted sender inbox id: {}",
             self.context().inbox_id(),
@@ -414,7 +417,7 @@ where
 
                             // store the request message
                             StoredGroupMessage {
-                                id: message_id,
+                                id: message_id.clone(),
                                 group_id: self.group_id.clone(),
                                 decrypted_message_bytes: content_bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
@@ -424,6 +427,13 @@ where
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store_or_ignore(provider.conn_ref())?;
+
+                            // Ignore this installation's sync messages
+                            if !sent_from_this_installation {
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                    SyncMessage::Request { message_id },
+                                ));
+                            }
                         }
 
                         Some(Reply(history_reply)) => {
@@ -438,7 +448,7 @@ where
 
                             // store the reply message
                             StoredGroupMessage {
-                                id: message_id,
+                                id: message_id.clone(),
                                 group_id: self.group_id.clone(),
                                 decrypted_message_bytes: content_bytes,
                                 sent_at_ns: envelope_timestamp_ns as i64,
@@ -448,6 +458,13 @@ where
                                 delivery_status: DeliveryStatus::Published,
                             }
                             .store_or_ignore(provider.conn_ref())?;
+
+                            // Ignore this installation's sync messages
+                            if !sent_from_this_installation {
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                    SyncMessage::Reply { message_id },
+                                ));
+                            }
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);

@@ -48,11 +48,10 @@ use crate::{
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
-    storage::group::GroupQueryArgs,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
-        group::{GroupMembershipState, StoredGroup},
+        group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
@@ -312,7 +311,8 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
-        let (tx, _) = broadcast::channel(10);
+        let (tx, _) = broadcast::channel(32);
+
         Self {
             api_client: api_client.into(),
             context,
@@ -349,6 +349,10 @@ where
     /// Pulls a connection and creates a new MLS Provider
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
         self.context.mls_provider()
+    }
+
+    pub fn history_sync_url(&self) -> Option<&String> {
+        self.history_sync_url.as_ref()
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given address

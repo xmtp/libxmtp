@@ -1,12 +1,13 @@
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
+use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use crate::Store;
 use crate::{
     client::ClientError,
     storage::{
@@ -17,16 +18,19 @@ use crate::{
     },
     Client,
 };
+use crate::{retry_async, Store};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use futures::{pin_mut, Stream, StreamExt};
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
 use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
@@ -101,6 +105,44 @@ pub enum DeviceSyncError {
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
     SyncReplyTimestamp,
+    #[error(transparent)]
+    Subscribe(#[from] SubscribeError),
+}
+
+impl RetryableError for DeviceSyncError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    pub async fn start_sync_worker(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), DeviceSyncError> {
+        self.sync_init(provider).await?;
+
+        crate::spawn(None, {
+            let client = self.clone();
+
+            let receiver = client.local_events.subscribe();
+            let sync_stream = receiver.stream_sync_messages();
+
+            async move {
+                pin_mut!(sync_stream);
+
+                while let Err(err) = client.sync_worker(&mut sync_stream).await {
+                    tracing::error!("Sync worker error: {err}");
+                }
+            }
+        });
+
+        Ok(())
+    }
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -108,50 +150,108 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn reply_to_sync_request(
+    pub(crate) async fn sync_worker(
         &self,
-        provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let conn = provider.conn_ref();
+        sync_stream: &mut (impl Stream<Item = Result<SyncMessage, SubscribeError>> + Unpin),
+    ) -> Result<(), DeviceSyncError> {
+        let provider = self.mls_provider()?;
 
-        let (_msg, request) = self.pending_sync_request(provider, kind).await?;
-        let records = match kind {
-            DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
-            DeviceSyncKind::MessageHistory => {
-                vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
+        let query_retry = RetryBuilder::default()
+            .retries(5)
+            .duration(Duration::from_millis(20))
+            .build();
+
+        while let Some(msg) = sync_stream.next().await {
+            let msg = msg?;
+            match msg {
+                SyncMessage::Reply { message_id } => {
+                    let conn = provider.conn_ref();
+                    let msg = retry_async!(
+                        &query_retry,
+                        (async {
+                            conn.get_group_message(&message_id)?
+                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                    "Message id {message_id:?} not found."
+                                ))))
+                        })
+                    )?;
+
+                    let msg_content: DeviceSyncContent =
+                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                    let DeviceSyncContent::Reply(reply) = msg_content else {
+                        unreachable!();
+                    };
+
+                    if let Err(err) = self.process_sync_reply(&provider, reply).await {
+                        tracing::warn!("Sync worker error: {err}");
+                    }
+                }
+                SyncMessage::Request { message_id } => {
+                    let conn = provider.conn_ref();
+                    let msg = retry_async!(
+                        &query_retry,
+                        (async {
+                            conn.get_group_message(&message_id)?
+                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                    "Message id {message_id:?} not found."
+                                ))))
+                        })
+                    )?;
+
+                    let msg_content: DeviceSyncContent =
+                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                    let DeviceSyncContent::Request(request) = msg_content else {
+                        unreachable!();
+                    };
+
+                    if let Err(err) = self.reply_to_sync_request(&provider, request).await {
+                        tracing::warn!("Sync worker error: {err}");
+                    }
+                }
             }
-            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
-        };
+        }
 
-        let reply = self
-            .create_sync_reply(&request.request_id, &records, kind)
-            .await?;
-        self.send_sync_reply(provider, reply.clone()).await?;
-
-        Ok(reply)
+        Ok(())
     }
 
-    pub async fn enable_sync(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+    /**
+     * Ideally called when the client is registered.
+     * Will auto-send a sync request if sync group is created.
+     */
+    pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+        if self.get_sync_group().is_err() {
+            self.ensure_sync_group(provider).await?;
+
+            self.send_sync_request(provider, DeviceSyncKind::Consent)
+                .await?;
+            self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn ensure_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group = match self.get_sync_group() {
             Ok(group) => group,
             Err(_) => self.create_sync_group()?,
         };
-
         sync_group
             .maybe_update_installations(provider, None)
             .await?;
-
         sync_group.sync_with_conn(provider).await?;
 
-        Ok(())
+        Ok(sync_group)
     }
 
     pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
-    ) -> Result<(String, String), DeviceSyncError> {
+    ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
@@ -162,33 +262,54 @@ where
 
         // lookup if a request has already been made
         if let Ok((_msg, request)) = self.pending_sync_request(provider, request.kind).await {
-            return Ok((request.request_id, request.pin_code));
+            return Ok(request);
         }
 
         // build the request
         let request: DeviceSyncRequestProto = request.into();
-        let pin_code = request.pin_code.clone();
-        let request_id = request.request_id.clone();
 
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id =
-            sync_group.prepare_message(&content_bytes, provider.conn_ref(), move |_time_ns| {
-                PlaintextEnvelope {
-                    content: Some(Content::V2(V2 {
-                        message_type: Some(Request(request)),
-                        idempotency_key: new_request_id(),
-                    })),
-                }
-            })?;
+        let _message_id = sync_group.prepare_message(&content_bytes, provider.conn_ref(), {
+            let request = request.clone();
+            move |_time_ns| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(Request(request)),
+                    idempotency_key: new_request_id(),
+                })),
+            }
+        })?;
 
         // publish the intent
         if let Err(err) = sync_group.publish_intents(provider).await {
             tracing::error!("error publishing sync group intents: {:?}", err);
         }
 
-        Ok((request_id, pin_code))
+        Ok(request)
+    }
+
+    pub(crate) async fn reply_to_sync_request(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        request: DeviceSyncRequestProto,
+    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+        let conn = provider.conn_ref();
+
+        let records = match request.kind() {
+            DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
+            DeviceSyncKind::MessageHistory => {
+                vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
+            }
+            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
+        };
+
+        let reply = self
+            .create_sync_reply(&request.request_id, &records, request.kind())
+            .await?;
+        self.send_sync_reply(provider, reply.clone()).await?;
+
+        Ok(reply)
     }
 
     async fn send_sync_reply(
@@ -264,41 +385,37 @@ where
         Err(DeviceSyncError::NoPendingRequest)
     }
 
-    /// Look for sync reply by kind, returns NoReplyToProcess error if not found.
+    #[cfg(test)]
     async fn sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group()?;
-
         sync_group.sync_with_conn(provider).await?;
+
         let messages = sync_group
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
-        for msg in messages.iter().rev() {
-            // ignore this installation's messages
-            if msg.sender_installation_id == self.installation_public_key() {
-                continue;
-            }
-
-            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Reply(reply) = content {
-                if reply.kind() == kind {
-                    return Ok(reply);
+        for msg in messages.into_iter().rev() {
+            let msg_content: DeviceSyncContent =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            match msg_content {
+                DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
+                    return Ok(Some((msg, reply)));
                 }
+                _ => {}
             }
         }
 
-        Err(DeviceSyncError::NoReplyToProcess)
+        Ok(None)
     }
 
     pub async fn process_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let reply = self.sync_reply(provider, kind).await?;
         let conn = provider.conn_ref();
 
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
@@ -353,10 +470,11 @@ where
         let Some(url) = &self.history_sync_url else {
             return Err(DeviceSyncError::MissingHistorySyncUrl);
         };
-        tracing::info!("Using upload url {url}upload");
+        let upload_url = format!("{url}/upload");
+        tracing::info!("Using upload url {upload_url}");
 
         let response = reqwest::Client::new()
-            .post(format!("{url}/upload"))
+            .post(upload_url)
             .body(payload)
             .send()
             .await?;
@@ -385,7 +503,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
     Reply(DeviceSyncReplyProto),
