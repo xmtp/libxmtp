@@ -2,11 +2,11 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 
-use crate::mls_client::WasmClient;
+use crate::client::Client;
 
 #[wasm_bindgen]
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub enum WasmSignatureRequestType {
+pub enum SignatureRequestType {
   AddWallet,
   CreateInbox,
   RevokeWallet,
@@ -14,7 +14,7 @@ pub enum WasmSignatureRequestType {
 }
 
 #[wasm_bindgen]
-impl WasmClient {
+impl Client {
   #[wasm_bindgen(js_name = createInboxSignatureText)]
   pub async fn create_inbox_signature_text(&self) -> Result<Option<String>, JsError> {
     let signature_request = match self.inner_client().identity().signature_request() {
@@ -25,7 +25,7 @@ impl WasmClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(WasmSignatureRequestType::CreateInbox, signature_request);
+    signature_requests.insert(SignatureRequestType::CreateInbox, signature_request);
 
     Ok(Some(signature_text))
   }
@@ -46,7 +46,7 @@ impl WasmClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(WasmSignatureRequestType::AddWallet, signature_request);
+    signature_requests.insert(SignatureRequestType::AddWallet, signature_request);
 
     Ok(signature_text)
   }
@@ -64,7 +64,7 @@ impl WasmClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(WasmSignatureRequestType::RevokeWallet, signature_request);
+    signature_requests.insert(SignatureRequestType::RevokeWallet, signature_request);
 
     Ok(signature_text)
   }
@@ -90,10 +90,7 @@ impl WasmClient {
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(
-      WasmSignatureRequestType::RevokeInstallations,
-      signature_request,
-    );
+    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
     Ok(signature_text)
   }
@@ -101,7 +98,7 @@ impl WasmClient {
   #[wasm_bindgen(js_name = addSignature)]
   pub async fn add_signature(
     &self,
-    signature_type: WasmSignatureRequestType,
+    signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
   ) -> Result<(), JsError> {
     let mut signature_requests = self.signature_requests().lock().await;
@@ -124,10 +121,10 @@ impl WasmClient {
   pub async fn apply_signature_requests(&self) -> Result<(), JsError> {
     let mut signature_requests = self.signature_requests().lock().await;
 
-    let request_types: Vec<WasmSignatureRequestType> = signature_requests.keys().cloned().collect();
+    let request_types: Vec<SignatureRequestType> = signature_requests.keys().cloned().collect();
     for signature_request_type in request_types {
       // ignore the create inbox request since it's applied with register_identity
-      if signature_request_type == WasmSignatureRequestType::CreateInbox {
+      if signature_request_type == SignatureRequestType::CreateInbox {
         continue;
       }
 
