@@ -70,7 +70,7 @@ pub(crate) trait StreamMessages {
 
 impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
 where
-    LocalEvents<C>: Clone + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
 {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {

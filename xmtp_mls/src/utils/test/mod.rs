@@ -202,8 +202,8 @@ async fn build_with_verifier<A, V>(
     history_sync_url: Option<&str>,
 ) -> Client<A, V>
 where
-    A: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    A: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
