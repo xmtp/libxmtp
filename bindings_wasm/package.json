@@ -27,8 +27,9 @@
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist --plain -- --release",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
-    "format:check": "cargo fmt --check",
-    "lint": "cargo clippy --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings",
+    "lint": "yarn lint:clippy && yarn lint:fmt",
+    "lint:clippy": "cargo clippy --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings",
+    "lint:fmt": "cargo fmt --check",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
   },
