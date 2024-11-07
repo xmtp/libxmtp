@@ -397,7 +397,7 @@ where
 
         let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
 
-        for (address, inbox_id) in &web_results {
+        for (address, inbox_id) in web_results {
             results
                 .insert(address.clone(), inbox_id.clone())
                 .unwrap_or_default();

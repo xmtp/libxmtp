@@ -108,7 +108,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    wallet_addresses (inbox_id, wallet_address) {
+    wallet_addresses (wallet_address) {
         inbox_id -> Text,
         wallet_address -> Text,
     }
