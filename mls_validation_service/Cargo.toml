@@ -14,14 +14,12 @@ vergen = { version = "8.3.2", features = ["git", "git2"] }
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
-ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 tonic = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 tracing.workspace = true
@@ -30,13 +28,12 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
+tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow.workspace = true
 ethers.workspace = true
-openmls_basic_credential = { workspace = true, features = ["test-utils"] }
 rand = { workspace = true }
-sha2.workspace = true
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 

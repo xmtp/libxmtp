@@ -1,4 +1,4 @@
-use bindings_wasm::{inbox_id::get_inbox_id_for_address, mls_client::create_client};
+use bindings_wasm::{client::create_client, inbox_id::get_inbox_id_for_address};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;

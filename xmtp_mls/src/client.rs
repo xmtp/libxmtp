@@ -242,7 +242,7 @@ pub struct XmtpMlsLocalContext {
 impl XmtpMlsLocalContext {
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> Vec<u8> {
-        self.identity.installation_keys.to_public_vec()
+        self.identity.installation_keys.public_slice().to_vec()
     }
 
     /// Get the account address of the blockchain account associated with this client

@@ -252,8 +252,8 @@ impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     /// Attempts to extract GroupMutableMetadata from an OpenMlsGroup.
-    fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
-        let extensions = value.export_group_context().extensions();
+    fn try_from(group: &OpenMlsGroup) -> Result<Self, Self::Error> {
+        let extensions = group.extensions();
         extensions.try_into()
     }
 }

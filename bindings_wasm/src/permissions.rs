@@ -5,20 +5,20 @@ use xmtp_mls::groups::{
     BasePolicies, GroupMutablePermissions, MembershipPolicies, MetadataBasePolicies,
     MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies,
   },
-  intents::{PermissionPolicyOption, PermissionUpdateType},
+  intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmGroupPermissionsOptions {
+pub enum GroupPermissionsOptions {
   AllMembers,
   AdminOnly,
   CustomPolicy,
 }
 
 #[wasm_bindgen]
-pub enum WasmPermissionUpdateType {
+pub enum PermissionUpdateType {
   AddMember,
   RemoveMember,
   AddAdmin,
@@ -26,21 +26,21 @@ pub enum WasmPermissionUpdateType {
   UpdateMetadata,
 }
 
-impl From<&WasmPermissionUpdateType> for PermissionUpdateType {
-  fn from(update_type: &WasmPermissionUpdateType) -> Self {
+impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
+  fn from(update_type: &PermissionUpdateType) -> Self {
     match update_type {
-      WasmPermissionUpdateType::AddMember => PermissionUpdateType::AddMember,
-      WasmPermissionUpdateType::RemoveMember => PermissionUpdateType::RemoveMember,
-      WasmPermissionUpdateType::AddAdmin => PermissionUpdateType::AddAdmin,
-      WasmPermissionUpdateType::RemoveAdmin => PermissionUpdateType::RemoveAdmin,
-      WasmPermissionUpdateType::UpdateMetadata => PermissionUpdateType::UpdateMetadata,
+      PermissionUpdateType::AddMember => XmtpPermissionUpdateType::AddMember,
+      PermissionUpdateType::RemoveMember => XmtpPermissionUpdateType::RemoveMember,
+      PermissionUpdateType::AddAdmin => XmtpPermissionUpdateType::AddAdmin,
+      PermissionUpdateType::RemoveAdmin => XmtpPermissionUpdateType::RemoveAdmin,
+      PermissionUpdateType::UpdateMetadata => XmtpPermissionUpdateType::UpdateMetadata,
     }
   }
 }
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmPermissionPolicy {
+pub enum PermissionPolicy {
   Allow,
   Deny,
   Admin,
@@ -49,90 +49,98 @@ pub enum WasmPermissionPolicy {
   Other,
 }
 
-impl TryInto<PermissionPolicyOption> for WasmPermissionPolicy {
+impl TryInto<PermissionPolicyOption> for PermissionPolicy {
   type Error = JsError;
 
   fn try_into(self) -> Result<PermissionPolicyOption, JsError> {
     match self {
-      WasmPermissionPolicy::Allow => Ok(PermissionPolicyOption::Allow),
-      WasmPermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
-      WasmPermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
-      WasmPermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
+      PermissionPolicy::Allow => Ok(PermissionPolicyOption::Allow),
+      PermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
+      PermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
+      PermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
       _ => Err(JsError::new("InvalidPermissionPolicyOption")),
     }
   }
 }
 
-impl From<&MembershipPolicies> for WasmPermissionPolicy {
+impl From<&MembershipPolicies> for PermissionPolicy {
   fn from(policies: &MembershipPolicies) -> Self {
     if let MembershipPolicies::Standard(base_policy) = policies {
       match base_policy {
-        BasePolicies::Allow => WasmPermissionPolicy::Allow,
-        BasePolicies::Deny => WasmPermissionPolicy::Deny,
-        BasePolicies::AllowSameMember => WasmPermissionPolicy::Other,
-        BasePolicies::AllowIfAdminOrSuperAdmin => WasmPermissionPolicy::Admin,
-        BasePolicies::AllowIfSuperAdmin => WasmPermissionPolicy::SuperAdmin,
+        BasePolicies::Allow => PermissionPolicy::Allow,
+        BasePolicies::Deny => PermissionPolicy::Deny,
+        BasePolicies::AllowSameMember => PermissionPolicy::Other,
+        BasePolicies::AllowIfAdminOrSuperAdmin => PermissionPolicy::Admin,
+        BasePolicies::AllowIfSuperAdmin => PermissionPolicy::SuperAdmin,
       }
     } else {
-      WasmPermissionPolicy::Other
+      PermissionPolicy::Other
     }
   }
 }
 
-impl From<&MetadataPolicies> for WasmPermissionPolicy {
+impl From<&MetadataPolicies> for PermissionPolicy {
   fn from(policies: &MetadataPolicies) -> Self {
     if let MetadataPolicies::Standard(base_policy) = policies {
       match base_policy {
-        MetadataBasePolicies::Allow => WasmPermissionPolicy::Allow,
-        MetadataBasePolicies::Deny => WasmPermissionPolicy::Deny,
-        MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => WasmPermissionPolicy::Admin,
-        MetadataBasePolicies::AllowIfActorSuperAdmin => WasmPermissionPolicy::SuperAdmin,
+        MetadataBasePolicies::Allow => PermissionPolicy::Allow,
+        MetadataBasePolicies::Deny => PermissionPolicy::Deny,
+        MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => PermissionPolicy::Admin,
+        MetadataBasePolicies::AllowIfActorSuperAdmin => PermissionPolicy::SuperAdmin,
       }
     } else {
-      WasmPermissionPolicy::Other
+      PermissionPolicy::Other
     }
   }
 }
 
-impl From<&PermissionsPolicies> for WasmPermissionPolicy {
+impl From<&PermissionsPolicies> for PermissionPolicy {
   fn from(policies: &PermissionsPolicies) -> Self {
     if let PermissionsPolicies::Standard(base_policy) = policies {
       match base_policy {
-        PermissionsBasePolicies::Deny => WasmPermissionPolicy::Deny,
-        PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => WasmPermissionPolicy::Admin,
-        PermissionsBasePolicies::AllowIfActorSuperAdmin => WasmPermissionPolicy::SuperAdmin,
+        PermissionsBasePolicies::Deny => PermissionPolicy::Deny,
+        PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => PermissionPolicy::Admin,
+        PermissionsBasePolicies::AllowIfActorSuperAdmin => PermissionPolicy::SuperAdmin,
       }
     } else {
-      WasmPermissionPolicy::Other
+      PermissionPolicy::Other
     }
   }
 }
 
 #[wasm_bindgen(getter_with_clone)]
-pub struct WasmPermissionPolicySet {
-  pub add_member_policy: WasmPermissionPolicy,
-  pub remove_member_policy: WasmPermissionPolicy,
-  pub add_admin_policy: WasmPermissionPolicy,
-  pub remove_admin_policy: WasmPermissionPolicy,
-  pub update_group_name_policy: WasmPermissionPolicy,
-  pub update_group_description_policy: WasmPermissionPolicy,
-  pub update_group_image_url_square_policy: WasmPermissionPolicy,
-  pub update_group_pinned_frame_url_policy: WasmPermissionPolicy,
+pub struct PermissionPolicySet {
+  #[wasm_bindgen(js_name = addMemberPolicy)]
+  pub add_member_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = removeMemberPolicy)]
+  pub remove_member_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = addAdminPolicy)]
+  pub add_admin_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = removeAdminPolicy)]
+  pub remove_admin_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateGroupNamePolicy)]
+  pub update_group_name_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
+  pub update_group_description_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)]
+  pub update_group_image_url_square_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateGroupPinnedFrameUrlPolicy)]
+  pub update_group_pinned_frame_url_policy: PermissionPolicy,
 }
 
 #[wasm_bindgen]
-impl WasmPermissionPolicySet {
+impl PermissionPolicySet {
   #[wasm_bindgen(constructor)]
   #[allow(clippy::too_many_arguments)]
   pub fn new(
-    add_member_policy: WasmPermissionPolicy,
-    remove_member_policy: WasmPermissionPolicy,
-    add_admin_policy: WasmPermissionPolicy,
-    remove_admin_policy: WasmPermissionPolicy,
-    update_group_name_policy: WasmPermissionPolicy,
-    update_group_description_policy: WasmPermissionPolicy,
-    update_group_image_url_square_policy: WasmPermissionPolicy,
-    update_group_pinned_frame_url_policy: WasmPermissionPolicy,
+    add_member_policy: PermissionPolicy,
+    remove_member_policy: PermissionPolicy,
+    add_admin_policy: PermissionPolicy,
+    remove_admin_policy: PermissionPolicy,
+    update_group_name_policy: PermissionPolicy,
+    update_group_description_policy: PermissionPolicy,
+    update_group_image_url_square_policy: PermissionPolicy,
+    update_group_pinned_frame_url_policy: PermissionPolicy,
   ) -> Self {
     Self {
       add_member_policy,
@@ -147,52 +155,52 @@ impl WasmPermissionPolicySet {
   }
 }
 
-impl From<PreconfiguredPolicies> for WasmGroupPermissionsOptions {
+impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
-      PreconfiguredPolicies::AllMembers => WasmGroupPermissionsOptions::AllMembers,
-      PreconfiguredPolicies::AdminsOnly => WasmGroupPermissionsOptions::AdminOnly,
+      PreconfiguredPolicies::AllMembers => GroupPermissionsOptions::AllMembers,
+      PreconfiguredPolicies::AdminsOnly => GroupPermissionsOptions::AdminOnly,
     }
   }
 }
 
 #[wasm_bindgen]
-pub struct WasmGroupPermissions {
+pub struct GroupPermissions {
   inner: GroupMutablePermissions,
 }
 
-impl WasmGroupPermissions {
+impl GroupPermissions {
   pub fn new(permissions: GroupMutablePermissions) -> Self {
     Self { inner: permissions }
   }
 }
 
 #[wasm_bindgen]
-impl WasmGroupPermissions {
-  #[wasm_bindgen]
-  pub fn policy_type(&self) -> Result<WasmGroupPermissionsOptions, JsError> {
+impl GroupPermissions {
+  #[wasm_bindgen(js_name = policyType)]
+  pub fn policy_type(&self) -> Result<GroupPermissionsOptions, JsError> {
     if let Ok(preconfigured_policy) = self.inner.preconfigured_policy() {
       Ok(preconfigured_policy.into())
     } else {
-      Ok(WasmGroupPermissionsOptions::CustomPolicy)
+      Ok(GroupPermissionsOptions::CustomPolicy)
     }
   }
 
-  #[wasm_bindgen]
-  pub fn policy_set(&self) -> Result<WasmPermissionPolicySet, JsError> {
+  #[wasm_bindgen(js_name = policySet)]
+  pub fn policy_set(&self) -> Result<PermissionPolicySet, JsError> {
     let policy_set = &self.inner.policies;
     let metadata_policy_map = &policy_set.update_metadata_policy;
     let get_policy = |field: &str| {
       metadata_policy_map
         .get(field)
-        .map(WasmPermissionPolicy::from)
-        .unwrap_or(WasmPermissionPolicy::DoesNotExist)
+        .map(PermissionPolicy::from)
+        .unwrap_or(PermissionPolicy::DoesNotExist)
     };
-    Ok(WasmPermissionPolicySet {
-      add_member_policy: WasmPermissionPolicy::from(&policy_set.add_member_policy),
-      remove_member_policy: WasmPermissionPolicy::from(&policy_set.remove_member_policy),
-      add_admin_policy: WasmPermissionPolicy::from(&policy_set.add_admin_policy),
-      remove_admin_policy: WasmPermissionPolicy::from(&policy_set.remove_admin_policy),
+    Ok(PermissionPolicySet {
+      add_member_policy: PermissionPolicy::from(&policy_set.add_member_policy),
+      remove_member_policy: PermissionPolicy::from(&policy_set.remove_member_policy),
+      add_admin_policy: PermissionPolicy::from(&policy_set.add_admin_policy),
+      remove_admin_policy: PermissionPolicy::from(&policy_set.remove_admin_policy),
       update_group_name_policy: get_policy(MetadataField::GroupName.as_str()),
       update_group_description_policy: get_policy(MetadataField::Description.as_str()),
       update_group_image_url_square_policy: get_policy(MetadataField::GroupImageUrlSquare.as_str()),

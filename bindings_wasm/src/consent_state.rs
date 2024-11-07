@@ -1,65 +1,68 @@
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_mls::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+use xmtp_mls::storage::consent_record::{
+  ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
+};
 
-use crate::{groups::WasmGroup, mls_client::WasmClient};
+use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen]
 #[derive(Clone, serde::Serialize)]
-pub enum WasmConsentState {
+pub enum ConsentState {
   Unknown,
   Allowed,
   Denied,
 }
 
-impl From<ConsentState> for WasmConsentState {
-  fn from(state: ConsentState) -> Self {
+impl From<XmtpConsentState> for ConsentState {
+  fn from(state: XmtpConsentState) -> Self {
     match state {
-      ConsentState::Unknown => WasmConsentState::Unknown,
-      ConsentState::Allowed => WasmConsentState::Allowed,
-      ConsentState::Denied => WasmConsentState::Denied,
+      XmtpConsentState::Unknown => ConsentState::Unknown,
+      XmtpConsentState::Allowed => ConsentState::Allowed,
+      XmtpConsentState::Denied => ConsentState::Denied,
     }
   }
 }
 
-impl From<WasmConsentState> for ConsentState {
-  fn from(state: WasmConsentState) -> Self {
+impl From<ConsentState> for XmtpConsentState {
+  fn from(state: ConsentState) -> Self {
     match state {
-      WasmConsentState::Unknown => ConsentState::Unknown,
-      WasmConsentState::Allowed => ConsentState::Allowed,
-      WasmConsentState::Denied => ConsentState::Denied,
+      ConsentState::Unknown => XmtpConsentState::Unknown,
+      ConsentState::Allowed => XmtpConsentState::Allowed,
+      ConsentState::Denied => XmtpConsentState::Denied,
     }
   }
 }
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmConsentEntityType {
+pub enum ConsentEntityType {
   GroupId,
   InboxId,
   Address,
 }
 
-impl From<WasmConsentEntityType> for ConsentType {
-  fn from(entity_type: WasmConsentEntityType) -> Self {
+impl From<ConsentEntityType> for XmtpConsentType {
+  fn from(entity_type: ConsentEntityType) -> Self {
     match entity_type {
-      WasmConsentEntityType::GroupId => ConsentType::ConversationId,
-      WasmConsentEntityType::InboxId => ConsentType::InboxId,
-      WasmConsentEntityType::Address => ConsentType::Address,
+      ConsentEntityType::GroupId => XmtpConsentType::ConversationId,
+      ConsentEntityType::InboxId => XmtpConsentType::InboxId,
+      ConsentEntityType::Address => XmtpConsentType::Address,
     }
   }
 }
 
 #[wasm_bindgen(getter_with_clone)]
-pub struct WasmConsent {
-  pub entity_type: WasmConsentEntityType,
-  pub state: WasmConsentState,
+pub struct Consent {
+  #[wasm_bindgen(js_name = entityType)]
+  pub entity_type: ConsentEntityType,
+  pub state: ConsentState,
   pub entity: String,
 }
 
 #[wasm_bindgen]
-impl WasmConsent {
+impl Consent {
   #[wasm_bindgen(constructor)]
-  pub fn new(entity_type: WasmConsentEntityType, state: WasmConsentState, entity: String) -> Self {
+  pub fn new(entity_type: ConsentEntityType, state: ConsentState, entity: String) -> Self {
     Self {
       entity_type,
       state,
@@ -68,8 +71,8 @@ impl WasmConsent {
   }
 }
 
-impl From<WasmConsent> for StoredConsentRecord {
-  fn from(consent: WasmConsent) -> Self {
+impl From<Consent> for StoredConsentRecord {
+  fn from(consent: Consent) -> Self {
     Self {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
@@ -79,9 +82,9 @@ impl From<WasmConsent> for StoredConsentRecord {
 }
 
 #[wasm_bindgen]
-impl WasmClient {
+impl Client {
   #[wasm_bindgen(js_name = setConsentStates)]
-  pub async fn set_consent_states(&self, records: Vec<WasmConsent>) -> Result<(), JsError> {
+  pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<(), JsError> {
     let stored_records: Vec<StoredConsentRecord> =
       records.into_iter().map(StoredConsentRecord::from).collect();
 
@@ -96,9 +99,9 @@ impl WasmClient {
   #[wasm_bindgen(js_name = getConsentState)]
   pub async fn get_consent_state(
     &self,
-    entity_type: WasmConsentEntityType,
+    entity_type: ConsentEntityType,
     entity: String,
-  ) -> Result<WasmConsentState, JsError> {
+  ) -> Result<ConsentState, JsError> {
     let result = self
       .inner_client()
       .get_consent_state(entity_type.into(), entity)
@@ -110,9 +113,9 @@ impl WasmClient {
 }
 
 #[wasm_bindgen]
-impl WasmGroup {
-  #[wasm_bindgen]
-  pub fn consent_state(&self) -> Result<WasmConsentState, JsError> {
+impl Conversation {
+  #[wasm_bindgen(js_name = consentState)]
+  pub fn consent_state(&self) -> Result<ConsentState, JsError> {
     let group = self.to_mls_group();
     let state = group
       .consent_state()
@@ -121,8 +124,8 @@ impl WasmGroup {
     Ok(state.into())
   }
 
-  #[wasm_bindgen]
-  pub fn update_consent_state(&self, state: WasmConsentState) -> Result<(), JsError> {
+  #[wasm_bindgen(js_name = updateConsentState)]
+  pub fn update_consent_state(&self, state: ConsentState) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group

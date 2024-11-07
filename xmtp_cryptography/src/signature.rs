@@ -1,7 +1,7 @@
 use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
 use ethers::core::types::{self as ethers_types, H160};
 use ethers::types::Address;
-pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
+pub use k256::ecdsa::{RecoveryId, SigningKey};
 use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
@@ -202,9 +202,10 @@ pub mod tests {
 
     use crate::signature::{is_valid_ed25519_public_key, RecoverableSignature};
 
-    pub async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
+    pub fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());
-        let signature = wallet.sign_message(msg).await.unwrap();
+        let message_hash = ethers::core::utils::hash_message(msg);
+        let signature = wallet.sign_hash(message_hash).unwrap();
         (
             hex::encode(wallet.address().to_fixed_bytes()),
             signature.to_vec(),
@@ -216,16 +217,16 @@ pub mod tests {
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn oracle_signature() {
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn oracle_signature() {
         let msg = "hello";
 
-        let (addr, bytes) = generate_random_signature(msg).await;
+        let (addr, bytes) = generate_random_signature(msg);
         let sig = RecoverableSignature::Eip191Signature(bytes);
         sig.verify_signature(&addr, msg)
             .expect("Baseline Signature failed");
 
-        let (other_addr, mut other_bytes) = generate_random_signature(msg).await;
+        let (other_addr, mut other_bytes) = generate_random_signature(msg);
         toggle(5, &mut other_bytes); // Invalidate Signature by making a small change
         let other = RecoverableSignature::Eip191Signature(other_bytes);
 

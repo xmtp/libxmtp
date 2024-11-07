@@ -3,3 +3,11 @@ runner = 'wasm-bindgen-test-runner'
 
 [alias]
 xtask = "run --package xtask --"
+b = "build"
+c = "check"
+t = "test"
+r = "run"
+xli = "run --bin xmtp_cli"
+
+[build]
+rustflags = ["--cfg", "tracing_unstable"]

@@ -148,7 +148,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
     type Error = GroupMutablePermissionsError;
 
     fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
-        let extensions = value.export_group_context().extensions();
+        let extensions = value.extensions();
         extensions.try_into()
     }
 }
@@ -157,7 +157,7 @@ impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
 pub fn extract_group_permissions(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
-    let extensions = group.export_group_context().extensions();
+    let extensions = group.extensions();
     extensions.try_into()
 }
 

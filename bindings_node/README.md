@@ -1,17 +1,15 @@
-# Node bindings for the MLS client
+# Node bindings for the libXMTP rust library
 
-> **Important**  
-> These bindings are currently in **Alpha** status. Do not use in production as the API is not final and certain functionality may not work as intended.
+> [!CAUTION]
+> These bindings are currently in alpha and under heavy development. The API is subject to change and it is not yet recommended for production use.
 
 ## Useful commands
 
 - `yarn`: Installs all dependencies (required before building)
-- `yarn build:release`: Build a release version of the Node bindings for the current platform
+- `yarn build`: Build a release version of the Node bindings for the current platform
+- `yarn lint`: Run cargo clippy and fmt checks
+- `yarn test`: Run the test suite on Node
 
 ## Testing
 
-There are several test scripts written in Node located in the `/scripts` folder.
-
-Test users are available as exports in `users.mjs`. To register all users on the network, run the `setup.mjs` script.
-
-Before running any of the test scripts, a local XMTP node must be running. This can be achieved by running `./dev/up` at the root of this repository.
+Before running the test suite, a local XMTP node must be running. This can be achieved by running `./dev/up` at the root of this repository. Docker is required.

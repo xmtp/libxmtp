@@ -1,4 +1,3 @@
-use std::array::TryFromSliceError;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
@@ -15,28 +14,25 @@ use crate::{
     XmtpApi,
 };
 use crate::{retryable, Fetch, Store};
-use ed25519_dalek::SigningKey;
 use openmls::prelude::hash_ref::HashReference;
-use openmls::prelude::tls_codec::Serialize;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
+    key_packages::KeyPackage,
     messages::proposals::ProposalType,
-    prelude::{Capabilities, Credential as OpenMlsCredential},
-    prelude_test::KeyPackage,
+    prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
 };
-use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use sha2::{Digest, Sha512};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
-use xmtp_id::associations::unverified::{UnverifiedInstallationKeySignature, UnverifiedSignature};
+use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::AssociationError;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
@@ -44,7 +40,6 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         generate_inbox_id, sign_with_legacy_key, MemberIdentifier,
     },
-    constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
     InboxId,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
@@ -176,8 +171,6 @@ pub enum IdentityError {
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
-    #[error(transparent)]
-    ED25519Error(#[from] ed25519_dalek::ed25519::Error),
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
     #[error("The address {0} has no associated InboxID")]
@@ -190,6 +183,8 @@ pub enum IdentityError {
     DieselResult(#[from] diesel::result::Error),
     #[error(transparent)]
     Association(#[from] AssociationError),
+    #[error(transparent)]
+    Signer(#[from] xmtp_cryptography::SignerError),
 }
 
 impl RetryableError for IdentityError {
@@ -208,7 +203,7 @@ impl RetryableError for IdentityError {
 #[derive(Debug)]
 pub struct Identity {
     pub(crate) inbox_id: InboxId,
-    pub(crate) installation_keys: SignatureKeyPair,
+    pub(crate) installation_keys: XmtpInstallationCredential,
     pub(crate) credential: OpenMlsCredential,
     pub(crate) signature_request: Option<SignatureRequest>,
     pub(crate) is_ready: AtomicBool,
@@ -249,8 +244,7 @@ impl Identity {
         let address = address.to_lowercase();
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
         let associated_inbox_id = inbox_ids.get(&address);
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        let installation_public_key = signature_keys.public();
+        let installation_keys = XmtpInstallationCredential::new();
         let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
@@ -261,17 +255,19 @@ impl Identity {
             }
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder
-                .add_association(installation_public_key.to_vec().into(), member_identifier)
+                .add_association(
+                    installation_keys.public_slice().to_vec().into(),
+                    member_identifier,
+                )
                 .build();
 
+            let signature =
+                installation_keys.credential_sign(signature_request.signature_text())?;
             signature_request
                 .add_signature(
-                    UnverifiedSignature::InstallationKey(
-                        sign_with_installation_key(
-                            signature_request.signature_text(),
-                            sized_installation_key(signature_keys.private())?,
-                        )
-                        .await?,
+                    UnverifiedSignature::new_installation_key(
+                        signature,
+                        installation_keys.verifying_key(),
                     ),
                     scw_signature_verifier,
                 )
@@ -279,7 +275,7 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: associated_inbox_id.clone(),
-                installation_keys: signature_keys,
+                installation_keys,
                 credential: create_credential(associated_inbox_id.clone())?,
                 signature_request: Some(signature_request),
                 is_ready: AtomicBool::new(false),
@@ -303,17 +299,19 @@ impl Identity {
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
             builder = builder.create_inbox(member_identifier.clone(), nonce);
             let mut signature_request = builder
-                .add_association(installation_public_key.to_vec().into(), member_identifier)
+                .add_association(
+                    installation_keys.public_slice().to_vec().into(),
+                    member_identifier,
+                )
                 .build();
+
+            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
 
             signature_request
                 .add_signature(
-                    UnverifiedSignature::InstallationKey(
-                        sign_with_installation_key(
-                            signature_request.signature_text(),
-                            sized_installation_key(signature_keys.private())?,
-                        )
-                        .await?,
+                    UnverifiedSignature::new_installation_key(
+                        sig,
+                        installation_keys.verifying_key(),
                     ),
                     &scw_signature_verifier,
                 )
@@ -334,7 +332,7 @@ impl Identity {
             // Make sure to register the identity before applying the signature request
             let identity = Self {
                 inbox_id: inbox_id.clone(),
-                installation_keys: signature_keys,
+                installation_keys,
                 credential: create_credential(inbox_id)?,
                 signature_request: None,
                 is_ready: AtomicBool::new(true),
@@ -357,18 +355,19 @@ impl Identity {
             builder = builder.create_inbox(member_identifier.clone(), nonce);
 
             let mut signature_request = builder
-                .add_association(installation_public_key.to_vec().into(), member_identifier)
+                .add_association(
+                    installation_keys.public_slice().to_vec().into(),
+                    member_identifier,
+                )
                 .build();
 
+            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
-                    UnverifiedSignature::InstallationKey(
-                        sign_with_installation_key(
-                            signature_request.signature_text(),
-                            sized_installation_key(signature_keys.private())?,
-                        )
-                        .await?,
+                    UnverifiedSignature::new_installation_key(
+                        sig,
+                        installation_keys.verifying_key(),
                     ),
                     scw_signature_verifier,
                 )
@@ -376,7 +375,7 @@ impl Identity {
 
             let identity = Self {
                 inbox_id: inbox_id.clone(),
-                installation_keys: signature_keys,
+                installation_keys,
                 credential: create_credential(inbox_id.clone())?,
                 signature_request: Some(signature_request),
                 is_ready: AtomicBool::new(false),
@@ -411,12 +410,9 @@ impl Identity {
      * Sign the given text with the installation private key.
      */
     pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
-        let mut prehashed = Sha512::new();
-        prehashed.update(text.as_ref());
-        let k = ed25519_dalek::SigningKey::try_from(self.installation_keys.private())
-            .expect("signing key is invalid");
-        let signature = k.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
-        Ok(signature.to_vec())
+        self.installation_keys
+            .credential_sign(text)
+            .map_err(Into::into)
     }
 
     /// Generate a new key package and store the associated keys in the database.
@@ -455,7 +451,7 @@ impl Identity {
                 &self.installation_keys,
                 CredentialWithKey {
                     credential: self.credential(),
-                    signature_key: self.installation_keys.to_public_vec().into(),
+                    signature_key: self.installation_keys.public_slice().into(),
                 },
             )?;
         // Store the hash reference, keyed with the public init key.
@@ -548,27 +544,6 @@ fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, Id
         bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
 
     Ok(key_package_hash_ref)
-}
-
-async fn sign_with_installation_key(
-    signature_text: String,
-    installation_private_key: &[u8; 32],
-) -> Result<UnverifiedInstallationKeySignature, IdentityError> {
-    let signing_key: SigningKey = SigningKey::from_bytes(installation_private_key);
-    let verifying_key = signing_key.verifying_key();
-    let mut prehashed: Sha512 = Sha512::new();
-    prehashed.update(signature_text.clone());
-    let sig = signing_key.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
-    let unverified_sig =
-        UnverifiedInstallationKeySignature::new(sig.to_vec(), verifying_key.as_bytes().to_vec());
-
-    Ok(unverified_sig)
-}
-
-fn sized_installation_key(installation_key: &[u8]) -> Result<&[u8; 32], IdentityError> {
-    installation_key
-        .try_into()
-        .map_err(|e: TryFromSliceError| IdentityError::InstallationKey(e.to_string()))
 }
 
 fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {

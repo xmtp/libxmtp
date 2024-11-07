@@ -45,16 +45,15 @@ use openmls::{
     extensions::Extensions,
     framing::{ContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
+    key_packages::KeyPackage,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
-    prelude_test::KeyPackage,
     treesync::LeafNodeParameters,
 };
-use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::OpenMlsProvider;
+use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
 use tracing::debug;
@@ -193,9 +192,7 @@ where
                         "not retrying intent ID {id}. since it is in state Error. {:?}",
                         last_err
                     );
-                    return Err(last_err.unwrap_or(GroupError::Generic(
-                        "Group intent could not be committed".to_string(),
-                    )));
+                    return Err(last_err.unwrap_or(GroupError::IntentNotCommitted));
                 }
                 Ok(Some(StoredGroupIntent { id, state, .. })) => {
                     tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
@@ -1132,7 +1129,7 @@ async fn apply_update_group_membership_intent(
     provider: &XmtpOpenMlsProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
-    signer: &SignatureKeyPair,
+    signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
 
@@ -1193,7 +1190,7 @@ async fn apply_update_group_membership_intent(
     // Create the commit
     let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
         provider,
-        signer,
+        &signer,
         &new_key_packages,
         &leaf_nodes_to_remove,
         new_extensions,
@@ -1232,12 +1229,13 @@ fn get_and_clear_pending_commit(
     openmls_group: &mut OpenMlsGroup,
     provider: &XmtpOpenMlsProvider,
 ) -> Result<Option<Vec<u8>>, GroupError> {
-    // TODO: remove clone
-    if let Some(commit) = openmls_group.clone().pending_commit() {
-        openmls_group.clear_pending_commit(provider.storage())?;
-        return Ok(Some(db_serialize(&commit)?));
-    }
-    Ok(None)
+    let commit = openmls_group
+        .pending_commit()
+        .as_ref()
+        .map(db_serialize)
+        .transpose()?;
+    openmls_group.clear_pending_commit(provider.storage())?;
+    Ok(commit)
 }
 
 fn decode_staged_commit(data: Vec<u8>) -> Result<StagedCommit, MessageProcessingError> {
