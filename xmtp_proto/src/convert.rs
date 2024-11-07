@@ -11,7 +11,6 @@ use crate::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
-use openmls::test_utils::hex_to_bytes;
 use openmls_rust_crypto::RustCrypto;
 use prost::Message;
 
@@ -120,7 +119,7 @@ pub fn build_key_package_topic(installation_id: &[u8]) -> Vec<u8> {
 pub fn build_identity_update_topic(inbox_id: String) -> Vec<u8> {
     [
         vec![TopicKind::IdentityUpdatesV1 as u8],
-        hex_to_bytes(&inbox_id),
+        hex::decode(inbox_id).unwrap(),
     ]
     .concat()
 }
