@@ -1,6 +1,3 @@
-use std::pin::Pin;
-use std::time::Duration;
-
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
@@ -27,12 +24,13 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use futures::{Stream, StreamExt};
+use futures::{pin_mut, Stream, StreamExt};
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
 };
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
 use tracing::warn;
 use xmtp_cryptography::utils as crypto_utils;
@@ -132,9 +130,11 @@ where
             let client = self.clone();
 
             let receiver = client.local_events.subscribe();
-            let mut sync_stream = Box::pin(receiver.stream_sync_messages());
+            let sync_stream = receiver.stream_sync_messages();
 
             async move {
+                pin_mut!(sync_stream);
+
                 while let Err(err) = client.sync_worker(&mut sync_stream).await {
                     tracing::error!("Sync worker error: {err}");
                 }
@@ -152,10 +152,8 @@ where
 {
     pub(crate) async fn sync_worker(
         &self,
-        sync_stream: &mut Pin<Box<impl Stream<Item = Result<SyncMessage, SubscribeError>>>>,
+        sync_stream: &mut (impl Stream<Item = Result<SyncMessage, SubscribeError>> + Unpin),
     ) -> Result<(), DeviceSyncError> {
-        let mut sync_stream = sync_stream.as_mut();
-
         let provider = self.mls_provider()?;
 
         let query_retry = RetryBuilder::default()

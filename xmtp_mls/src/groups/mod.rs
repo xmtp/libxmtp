@@ -230,10 +230,6 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
-// C is wrapped in an Arc, and so is the Mutex, so this is fine.
-// unsafe impl<C> Send for MlsGroup<C> {}
-// unsafe impl<C> Sync for MlsGroup<C> {}
-
 #[derive(Default)]
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
