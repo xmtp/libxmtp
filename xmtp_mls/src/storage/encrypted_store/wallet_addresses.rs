@@ -125,7 +125,7 @@ pub(crate) mod tests {
 
             // Fetch wallets with a non-existent list of inbox_ids
             let non_existent_wallets: Vec<WalletEntry> = conn
-                .fetch_list_with_key(&vec!["nonexistent".to_string()])
+                .fetch_list_with_key(&["nonexistent".to_string()])
                 .unwrap_or_default();
             assert!(
                 non_existent_wallets.is_empty(),
