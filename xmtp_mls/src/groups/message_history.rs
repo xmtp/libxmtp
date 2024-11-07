@@ -693,7 +693,7 @@ impl From<HistoryReply> for MessageHistoryReply {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, zeroize::ZeroizeOnDrop)]
 pub(crate) enum HistoryKeyType {
     Chacha20Poly1305([u8; ENC_KEY_SIZE]),
 }

@@ -19,7 +19,9 @@ fn create_auth_data(wallet_address: String) -> AuthData {
     }
 }
 
+#[derive(zeroize::ZeroizeOnDrop)]
 pub struct Authenticator {
+    #[zeroize(skip)]
     identity_key: PublicKey,
     wallet_address: String,
     private_key_bytes: Vec<u8>,
