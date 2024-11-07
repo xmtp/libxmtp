@@ -70,6 +70,8 @@ pub enum DeserializationError {
     InvalidAccountId,
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
+    #[error("Required field is unspecified: {0}")]
+    Unspecified(&'static str),
     #[error("Error creating public key from proto bytes")]
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
 }

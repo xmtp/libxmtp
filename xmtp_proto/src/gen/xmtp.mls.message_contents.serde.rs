@@ -70,6 +70,83 @@ impl<'de> serde::Deserialize<'de> for Compression {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for ConsentEntityType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "CONSENT_ENTITY_TYPE_UNSPECIFIED",
+            Self::ConversationId => "CONSENT_ENTITY_TYPE_CONVERSATION_ID",
+            Self::InboxId => "CONSENT_ENTITY_TYPE_INBOX_ID",
+            Self::Address => "CONSENT_ENTITY_TYPE_ADDRESS",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConsentEntityType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "CONSENT_ENTITY_TYPE_UNSPECIFIED",
+            "CONSENT_ENTITY_TYPE_CONVERSATION_ID",
+            "CONSENT_ENTITY_TYPE_INBOX_ID",
+            "CONSENT_ENTITY_TYPE_ADDRESS",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConsentEntityType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "CONSENT_ENTITY_TYPE_UNSPECIFIED" => Ok(ConsentEntityType::Unspecified),
+                    "CONSENT_ENTITY_TYPE_CONVERSATION_ID" => Ok(ConsentEntityType::ConversationId),
+                    "CONSENT_ENTITY_TYPE_INBOX_ID" => Ok(ConsentEntityType::InboxId),
+                    "CONSENT_ENTITY_TYPE_ADDRESS" => Ok(ConsentEntityType::Address),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ConsentState {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -144,83 +221,6 @@ impl<'de> serde::Deserialize<'de> for ConsentState {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for ConsentType {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::Unspecified => "CONSENT_TYPE_UNSPECIFIED",
-            Self::ConversationId => "CONSENT_TYPE_CONVERSATION_ID",
-            Self::InboxId => "CONSENT_TYPE_INBOX_ID",
-            Self::Address => "CONSENT_TYPE_ADDRESS",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for ConsentType {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "CONSENT_TYPE_UNSPECIFIED",
-            "CONSENT_TYPE_CONVERSATION_ID",
-            "CONSENT_TYPE_INBOX_ID",
-            "CONSENT_TYPE_ADDRESS",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsentType;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "CONSENT_TYPE_UNSPECIFIED" => Ok(ConsentType::Unspecified),
-                    "CONSENT_TYPE_CONVERSATION_ID" => Ok(ConsentType::ConversationId),
-                    "CONSENT_TYPE_INBOX_ID" => Ok(ConsentType::InboxId),
-                    "CONSENT_TYPE_ADDRESS" => Ok(ConsentType::Address),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
 impl serde::Serialize for ConsentUpdate {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -229,25 +229,25 @@ impl serde::Serialize for ConsentUpdate {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.consent_type != 0 {
+        if self.entity_type != 0 {
             len += 1;
         }
-        if self.consent_state != 0 {
+        if self.state != 0 {
             len += 1;
         }
         if !self.entity.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ConsentUpdate", len)?;
-        if self.consent_type != 0 {
-            let v = ConsentType::try_from(self.consent_type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.consent_type)))?;
-            struct_ser.serialize_field("consentType", &v)?;
+        if self.entity_type != 0 {
+            let v = ConsentEntityType::try_from(self.entity_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.entity_type)))?;
+            struct_ser.serialize_field("entityType", &v)?;
         }
-        if self.consent_state != 0 {
-            let v = ConsentState::try_from(self.consent_state)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.consent_state)))?;
-            struct_ser.serialize_field("consentState", &v)?;
+        if self.state != 0 {
+            let v = ConsentState::try_from(self.state)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.state)))?;
+            struct_ser.serialize_field("state", &v)?;
         }
         if !self.entity.is_empty() {
             struct_ser.serialize_field("entity", &self.entity)?;
@@ -262,17 +262,16 @@ impl<'de> serde::Deserialize<'de> for ConsentUpdate {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "consent_type",
-            "consentType",
-            "consent_state",
-            "consentState",
+            "entity_type",
+            "entityType",
+            "state",
             "entity",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            ConsentType,
-            ConsentState,
+            EntityType,
+            State,
             Entity,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -295,8 +294,8 @@ impl<'de> serde::Deserialize<'de> for ConsentUpdate {
                         E: serde::de::Error,
                     {
                         match value {
-                            "consentType" | "consent_type" => Ok(GeneratedField::ConsentType),
-                            "consentState" | "consent_state" => Ok(GeneratedField::ConsentState),
+                            "entityType" | "entity_type" => Ok(GeneratedField::EntityType),
+                            "state" => Ok(GeneratedField::State),
                             "entity" => Ok(GeneratedField::Entity),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -317,22 +316,22 @@ impl<'de> serde::Deserialize<'de> for ConsentUpdate {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut consent_type__ = None;
-                let mut consent_state__ = None;
+                let mut entity_type__ = None;
+                let mut state__ = None;
                 let mut entity__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::ConsentType => {
-                            if consent_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("consentType"));
+                        GeneratedField::EntityType => {
+                            if entity_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("entityType"));
                             }
-                            consent_type__ = Some(map_.next_value::<ConsentType>()? as i32);
+                            entity_type__ = Some(map_.next_value::<ConsentEntityType>()? as i32);
                         }
-                        GeneratedField::ConsentState => {
-                            if consent_state__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("consentState"));
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            consent_state__ = Some(map_.next_value::<ConsentState>()? as i32);
+                            state__ = Some(map_.next_value::<ConsentState>()? as i32);
                         }
                         GeneratedField::Entity => {
                             if entity__.is_some() {
@@ -343,8 +342,8 @@ impl<'de> serde::Deserialize<'de> for ConsentUpdate {
                     }
                 }
                 Ok(ConsentUpdate {
-                    consent_type: consent_type__.unwrap_or_default(),
-                    consent_state: consent_state__.unwrap_or_default(),
+                    entity_type: entity_type__.unwrap_or_default(),
+                    state: state__.unwrap_or_default(),
                     entity: entity__.unwrap_or_default(),
                 })
             }

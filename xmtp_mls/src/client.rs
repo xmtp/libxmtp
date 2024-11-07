@@ -187,6 +187,8 @@ pub enum MessageProcessingError {
     Generic(String),
     #[error("intent is missing staged_commit field")]
     IntentMissingStagedCommit,
+    #[error(transparent)]
+    Deserialization(#[from] xmtp_id::associations::DeserializationError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {

@@ -68,13 +68,9 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage, WelcomeMessageInput,
     },
     message_contents::{
-        plaintext_envelope::{Content, V1, V2},
+        plaintext_envelope::{v2::MessageType, Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
     },
-};
-
-use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-    DeviceSyncReply, DeviceSyncRequest,
 };
 
 #[derive(Debug)]
@@ -405,7 +401,7 @@ where
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        Some(DeviceSyncRequest(history_request)) => {
+                        Some(MessageType::DeviceSyncRequest(history_request)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Request(history_request);
                             let content_bytes = serde_json::to_vec(&content)?;
@@ -436,7 +432,7 @@ where
                             }
                         }
 
-                        Some(DeviceSyncReply(history_reply)) => {
+                        Some(MessageType::DeviceSyncReply(history_reply)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Reply(history_reply);
                             let content_bytes = serde_json::to_vec(&content)?;
@@ -465,6 +461,18 @@ where
                                     SyncMessage::Reply { message_id },
                                 ));
                             }
+                        }
+                        Some(MessageType::ConsentUpdate(update)) => {
+                            tracing::info!(
+                                "Streamed consent update: {:?} {} updated to {:?}.",
+                                update.entity_type(),
+                                update.entity,
+                                update.state()
+                            );
+                            self.client
+                                .store()
+                                .conn()?
+                                .insert_or_replace_consent_records(&[update.try_into()?])?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);
