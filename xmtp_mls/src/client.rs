@@ -362,7 +362,7 @@ where
 
         let mut results: HashMap<String, String> = local_results
             .into_iter()
-            .map(|entry| (entry.wallet_address.clone(), entry.inbox_id.clone()))
+            .map(|entry| (entry.wallet_address, entry.inbox_id))
             .collect();
 
         let missing_addresses: Vec<String> = sanitized_addresses
@@ -374,25 +374,20 @@ where
         if missing_addresses.is_empty() {
             let inbox_ids: Vec<Option<String>> = sanitized_addresses
                 .iter()
-                .map(|address| results.get(address).cloned())
+                .map(|address| results.remove(address))
                 .collect();
             return Ok(inbox_ids);
         }
 
-        let web_results = self.api_client.get_inbox_ids(missing_addresses.clone()).await?;
+        let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
 
         for (address, inbox_id) in &web_results {
             results.insert(address.clone(), inbox_id.clone()).unwrap_or_default();
-        }
-
-        for (address, inbox_id) in &web_results {
-            if let id = inbox_id.clone() {
                 let new_entry = WalletEntry {
-                    inbox_id: InboxId::from(id),
+                    inbox_id: InboxId::from(inbox_id),
                     wallet_address: address.clone(),
                 };
                 new_entry.store(&conn).ok();
-            }
         }
 
         let inbox_ids: Vec<Option<String>> = sanitized_addresses
