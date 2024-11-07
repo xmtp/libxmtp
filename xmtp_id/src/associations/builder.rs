@@ -419,6 +419,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use ethers::signers::{LocalWallet, Signer};
+    use xmtp_cryptography::XmtpInstallationCredential;
 
     use crate::{
         associations::{
@@ -433,7 +434,6 @@ pub(crate) mod tests {
         },
         InboxOwner,
     };
-    use ed25519_dalek::SigningKey as Ed25519SigningKey;
 
     use super::*;
 
@@ -470,13 +470,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_identity() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let installation_key = Ed25519SigningKey::generate(&mut rand::thread_rng());
+        let installation_key = XmtpInstallationCredential::new();
         let account_address = wallet.get_address();
-        let installation_key_id = installation_key.verifying_key().as_bytes().to_vec();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let existing_member_identifier: MemberIdentifier = account_address.into();
-        let new_member_identifier: MemberIdentifier = installation_key_id.into();
+        let new_member_identifier: MemberIdentifier = (&installation_key).into();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)

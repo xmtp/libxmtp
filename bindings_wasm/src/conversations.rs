@@ -1,83 +1,87 @@
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::group_metadata::ConversationType;
+use xmtp_mls::groups::group_metadata::ConversationType as XmtpConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
-use xmtp_mls::storage::group::GroupMembershipState;
+use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::messages::WasmMessage;
-use crate::permissions::WasmGroupPermissionsOptions;
-use crate::{groups::WasmGroup, mls_client::RustXmtpClient};
+use crate::messages::Message;
+use crate::permissions::GroupPermissionsOptions;
+use crate::{client::RustXmtpClient, conversation::Conversation};
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
-pub enum WasmConversationType {
+pub enum ConversationType {
   Dm = 0,
   Group = 1,
   Sync = 2,
 }
 
-impl From<ConversationType> for WasmConversationType {
-  fn from(ct: ConversationType) -> Self {
+impl From<XmtpConversationType> for ConversationType {
+  fn from(ct: XmtpConversationType) -> Self {
     match ct {
-      ConversationType::Dm => WasmConversationType::Dm,
-      ConversationType::Group => WasmConversationType::Group,
-      ConversationType::Sync => WasmConversationType::Sync,
+      XmtpConversationType::Dm => ConversationType::Dm,
+      XmtpConversationType::Group => ConversationType::Group,
+      XmtpConversationType::Sync => ConversationType::Sync,
     }
   }
 }
 
-impl From<WasmConversationType> for ConversationType {
-  fn from(nct: WasmConversationType) -> Self {
+impl From<ConversationType> for XmtpConversationType {
+  fn from(nct: ConversationType) -> Self {
     match nct {
-      WasmConversationType::Dm => ConversationType::Dm,
-      WasmConversationType::Group => ConversationType::Group,
-      WasmConversationType::Sync => ConversationType::Sync,
+      ConversationType::Dm => XmtpConversationType::Dm,
+      ConversationType::Group => XmtpConversationType::Group,
+      ConversationType::Sync => XmtpConversationType::Sync,
     }
   }
 }
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
-pub enum WasmGroupMembershipState {
+pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
 }
 
-impl From<GroupMembershipState> for WasmGroupMembershipState {
-  fn from(gms: GroupMembershipState) -> Self {
+impl From<XmtpGroupMembershipState> for GroupMembershipState {
+  fn from(gms: XmtpGroupMembershipState) -> Self {
     match gms {
-      GroupMembershipState::Allowed => WasmGroupMembershipState::Allowed,
-      GroupMembershipState::Rejected => WasmGroupMembershipState::Rejected,
-      GroupMembershipState::Pending => WasmGroupMembershipState::Pending,
+      XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
+      XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
+      XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
     }
   }
 }
 
-impl From<WasmGroupMembershipState> for GroupMembershipState {
-  fn from(ngms: WasmGroupMembershipState) -> Self {
+impl From<GroupMembershipState> for XmtpGroupMembershipState {
+  fn from(ngms: GroupMembershipState) -> Self {
     match ngms {
-      WasmGroupMembershipState::Allowed => GroupMembershipState::Allowed,
-      WasmGroupMembershipState::Rejected => GroupMembershipState::Rejected,
-      WasmGroupMembershipState::Pending => GroupMembershipState::Pending,
+      GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
+      GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
+      GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
     }
   }
 }
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
-pub struct WasmListConversationsOptions {
-  pub allowed_states: Option<Vec<WasmGroupMembershipState>>,
-  pub conversation_type: Option<WasmConversationType>,
+pub struct ListConversationsOptions {
+  #[wasm_bindgen(js_name = allowedStates)]
+  pub allowed_states: Option<Vec<GroupMembershipState>>,
+  #[wasm_bindgen(js_name = conversationType)]
+  pub conversation_type: Option<ConversationType>,
+  #[wasm_bindgen(js_name = createdAfterNs)]
   pub created_after_ns: Option<i64>,
+  #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
 }
 
-impl From<WasmListConversationsOptions> for GroupQueryArgs {
-  fn from(opts: WasmListConversationsOptions) -> GroupQueryArgs {
+impl From<ListConversationsOptions> for GroupQueryArgs {
+  fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
     GroupQueryArgs::default()
       .maybe_allowed_states(
         opts
@@ -92,11 +96,11 @@ impl From<WasmListConversationsOptions> for GroupQueryArgs {
 }
 
 #[wasm_bindgen]
-impl WasmListConversationsOptions {
+impl ListConversationsOptions {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    allowed_states: Option<Vec<WasmGroupMembershipState>>,
-    conversation_type: Option<WasmConversationType>,
+    allowed_states: Option<Vec<GroupMembershipState>>,
+    conversation_type: Option<ConversationType>,
     created_after_ns: Option<i64>,
     created_before_ns: Option<i64>,
     limit: Option<i64>,
@@ -113,19 +117,23 @@ impl WasmListConversationsOptions {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub struct WasmCreateGroupOptions {
-  pub permissions: Option<WasmGroupPermissionsOptions>,
+pub struct CreateGroupOptions {
+  pub permissions: Option<GroupPermissionsOptions>,
+  #[wasm_bindgen(js_name = groupName)]
   pub group_name: Option<String>,
+  #[wasm_bindgen(js_name = groupImageUrlSquare)]
   pub group_image_url_square: Option<String>,
+  #[wasm_bindgen(js_name = groupDescription)]
   pub group_description: Option<String>,
+  #[wasm_bindgen(js_name = groupPinnedFrameUrl)]
   pub group_pinned_frame_url: Option<String>,
 }
 
 #[wasm_bindgen]
-impl WasmCreateGroupOptions {
+impl CreateGroupOptions {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    permissions: Option<WasmGroupPermissionsOptions>,
+    permissions: Option<GroupPermissionsOptions>,
     group_name: Option<String>,
     group_image_url_square: Option<String>,
     group_description: Option<String>,
@@ -141,7 +149,7 @@ impl WasmCreateGroupOptions {
   }
 }
 
-impl WasmCreateGroupOptions {
+impl CreateGroupOptions {
   pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
     GroupMetadataOptions {
       name: self.group_name,
@@ -153,27 +161,27 @@ impl WasmCreateGroupOptions {
 }
 
 #[wasm_bindgen]
-pub struct WasmConversations {
+pub struct Conversations {
   inner_client: Arc<RustXmtpClient>,
 }
 
-impl WasmConversations {
+impl Conversations {
   pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
     Self { inner_client }
   }
 }
 
 #[wasm_bindgen]
-impl WasmConversations {
-  #[wasm_bindgen]
+impl Conversations {
+  #[wasm_bindgen(js_name = createGroup)]
   pub async fn create_group(
     &self,
     account_addresses: Vec<String>,
-    options: Option<WasmCreateGroupOptions>,
-  ) -> Result<WasmGroup, JsError> {
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation, JsError> {
     let options = match options {
       Some(options) => options,
-      None => WasmCreateGroupOptions {
+      None => CreateGroupOptions {
         permissions: None,
         group_name: None,
         group_image_url_square: None,
@@ -183,10 +191,10 @@ impl WasmConversations {
     };
 
     let group_permissions = match options.permissions {
-      Some(WasmGroupPermissionsOptions::AllMembers) => {
+      Some(GroupPermissionsOptions::AllMembers) => {
         Some(PreconfiguredPolicies::AllMembers.to_policy_set())
       }
-      Some(WasmGroupPermissionsOptions::AdminOnly) => {
+      Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
       }
       _ => None,
@@ -210,8 +218,8 @@ impl WasmConversations {
     Ok(convo.into())
   }
 
-  #[wasm_bindgen]
-  pub async fn create_dm(&self, account_address: String) -> Result<WasmGroup, JsError> {
+  #[wasm_bindgen(js_name = createDm)]
+  pub async fn create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
       .create_dm(account_address)
@@ -221,8 +229,8 @@ impl WasmConversations {
     Ok(convo.into())
   }
 
-  #[wasm_bindgen]
-  pub fn find_group_by_id(&self, group_id: String) -> Result<WasmGroup, JsError> {
+  #[wasm_bindgen(js_name = findGroupById)]
+  pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation, JsError> {
     let group_id = hex::decode(group_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     let group = self
@@ -233,8 +241,11 @@ impl WasmConversations {
     Ok(group.into())
   }
 
-  #[wasm_bindgen]
-  pub fn find_dm_by_target_inbox_id(&self, target_inbox_id: String) -> Result<WasmGroup, JsError> {
+  #[wasm_bindgen(js_name = findDmByTargetInboxId)]
+  pub fn find_dm_by_target_inbox_id(
+    &self,
+    target_inbox_id: String,
+  ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
       .dm_group_from_target_inbox(target_inbox_id)
@@ -243,8 +254,8 @@ impl WasmConversations {
     Ok(convo.into())
   }
 
-  #[wasm_bindgen]
-  pub fn find_message_by_id(&self, message_id: String) -> Result<WasmMessage, JsError> {
+  #[wasm_bindgen(js_name = findMessageById)]
+  pub fn find_message_by_id(&self, message_id: String) -> Result<Message, JsError> {
     let message_id =
       hex::decode(message_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -275,7 +286,7 @@ impl WasmConversations {
   #[wasm_bindgen]
   pub async fn list(
     &self,
-    opts: Option<WasmListConversationsOptions>,
+    opts: Option<ListConversationsOptions>,
   ) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
@@ -283,7 +294,7 @@ impl WasmConversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(WasmGroup::new(
+        JsValue::from(Conversation::new(
           self.inner_client.clone(),
           group.group_id,
           group.created_at_ns,
@@ -294,27 +305,27 @@ impl WasmConversations {
     Ok(convo_list)
   }
 
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = listGroups)]
   pub async fn list_groups(
     &self,
-    opts: Option<WasmListConversationsOptions>,
+    opts: Option<ListConversationsOptions>,
   ) -> Result<js_sys::Array, JsError> {
     self
-      .list(Some(WasmListConversationsOptions {
-        conversation_type: Some(WasmConversationType::Group),
+      .list(Some(ListConversationsOptions {
+        conversation_type: Some(ConversationType::Group),
         ..opts.unwrap_or_default()
       }))
       .await
   }
 
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = listDms)]
   pub async fn list_dms(
     &self,
-    opts: Option<WasmListConversationsOptions>,
+    opts: Option<ListConversationsOptions>,
   ) -> Result<js_sys::Array, JsError> {
     self
-      .list(Some(WasmListConversationsOptions {
-        conversation_type: Some(WasmConversationType::Dm),
+      .list(Some(ListConversationsOptions {
+        conversation_type: Some(ConversationType::Dm),
         ..opts.unwrap_or_default()
       }))
       .await

@@ -5,18 +5,15 @@ use super::{
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
     AccountId,
 };
-use crate::{
-    constants::INSTALLATION_KEY_SIGNATURE_CONTEXT,
-    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
-};
-use ed25519_dalek::SigningKey as Ed25519SigningKey;
+use crate::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use ethers::{
     core::types::BlockNumber,
     signers::{LocalWallet, Signer},
     types::Bytes,
 };
 use rand::Rng;
-use sha2::{Digest, Sha512};
+use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
+use xmtp_cryptography::CredentialSign;
 
 pub fn rand_string() -> String {
     let hex_chars = "0123456789abcdef";
@@ -83,20 +80,13 @@ pub async fn add_wallet_signature(signature_request: &mut SignatureRequest, wall
 
 pub async fn add_installation_key_signature(
     signature_request: &mut SignatureRequest,
-    installation_key: &Ed25519SigningKey,
+    installation_key: &XmtpInstallationCredential,
 ) {
     let signature_text = signature_request.signature_text();
-    let verifying_key = installation_key.verifying_key();
-    let mut prehashed: Sha512 = Sha512::new();
-    prehashed.update(signature_text);
+    let sig = installation_key.credential_sign(signature_text).unwrap();
 
-    let sig = installation_key
-        .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
-        .unwrap();
-    let unverified_sig = UnverifiedSignature::new_installation_key(
-        sig.to_bytes().to_vec(),
-        verifying_key.as_bytes().to_vec(),
-    );
+    let unverified_sig =
+        UnverifiedSignature::new_installation_key(sig, installation_key.verifying_key());
 
     signature_request
         .add_signature(

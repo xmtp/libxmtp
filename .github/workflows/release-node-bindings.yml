@@ -78,7 +78,7 @@ jobs:
         if: ${{ ! startsWith(matrix.target, 'aarch64') }}
         working-directory: bindings_node
         run: |
-          yarn build --target ${{ matrix.target }}
+          yarn build:release --target ${{ matrix.target }}
 
       - name: Build target (aaarch64)
         if: startsWith(matrix.target, 'aarch64')
@@ -87,7 +87,7 @@ jobs:
           CC: aarch64-linux-gnu-gcc
         working-directory: bindings_node
         run: |
-          yarn build --target ${{ matrix.target }}
+          yarn build:release --target ${{ matrix.target }}
 
       - name: Upload JS
         # only upload the JS files once, target doesn't matter
@@ -156,7 +156,7 @@ jobs:
       - name: Build target
         working-directory: bindings_node
         run: |
-          yarn build --target ${{ matrix.target }}
+          yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
         uses: actions/upload-artifact@v4
@@ -237,7 +237,7 @@ jobs:
       - name: Build target
         working-directory: bindings_node
         run: |
-          yarn build --target ${{ matrix.target }}
+          yarn build:release --target ${{ matrix.target }}
 
       - name: Upload binding
         uses: actions/upload-artifact@v4

@@ -55,9 +55,7 @@ pub mod trait_impls {
     #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
     mod inner {
 
-        use crate::api_client::{
-            ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
-        };
+        use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
         pub trait XmtpApi
         where
             Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,

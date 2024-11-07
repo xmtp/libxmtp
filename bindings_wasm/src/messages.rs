@@ -1,85 +1,89 @@
 use js_sys::Uint8Array;
-use prost::Message;
+use prost::Message as ProstMessage;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::storage::group_message::{
-  DeliveryStatus, GroupMessageKind, MsgQueryArgs, SortDirection, StoredGroupMessage,
+  DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
+  SortDirection as XmtpSortDirection, StoredGroupMessage,
 };
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
-use crate::encoded_content::WasmEncodedContent;
+use crate::encoded_content::EncodedContent;
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmGroupMessageKind {
+pub enum GroupMessageKind {
   Application,
   MembershipChange,
 }
 
-impl From<GroupMessageKind> for WasmGroupMessageKind {
-  fn from(kind: GroupMessageKind) -> Self {
+impl From<XmtpGroupMessageKind> for GroupMessageKind {
+  fn from(kind: XmtpGroupMessageKind) -> Self {
     match kind {
-      GroupMessageKind::Application => WasmGroupMessageKind::Application,
-      GroupMessageKind::MembershipChange => WasmGroupMessageKind::MembershipChange,
+      XmtpGroupMessageKind::Application => GroupMessageKind::Application,
+      XmtpGroupMessageKind::MembershipChange => GroupMessageKind::MembershipChange,
     }
   }
 }
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmDeliveryStatus {
+pub enum DeliveryStatus {
   Unpublished,
   Published,
   Failed,
 }
 
-impl From<DeliveryStatus> for WasmDeliveryStatus {
-  fn from(status: DeliveryStatus) -> Self {
+impl From<XmtpDeliveryStatus> for DeliveryStatus {
+  fn from(status: XmtpDeliveryStatus) -> Self {
     match status {
-      DeliveryStatus::Unpublished => WasmDeliveryStatus::Unpublished,
-      DeliveryStatus::Published => WasmDeliveryStatus::Published,
-      DeliveryStatus::Failed => WasmDeliveryStatus::Failed,
+      XmtpDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+      XmtpDeliveryStatus::Published => DeliveryStatus::Published,
+      XmtpDeliveryStatus::Failed => DeliveryStatus::Failed,
     }
   }
 }
 
-impl From<WasmDeliveryStatus> for DeliveryStatus {
-  fn from(status: WasmDeliveryStatus) -> Self {
+impl From<DeliveryStatus> for XmtpDeliveryStatus {
+  fn from(status: DeliveryStatus) -> Self {
     match status {
-      WasmDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
-      WasmDeliveryStatus::Published => DeliveryStatus::Published,
-      WasmDeliveryStatus::Failed => DeliveryStatus::Failed,
+      DeliveryStatus::Unpublished => XmtpDeliveryStatus::Unpublished,
+      DeliveryStatus::Published => XmtpDeliveryStatus::Published,
+      DeliveryStatus::Failed => XmtpDeliveryStatus::Failed,
     }
   }
 }
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub enum WasmDirection {
+pub enum SortDirection {
   Ascending,
   Descending,
 }
 
-impl From<WasmDirection> for SortDirection {
-  fn from(direction: WasmDirection) -> Self {
+impl From<SortDirection> for XmtpSortDirection {
+  fn from(direction: SortDirection) -> Self {
     match direction {
-      WasmDirection::Ascending => SortDirection::Ascending,
-      WasmDirection::Descending => SortDirection::Descending,
+      SortDirection::Ascending => XmtpSortDirection::Ascending,
+      SortDirection::Descending => XmtpSortDirection::Descending,
     }
   }
 }
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
-pub struct WasmListMessagesOptions {
+pub struct ListMessagesOptions {
+  #[wasm_bindgen(js_name = sentBeforeNs)]
   pub sent_before_ns: Option<i64>,
+  #[wasm_bindgen(js_name = sentAfterNs)]
   pub sent_after_ns: Option<i64>,
   pub limit: Option<i64>,
-  pub delivery_status: Option<WasmDeliveryStatus>,
-  pub direction: Option<WasmDirection>,
+  #[wasm_bindgen(js_name = deliveryStatus)]
+  pub delivery_status: Option<DeliveryStatus>,
+  pub direction: Option<SortDirection>,
 }
 
-impl From<WasmListMessagesOptions> for MsgQueryArgs {
-  fn from(opts: WasmListMessagesOptions) -> MsgQueryArgs {
+impl From<ListMessagesOptions> for MsgQueryArgs {
+  fn from(opts: ListMessagesOptions) -> MsgQueryArgs {
     let delivery_status = opts.delivery_status.map(Into::into);
     let direction = opts.direction.map(Into::into);
 
@@ -93,14 +97,14 @@ impl From<WasmListMessagesOptions> for MsgQueryArgs {
 }
 
 #[wasm_bindgen]
-impl WasmListMessagesOptions {
+impl ListMessagesOptions {
   #[wasm_bindgen(constructor)]
   pub fn new(
     sent_before_ns: Option<i64>,
     sent_after_ns: Option<i64>,
     limit: Option<i64>,
-    delivery_status: Option<WasmDeliveryStatus>,
-    direction: Option<WasmDirection>,
+    delivery_status: Option<DeliveryStatus>,
+    direction: Option<SortDirection>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -114,27 +118,31 @@ impl WasmListMessagesOptions {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub struct WasmMessage {
+pub struct Message {
   pub id: String,
+  #[wasm_bindgen(js_name = sentAtNs)]
   pub sent_at_ns: i64,
+  #[wasm_bindgen(js_name = convoId)]
   pub convo_id: String,
+  #[wasm_bindgen(js_name = senderInboxId)]
   pub sender_inbox_id: String,
-  pub content: WasmEncodedContent,
-  pub kind: WasmGroupMessageKind,
-  pub delivery_status: WasmDeliveryStatus,
+  pub content: EncodedContent,
+  pub kind: GroupMessageKind,
+  #[wasm_bindgen(js_name = deliveryStatus)]
+  pub delivery_status: DeliveryStatus,
 }
 
 #[wasm_bindgen]
-impl WasmMessage {
+impl Message {
   #[wasm_bindgen(constructor)]
   pub fn new(
     id: String,
     sent_at_ns: i64,
     convo_id: String,
     sender_inbox_id: String,
-    content: WasmEncodedContent,
-    kind: WasmGroupMessageKind,
-    delivery_status: WasmDeliveryStatus,
+    content: EncodedContent,
+    kind: GroupMessageKind,
+    delivery_status: DeliveryStatus,
   ) -> Self {
     Self {
       id,
@@ -148,16 +156,16 @@ impl WasmMessage {
   }
 }
 
-impl From<StoredGroupMessage> for WasmMessage {
+impl From<StoredGroupMessage> for Message {
   fn from(msg: StoredGroupMessage) -> Self {
     let id = hex::encode(msg.id.clone());
     let convo_id = hex::encode(msg.group_id.clone());
     let contents = msg.decrypted_message_bytes.clone();
-    let content: WasmEncodedContent = match EncodedContent::decode(contents.as_slice()) {
+    let content: EncodedContent = match XmtpEncodedContent::decode(contents.as_slice()) {
       Ok(value) => value.into(),
       Err(e) => {
         println!("Error decoding content: {:?}", e);
-        WasmEncodedContent {
+        EncodedContent {
           r#type: None,
           parameters: Default::default(),
           fallback: None,

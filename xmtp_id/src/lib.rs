@@ -4,6 +4,7 @@ pub mod associations;
 pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
+
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
@@ -26,6 +27,8 @@ pub enum IdentityError {
     ProviderError(#[from] ethers::providers::ProviderError),
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
+    #[error("MLS signer error {0}")]
+    Signing(#[from] xmtp_cryptography::SignerError),
 }
 
 /// The global InboxID Type.

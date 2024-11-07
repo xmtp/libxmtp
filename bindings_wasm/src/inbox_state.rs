@@ -2,17 +2,18 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
-use crate::mls_client::WasmClient;
+use crate::client::Client;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub struct WasmInstallation {
+pub struct Installation {
   pub id: String,
+  #[wasm_bindgen(js_name = clientTimestampNs)]
   pub client_timestamp_ns: Option<u64>,
 }
 
 #[wasm_bindgen]
-impl WasmInstallation {
+impl Installation {
   #[wasm_bindgen(constructor)]
   pub fn new(id: String, client_timestamp_ns: Option<u64>) -> Self {
     Self {
@@ -23,20 +24,23 @@ impl WasmInstallation {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-pub struct WasmInboxState {
+pub struct InboxState {
+  #[wasm_bindgen(js_name = inboxId)]
   pub inbox_id: String,
+  #[wasm_bindgen(js_name = recoveryAddress)]
   pub recovery_address: String,
-  pub installations: Vec<WasmInstallation>,
+  pub installations: Vec<Installation>,
+  #[wasm_bindgen(js_name = accountAddresses)]
   pub account_addresses: Vec<String>,
 }
 
 #[wasm_bindgen]
-impl WasmInboxState {
+impl InboxState {
   #[wasm_bindgen(constructor)]
   pub fn new(
     inbox_id: String,
     recovery_address: String,
-    installations: Vec<WasmInstallation>,
+    installations: Vec<Installation>,
     account_addresses: Vec<String>,
   ) -> Self {
     Self {
@@ -48,7 +52,7 @@ impl WasmInboxState {
   }
 }
 
-impl From<AssociationState> for WasmInboxState {
+impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
     Self {
       inbox_id: state.inbox_id().to_string(),
@@ -58,7 +62,7 @@ impl From<AssociationState> for WasmInboxState {
         .into_iter()
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Address(_) => None,
-          MemberIdentifier::Installation(inst) => Some(WasmInstallation {
+          MemberIdentifier::Installation(inst) => Some(Installation {
             id: ed25519_public_key_to_address(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns,
           }),
@@ -70,7 +74,7 @@ impl From<AssociationState> for WasmInboxState {
 }
 
 #[wasm_bindgen]
-impl WasmClient {
+impl Client {
   /**
    * Get the client's inbox state.
    *
@@ -78,7 +82,7 @@ impl WasmClient {
    * Otherwise, the state will be read from the local database.
    */
   #[wasm_bindgen(js_name = inboxState)]
-  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<WasmInboxState, JsError> {
+  pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState, JsError> {
     let state = self
       .inner_client()
       .inbox_state(refresh_from_network)
@@ -88,7 +92,7 @@ impl WasmClient {
   }
 
   #[wasm_bindgen(js_name = getLatestInboxState)]
-  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<WasmInboxState, JsError> {
+  pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState, JsError> {
     let conn = self
       .inner_client()
       .store()
