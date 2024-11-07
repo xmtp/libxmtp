@@ -1,19 +1,23 @@
-use std::{collections::HashMap, sync::Arc};
-
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
-use tokio::{sync::oneshot, task::JoinHandle};
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
+    sync::{broadcast, oneshot},
+    task::JoinHandle,
+};
+use tokio_stream::wrappers::BroadcastStream;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
     groups::{group_metadata::ConversationType, subscriptions, GroupError, MlsGroup},
-    retry::Retry,
-    retry::RetryableError,
+    retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
-        group::GroupQueryArgs, group::StoredGroup, group_message::StoredGroupMessage, StorageError,
+        group::{GroupQueryArgs, StoredGroup},
+        group_message::StoredGroupMessage,
+        StorageError,
     },
     Client, XmtpApi,
 };
@@ -28,29 +32,52 @@ pub struct StreamHandle<T> {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-pub(crate) enum LocalEvents<C> {
+#[derive(Clone)]
+pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
+    SyncMessage(SyncMessage),
+}
+
+#[derive(Clone)]
+pub enum SyncMessage {
+    Request { message_id: Vec<u8> },
+    Reply { message_id: Vec<u8> },
 }
 
 impl<C> LocalEvents<C> {
     fn group_filter(self) -> Option<MlsGroup<C>> {
         use LocalEvents::*;
         // this is just to protect against any future variants
-        #[allow(unreachable_patterns)]
         match self {
             NewGroup(c) => Some(c),
             _ => None,
         }
     }
-}
 
-impl<ScopedClient> Clone for LocalEvents<ScopedClient> {
-    fn clone(&self) -> LocalEvents<ScopedClient> {
+    pub(crate) fn sync_filter(self) -> Option<SyncMessage> {
         use LocalEvents::*;
         match self {
-            NewGroup(group) => NewGroup(group.clone()),
+            SyncMessage(msg) => Some(msg),
+            _ => None,
         }
+    }
+}
+
+pub(crate) trait StreamMessages {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>>;
+}
+
+impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
+where
+    C: Clone + Send + Sync + 'static,
+{
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            crate::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::sync_filter)
+                .map(Result::Ok)
+        })
     }
 }
 
@@ -199,7 +226,7 @@ where
         )
         .filter_map(|event| async {
             crate::optify!(event, "Missed messages due to event queue lag")
-                .and_then(LocalEvents::<_>::group_filter)
+                .and_then(LocalEvents::group_filter)
                 .map(Result::Ok)
         });
 

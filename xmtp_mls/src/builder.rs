@@ -43,6 +43,8 @@ pub enum ClientBuilderError {
     GroupError(#[from] crate::groups::GroupError),
     #[error(transparent)]
     ApiError(#[from] xmtp_proto::api_client::Error),
+    #[error(transparent)]
+    DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
 }
 
 pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
@@ -108,8 +110,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
@@ -120,7 +122,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpApi + 'static,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
@@ -161,8 +163,8 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    C: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
 {
     let ClientBuilder {
         mut store,
@@ -198,15 +200,13 @@ where
     )
     .await?;
 
-    let client = Client::new(
+    Ok(Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
-        history_sync_url,
-    );
-
-    Ok(client)
+        history_sync_url.clone(),
+    ))
 }
 
 #[cfg(test)]

@@ -22,8 +22,10 @@ where
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
 pub(crate) mod tests {
-    const HISTORY_SERVER_HOST: &str = "0.0.0.0";
+    const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
+
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::{
@@ -31,31 +33,16 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         storage::consent_record::{ConsentState, ConsentType},
     };
-    use mockito;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_consent_sync() {
-        let options = mockito::ServerOpts {
-            host: HISTORY_SERVER_HOST,
-            port: HISTORY_SERVER_PORT + 1,
-            ..Default::default()
-        };
-        let mut server = mockito::Server::new_with_opts_async(options).await;
-
-        let _m = server
-            .mock("POST", "/upload")
-            .with_status(201)
-            .with_body("12345")
-            .create();
-
-        let history_sync_url =
-            format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT + 1);
+        let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
         let wallet = generate_local_wallet();
-        let mut amal_a = ClientBuilder::new_test_client(&wallet).await;
-        amal_a.history_sync_url = Some(history_sync_url.clone());
+        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
+
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
 
@@ -72,75 +59,49 @@ pub(crate) mod tests {
         let syncable_consent_records = amal_a.syncable_consent_records(amal_a_conn).unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
-        // The first installation should have zero sync groups.
-        let amal_a_sync_groups = amal_a.store().conn().unwrap().latest_sync_group().unwrap();
-        assert!(amal_a_sync_groups.is_none());
-
-        // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        // Create a second installation for amal with sync.
+        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
-        // Turn on history sync for the second installation.
-        assert_ok!(amal_b.enable_sync(&amal_b_provider).await);
+        let amal_b_conn = amal_b_provider.conn_ref();
+
+        let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
+        assert_eq!(consent_records_b.len(), 0);
+
+        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a
-            .sync_welcomes(amal_a_conn)
-            .await
-            .expect("sync_welcomes");
+        amal_a.sync_welcomes(amal_a_conn).await.unwrap();
+        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        // group id should have changed to the new sync group created by the second installation
+        assert_ne!(old_group_id, new_group_id);
 
-        // Have the second installation request for a consent sync.
-        let (_group_id, _pin_code) = amal_b
-            .send_sync_request(&amal_b_provider, DeviceSyncKind::Consent)
-            .await
-            .expect("history request");
+        let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
-        // The first installation should now be a part of the sync group created by the second installation.
-        let amal_a_sync_groups = amal_a_conn.latest_sync_group().unwrap();
-        assert!(amal_a_sync_groups.is_some());
+        // Have amal_a receive the message (and auto-process)
+        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
+        assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
-        // Have first installation reply.
-        // This is to make sure it finds the request in its sync group history,
-        // verifies the pin code,
-        // has no problem packaging the consent records,
-        // and sends a reply message to the first installation.
-        let reply = amal_a
-            .reply_to_sync_request(&amal_a_provider, DeviceSyncKind::Consent)
-            .await
-            .unwrap();
+        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
+        let start = Instant::now();
+        let mut reply = None;
+        while reply.is_none() {
+            reply = amal_b
+                .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+                .await
+                .unwrap();
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Did not receive consent reply.");
+            }
+        }
 
-        // recreate the encrypted payload that was uploaded to our mock server using the same encryption key...
-        let (enc_payload, _key) = encrypt_syncables_with_key(
-            &[amal_a.syncable_consent_records(amal_a_conn).unwrap()],
-            reply.encryption_key.unwrap().try_into().unwrap(),
-        )
-        .unwrap();
+        // Wait up to 3 seconds for sync to process (typically is almost instant)
+        let mut consent_b = 0;
+        let start = Instant::now();
+        while consent_b != consent_a {
+            consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
 
-        // have the mock server reply with the payload
-        let file_path = reply.url.replace(&history_sync_url, "");
-        let _m = server
-            .mock("GET", &*file_path)
-            .with_status(200)
-            .with_body(&enc_payload)
-            .create();
-
-        // The second installation has consented to nobody
-        let consent_records = amal_b.store().conn().unwrap().consent_records().unwrap();
-        assert_eq!(consent_records.len(), 0);
-
-        // Have the second installation process the reply.
-        amal_b
-            .process_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
-            .await
-            .unwrap();
-
-        // Load consents of both installations
-        let consent_records_a = amal_a.store().conn().unwrap().consent_records().unwrap();
-        let consent_records_b = amal_b.store().conn().unwrap().consent_records().unwrap();
-
-        // Ensure the consent is synced.
-        assert_eq!(consent_records_a.len(), 2); // 2 consents - alix, and the group sync
-        assert_eq!(consent_records_b.len(), 2);
-        for record in &consent_records_a {
-            assert!(consent_records_b.contains(record));
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
+            }
         }
     }
 }

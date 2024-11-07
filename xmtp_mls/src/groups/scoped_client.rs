@@ -1,5 +1,5 @@
 use std::sync::Arc;
-
+use tokio::sync::broadcast;
 use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
@@ -9,6 +9,7 @@ use crate::{
     identity_updates::{InstallationDiff, InstallationDiffError},
     intents::Intents,
     storage::{DbConnection, EncryptedMessageStore},
+    subscriptions::LocalEvents,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -27,6 +28,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     fn store(&self) -> &EncryptedMessageStore {
         self.context_ref().store()
     }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
@@ -88,6 +91,8 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
     }
@@ -146,6 +151,10 @@ where
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.api_client
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+        &self.local_events
     }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
@@ -225,6 +234,10 @@ where
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         (**self).api()
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+        (**self).local_events()
     }
 
     fn store(&self) -> &EncryptedMessageStore {
@@ -315,6 +328,10 @@ where
 
     fn store(&self) -> &EncryptedMessageStore {
         (**self).store()
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+        (**self).local_events()
     }
 
     fn intents(&self) -> &Arc<Intents> {

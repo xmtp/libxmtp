@@ -184,6 +184,7 @@ pub mod private {
                 tracing::info!("Migrations successful");
                 Ok::<_, StorageError>(())
             })?;
+
             Ok::<_, StorageError>(())
         }
 
