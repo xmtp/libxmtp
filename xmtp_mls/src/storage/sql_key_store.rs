@@ -784,8 +784,6 @@ where
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let value = bincode::serialize(key_pairs)?;
         tracing::debug!("Writing encryption epoch key pairs");
-        tracing::debug!("  key: {}", hex::encode(&key));
-        tracing::debug!("  value: {}", hex::encode(&value));
 
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }

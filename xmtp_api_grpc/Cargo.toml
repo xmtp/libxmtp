@@ -1,21 +1,26 @@
 [package]
 edition = "2021"
+license.workspace = true
 name = "xmtp_api_grpc"
 version.workspace = true
-license.workspace = true
 
 [dependencies]
 async-stream.workspace = true
+async-trait = "0.1"
 base64.workspace = true
 futures.workspace = true
 hex.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 tokio = { workspace = true, features = ["macros", "time"] }
-tonic = { workspace = true, features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
+tonic = { workspace = true, features = [
+  "tls",
+  "tls-native-roots",
+  "tls-webpki-roots",
+] }
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
-async-trait = "0.1"
+zeroize.workspace = true
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }

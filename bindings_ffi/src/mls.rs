@@ -117,23 +117,15 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let xmtp_client: RustXmtpClient = match history_sync_url {
-        Some(url) => {
-            ClientBuilder::new(identity_strategy)
-                .api_client(api_client)
-                .store(store)
-                .history_sync_url(&url)
-                .build()
-                .await?
-        }
-        None => {
-            ClientBuilder::new(identity_strategy)
-                .api_client(api_client)
-                .store(store)
-                .build()
-                .await?
-        }
-    };
+    let mut builder = ClientBuilder::new(identity_strategy)
+        .api_client(api_client)
+        .store(store);
+
+    if let Some(url) = &history_sync_url {
+        builder = builder.history_sync_url(url);
+    }
+
+    let xmtp_client = builder.build().await?;
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
@@ -396,6 +388,26 @@ impl FfiXmtpClient {
         self.inner_client
             .register_identity(signature_request.clone())
             .await?;
+
+        self.maybe_start_sync_worker().await?;
+
+        Ok(())
+    }
+
+    /// Starts the sync worker if the history sync url is present.
+    async fn maybe_start_sync_worker(&self) -> Result<(), GenericError> {
+        if self.inner_client.history_sync_url().is_none() {
+            return Ok(());
+        }
+
+        let provider = self
+            .inner_client
+            .mls_provider()
+            .map_err(GenericError::from_error)?;
+        self.inner_client
+            .start_sync_worker(&provider)
+            .await
+            .map_err(GenericError::from_error)?;
 
         Ok(())
     }
