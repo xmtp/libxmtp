@@ -1,19 +1,25 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
-use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{
+  ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
+};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub struct WasmContentTypeId {
+pub struct ContentTypeId {
+  #[wasm_bindgen(js_name = authorityId)]
   pub authority_id: String,
+  #[wasm_bindgen(js_name = typeId)]
   pub type_id: String,
+  #[wasm_bindgen(js_name = versionMajor)]
   pub version_major: u32,
+  #[wasm_bindgen(js_name = versionMinor)]
   pub version_minor: u32,
 }
 
 #[wasm_bindgen]
-impl WasmContentTypeId {
+impl ContentTypeId {
   #[wasm_bindgen(constructor)]
   pub fn new(
     authority_id: String,
@@ -30,9 +36,9 @@ impl WasmContentTypeId {
   }
 }
 
-impl From<ContentTypeId> for WasmContentTypeId {
-  fn from(content_type_id: ContentTypeId) -> WasmContentTypeId {
-    WasmContentTypeId {
+impl From<XmtpContentTypeId> for ContentTypeId {
+  fn from(content_type_id: XmtpContentTypeId) -> ContentTypeId {
+    ContentTypeId {
       authority_id: content_type_id.authority_id,
       type_id: content_type_id.type_id,
       version_major: content_type_id.version_major,
@@ -41,9 +47,9 @@ impl From<ContentTypeId> for WasmContentTypeId {
   }
 }
 
-impl From<WasmContentTypeId> for ContentTypeId {
-  fn from(content_type_id: WasmContentTypeId) -> Self {
-    ContentTypeId {
+impl From<ContentTypeId> for XmtpContentTypeId {
+  fn from(content_type_id: ContentTypeId) -> Self {
+    XmtpContentTypeId {
       authority_id: content_type_id.authority_id,
       type_id: content_type_id.type_id,
       version_major: content_type_id.version_major,
@@ -54,8 +60,8 @@ impl From<WasmContentTypeId> for ContentTypeId {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub struct WasmEncodedContent {
-  pub r#type: Option<WasmContentTypeId>,
+pub struct EncodedContent {
+  pub r#type: Option<ContentTypeId>,
   pub parameters: JsValue,
   pub fallback: Option<String>,
   pub compression: Option<i32>,
@@ -63,16 +69,16 @@ pub struct WasmEncodedContent {
 }
 
 #[wasm_bindgen]
-impl WasmEncodedContent {
+impl EncodedContent {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    r#type: Option<WasmContentTypeId>,
+    r#type: Option<ContentTypeId>,
     parameters: JsValue,
     fallback: Option<String>,
     compression: Option<i32>,
     content: Uint8Array,
-  ) -> WasmEncodedContent {
-    WasmEncodedContent {
+  ) -> EncodedContent {
+    EncodedContent {
       r#type,
       parameters,
       fallback,
@@ -82,11 +88,11 @@ impl WasmEncodedContent {
   }
 }
 
-impl From<EncodedContent> for WasmEncodedContent {
-  fn from(content: EncodedContent) -> WasmEncodedContent {
+impl From<XmtpEncodedContent> for EncodedContent {
+  fn from(content: XmtpEncodedContent) -> EncodedContent {
     let r#type = content.r#type.map(|v| v.into());
 
-    WasmEncodedContent {
+    EncodedContent {
       r#type,
       parameters: serde_wasm_bindgen::to_value(&content.parameters).unwrap(),
       fallback: content.fallback,
@@ -96,11 +102,11 @@ impl From<EncodedContent> for WasmEncodedContent {
   }
 }
 
-impl From<WasmEncodedContent> for EncodedContent {
-  fn from(content: WasmEncodedContent) -> Self {
+impl From<EncodedContent> for XmtpEncodedContent {
+  fn from(content: EncodedContent) -> Self {
     let r#type = content.r#type.map(|v| v.into());
 
-    EncodedContent {
+    XmtpEncodedContent {
       r#type,
       parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap(),
       fallback: content.fallback,

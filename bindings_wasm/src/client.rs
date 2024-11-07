@@ -14,26 +14,24 @@ use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
-use crate::conversations::WasmConversations;
-use crate::signatures::WasmSignatureRequestType;
+use crate::conversations::Conversations;
+use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 
 #[wasm_bindgen]
-pub struct WasmClient {
+pub struct Client {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<WasmSignatureRequestType, SignatureRequest>>>,
+  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
 }
 
-impl WasmClient {
+impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
   }
 
-  pub fn signature_requests(
-    &self,
-  ) -> &Arc<Mutex<HashMap<WasmSignatureRequestType, SignatureRequest>>> {
+  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
     &self.signature_requests
   }
 }
@@ -46,7 +44,7 @@ pub async fn create_client(
   db_path: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
-) -> Result<WasmClient, JsError> {
+) -> Result<Client, JsError> {
   xmtp_mls::utils::wasm::init().await;
   let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
 
@@ -91,7 +89,7 @@ pub async fn create_client(
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
   };
 
-  Ok(WasmClient {
+  Ok(Client {
     account_address,
     inner_client: Arc::new(xmtp_client),
     signature_requests: Arc::new(Mutex::new(HashMap::new())),
@@ -99,7 +97,7 @@ pub async fn create_client(
 }
 
 #[wasm_bindgen]
-impl WasmClient {
+impl Client {
   #[wasm_bindgen(getter, js_name = accountAddress)]
   pub fn account_address(&self) -> String {
     self.account_address.clone()
@@ -142,7 +140,7 @@ impl WasmClient {
     let mut signature_requests = self.signature_requests.lock().await;
 
     let signature_request = signature_requests
-      .get(&WasmSignatureRequestType::CreateInbox)
+      .get(&SignatureRequestType::CreateInbox)
       .ok_or(JsError::new("No signature request found"))?;
 
     self
@@ -151,7 +149,7 @@ impl WasmClient {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    signature_requests.remove(&WasmSignatureRequestType::CreateInbox);
+    signature_requests.remove(&SignatureRequestType::CreateInbox);
 
     Ok(())
   }
@@ -192,7 +190,7 @@ impl WasmClient {
   }
 
   #[wasm_bindgen]
-  pub fn conversations(&self) -> WasmConversations {
-    WasmConversations::new(self.inner_client.clone())
+  pub fn conversations(&self) -> Conversations {
+    Conversations::new(self.inner_client.clone())
   }
 }
