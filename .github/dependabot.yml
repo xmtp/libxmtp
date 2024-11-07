@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Maintain dependencies for cargo
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    # Workflow files stored in the default location of `.github/workflows`. (You don't need to specify `/.github/workflows` for `directory`. You can use `directory: "/"`.)
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Maintain dependencies for yarn
+  - package-ecosystem: "yarn"
+    directory: "/bindings_wasm"
+    schedule:
+      interval: "weekly"
+  # Maintain dependencies for yarn
+  - package-ecosystem: "yarn"
+    directory: "/bindings_node"
+    schedule:
+      interval: "weekly"
