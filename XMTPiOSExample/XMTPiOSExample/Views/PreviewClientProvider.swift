@@ -42,9 +42,12 @@ struct PreviewClientProvider<Content: View>: View {
 			Text("Creating client…")
 				.task {
 					do {
-						var options = ClientOptions()
-						options.api.env = .local
-						options.api.isSecure = false
+						let key = try secureRandomBytes(count: 32)
+						Persistence().saveKeys(key)
+						Persistence().saveAddress(wallet.address)
+						var options = ClientOptions(dbEncryptionKey: key)
+						options.api.env = .dev
+						options.api.isSecure = true
 						let client = try await Client.create(account: wallet, options: options)
 						await MainActor.run {
 							self.client = client
@@ -64,5 +67,23 @@ struct PreviewClientProvider_Previews: PreviewProvider {
 				Text("Got our client: \(client.address)")
 			}
 		}
+	}
+}
+
+func secureRandomBytes(count: Int) throws -> Data {
+	var bytes = [UInt8](repeating: 0, count: count)
+
+	// Fill bytes with secure random data
+	let status = SecRandomCopyBytes(
+		kSecRandomDefault,
+		count,
+		&bytes
+	)
+
+	// A status of errSecSuccess indicates success
+	if status == errSecSuccess {
+		return Data(bytes)
+	} else {
+		fatalError("could not generate random bytes")
 	}
 }

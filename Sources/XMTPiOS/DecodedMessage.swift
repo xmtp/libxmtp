@@ -1,10 +1,3 @@
-//
-//  DecodedMessage.swift
-//
-//
-//  Created by Pat Nakajima on 11/28/22.
-//
-
 import Foundation
 
 /// Decrypted messages from a conversation.
@@ -22,7 +15,7 @@ public struct DecodedMessage: Sendable {
 	public var sent: Date
 
 	public var client: Client
-	
+
 	public var deliveryStatus: MessageDeliveryStatus = .published
 
 	init(
@@ -41,22 +34,22 @@ public struct DecodedMessage: Sendable {
 		self.senderAddress = senderAddress
 		self.sent = sent
 		self.deliveryStatus = deliveryStatus
-}
+	}
 
-    public init(
-			client: Client,
-			topic: String,
-			encodedContent: EncodedContent,
-			senderAddress: String,
-			sent: Date,
-			deliveryStatus: MessageDeliveryStatus = .published
-		) {
-			self.client = client
-			self.topic = topic
-			self.encodedContent = encodedContent
-			self.senderAddress = senderAddress
-			self.sent = sent
-			self.deliveryStatus = deliveryStatus
+	public init(
+		client: Client,
+		topic: String,
+		encodedContent: EncodedContent,
+		senderAddress: String,
+		sent: Date,
+		deliveryStatus: MessageDeliveryStatus = .published
+	) {
+		self.client = client
+		self.topic = topic
+		self.encodedContent = encodedContent
+		self.senderAddress = senderAddress
+		self.sent = sent
+		self.deliveryStatus = deliveryStatus
 	}
 
 	public func content<T>() throws -> T {
@@ -76,12 +69,17 @@ public struct DecodedMessage: Sendable {
 	}
 }
 
-public extension DecodedMessage {
-	static func preview(client: Client, topic: String, body: String, senderAddress: String, sent: Date) -> DecodedMessage {
+extension DecodedMessage {
+	public static func preview(
+		client: Client, topic: String, body: String, senderAddress: String,
+		sent: Date
+	) -> DecodedMessage {
 		// swiftlint:disable force_try
 		let encoded = try! TextCodec().encode(content: body, client: client)
 		// swiftlint:enable force_try
 
-		return DecodedMessage(client: client, topic: topic, encodedContent: encoded, senderAddress: senderAddress, sent: sent)
+		return DecodedMessage(
+			client: client, topic: topic, encodedContent: encoded,
+			senderAddress: senderAddress, sent: sent)
 	}
 }

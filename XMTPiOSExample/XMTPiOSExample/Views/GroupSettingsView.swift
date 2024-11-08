@@ -1,10 +1,3 @@
-//
-//  GroupSettingsView.swift
-//  XMTPiOSExample
-//
-//  Created by Pat Nakajima on 2/6/24.
-//
-
 import SwiftUI
 import XMTPiOS
 
@@ -42,9 +35,7 @@ struct GroupSettingsView: View {
 							if client.address.lowercased() == member.lowercased() {
 								Button("Leave", role: .destructive) {
 									Task {
-										try await group.removeMembers(addresses: [client.address])
-										coordinator.path = NavigationPath()
-										dismiss()
+										try? await leaveGroup()
 									}
 								}
 							} else {
@@ -61,34 +52,8 @@ struct GroupSettingsView: View {
 					HStack {
 						TextField("Add member", text: $newGroupMember)
 						Button("Add") {
-							if newGroupMember.lowercased() == client.address {
-								self.groupError = "You cannot add yourself to a group"
-								return
-							}
-
-							isAddingMember = true
-
 							Task {
-								do {
-									if try await self.client.canMessageV3(address: newGroupMember) {
-										try await group.addMembers(addresses: [newGroupMember])
-										try await syncGroupMembers()
-
-										await MainActor.run {
-											self.groupError = ""
-											self.newGroupMember = ""
-											self.isAddingMember = false
-										}
-									} else {
-										await MainActor.run {
-											self.groupError = "Member address not registered"
-											self.isAddingMember = false
-										}
-									}
-								} catch {
-									self.groupError = error.localizedDescription
-									self.isAddingMember = false
-								}
+								await addMember()
 							}
 						}
 						.opacity(isAddingMember ? 0 : 1)
@@ -100,7 +65,7 @@ struct GroupSettingsView: View {
 					}
 				}
 
-				if groupError != "" {
+				if !groupError.isEmpty {
 					Text(groupError)
 						.foregroundStyle(.red)
 						.font(.subheadline)
@@ -114,9 +79,48 @@ struct GroupSettingsView: View {
 	}
 
 	private func syncGroupMembers() async throws {
-		try? await group.sync()
-		try await MainActor.run {
-			self.groupMembers = try group.members.map(\.inboxId)
+		try await group.sync()
+		let inboxIds = try await group.members.map(\.inboxId)
+		await MainActor.run {
+			self.groupMembers = inboxIds
+		}
+	}
+
+	private func leaveGroup() async throws {
+		try await group.removeMembers(addresses: [client.address])
+		await MainActor.run {
+			coordinator.path = NavigationPath()
+			dismiss()
+		}
+	}
+
+	private func addMember() async {
+		guard newGroupMember.lowercased() != client.address else {
+			groupError = "You cannot add yourself to a group"
+			return
+		}
+
+		isAddingMember = true
+		do {
+			if try await client.canMessage(address: newGroupMember) {
+				try await group.addMembers(addresses: [newGroupMember])
+				try await syncGroupMembers()
+				await MainActor.run {
+					groupError = ""
+					newGroupMember = ""
+					isAddingMember = false
+				}
+			} else {
+				await MainActor.run {
+					groupError = "Member address not registered"
+					isAddingMember = false
+				}
+			}
+		} catch {
+			await MainActor.run {
+				groupError = error.localizedDescription
+				isAddingMember = false
+			}
 		}
 	}
 }

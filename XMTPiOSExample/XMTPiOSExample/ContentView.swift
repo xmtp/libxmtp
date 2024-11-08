@@ -31,8 +31,6 @@ struct ContentView: View {
 					.sheet(isPresented: $isConnectingWallet) {
 						LoginView(onConnected: { client in
 							do {
-								let keysData = try client.privateKeyBundle.serializedData()
-								Persistence().saveKeys(keysData)
 								self.status = .connected(client)
 							} catch {
 								print("Error setting up client: \(error)")
@@ -46,17 +44,18 @@ struct ContentView: View {
 					Task {
 						do {
 							if let keysData = Persistence().loadKeys() {
-								let keys = try PrivateKeyBundle(serializedData: keysData)
-								let client = try await Client.from(
-									bundle: keys,
-									options: .init(
-										api: .init(env: .local, isSecure: false),
-										codecs: [GroupUpdatedCodec()],
-										enableV3: true
+								if let address = Persistence().loadAddress() {
+									let client = try await Client.build(
+										address: address,
+										options: .init(
+											api: .init(env: .dev, isSecure: true),
+											codecs: [GroupUpdatedCodec()],
+											dbEncryptionKey: keysData
+										)
 									)
-								)
-								await MainActor.run {
-									self.status = .connected(client)
+									await MainActor.run {
+										self.status = .connected(client)
+									}
 								}
 							}
 						} catch {
@@ -92,17 +91,17 @@ struct ContentView: View {
 		Task {
 			do {
 				let wallet = try PrivateKey.generate()
+				let key = try secureRandomBytes(count: 32)
+				Persistence().saveKeys(key)
+				Persistence().saveAddress(wallet.address)
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(
-						api: .init(env: .local, isSecure: false, appVersion: "XMTPTest/v1.0.0"),
+						api: .init(env: .dev, isSecure: true, appVersion: "XMTPTest/v1.0.0"),
 						codecs: [GroupUpdatedCodec()],
-						enableV3: true
+						dbEncryptionKey: key
 					)
 				)
-
-				let keysData = try client.privateKeyBundle.serializedData()
-				Persistence().saveKeys(keysData)
 
 				await MainActor.run {
 					self.status = .connected(client)

@@ -43,7 +43,7 @@ struct ConversationDetailView: View {
 				}
 			}
 		}
-		.navigationTitle((try? conversation.peerAddress) ?? "")
+		.navigationTitle((try? conversation.id) ?? "")
 		.navigationBarTitleDisplayMode(.inline)
 	}
 

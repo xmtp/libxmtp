@@ -8,40 +8,9 @@
 import SwiftUI
 import XMTPiOS
 
-enum ConversationOrGroup: Hashable {
-	
-	case conversation(Conversation), group(XMTPiOS.Group)
-
-	static func == (lhs: ConversationOrGroup, rhs: ConversationOrGroup) throws -> Bool {
-		try lhs.id == rhs.id
-	}
-
-	func hash(into hasher: inout Hasher) throws {
-		try id.hash(into: &hasher)
-	}
-
-	var id: String {
-		switch self {
-		case .conversation(let conversation):
-			return conversation.topic
-		case .group(let group):
-			return group.id.toHexEncodedString()
-		}
-	}
-
-	var createdAt: Date {
-		switch self {
-		case .conversation(let conversation):
-			return conversation.createdAt
-		case .group(let group):
-			return group.createdAt
-		}
-	}
-}
-
 struct NewConversationView: View {
 	var client: XMTPiOS.Client
-	var onCreate: (ConversationOrGroup) -> Void
+	var onCreate: (XMTPiOS.Conversation) -> Void
 
 	@Environment(\.dismiss) var dismiss
 	@State private var recipientAddress: String = ""
@@ -84,7 +53,7 @@ struct NewConversationView: View {
 
 						Task {
 							do {
-								if try await self.client.canMessageV3(address: newGroupMember) {
+								if try await self.client.canMessage(address: newGroupMember) {
 									await MainActor.run {
 										self.groupError = ""
 										self.groupMembers.append(newGroupMember)
@@ -164,9 +133,9 @@ struct NewConversationView: View {
 				let conversation = try await client.conversations.newConversation(with: address)
 				await MainActor.run {
 					dismiss()
-					onCreate(.conversation(conversation))
+					onCreate(conversation)
 				}
-			} catch ConversationError.recipientNotOnNetwork {
+			} catch ConversationError.memberNotRegistered([address]) {
 				await MainActor.run {
 					self.error = "Recipient is not on the XMTP network."
 				}

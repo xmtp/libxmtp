@@ -1,10 +1,3 @@
-//
-//  ConversationListView.swift
-//  XMTPiOSExample
-//
-//  Created by Pat Nakajima on 12/2/22.
-//
-
 import SwiftUI
 import XMTPiOS
 
@@ -12,173 +5,149 @@ struct ConversationListView: View {
 	var client: XMTPiOS.Client
 
 	@EnvironmentObject var coordinator: EnvironmentCoordinator
-	@State private var conversations: [ConversationOrGroup] = []
+	@State private var conversations: [XMTPiOS.Conversation] = []
 	@State private var isShowingNewConversation = false
+
+	// Pre-sorted conversations to reduce complexity
+	private var sortedConversations: [XMTPiOS.Conversation] {
+		conversations.sorted(by: compareConversations)
+	}
 
 	var body: some View {
 		List {
-			ForEach(conversations.sorted(by: { $0.createdAt > $1.createdAt }), id: \.id) { item in
-				NavigationLink(value: item) {
-					HStack {
-						switch item {
-						case .conversation:
-							Image(systemName: "person.fill")
-								.resizable()
-								.scaledToFit()
-								.frame(width: 16, height: 16)
-								.foregroundStyle(.secondary)
-						case .group:
-							Image(systemName: "person.3.fill")
-								.resizable()
-								.scaledToFit()
-								.frame(width: 16, height: 16)
-								.foregroundStyle(.secondary)
-						}
-
-						VStack(alignment: .leading) {
-							switch item {
-							case .conversation(let conversation):
-								if let abbreviatedAddress = try? Util.abbreviate(address: conversation.peerAddress) {
-									Text(abbreviatedAddress)
-								} else {
-									Text("Unknown Address")
-										.foregroundStyle(.secondary)
-								}
-							case .group(let group):
-								let memberAddresses = try? group.members.map(\.inboxId).sorted().map { Util.abbreviate(address: $0) }
-								if let addresses = memberAddresses {
-									Text(addresses.joined(separator: ", "))
-								} else {
-									Text("Unknown Members")
-										.foregroundStyle(.secondary)
-								}
-							}
-
-							Text(item.createdAt.formatted())
-								.font(.caption)
-								.foregroundStyle(.secondary)
-						}
-					}
+			ForEach(sortedConversations, id: \.id) { item in
+				NavigationLink(destination: destinationView(for: item)) {
+					conversationRow(for: item)
 				}
-			}
-		}
-		.navigationDestination(for: ConversationOrGroup.self) { item in
-			switch item {
-			case .conversation(let conversation):
-				ConversationDetailView(client: client, conversation: conversation)
-			case .group(let group):
-				GroupDetailView(client: client, group: group)
 			}
 		}
 		.navigationTitle("Conversations")
-		.refreshable {
-			await loadConversations()
-		}
-		.task {
-			await loadConversations()
-		}
-		.task {
-			do {
-				for try await group in try await client.conversations.streamGroups() {
-					conversations.insert(.group(group), at: 0)
-
-					await add(conversations: [.group(group)])
-				}
-
-			} catch {
-				print("Error streaming groups: \(error)")
-			}
-		}
-		.task {
-			do {
-				for try await conversation in try await client.conversations.stream() {
-					conversations.insert(.conversation(conversation), at: 0)
-
-					await add(conversations: [.conversation(conversation)])
-				}
-
-			} catch {
-				print("Error streaming conversations: \(error)")
-			}
-		}
+		.refreshable { await loadConversations() }
+		.task { await loadConversations() }
+		.task { await startConversationStream() }
 		.toolbar {
 			ToolbarItem(placement: .navigationBarTrailing) {
-				Button(action: {
-					self.isShowingNewConversation = true
-				}) {
+				Button(action: { isShowingNewConversation = true }) {
 					Label("New Conversation", systemImage: "plus")
 				}
 			}
 		}
 		.sheet(isPresented: $isShowingNewConversation) {
 			NewConversationView(client: client) { conversationOrGroup in
-				switch conversationOrGroup {
-				case .conversation(let conversation):
-					conversations.insert(.conversation(conversation), at: 0)
-					coordinator.path.append(conversationOrGroup)
-				case .group(let group):
-					conversations.insert(.group(group), at: 0)
-					coordinator.path.append(conversationOrGroup)
-				}
+				addConversation(conversationOrGroup)
 			}
 		}
 	}
 
+	// Helper function to compare conversations by createdAt date
+	private func compareConversations(_ lhs: XMTPiOS.Conversation, _ rhs: XMTPiOS.Conversation) -> Bool {
+		return lhs.createdAt > rhs.createdAt
+	}
+
+	// Extracted row view for each conversation
+	@ViewBuilder
+	private func conversationRow(for item: XMTPiOS.Conversation) -> some View {
+		HStack {
+			conversationIcon(for: item)
+			VStack(alignment: .leading) {
+				Text(conversationDisplayName(for: item))
+					.foregroundStyle(.secondary)
+				Text(formattedDate(for: item.createdAt))
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+	}
+
+	// Extracted icon view for conversation type
+	@ViewBuilder
+	private func conversationIcon(for item: XMTPiOS.Conversation) -> some View {
+		switch item {
+		case .dm:
+			Image(systemName: "person.fill")
+				.resizable()
+				.scaledToFit()
+				.frame(width: 16, height: 16)
+				.foregroundStyle(.secondary)
+		case .group:
+			Image(systemName: "person.3.fill")
+				.resizable()
+				.scaledToFit()
+				.frame(width: 16, height: 16)
+				.foregroundStyle(.secondary)
+		}
+	}
+
+	// Helper function to provide a display name based on the conversation type
+	private func conversationDisplayName(for item: XMTPiOS.Conversation) -> String {
+		switch item {
+		case .dm(let conversation):
+			return (try? Util.abbreviate(address: conversation.peerInboxId)) ?? "Unknown Address"
+		case .group(let group):
+			return (try? group.groupName()) ?? "Group Name"
+		}
+	}
+
+	// Helper function to format the date
+	private func formattedDate(for date: Date) -> String {
+		return date.formatted()
+	}
+
+	// Define destination view based on conversation type
+	@ViewBuilder
+	private func destinationView(for item: XMTPiOS.Conversation) -> some View {
+		switch item {
+		case .dm(let conversation):
+			ConversationDetailView(client: client, conversation: .dm(conversation))
+		case .group(let group):
+			GroupDetailView(client: client, group: group)
+		}
+	}
+
+	// Async function to load conversations
 	func loadConversations() async {
 		do {
-			let conversations = try await client.conversations.list().map {
-				ConversationOrGroup.conversation($0)
-			}
-
 			try await client.conversations.sync()
-
-			let groups = try await client.conversations.groups().map {
-				ConversationOrGroup.group($0)
-			}
-
+			let loadedConversations = try await client.conversations.list()
 			await MainActor.run {
-				self.conversations = conversations + groups
+				self.conversations = loadedConversations
 			}
-
-			await add(conversations: conversations)
+			await add(conversations: loadedConversations)
 		} catch {
 			print("Error loading conversations: \(error)")
 		}
 	}
 
-	func add(conversations: [ConversationOrGroup]) async {
+	// Async function to stream conversations
+	func startConversationStream() async {
+		do {
+			for try await conversation in try await client.conversations.stream() {
+				await MainActor.run {
+					conversations.insert(conversation, at: 0)
+				}
+				await add(conversations: [conversation])
+			}
+		} catch {
+			print("Error streaming conversations: \(error)")
+		}
+	}
+
+	// Helper function to add a conversation or group
+	private func addConversation(_ conversationOrGroup: XMTPiOS.Conversation) {
+		switch conversationOrGroup {
+		case .dm(let conversation):
+			conversations.insert(.dm(conversation), at: 0)
+			coordinator.path.append(conversationOrGroup)
+		case .group(let group):
+			conversations.insert(.group(group), at: 0)
+			coordinator.path.append(conversationOrGroup)
+		}
+	}
+
+	func add(conversations: [XMTPiOS.Conversation]) async {
 		for conversationOrGroup in conversations {
 			switch conversationOrGroup {
-			case .conversation(let conversation):
-				// Ensure we're subscribed to push notifications on these conversations
-				do {
-					let hmacKeysResult = await client.conversations.getHmacKeys()
-					let hmacKeys = hmacKeysResult.hmacKeys
-
-					let result = hmacKeys[conversation.topic]?.values.map { hmacKey -> NotificationSubscriptionHmacKey in
-						NotificationSubscriptionHmacKey.with { sub_key in
-							sub_key.key = hmacKey.hmacKey
-							sub_key.thirtyDayPeriodsSinceEpoch = UInt32(hmacKey.thirtyDayPeriodsSinceEpoch)
-						}
-					}
-
-					let subscription = NotificationSubscription.with { sub in
-						sub.hmacKeys = result ?? []
-						sub.topic = conversation.topic
-						sub.isSilent = conversation.version == .v1
-					}
-					try await XMTPPush.shared.subscribeWithMetadata(subscriptions: [subscription])
-				} catch {
-					print("Error subscribing: \(error)")
-				}
-
-				do {
-					try Persistence().save(conversation: conversation)
-				} catch {
-					print("Error saving \(conversation.topic): \(error)")
-				}
-			case .group:
-				// Handle this in the future
+			case .dm, .group:
 				return
 			}
 		}
@@ -187,11 +156,9 @@ struct ConversationListView: View {
 
 struct ConversationListView_Previews: PreviewProvider {
 	static var previews: some View {
-		VStack {
-			PreviewClientProvider { client in
-				NavigationView {
-					ConversationListView(client: client)
-				}
+		PreviewClientProvider { client in
+			NavigationStack {
+				ConversationListView(client: client)
 			}
 		}
 	}

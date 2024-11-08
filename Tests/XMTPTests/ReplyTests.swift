@@ -1,23 +1,18 @@
-//
-//  ReplyTests.swift
-//
-//
-//  Created by Naomi Plasterer on 7/26/23.
-//
 import Foundation
-
 import XCTest
+
 @testable import XMTPiOS
 
 @available(iOS 15, *)
 class ReplyTests: XCTestCase {
 	func testCanUseReplyCodec() async throws {
-		let fixtures = await fixtures()
-		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
+		let fixtures = try await fixtures()
+		let conversation = try await fixtures.alixClient.conversations
+			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.aliceClient.register(codec: ReplyCodec())
+		fixtures.alixClient.register(codec: ReplyCodec())
 
-		try await conversation.send(text: "hey alice 2 bob")
+		_ = try await conversation.send(text: "hey alix 2 bo")
 
 		let messageToReply = try await conversation.messages()[0]
 
@@ -32,7 +27,7 @@ class ReplyTests: XCTestCase {
 			options: .init(contentType: ContentTypeReply)
 		)
 
-		let updatedMessages = try await conversation.messages()
+		_ = try await conversation.messages()
 
 		let message = try await conversation.messages()[0]
 		let content: Reply = try message.content()

@@ -28,17 +28,30 @@ struct Persistence {
 			return nil
 		}
 	}
+	
+	func saveAddress(_ address: String) {
+		keychain[string: "address"] = address
+	}
 
-	func load(conversationTopic: String) throws -> ConversationContainer? {
-		guard let data = try keychain.getData(key(topic: conversationTopic)) else {
+	func loadAddress() -> String? {
+		do {
+			return try keychain.getString("address")
+		} catch {
+			print("Error loading address data: \(error)")
 			return nil
 		}
-
-		let decoder = JSONDecoder()
-		let decoded = try decoder.decode(ConversationContainer.self, from: data)
-
-		return decoded
 	}
+
+//	func load(conversationTopic: String) throws -> ConversationContainer? {
+//		guard let data = try keychain.getData(key(topic: conversationTopic)) else {
+//			return nil
+//		}
+//
+//		let decoder = JSONDecoder()
+//		let decoded = try decoder.decode(ConversationContainer.self, from: data)
+//
+//		return decoded
+//	}
 
 	func save(conversation: Conversation) throws {
 //		keychain[data: key(topic: conversation.topic)] = try JSONEncoder().encode(conversation.encodedContainer)

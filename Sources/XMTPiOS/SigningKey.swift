@@ -56,28 +56,6 @@ extension SigningKey {
 	public var blockNumber: Int64? {
 		return nil
 	}
-
-	func createIdentity(_ identity: PrivateKey, preCreateIdentityCallback: PreEventCallback? = nil) async throws -> AuthorizedIdentity {
-		var slimKey = PublicKey()
-		slimKey.timestamp = UInt64(Date().millisecondsSinceEpoch)
-		slimKey.secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
-
-		try await preCreateIdentityCallback?()
-
-		let signatureText = Signature.createIdentityText(key: try slimKey.serializedData())
-		let signature = try await sign(message: signatureText)
-
-		let message = try Signature.ethPersonalMessage(signatureText)
-		let recoveredKey = try KeyUtilx.recoverPublicKeyKeccak256(from: signature.rawData, message: message)
-		let address = KeyUtilx.generateAddress(from: recoveredKey).toChecksumAddress()
-
-		var authorized = PublicKey()
-		authorized.secp256K1Uncompressed = slimKey.secp256K1Uncompressed
-		authorized.timestamp = slimKey.timestamp
-		authorized.signature = signature
-
-		return AuthorizedIdentity(address: address, authorized: authorized, identity: identity)
-	}
 	
 	public func sign(_ data: Data) async throws -> Signature {
 		throw NSError(domain: "NotImplemented", code: 1, userInfo: [NSLocalizedDescriptionKey: "sign(Data) not implemented."])

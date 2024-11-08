@@ -161,12 +161,15 @@ struct LoginView: View {
 
 				Task(priority: .high) {
 					let signer = Signer(session: session, account: account)
+					let key = try secureRandomBytes(count: 32)
+					Persistence().saveKeys(key)
+					Persistence().saveAddress(signer.address)
 					let client = try await Client.create(
 						account: signer,
 						options: .init(
 							api: .init(env: .local, isSecure: false),
 							codecs: [GroupUpdatedCodec()],
-							enableV3: true
+							dbEncryptionKey: key
 						)
 					)
 
