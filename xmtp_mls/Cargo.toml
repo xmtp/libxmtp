@@ -138,7 +138,7 @@ ctor.workspace = true
 ethers = { workspace = true, features = ["openssl"] }
 mockito = "1.4.0"
 openmls = { workspace = true }
-tempfile = "3.5.0"
+tempfile = "3.14.0"
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
