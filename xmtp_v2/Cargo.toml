@@ -11,7 +11,7 @@ ecdsa = "0.15.1"
 generic-array = "0.14.6"
 hex = { workspace = true }
 hkdf = "0.12.3"
-k256 = { version = "0.12.0", features = ["ecdh"] }
+k256 = { version = "0.13.4", features = ["ecdh"] }
 rand = { workspace = true }
 sha2 = "0.10.6"
 sha3 = "0.10.6"

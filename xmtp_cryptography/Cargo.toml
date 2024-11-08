@@ -13,7 +13,7 @@ openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
 curve25519-dalek = "4"
 ecdsa = "0.16.9"
-k256 = { version = "0.13.3", features = ["ecdh"] }
+k256 = { version = "0.13.4", features = ["ecdh"] }
 rand = { workspace = true }
 rand_chacha = "0.3.1"
 tracing.workspace = true
