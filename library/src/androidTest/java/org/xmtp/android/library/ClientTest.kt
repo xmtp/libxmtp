@@ -55,7 +55,7 @@ class ClientTest {
             appContext = context,
             dbEncryptionKey = key
         )
-        val inboxId = runBlocking { Client.getOrCreateInboxId(options, fakeWallet.address) }
+        val inboxId = runBlocking { Client.getOrCreateInboxId(options.api, fakeWallet.address) }
         val client = runBlocking {
             Client().create(
                 account = fakeWallet,

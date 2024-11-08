@@ -112,6 +112,13 @@ sealed class Conversation {
         }
     }
 
+    suspend fun publishMessages() {
+        return when (this) {
+            is Group -> group.publishMessages()
+            is Dm -> dm.publishMessages()
+        }
+    }
+
     val client: Client
         get() {
             return when (this) {

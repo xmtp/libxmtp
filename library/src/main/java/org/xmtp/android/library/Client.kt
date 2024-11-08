@@ -58,11 +58,11 @@ class Client() {
             registry
         }
 
-        suspend fun getOrCreateInboxId(options: ClientOptions, address: String): String {
+        suspend fun getOrCreateInboxId(environment: ClientOptions.Api, address: String): String {
             var inboxId = getInboxIdForAddress(
                 logger = XMTPLogger(),
-                host = options.api.env.getUrl(),
-                isSecure = options.api.isSecure,
+                host = environment.env.getUrl(),
+                isSecure = environment.isSecure,
                 accountAddress = address
             )
             if (inboxId.isNullOrBlank()) {
@@ -101,7 +101,7 @@ class Client() {
         signingKey: SigningKey? = null,
     ): Client {
         val accountAddress = address.lowercase()
-        val inboxId = getOrCreateInboxId(clientOptions, accountAddress)
+        val inboxId = getOrCreateInboxId(clientOptions.api, accountAddress)
 
         val (ffiClient, dbPath) = createFfiClient(
             accountAddress,

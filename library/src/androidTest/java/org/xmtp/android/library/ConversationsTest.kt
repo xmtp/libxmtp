@@ -190,8 +190,6 @@ class ConversationsTest {
             boClient.conversations.sync()
         }
         val boDm = runBlocking { boClient.findConversation(dm.id) }
-        alixClient.dropLocalDatabaseConnection()
-        alixClient.deleteLocalDatabase()
 
         val alixClient2 = runBlocking {
             Client().create(
@@ -199,7 +197,8 @@ class ConversationsTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
-                    dbEncryptionKey = key
+                    dbEncryptionKey = key,
+                    dbDirectory = context.filesDir.absolutePath.toString()
                 )
             )
         }
