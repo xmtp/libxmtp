@@ -75,6 +75,7 @@ pub fn decrypt_welcome(
         // With the hash reference we can read the key package.
         let key_package: Option<KeyPackageBundle> = provider.storage().key_package(&hash_ref)?;
 
+        // MKYSEL Marker - storage key_package is empty!
         if let Some(kp) = key_package {
             return Ok(decrypt_with_label(
                 kp.init_private_key(),
