@@ -135,14 +135,14 @@ class SmartContractWalletTest {
         )
         assertEquals(boGroup.messages().size, 3)
 
-        runBlocking { davonSCWClient.conversations.syncConversations() }
+        runBlocking { davonSCWClient.conversations.sync() }
         val davonGroup = runBlocking { davonSCWClient.conversations.listGroups().last() }
         runBlocking { davonGroup.sync() }
         assertEquals(davonGroup.messages().size, 2)
         assertEquals(davonGroup.messages().first().body, "gm")
         runBlocking { davonGroup.send("from davon") }
 
-        runBlocking { eriSCWClient.conversations.syncConversations() }
+        runBlocking { eriSCWClient.conversations.sync() }
         val eriGroup = runBlocking { davonSCWClient.findGroup(davonGroup.id) }
         runBlocking { eriGroup?.sync() }
         assertEquals(eriGroup?.messages()?.size, 3)
@@ -282,7 +282,7 @@ class SmartContractWalletTest {
         }
         val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCW.walletAddress) }
         val dm2 = runBlocking { boV3Client.conversations.findOrCreateDm(davonSCW.walletAddress) }
-        runBlocking { davonSCWClient.conversations.syncConversations() }
+        runBlocking { davonSCWClient.conversations.sync() }
 
         val allMessages = mutableListOf<DecodedMessage>()
 

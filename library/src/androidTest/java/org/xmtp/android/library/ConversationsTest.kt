@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -12,6 +13,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import java.security.SecureRandom
 
 @RunWith(AndroidJUnit4::class)
 class ConversationsTest {
@@ -61,7 +63,7 @@ class ConversationsTest {
         assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
         assertEquals(runBlocking { boClient.conversations.listGroups().size }, 1)
 
-        runBlocking { caroClient.conversations.syncConversations() }
+        runBlocking { caroClient.conversations.sync() }
         assertEquals(
             runBlocking { caroClient.conversations.list().size },
             2
@@ -116,7 +118,7 @@ class ConversationsTest {
             runBlocking { caroClient.conversations.newGroup(listOf(bo.walletAddress)) }
         val conversation =
             runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
-        runBlocking { boClient.conversations.syncConversations() }
+        runBlocking { boClient.conversations.sync() }
 
         val allMessages = mutableListOf<DecodedMessage>()
 
@@ -163,5 +165,69 @@ class ConversationsTest {
         Thread.sleep(2000)
         assertEquals(2, allMessages.size)
         job.cancel()
+    }
+
+    @Test
+    fun testSyncConsent() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+
+        val alixClient = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+        val dm = runBlocking { alixClient.conversations.findOrCreateDm(bo.walletAddress) }
+        runBlocking {
+            dm.updateConsentState(ConsentState.DENIED)
+            assertEquals(dm.consentState(), ConsentState.DENIED)
+            boClient.conversations.sync()
+        }
+        val boDm = runBlocking { boClient.findConversation(dm.id) }
+        alixClient.dropLocalDatabaseConnection()
+        alixClient.deleteLocalDatabase()
+
+        val alixClient2 = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+
+        val state = runBlocking { alixClient2.inboxState(true) }
+        assertEquals(state.installations.size, 2)
+
+        runBlocking {
+            boClient.conversations.sync()
+            boDm?.sync()
+            alixClient2.conversations.sync()
+            val dm2 = alixClient2.findConversation(dm.id)!!
+            alixClient2.syncConsent()
+            assertEquals(dm2.consentState(), ConsentState.DENIED)
+            alixClient2.preferences.consentList.setConsentState(
+                listOf(
+                    ConsentListEntry(
+                        dm2.id,
+                        EntryType.CONVERSATION_ID,
+                        ConsentState.ALLOWED
+                    )
+                )
+            )
+            assertEquals(
+                alixClient2.preferences.consentList.conversationState(dm2.id),
+                ConsentState.ALLOWED
+            )
+            assertEquals(dm2.consentState(), ConsentState.ALLOWED)
+        }
     }
 }

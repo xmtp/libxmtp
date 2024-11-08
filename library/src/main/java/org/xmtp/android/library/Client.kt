@@ -7,6 +7,7 @@ import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.XMTPLogger
 import org.xmtp.android.library.messages.rawData
+import uniffi.xmtpv3.FfiDeviceSyncKind
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.generateInboxId
@@ -207,20 +208,24 @@ class Client() {
     }
 
     fun findGroup(groupId: String): Group? {
-        try {
-            return Group(this, ffiClient.conversation(groupId.hexToByteArray()))
+        return try {
+            Group(this, ffiClient.conversation(groupId.hexToByteArray()))
         } catch (e: Exception) {
-            return null
+            null
         }
     }
 
     fun findConversation(conversationId: String): Conversation? {
-        val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-        return if (conversation.groupMetadata().conversationType() == "dm") {
-            Conversation.Dm(Dm(this, conversation))
-        } else if (conversation.groupMetadata().conversationType() == "group") {
-            Conversation.Group(Group(this, conversation))
-        } else {
+        return try {
+            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
+            if (conversation.groupMetadata().conversationType() == "dm") {
+                Conversation.Dm(Dm(this, conversation))
+            } else if (conversation.groupMetadata().conversationType() == "group") {
+                Conversation.Group(Group(this, conversation))
+            } else {
+                null
+            }
+        } catch (e: Exception) {
             null
         }
     }
@@ -229,12 +234,16 @@ class Client() {
         val regex = """/xmtp/mls/1/g-(.*?)/proto""".toRegex()
         val matchResult = regex.find(topic)
         val conversationId = matchResult?.groupValues?.get(1) ?: ""
-        val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-        return if (conversation.groupMetadata().conversationType() == "dm") {
-            Conversation.Dm(Dm(this, conversation))
-        } else if (conversation.groupMetadata().conversationType() == "group") {
-            Conversation.Group(Group(this, conversation))
-        } else {
+        return try {
+            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
+            if (conversation.groupMetadata().conversationType() == "dm") {
+                Conversation.Dm(Dm(this, conversation))
+            } else if (conversation.groupMetadata().conversationType() == "group") {
+                Conversation.Group(Group(this, conversation))
+            } else {
+                null
+            }
+        } catch (e: Exception) {
             null
         }
     }
@@ -242,10 +251,10 @@ class Client() {
     suspend fun findDm(address: String): Dm? {
         val inboxId =
             inboxIdFromAddress(address.lowercase()) ?: throw XMTPException("No inboxId present")
-        try {
-            return Dm(this, ffiClient.dmConversation(inboxId))
+        return try {
+            Dm(this, ffiClient.dmConversation(inboxId))
         } catch (e: Exception) {
-            return null
+            null
         }
     }
 
@@ -282,7 +291,11 @@ class Client() {
     }
 
     suspend fun requestMessageHistorySync() {
-        ffiClient.requestHistorySync()
+        ffiClient.sendSyncRequest(FfiDeviceSyncKind.MESSAGES)
+    }
+
+    suspend fun syncConsent() {
+        ffiClient.sendSyncRequest(FfiDeviceSyncKind.CONSENT)
     }
 
     suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
