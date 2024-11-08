@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    groups::scoped_client::ScopedGroupClient,
     storage::consent_record::{ConsentState, ConsentType},
     Client, XmtpApi,
 };
