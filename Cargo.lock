@@ -7114,7 +7114,7 @@ name = "xmtp_v2"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "ecdsa 0.15.1",
+ "ecdsa 0.16.9",
  "generic-array",
  "getrandom",
  "hex",
