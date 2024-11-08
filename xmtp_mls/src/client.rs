@@ -55,7 +55,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{EventError, LocalEvents, SafeBroadcast},
+    subscriptions::{BufferableBroadcast, EventError, LocalEvents},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -226,7 +226,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: Arc<SafeBroadcast<Self>>,
+    pub(crate) local_events: Arc<BufferableBroadcast<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 }
@@ -302,7 +302,7 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
-        local_events: Arc<SafeBroadcast<Self>>,
+        local_events: Arc<BufferableBroadcast<Self>>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,

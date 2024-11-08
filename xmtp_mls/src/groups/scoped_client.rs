@@ -8,7 +8,7 @@ use crate::{
     identity_updates::{InstallationDiff, InstallationDiffError},
     intents::Intents,
     storage::{DbConnection, EncryptedMessageStore},
-    subscriptions::SafeBroadcast,
+    subscriptions::BufferableBroadcast,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -28,7 +28,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient>;
+    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
@@ -90,7 +90,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient>;
+    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
@@ -152,7 +152,7 @@ where
         &self.api_client
     }
 
-    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
+    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
         self.local_events.as_ref()
     }
 
@@ -235,7 +235,7 @@ where
         (**self).api()
     }
 
-    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
+    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
         (**self).local_events()
     }
 
@@ -329,7 +329,7 @@ where
         (**self).store()
     }
 
-    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
+    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
         (**self).local_events()
     }
 

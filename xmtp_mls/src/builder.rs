@@ -14,7 +14,7 @@ use crate::{
     identity_updates::load_identity_updates,
     retry::Retry,
     storage::EncryptedMessageStore,
-    subscriptions::SafeBroadcast,
+    subscriptions::BufferableBroadcast,
     StorageError, XmtpApi,
 };
 
@@ -202,7 +202,7 @@ where
     )
     .await?;
 
-    let local_events = SafeBroadcast::new(32).with_buffer().await;
+    let local_events = BufferableBroadcast::new(32).with_buffer().await;
 
     Ok(Client::new(
         api_client_wrapper,

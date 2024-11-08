@@ -58,13 +58,13 @@ pub enum LocalEvents<C> {
 
 /// This struct puts a buffer channel in front of the broadcast channel,
 /// which has a limited capacity, so that we don't lose messages.
-pub struct SafeBroadcast<C> {
+pub struct BufferableBroadcast<C> {
     buffer: Option<UnboundedSender<LocalEvents<C>>>,
     broadcast: Sender<LocalEvents<C>>,
     capacity: usize,
 }
 
-impl<C> SafeBroadcast<C>
+impl<C> BufferableBroadcast<C>
 where
     C: Clone + Send + Sync + 'static,
 {
@@ -99,7 +99,7 @@ where
     }
 }
 
-impl<C: Clone> SafeBroadcast<C> {
+impl<C: Clone> BufferableBroadcast<C> {
     pub fn new(capacity: usize) -> Self {
         let (broadcast, _) = broadcast::channel(capacity);
 
@@ -111,7 +111,7 @@ impl<C: Clone> SafeBroadcast<C> {
     }
 }
 
-impl<C> SafeBroadcast<C> {
+impl<C> BufferableBroadcast<C> {
     pub fn subscribe(&self) -> Receiver<LocalEvents<C>> {
         self.broadcast.subscribe()
     }
