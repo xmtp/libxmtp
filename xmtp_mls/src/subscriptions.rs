@@ -80,6 +80,9 @@ where
                     let start = Instant::now();
                     while broadcast.len() >= capacity {
                         if start.elapsed() > Duration::from_millis(200) {
+                            tracing::warn!(
+                                "Buffered event waited too long to be added to queue. Overwriting."
+                            );
                             break;
                         }
                         crate::sleep(Duration::from_millis(20)).await;
