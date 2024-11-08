@@ -34,6 +34,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessage, WelcomeMessage,
 };
 
+use crate::storage::wallet_addresses::WalletEntry;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -58,7 +59,7 @@ use crate::{
     subscriptions::{BufferableBroadcast, EventError, LocalEvents},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch, XmtpApi,
+    Fetch, Store, XmtpApi,
 };
 
 /// Enum representing the network the Client is connected to
@@ -378,13 +379,46 @@ where
         addresses: &[String],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let sanitized_addresses = sanitize_evm_addresses(addresses)?;
-        let mut results = self
-            .api_client
-            .get_inbox_ids(sanitized_addresses.clone())
-            .await?;
-        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+        let conn = self.store().conn()?;
+
+        let local_results: Vec<WalletEntry> =
+            conn.fetch_wallets_list_with_key(&sanitized_addresses)?;
+
+        let mut results: HashMap<String, String> = local_results
             .into_iter()
-            .map(|address| results.remove(&address))
+            .map(|entry| (entry.wallet_address, entry.inbox_id))
+            .collect();
+
+        let missing_addresses: Vec<String> = sanitized_addresses
+            .iter()
+            .filter(|address| !results.contains_key(*address))
+            .cloned()
+            .collect();
+
+        if missing_addresses.is_empty() {
+            let inbox_ids: Vec<Option<String>> = sanitized_addresses
+                .iter()
+                .map(|address| results.remove(address))
+                .collect();
+            return Ok(inbox_ids);
+        }
+
+        let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
+
+        for (address, inbox_id) in web_results {
+            results
+                .insert(address.clone(), inbox_id.clone())
+                .unwrap_or_default();
+            let new_entry = WalletEntry {
+                inbox_id: InboxId::from(inbox_id),
+                wallet_address: address,
+            };
+            new_entry.store(&conn).ok();
+        }
+
+        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+            .iter()
+            .map(|address| results.remove(address))
             .collect();
 
         Ok(inbox_ids)

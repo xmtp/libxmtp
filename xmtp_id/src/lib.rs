@@ -34,6 +34,8 @@ pub enum IdentityError {
 /// The global InboxID Type.
 pub type InboxId = String;
 
+pub type WalletAddress = String;
+
 // Check if the given address is a smart contract by checking if there is code at the given address.
 pub async fn is_smart_contract(
     address: Address,
