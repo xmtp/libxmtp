@@ -463,15 +463,20 @@ where
                             }
                         }
                         Some(MessageType::ConsentUpdate(update)) => {
+                            // Ignore this installation's sync messages
+                            if sent_from_this_installation {
+                                return Ok(());
+                            }
+
                             tracing::info!(
-                                "Streamed consent update: {:?} {} updated to {:?}.",
+                                "Incoming streamed consent update: {:?} {} updated to {:?}.",
                                 update.entity_type(),
                                 update.entity,
                                 update.state()
                             );
-                            self.client
-                                .store()
-                                .conn()?
+
+                            provider
+                                .conn_ref()
                                 .insert_or_replace_consent_records(&[update.try_into()?])?;
                         }
                         _ => {

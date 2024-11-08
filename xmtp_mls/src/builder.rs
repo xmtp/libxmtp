@@ -9,10 +9,12 @@ use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerif
 use crate::{
     api::ApiClientWrapper,
     client::Client,
+    groups::scoped_client::LocalScopedGroupClient,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     retry::Retry,
     storage::EncryptedMessageStore,
+    subscriptions::SafeBroadcast,
     StorageError, XmtpApi,
 };
 
@@ -200,12 +202,15 @@ where
     )
     .await?;
 
+    let local_events = SafeBroadcast::new(32).with_buffer().await;
+
     Ok(Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
+        Arc::new(local_events),
     ))
 }
 

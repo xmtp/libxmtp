@@ -1,8 +1,16 @@
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::{
+        broadcast::{self, Receiver, Sender},
+        mpsc::{unbounded_channel, UnboundedSender},
+        oneshot,
+    },
     task::JoinHandle,
 };
 use tokio_stream::wrappers::BroadcastStream;
@@ -22,6 +30,13 @@ use crate::{
     },
     Client, XmtpApi,
 };
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("Unable to send event: {0}")]
+    Send(String),
+}
 
 #[derive(Debug)]
 /// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
@@ -39,6 +54,79 @@ pub enum LocalEvents<C> {
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
     ConsentUpdate(StoredConsentRecord),
+}
+
+/// This struct puts a buffer channel in front of the broadcast channel,
+/// which has a limited capacity, so that we don't lose messages.
+pub struct SafeBroadcast<C> {
+    buffer: Option<UnboundedSender<LocalEvents<C>>>,
+    broadcast: Sender<LocalEvents<C>>,
+    capacity: usize,
+}
+
+impl<C> SafeBroadcast<C>
+where
+    C: Clone + Send + Sync + 'static,
+{
+    pub async fn with_buffer(mut self) -> Self {
+        let (buffer, mut buffer_rx) = unbounded_channel();
+        tokio::spawn({
+            let broadcast = self.broadcast.clone();
+            let capacity = self.capacity;
+
+            async move {
+                loop {
+                    while let Some(evt) = buffer_rx.blocking_recv() {
+                        // spin lock while broadcast channel is full with a timeout
+                        let start = Instant::now();
+                        while broadcast.len() >= capacity {
+                            if start.elapsed() > Duration::from_millis(200) {
+                                break;
+                            }
+                            crate::sleep(Duration::from_millis(20)).await;
+                        }
+
+                        if let Err(err) = broadcast.send(evt) {
+                            tracing::error!("Broadcast error: {}", err.to_string());
+                        }
+                    }
+                }
+            }
+        });
+
+        self.buffer = Some(buffer);
+        self
+    }
+}
+
+impl<C: Clone> SafeBroadcast<C> {
+    pub fn new(capacity: usize) -> Self {
+        let (broadcast, _) = broadcast::channel(capacity);
+
+        Self {
+            buffer: None,
+            broadcast,
+            capacity,
+        }
+    }
+}
+
+impl<C> SafeBroadcast<C> {
+    pub fn subscribe(&self) -> Receiver<LocalEvents<C>> {
+        self.broadcast.subscribe()
+    }
+
+    pub fn send(&self, evt: LocalEvents<C>) -> Result<(), EventError> {
+        let Some(buffer) = &self.buffer else {
+            self.broadcast.send(evt);
+
+            return Ok(());
+        };
+
+        buffer.send(evt);
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
@@ -9,7 +8,7 @@ use crate::{
     identity_updates::{InstallationDiff, InstallationDiffError},
     intents::Intents,
     storage::{DbConnection, EncryptedMessageStore},
-    subscriptions::LocalEvents,
+    subscriptions::SafeBroadcast,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -29,7 +28,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
@@ -91,7 +90,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient>;
 
     fn inbox_id(&self) -> String {
         self.context().inbox_id()
@@ -153,8 +152,8 @@ where
         &self.api_client
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
-        &self.local_events
+    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
+        self.local_events.as_ref()
     }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
@@ -236,7 +235,7 @@ where
         (**self).api()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
         (**self).local_events()
     }
 
@@ -330,7 +329,7 @@ where
         (**self).store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &SafeBroadcast<impl ScopedGroupClient> {
         (**self).local_events()
     }
 

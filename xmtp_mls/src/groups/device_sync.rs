@@ -1,6 +1,7 @@
 use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::groups::scoped_client::LocalScopedGroupClient;
 use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
@@ -553,8 +554,9 @@ where
                     {
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                            self.stream_consent_update(provider, &existing_consent_record)
-                                .await?;
+                            self.local_events()
+                                .send(LocalEvents::ConsentUpdate(existing_consent_record))
+                                .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
                         }
                     }
                 }

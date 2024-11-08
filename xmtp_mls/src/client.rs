@@ -38,8 +38,9 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-        GroupMetadataOptions, IntentError, MlsGroup,
+        group_permissions::PolicySet, scoped_client::LocalScopedGroupClient,
+        validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
+        MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -55,7 +56,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::LocalEvents,
+    subscriptions::{LocalEvents, SafeBroadcast},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -224,7 +225,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
+    pub(crate) local_events: Arc<SafeBroadcast<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 }
@@ -300,6 +301,7 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
+        local_events: Arc<SafeBroadcast<Self>>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -312,13 +314,12 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
-        let (tx, _) = broadcast::channel(32);
 
         Self {
             api_client: api_client.into(),
             context,
             history_sync_url,
-            local_events: tx,
+            local_events,
             scw_verifier: scw_verifier.into(),
             intents,
         }
