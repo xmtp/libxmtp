@@ -18,7 +18,6 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
-use tokio::sync::broadcast;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
@@ -56,7 +55,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{LocalEvents, SafeBroadcast},
+    subscriptions::{EventError, LocalEvents, SafeBroadcast},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, XmtpApi,
@@ -106,6 +105,8 @@ pub enum ClientError {
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
     Group(Box<GroupError>),
+    #[error(transparent)]
+    LocalEvent(#[from] EventError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -469,6 +470,14 @@ where
 
         conn.insert_or_replace_consent_records(records)?;
         conn.insert_or_replace_consent_records(&new_records)?;
+
+        let local_events = self.local_events();
+        for record in records {
+            local_events.send(LocalEvents::ConsentUpdate(record.clone()))?;
+        }
+        for record in new_records {
+            local_events.send(LocalEvents::ConsentUpdate(record))?;
+        }
 
         Ok(())
     }

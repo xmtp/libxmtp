@@ -90,7 +90,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
     },
-    subscriptions::LocalEvents,
+    subscriptions::{EventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
@@ -146,6 +146,8 @@ pub enum GroupError {
     Diesel(#[from] diesel::result::Error),
     #[error(transparent)]
     AddressValidation(#[from] AddressValidationError),
+    #[error(transparent)]
+    LocalEvent(#[from] EventError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]
@@ -1033,8 +1035,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Dispatch an update event so it can be synced across devices
         self.client
             .local_events()
-            .send(LocalEvents::ConsentUpdate(consent_record))
-            .map_err(|e| GroupError::Generic(e.to_string()))?;
+            .send(LocalEvents::ConsentUpdate(consent_record))?;
 
         Ok(())
     }

@@ -118,12 +118,16 @@ impl<C> SafeBroadcast<C> {
 
     pub fn send(&self, evt: LocalEvents<C>) -> Result<(), EventError> {
         let Some(buffer) = &self.buffer else {
-            self.broadcast.send(evt);
+            self.broadcast
+                .send(evt)
+                .map_err(|e| EventError::Send(e.to_string()))?;
 
             return Ok(());
         };
 
-        buffer.send(evt);
+        buffer
+            .send(evt)
+            .map_err(|e| EventError::Send(e.to_string()))?;
 
         Ok(())
     }
