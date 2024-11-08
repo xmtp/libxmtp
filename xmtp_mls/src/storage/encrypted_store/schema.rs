@@ -107,6 +107,13 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    wallet_addresses (wallet_address) {
+        inbox_id -> Text,
+        wallet_address -> Text,
+    }
+}
+
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 
@@ -122,4 +129,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_store,
     openmls_key_value,
     refresh_state,
+    wallet_addresses,
 );
