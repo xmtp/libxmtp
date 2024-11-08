@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 aes-gcm = "0.10.1"
 ecdsa = "0.15.1"
-generic-array = "0.14.6"
+generic-array = "1.1.0"
 hex = { workspace = true }
 hkdf = "0.12.3"
 k256 = { version = "0.12.0", features = ["ecdh"] }
