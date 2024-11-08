@@ -31,7 +31,10 @@ pub enum IdentityError {
     Signing(#[from] xmtp_cryptography::SignerError),
 }
 
-/// The global InboxID Type.
+/// The global InboxID Reference Type.
+pub type InboxIdRef<'a> = &'a str;
+
+/// Global InboxID Owned Type.
 pub type InboxId = String;
 
 pub type WalletAddress = String;

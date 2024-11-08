@@ -6,9 +6,10 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc, Once};
+use std::str::FromStr;
+use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
@@ -20,7 +21,7 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
-static LOGGER_INIT: Once = Once::new();
+static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
 pub struct Client {
@@ -37,6 +38,76 @@ impl Client {
   pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
     &self.signature_requests
   }
+}
+
+#[napi(string_enum)]
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+pub enum Level {
+  off,
+  error,
+  warn,
+  info,
+  debug,
+  trace,
+}
+
+impl std::fmt::Display for Level {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    use Level::*;
+    let s = match self {
+      off => "off",
+      error => "error",
+      warn => "warn",
+      info => "info",
+      debug => "debug",
+      trace => "trace",
+    };
+    write!(f, "{}", s)
+  }
+}
+
+/// Specify options for the logger
+#[napi(object)]
+#[derive(Default)]
+pub struct LogOptions {
+  /// enable structured JSON logging to stdout.Useful for third-party log viewers
+  /// an option so that it does not require being specified in js object.
+  pub structured: Option<bool>,
+  /// Filter logs by level
+  pub level: Option<Level>,
+}
+
+fn init_logging(options: LogOptions) -> Result<()> {
+  LOGGER_INIT
+    .get_or_init(|| {
+      let filter = if let Some(f) = options.level {
+        tracing_subscriber::filter::LevelFilter::from_str(&f.to_string())
+      } else {
+        Ok(tracing_subscriber::filter::LevelFilter::INFO)
+      }
+      .map_err(ErrorWrapper::from)?;
+
+      if options.structured.unwrap_or_default() {
+        let fmt = tracing_subscriber::fmt::layer()
+          .json()
+          .flatten_event(true)
+          .with_level(true)
+          .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
+          .with_target(true);
+
+        tracing_subscriber::registry().with(filter).with(fmt).init();
+      } else {
+        tracing_subscriber::registry()
+          .with(fmt::layer())
+          .with(filter)
+          .init();
+      }
+      Ok(())
+    })
+    .clone()
+    .map_err(ErrorWrapper::from)?;
+  Ok(())
 }
 
 /**
@@ -56,20 +127,9 @@ pub async fn create_client(
   account_address: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
-  #[napi(ts_arg_type = "\"debug\" | \"info\" | \"warn\" | \"error\" | \"off\" | undefined | null")]
-  env_filter: Option<String>,
+  log_options: Option<LogOptions>,
 ) -> Result<Client> {
-  LOGGER_INIT.call_once(|| {
-    let filter = EnvFilter::builder()
-      .with_regex(false)
-      .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-      .parse_lossy(env_filter.unwrap_or_default());
-
-    tracing_subscriber::registry()
-      .with(fmt::layer())
-      .with(filter)
-      .init();
-  });
+  init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
@@ -127,7 +187,7 @@ pub async fn create_client(
 impl Client {
   #[napi]
   pub fn inbox_id(&self) -> String {
-    self.inner_client.inbox_id()
+    self.inner_client.inbox_id().to_string()
   }
 
   #[napi]

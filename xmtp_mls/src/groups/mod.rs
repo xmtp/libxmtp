@@ -7,7 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
-pub(super) mod node_sync;
+pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
@@ -58,7 +58,7 @@ use self::{
 };
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::InboxId;
+use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -313,9 +313,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let provider = XmtpOpenMlsProvider::new(conn);
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Conversation)?;
+            build_protected_metadata_extension(creator_inbox_id, Purpose::Conversation)?;
         let mutable_metadata = build_mutable_metadata_extension_default(creator_inbox_id, opts)?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
             protected_metadata,
@@ -339,7 +339,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id.clone(),
             now_ns(),
             membership_state,
-            context.inbox_id(),
+            context.inbox_id().to_string(),
             None,
         );
 
@@ -390,7 +390,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id.clone(),
             now_ns(),
             membership_state,
-            context.inbox_id(),
+            context.inbox_id().to_string(),
             Some(dm_target_inbox_id),
         );
 
@@ -513,13 +513,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
-        let creator_inbox_id = context.inbox_id() as String;
+        let creator_inbox_id = context.inbox_id();
         let provider = client.mls_provider()?;
 
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Sync)?;
+            build_protected_metadata_extension(creator_inbox_id, Purpose::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
-            creator_inbox_id.clone(),
+            creator_inbox_id,
             GroupMetadataOptions::default(),
         )?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
@@ -643,7 +643,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
             sender_installation_id: self.context().installation_public_key(),
-            sender_inbox_id: self.context().inbox_id(),
+            sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
         };
         group_message.store(conn)?;
@@ -705,10 +705,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id(&self, inbox_ids: &[String]) -> Result<(), GroupError> {
+    pub async fn add_members_by_inbox_id<S: AsRef<str>>(
+        &self,
+        inbox_ids: &[S],
+    ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
+        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
-            .get_membership_update_intent(&provider, inbox_ids, &[])
+            .get_membership_update_intent(&provider, ids.as_slice(), &[])
             .await?;
 
         // TODO:nm this isn't the best test for whether the request is valid
@@ -743,8 +747,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let inbox_id_map = self.client.api().get_inbox_ids(account_addresses).await?;
 
-        self.remove_members_by_inbox_id(&inbox_id_map.into_values().collect::<Vec<_>>())
-            .await
+        let ids = inbox_id_map
+            .values()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>();
+        self.remove_members_by_inbox_id(ids.as_slice()).await
     }
 
     /// Removes members from the group by their inbox IDs.
@@ -757,7 +764,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members_by_inbox_id(
         &self,
-        inbox_ids: &[InboxId],
+        inbox_ids: &[InboxIdRef<'_>],
     ) -> Result<(), GroupError> {
         let provider = self.client.store().conn()?.into();
 
@@ -1120,7 +1127,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id.clone(),
             now_ns(),
             GroupMembershipState::Allowed, // Use Allowed as default for tests
-            context.inbox_id(),
+            context.inbox_id().to_string(),
             Some(dm_target_inbox_id),
         );
 
@@ -1148,7 +1155,7 @@ pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProces
 }
 
 fn build_protected_metadata_extension(
-    creator_inbox_id: String,
+    creator_inbox_id: &str,
     group_purpose: Purpose,
 ) -> Result<Extension, GroupError> {
     let group_type = match group_purpose {
@@ -1156,22 +1163,26 @@ fn build_protected_metadata_extension(
         Purpose::Sync => ConversationType::Sync,
     };
 
-    let metadata = GroupMetadata::new(group_type, creator_inbox_id, None);
+    let metadata = GroupMetadata::new(group_type, creator_inbox_id.to_string(), None);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
 fn build_dm_protected_metadata_extension(
-    creator_inbox_id: String,
+    creator_inbox_id: &str,
     dm_inbox_id: InboxId,
 ) -> Result<Extension, GroupError> {
     let dm_members = Some(DmMembers {
-        member_one_inbox_id: creator_inbox_id.clone(),
+        member_one_inbox_id: creator_inbox_id.to_string(),
         member_two_inbox_id: dm_inbox_id,
     });
 
-    let metadata = GroupMetadata::new(ConversationType::Dm, creator_inbox_id, dm_members);
+    let metadata = GroupMetadata::new(
+        ConversationType::Dm,
+        creator_inbox_id.to_string(),
+        dm_members,
+    );
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1188,11 +1199,11 @@ fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension,
 }
 
 pub fn build_mutable_metadata_extension_default(
-    creator_inbox_id: String,
+    creator_inbox_id: &str,
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id, opts).try_into()?;
+        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts).try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1202,11 +1213,12 @@ pub fn build_mutable_metadata_extension_default(
 }
 
 pub fn build_dm_mutable_metadata_extension_default(
-    creator_inbox_id: String,
+    creator_inbox_id: &str,
     dm_target_inbox_id: &str,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_dm_default(creator_inbox_id, dm_target_inbox_id).try_into()?;
+        GroupMutableMetadata::new_dm_default(creator_inbox_id.to_string(), dm_target_inbox_id)
+            .try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1339,9 +1351,9 @@ pub fn build_extensions_for_admin_lists_update(
     Ok(extensions)
 }
 
-pub fn build_starting_group_membership_extension(inbox_id: String, sequence_id: u64) -> Extension {
+pub fn build_starting_group_membership_extension(inbox_id: &str, sequence_id: u64) -> Extension {
     let mut group_membership = GroupMembership::new();
-    group_membership.add(inbox_id, sequence_id);
+    group_membership.add(inbox_id.to_string(), sequence_id);
     build_group_membership_extension(&group_membership)
 }
 
@@ -1412,9 +1424,10 @@ async fn validate_initial_group_membership(
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
     let membership = extract_group_membership(mls_group.extensions())?;
-    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters())?;
+    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
-        load_identity_updates(client.api(), conn, needs_update).await?;
+        let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+        load_identity_updates(client.api(), conn, ids.as_slice()).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
@@ -1462,7 +1475,7 @@ fn validate_dm_group(
 
     // Check if DmMembers are set and validate their contents
     if let Some(dm_members) = metadata.dm_members {
-        let our_inbox_id = client.context().identity.inbox_id().clone();
+        let our_inbox_id = client.inbox_id();
         if !((dm_members.member_one_inbox_id == added_by_inbox
             && dm_members.member_two_inbox_id == our_inbox_id)
             || (dm_members.member_one_inbox_id == our_inbox_id
@@ -2621,7 +2634,7 @@ pub(crate) mod tests {
         drop(provider); // allow connection to be cleaned
         assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
-        assert!(super_admin_list.contains(&amal.inbox_id()));
+        assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
 
         // Verify that bola can not add caro because they are not an admin
         bola.sync_welcomes(&bola.store().conn().unwrap())
@@ -2638,7 +2651,7 @@ pub(crate) mod tests {
 
         // Add bola as an admin
         amal_group
-            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -2653,7 +2666,7 @@ pub(crate) mod tests {
         assert!(bola_group
             .admin_list(bola_group.mls_provider().unwrap())
             .unwrap()
-            .contains(&bola.inbox_id()));
+            .contains(&bola.inbox_id().to_string()));
 
         // Verify that bola can now add caro because they are an admin
         bola_group
@@ -2666,13 +2679,16 @@ pub(crate) mod tests {
         // Verify that bola can not remove amal as a super admin, because
         // Remove admin is super admin only permissions
         bola_group
-            .update_admin_list(UpdateAdminListType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(
+                UpdateAdminListType::RemoveSuper,
+                amal.inbox_id().to_string(),
+            )
             .await
             .expect_err("expected err");
 
         // Now amal removes bola as an admin
         amal_group
-            .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id().to_string())
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -2687,7 +2703,7 @@ pub(crate) mod tests {
         assert!(!bola_group
             .admin_list(bola_group.mls_provider().unwrap())
             .unwrap()
-            .contains(&bola.inbox_id()));
+            .contains(&bola.inbox_id().to_string()));
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes(&bola.store().conn().unwrap())
@@ -2736,7 +2752,7 @@ pub(crate) mod tests {
         drop(provider); // allow connection to be re-added to pool
         assert_eq!(admin_list.len(), 0);
         assert_eq!(super_admin_list.len(), 1);
-        assert!(super_admin_list.contains(&amal.inbox_id()));
+        assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
 
         // Verify that bola can not add caro as an admin because they are not a super admin
         bola.sync_welcomes(&bola.store().conn().unwrap())
@@ -2748,13 +2764,13 @@ pub(crate) mod tests {
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         bola_group
-            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
             .await
             .expect_err("expected err");
 
         // Add bola as a super admin
         amal_group
-            .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::AddSuper, bola.inbox_id().to_string())
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -2764,12 +2780,12 @@ pub(crate) mod tests {
         assert!(bola_group
             .super_admin_list(&provider)
             .unwrap()
-            .contains(&bola.inbox_id()));
+            .contains(&bola.inbox_id().to_string()));
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that bola can now add caro as an admin
         bola_group
-            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
             .await
             .unwrap();
         bola_group.sync().await.unwrap();
@@ -2778,18 +2794,21 @@ pub(crate) mod tests {
         assert!(bola_group
             .admin_list(&provider)
             .unwrap()
-            .contains(&caro.inbox_id()));
+            .contains(&caro.inbox_id().to_string()));
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that no one can remove a super admin from a group
         amal_group
-            .remove_members(&[bola.inbox_id()])
+            .remove_members(&[bola.inbox_id().to_string()])
             .await
             .expect_err("expected err");
 
         // Verify that bola can now remove themself as a super admin
         bola_group
-            .update_admin_list(UpdateAdminListType::RemoveSuper, bola.inbox_id())
+            .update_admin_list(
+                UpdateAdminListType::RemoveSuper,
+                bola.inbox_id().to_string(),
+            )
             .await
             .unwrap();
         bola_group.sync().await.unwrap();
@@ -2798,12 +2817,15 @@ pub(crate) mod tests {
         assert!(!bola_group
             .super_admin_list(&provider)
             .unwrap()
-            .contains(&bola.inbox_id()));
+            .contains(&bola.inbox_id().to_string()));
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that amal can NOT remove themself as a super admin because they are the only remaining
         amal_group
-            .update_admin_list(UpdateAdminListType::RemoveSuper, amal.inbox_id())
+            .update_admin_list(
+                UpdateAdminListType::RemoveSuper,
+                amal.inbox_id().to_string(),
+            )
             .await
             .expect_err("expected err");
     }
@@ -2851,7 +2873,7 @@ pub(crate) mod tests {
 
         // Add Bola as an admin
         amal_group
-            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -2879,7 +2901,7 @@ pub(crate) mod tests {
 
         // Add Caro as a super admin
         amal_group
-            .update_admin_list(UpdateAdminListType::AddSuper, caro.inbox_id())
+            .update_admin_list(UpdateAdminListType::AddSuper, caro.inbox_id().to_string())
             .await
             .unwrap();
         amal_group.sync().await.unwrap();
@@ -3014,7 +3036,7 @@ pub(crate) mod tests {
 
         // Step 4:  Bola attempts an action that they do not have permissions for like add admin, fails as expected
         let result = bola_group
-            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id())
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
             .await;
         if let Err(e) = &result {
             eprintln!("Error updating admin list: {:?}", e);
@@ -3208,7 +3230,10 @@ pub(crate) mod tests {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Amal creates a dm group targetting bola
-        let amal_dm = amal.create_dm_by_inbox_id(bola.inbox_id()).await.unwrap();
+        let amal_dm = amal
+            .create_dm_by_inbox_id(bola.inbox_id().to_string())
+            .await
+            .unwrap();
 
         // Amal can not add caro to the dm group
         let result = amal_dm.add_members_by_inbox_id(&[caro.inbox_id()]).await;
@@ -3248,16 +3273,16 @@ pub(crate) mod tests {
         amal_dm.sync().await.unwrap();
         bola_dm.sync().await.unwrap();
         let is_amal_admin = amal_dm
-            .is_admin(amal.inbox_id(), amal.mls_provider().unwrap())
+            .is_admin(amal.inbox_id().to_string(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_admin = amal_dm
-            .is_admin(bola.inbox_id(), bola.mls_provider().unwrap())
+            .is_admin(bola.inbox_id().to_string(), bola.mls_provider().unwrap())
             .unwrap();
         let is_amal_super_admin = amal_dm
-            .is_super_admin(amal.inbox_id(), amal.mls_provider().unwrap())
+            .is_super_admin(amal.inbox_id().to_string(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_super_admin = amal_dm
-            .is_super_admin(bola.inbox_id(), bola.mls_provider().unwrap())
+            .is_super_admin(bola.inbox_id().to_string(), bola.mls_provider().unwrap())
             .unwrap();
         assert!(!is_amal_admin);
         assert!(!is_bola_admin);
@@ -3672,7 +3697,7 @@ pub(crate) mod tests {
     async fn test_validate_dm_group() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let added_by_inbox = "added_by_inbox_id";
-        let creator_inbox_id = client.context.identity.inbox_id().clone();
+        let creator_inbox_id = client.context.identity.inbox_id();
         let dm_target_inbox_id = added_by_inbox.to_string();
 
         // Test case 1: Valid DM group
@@ -3696,8 +3721,7 @@ pub(crate) mod tests {
 
         // Test case 2: Invalid conversation type
         let invalid_protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id.clone(), Purpose::Conversation)
-                .unwrap();
+            build_protected_metadata_extension(creator_inbox_id, Purpose::Conversation).unwrap();
         let invalid_type_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
             client.clone().into(),
             dm_target_inbox_id.clone(),
@@ -3716,11 +3740,9 @@ pub(crate) mod tests {
         // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
 
         // Test case 4: Mismatched DM members
-        let mismatched_dm_members = build_dm_protected_metadata_extension(
-            creator_inbox_id.clone(),
-            "wrong_inbox_id".to_string(),
-        )
-        .unwrap();
+        let mismatched_dm_members =
+            build_dm_protected_metadata_extension(creator_inbox_id, "wrong_inbox_id".to_string())
+                .unwrap();
         let mismatched_dm_members_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
             client.clone().into(),
             dm_target_inbox_id.clone(),
@@ -3737,7 +3759,7 @@ pub(crate) mod tests {
 
         // Test case 5: Non-empty admin list
         let non_empty_admin_list = build_mutable_metadata_extension_default(
-            creator_inbox_id.clone(),
+            creator_inbox_id,
             GroupMetadataOptions::default(),
         )
         .unwrap();

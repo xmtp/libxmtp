@@ -353,8 +353,9 @@ impl Conversation {
   pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
+    let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
     group
-      .remove_members_by_inbox_id(&inbox_ids)
+      .remove_members_by_inbox_id(ids.as_slice())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

@@ -1,7 +1,11 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
@@ -36,6 +40,73 @@ impl Client {
   }
 }
 
+static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
+  std::sync::OnceLock::new();
+
+#[wasm_bindgen]
+#[derive(Copy, Clone, Debug)]
+pub enum Level {
+  Off = "off",
+  Error = "error",
+  Warn = "warn",
+  Info = "info",
+  Debug = "debug",
+  Trace = "trace",
+}
+
+/// Specify options for the logger
+#[derive(Default)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct LogOptions {
+  /// enable structured JSON logging to stdout.Useful for third-party log viewers
+  pub structured: bool,
+  /// enable performance metrics for libxmtp in the `performance` tab
+  pub performance: bool,
+  /// filter for logs
+  pub level: Option<Level>,
+}
+
+fn init_logging(options: LogOptions) -> Result<(), JsError> {
+  LOGGER_INIT
+    .get_or_init(|| {
+      console_error_panic_hook::set_once();
+      let filter = if let Some(f) = options.level {
+        tracing_subscriber::filter::LevelFilter::from_str(f.to_str())
+      } else {
+        Ok(tracing_subscriber::filter::LevelFilter::INFO)
+      }?;
+
+      if options.structured {
+        let fmt = tracing_subscriber::fmt::layer()
+          .json()
+          .flatten_event(true)
+          .with_level(true)
+          .without_time() // need to test whether this would break browsers
+          .with_target(true);
+
+        tracing_subscriber::registry().with(filter).with(fmt).init();
+      } else {
+        let fmt = tracing_subscriber::fmt::layer()
+          .with_ansi(false) // not supported by all browsers
+          .without_time() // std::time break things, but chrono might work
+          .with_writer(tracing_web::MakeWebConsoleWriter::new());
+
+        let subscriber = tracing_subscriber::registry().with(fmt).with(filter);
+
+        if options.performance {
+          subscriber
+            .with(tracing_web::performance_layer().with_details_from_fields(Pretty::default()))
+            .init();
+        } else {
+          subscriber.init();
+        }
+      }
+      Ok(())
+    })
+    .clone()?;
+  Ok(())
+}
+
 #[wasm_bindgen(js_name = createClient)]
 pub async fn create_client(
   host: String,
@@ -44,8 +115,10 @@ pub async fn create_client(
   db_path: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
+  log_options: Option<LogOptions>,
 ) -> Result<Client, JsError> {
-  xmtp_mls::utils::wasm::init().await;
+  init_logging(log_options.unwrap_or_default())?;
+  xmtp_mls::storage::init_sqlite().await;
   let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
 
   let storage_option = StorageOption::Persistent(db_path);
@@ -105,7 +178,7 @@ impl Client {
 
   #[wasm_bindgen(getter, js_name = inboxId)]
   pub fn inbox_id(&self) -> String {
-    self.inner_client.inbox_id()
+    self.inner_client.inbox_id().to_string()
   }
 
   #[wasm_bindgen(getter, js_name = isRegistered)]

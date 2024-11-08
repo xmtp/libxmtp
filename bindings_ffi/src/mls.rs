@@ -240,7 +240,7 @@ pub struct FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn inbox_id(&self) -> InboxId {
-        self.inner_client.inbox_id()
+        self.inner_client.inbox_id().to_string()
     }
 
     pub fn conversations(&self) -> Arc<FfiConversations> {
@@ -1258,7 +1258,10 @@ impl FfiConversation {
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
-        self.inner.remove_members_by_inbox_id(&inbox_ids).await?;
+        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        self.inner
+            .remove_members_by_inbox_id(ids.as_slice())
+            .await?;
         Ok(())
     }
 

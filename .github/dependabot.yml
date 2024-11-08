@@ -12,12 +12,12 @@ updates:
     schedule:
       interval: "weekly"
   # Maintain dependencies for yarn
-  - package-ecosystem: "yarn"
+  - package-ecosystem: "npm"
     directory: "/bindings_wasm"
     schedule:
       interval: "weekly"
   # Maintain dependencies for yarn
-  - package-ecosystem: "yarn"
+  - package-ecosystem: "npm"
     directory: "/bindings_node"
     schedule:
       interval: "weekly"

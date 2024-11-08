@@ -5,3 +5,11 @@ pub mod sql_key_store;
 
 pub use encrypted_store::*;
 pub use errors::{DuplicateItem, StorageError};
+
+/// Initialize the SQLite WebAssembly Library
+#[cfg(target_arch = "wasm32")]
+pub async fn init_sqlite() {
+    diesel_wasm_sqlite::init_sqlite().await;
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn init_sqlite() {}

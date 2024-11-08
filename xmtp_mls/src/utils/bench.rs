@@ -132,7 +132,7 @@ async fn create_identity(is_dev_network: bool) -> Identity {
     } else {
         ClientBuilder::new_local_client(&wallet).await
     };
-    Identity::new(client.inbox_id(), wallet.get_address())
+    Identity::new(client.inbox_id().to_string(), wallet.get_address())
 }
 
 async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {

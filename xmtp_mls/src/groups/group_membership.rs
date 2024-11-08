@@ -26,15 +26,15 @@ impl GroupMembership {
         self.members.get(inbox_id.as_ref())
     }
 
-    pub fn inbox_ids(&self) -> Vec<String> {
-        self.members.keys().cloned().collect()
+    pub fn inbox_ids(&self) -> Vec<&str> {
+        self.members.keys().map(AsRef::as_ref).collect()
     }
 
     // Convert the mapping to a vector of `inbox_id`/`sequence_id` tuples
-    pub fn to_filters(&self) -> Vec<(String, i64)> {
+    pub fn to_filters(&self) -> Vec<(&str, i64)> {
         self.members
             .iter()
-            .map(|(inbox_id, sequence_id)| (inbox_id.clone(), *sequence_id as i64))
+            .map(|(inbox_id, sequence_id)| (inbox_id.as_str(), *sequence_id as i64))
             .collect()
     }
 

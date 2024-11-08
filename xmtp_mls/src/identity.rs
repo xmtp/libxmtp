@@ -40,7 +40,7 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         generate_inbox_id, sign_with_legacy_key, MemberIdentifier,
     },
-    InboxId,
+    InboxId, InboxIdRef,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -385,7 +385,7 @@ impl Identity {
         }
     }
 
-    pub fn inbox_id(&self) -> &InboxId {
+    pub fn inbox_id(&self) -> InboxIdRef<'_> {
         &self.inbox_id
     }
 

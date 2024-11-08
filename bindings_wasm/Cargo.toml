@@ -20,6 +20,10 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", features = ["test-utils", "http-api"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+tracing-web = "0.1"
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+console_error_panic_hook.workspace = true
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
