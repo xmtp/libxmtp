@@ -92,7 +92,7 @@ jobs:
         id: slug
         run: echo "sha7=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
       - name: Create release and upload asset
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ./bindings_ffi/LibXMTPSwiftFFI.zip
           tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}
