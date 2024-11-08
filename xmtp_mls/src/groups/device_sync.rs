@@ -342,19 +342,15 @@ where
             (content_bytes, contents)
         };
 
-        let _message_id = sync_group.prepare_message(&content_bytes, conn, move |_time_ns| {
-            PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    idempotency_key: new_request_id(),
-                    message_type: Some(MessageType::DeviceSyncReply(contents)),
-                })),
-            }
+        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+            content: Some(Content::V2(V2 {
+                idempotency_key: new_request_id(),
+                message_type: Some(MessageType::DeviceSyncReply(contents)),
+            })),
         })?;
 
-        // publish the intent
-        if let Err(err) = sync_group.publish_messages().await {
-            tracing::error!("error publishing sync group intents: {:?}", err);
-        }
+        sync_group.publish_messages().await?;
+
         Ok(())
     }
 
@@ -430,7 +426,8 @@ where
         };
 
         let enc_payload = download_history_payload(&reply.url).await?;
-        insert_encrypted_syncables(conn, enc_payload, &enc_key.try_into()?)?;
+        self.insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
+            .await?;
 
         self.sync_welcomes(provider.conn_ref()).await?;
 
@@ -502,6 +499,72 @@ where
 
         Ok(sync_reply)
     }
+
+    async fn insert_encrypted_syncables(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        payload: Vec<u8>,
+        enc_key: &DeviceSyncKeyType,
+    ) -> Result<(), DeviceSyncError> {
+        let conn = provider.conn_ref();
+        let enc_key = enc_key.as_bytes();
+
+        // Split the nonce and ciphertext
+        let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
+
+        // Create a cipher instance
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
+        let nonce_array = GenericArray::from_slice(nonce);
+
+        // Decrypt the ciphertext
+        let payload = cipher.decrypt(nonce_array, ciphertext)?;
+        let payload: Vec<Syncable> = serde_json::from_slice(&payload)?;
+
+        for syncable in payload {
+            match syncable {
+                Syncable::Group(group) => {
+                    conn.insert_or_replace_group(group)?;
+                }
+                Syncable::GroupMessage(group_message) => {
+                    if let Err(err) = group_message.store(conn) {
+                        match err {
+                            // this is fine because we are inserting messages that already exist
+                            StorageError::DieselResult(diesel::result::Error::DatabaseError(
+                                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                                _,
+                            )) => {}
+                            // otherwise propagate the error
+                            _ => Err(err)?,
+                        }
+                    }
+                }
+                Syncable::ConsentRecord(consent_record) => {
+                    if let Some(existing_consent_record) =
+                        conn.maybe_insert_consent_record_return_existing(&consent_record)?
+                    {
+                        if existing_consent_record.state != consent_record.state {
+                            warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
+                            self.stream_consent_update(provider, &existing_consent_record)
+                                .await?;
+                        }
+                    }
+                }
+            };
+        }
+
+        Ok(())
+    }
+
+    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
+        let conn = self.store().conn()?;
+        let sync_group_id = conn
+            .latest_sync_group()?
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
+        let sync_group = self.group(sync_group_id.clone())?;
+
+        Ok(sync_group)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -516,23 +579,6 @@ impl MessageHistoryUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
     pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
     pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
-}
-
-impl<ApiClient, V> Client<ApiClient, V>
-where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
-{
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .latest_sync_group()?
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
-
-        Ok(sync_group)
-    }
 }
 
 pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {
@@ -674,58 +720,6 @@ pub(super) fn new_pin() -> String {
     let mut rng = crypto_utils::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
-}
-
-fn insert_encrypted_syncables(
-    conn: &DbConnection,
-    payload: Vec<u8>,
-    enc_key: &DeviceSyncKeyType,
-) -> Result<(), DeviceSyncError> {
-    let enc_key = enc_key.as_bytes();
-
-    // Split the nonce and ciphertext
-    let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
-
-    // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
-    let nonce_array = GenericArray::from_slice(nonce);
-
-    // Decrypt the ciphertext
-    let payload = cipher.decrypt(nonce_array, ciphertext)?;
-    let payload: Vec<Syncable> = serde_json::from_slice(&payload)?;
-
-    for syncable in payload {
-        match syncable {
-            Syncable::Group(group) => {
-                conn.insert_or_replace_group(group)?;
-            }
-            Syncable::GroupMessage(group_message) => {
-                if let Err(err) = group_message.store(conn) {
-                    match err {
-                        // this is fine because we are inserting messages that already exist
-                        StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
-                            _,
-                        )) => {}
-                        // otherwise propagate the error
-                        _ => Err(err)?,
-                    }
-                }
-            }
-            Syncable::ConsentRecord(consent_record) => {
-                if let Some(existing_consent_record) =
-                    conn.maybe_insert_consent_record_return_existing(&consent_record)?
-                {
-                    if existing_consent_record.state != consent_record.state {
-                        warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                        // Todo - stream consent record when streaming is implemented
-                    }
-                }
-            }
-        };
-    }
-
-    Ok(())
 }
 
 fn encrypt_syncables(
