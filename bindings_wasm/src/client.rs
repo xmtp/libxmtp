@@ -71,7 +71,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
     .get_or_init(|| {
       console_error_panic_hook::set_once();
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(&f.to_str())
+        tracing_subscriber::filter::LevelFilter::from_str(f.to_str())
       } else {
         Ok(tracing_subscriber::filter::LevelFilter::INFO)
       }?;

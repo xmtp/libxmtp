@@ -7,7 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
-pub(super) mod node_sync;
+pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
