@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use super::{
     hashes::generate_inbox_id, member::Member, AssociationError, MemberIdentifier, MemberKind,
 };
+use crate::InboxIdRef;
 
 #[derive(Debug, Clone)]
 pub struct AssociationStateDiff {
@@ -92,7 +93,7 @@ impl AssociationState {
         self.members.values().cloned().collect()
     }
 
-    pub fn inbox_id(&self) -> &String {
+    pub fn inbox_id(&self) -> InboxIdRef<'_> {
         &self.inbox_id
     }
 

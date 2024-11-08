@@ -105,7 +105,7 @@ impl DbConnection {
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn get_latest_sequence_id(
         &self,
-        inbox_ids: &[String],
+        inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, StorageError> {
         // Query IdentityUpdates grouped by inbox_id, getting the max sequence_id
         let query = dsl::identity_updates
@@ -221,14 +221,14 @@ pub(crate) mod tests {
                 .expect("insert should succeed");
 
             let latest_sequence_ids = conn
-                .get_latest_sequence_id(&[inbox_1.to_string(), inbox_2.to_string()])
+                .get_latest_sequence_id(&[inbox_1, inbox_2])
                 .expect("query should work");
 
             assert_eq!(latest_sequence_ids.get(inbox_1), Some(&3));
             assert_eq!(latest_sequence_ids.get(inbox_2), Some(&6));
 
             let latest_sequence_ids_with_missing_member = conn
-                .get_latest_sequence_id(&[inbox_1.to_string(), "missing_inbox".to_string()])
+                .get_latest_sequence_id(&[inbox_1, "missing_inbox"])
                 .expect("should still succeed");
 
             assert_eq!(

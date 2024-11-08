@@ -410,7 +410,13 @@ impl Conversation {
     );
 
     group
-      .remove_members_by_inbox_id(&inbox_ids)
+      .remove_members_by_inbox_id(
+        inbox_ids
+          .iter()
+          .map(AsRef::as_ref)
+          .collect::<Vec<&str>>()
+          .as_slice(),
+      )
       .await
       .map_err(ErrorWrapper::from)?;
 

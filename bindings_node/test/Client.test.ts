@@ -241,4 +241,5 @@ describe('Client', () => {
       user2.account.address.toLowerCase(),
     ])
   })
+  it('should create client with structured logging', async () => {})
 })

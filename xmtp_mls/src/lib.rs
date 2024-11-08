@@ -125,7 +125,7 @@ pub(crate) mod tests {
             .from_env_lossy();
 
         tracing_subscriber::registry()
-            .with(fmt::layer())
+            .with(fmt::layer().pretty())
             .with(filter)
             .init();
     }
