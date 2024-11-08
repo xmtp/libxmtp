@@ -27,6 +27,7 @@ jobs:
         uses: mathieudutour/github-tag-action@v6.1
         with:
           release_branches: "release"
+          custom_tag: 3.0.1
           github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Create a GitHub release
         uses: ncipollo/release-action@v1
