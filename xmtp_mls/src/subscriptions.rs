@@ -75,20 +75,18 @@ where
             let capacity = self.capacity;
 
             async move {
-                loop {
-                    while let Some(evt) = buffer_rx.blocking_recv() {
-                        // spin lock while broadcast channel is full with a timeout
-                        let start = Instant::now();
-                        while broadcast.len() >= capacity {
-                            if start.elapsed() > Duration::from_millis(200) {
-                                break;
-                            }
-                            crate::sleep(Duration::from_millis(20)).await;
+                while let Some(evt) = buffer_rx.recv().await {
+                    // spin lock while broadcast channel is full with a timeout
+                    let start = Instant::now();
+                    while broadcast.len() >= capacity {
+                        if start.elapsed() > Duration::from_millis(200) {
+                            break;
                         }
+                        crate::sleep(Duration::from_millis(20)).await;
+                    }
 
-                        if let Err(err) = broadcast.send(evt) {
-                            tracing::error!("Broadcast error: {}", err.to_string());
-                        }
+                    if let Err(err) = broadcast.send(evt) {
+                        tracing::error!("Broadcast error: {}", err.to_string());
                     }
                 }
             }
