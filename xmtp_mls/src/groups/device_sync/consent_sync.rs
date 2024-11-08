@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    groups::scoped_client::ScopedGroupClient,
     storage::consent_record::{ConsentState, ConsentType},
     Client, XmtpApi,
 };
@@ -13,7 +14,7 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(super) async fn stream_consent_update(
+    pub(crate) async fn stream_consent_update(
         &self,
         provider: &XmtpOpenMlsProvider,
         record: &StoredConsentRecord,

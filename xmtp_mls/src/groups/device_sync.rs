@@ -5,7 +5,7 @@ use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
+use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
@@ -149,9 +149,9 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn sync_worker(
+    pub(crate) async fn sync_worker<C>(
         &self,
-        sync_stream: &mut (impl Stream<Item = Result<SyncMessage, SubscribeError>> + Unpin),
+        sync_stream: &mut (impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> + Unpin),
     ) -> Result<(), DeviceSyncError> {
         let provider = self.mls_provider()?;
 
@@ -160,53 +160,62 @@ where
             .duration(Duration::from_millis(20))
             .build();
 
-        while let Some(msg) = sync_stream.next().await {
-            let msg = msg?;
-            match msg {
-                SyncMessage::Reply { message_id } => {
-                    let conn = provider.conn_ref();
-                    let msg = retry_async!(
-                        &query_retry,
-                        (async {
-                            conn.get_group_message(&message_id)?
-                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                    "Message id {message_id:?} not found."
-                                ))))
-                        })
-                    )?;
+        while let Some(event) = sync_stream.next().await {
+            let event = event?;
+            match event {
+                LocalEvents::SyncMessage(msg) => match msg {
+                    SyncMessage::Reply { message_id } => {
+                        let conn = provider.conn_ref();
+                        let msg = retry_async!(
+                            &query_retry,
+                            (async {
+                                conn.get_group_message(&message_id)?.ok_or(
+                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                        "Message id {message_id:?} not found."
+                                    ))),
+                                )
+                            })
+                        )?;
 
-                    let msg_content: DeviceSyncContent =
-                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                    let DeviceSyncContent::Reply(reply) = msg_content else {
-                        unreachable!();
-                    };
+                        let msg_content: DeviceSyncContent =
+                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                        let DeviceSyncContent::Reply(reply) = msg_content else {
+                            unreachable!();
+                        };
 
-                    if let Err(err) = self.process_sync_reply(&provider, reply).await {
-                        tracing::warn!("Sync worker error: {err}");
+                        if let Err(err) = self.process_sync_reply(&provider, reply).await {
+                            tracing::warn!("Sync worker error: {err}");
+                        }
                     }
-                }
-                SyncMessage::Request { message_id } => {
-                    let conn = provider.conn_ref();
-                    let msg = retry_async!(
-                        &query_retry,
-                        (async {
-                            conn.get_group_message(&message_id)?
-                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                    "Message id {message_id:?} not found."
-                                ))))
-                        })
-                    )?;
+                    SyncMessage::Request { message_id } => {
+                        let conn = provider.conn_ref();
+                        let msg = retry_async!(
+                            &query_retry,
+                            (async {
+                                conn.get_group_message(&message_id)?.ok_or(
+                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                        "Message id {message_id:?} not found."
+                                    ))),
+                                )
+                            })
+                        )?;
 
-                    let msg_content: DeviceSyncContent =
-                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                    let DeviceSyncContent::Request(request) = msg_content else {
-                        unreachable!();
-                    };
+                        let msg_content: DeviceSyncContent =
+                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                        let DeviceSyncContent::Request(request) = msg_content else {
+                            unreachable!();
+                        };
 
-                    if let Err(err) = self.reply_to_sync_request(&provider, request).await {
-                        tracing::warn!("Sync worker error: {err}");
+                        if let Err(err) = self.reply_to_sync_request(&provider, request).await {
+                            tracing::warn!("Sync worker error: {err}");
+                        }
                     }
+                },
+                LocalEvents::ConsentUpdate(consent_record) => {
+                    self.stream_consent_update(&provider, &consent_record)
+                        .await?;
                 }
+                _ => {}
             }
         }
 

@@ -90,6 +90,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
     },
+    subscriptions::LocalEvents,
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
@@ -1019,12 +1020,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        conn.insert_or_replace_consent_records(&[StoredConsentRecord::new(
+        let provider = self.context().mls_provider()?;
+        let conn = provider.conn_ref();
+
+        let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
-        )])?;
+        );
+        conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
+
+        // Dispatch an update event so it can be synced across devices
+        self.client
+            .local_events()
+            .send(LocalEvents::ConsentUpdate(consent_record))
+            .map_err(|e| GroupError::Generic(e.to_string()))?;
 
         Ok(())
     }

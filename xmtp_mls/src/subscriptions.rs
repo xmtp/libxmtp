@@ -15,6 +15,7 @@ use crate::{
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
+        consent_record::StoredConsentRecord,
         group::{GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         StorageError,
@@ -37,6 +38,7 @@ pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
+    ConsentUpdate(StoredConsentRecord),
 }
 
 #[derive(Clone)]
@@ -55,24 +57,26 @@ impl<C> LocalEvents<C> {
         }
     }
 
-    pub(crate) fn sync_filter(self) -> Option<SyncMessage> {
+    pub(crate) fn sync_filter(self) -> Option<Self> {
         use LocalEvents::*;
-        match self {
-            SyncMessage(msg) => Some(msg),
+
+        match &self {
+            SyncMessage(_) => Some(self),
+            ConsentUpdate(_) => Some(self),
             _ => None,
         }
     }
 }
 
-pub(crate) trait StreamMessages {
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>>;
+pub(crate) trait StreamMessages<C> {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>>;
 }
 
-impl<C> StreamMessages for broadcast::Receiver<LocalEvents<C>>
+impl<C> StreamMessages<C> for broadcast::Receiver<LocalEvents<C>>
 where
     C: Clone + Send + Sync + 'static,
 {
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<SyncMessage, SubscribeError>> {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {
             crate::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::sync_filter)
