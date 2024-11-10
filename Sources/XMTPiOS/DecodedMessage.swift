@@ -13,6 +13,7 @@ public struct DecodedMessage: Sendable {
 
 	/// When the message was sent
 	public var sent: Date
+	public var sentNs: Int64
 
 	public var client: Client
 
@@ -25,6 +26,7 @@ public struct DecodedMessage: Sendable {
 		encodedContent: EncodedContent,
 		senderAddress: String,
 		sent: Date,
+		sentNs: Int64,
 		deliveryStatus: MessageDeliveryStatus = .published
 	) {
 		self.id = id
@@ -33,22 +35,7 @@ public struct DecodedMessage: Sendable {
 		self.encodedContent = encodedContent
 		self.senderAddress = senderAddress
 		self.sent = sent
-		self.deliveryStatus = deliveryStatus
-	}
-
-	public init(
-		client: Client,
-		topic: String,
-		encodedContent: EncodedContent,
-		senderAddress: String,
-		sent: Date,
-		deliveryStatus: MessageDeliveryStatus = .published
-	) {
-		self.client = client
-		self.topic = topic
-		self.encodedContent = encodedContent
-		self.senderAddress = senderAddress
-		self.sent = sent
+		self.sentNs = sentNs
 		self.deliveryStatus = deliveryStatus
 	}
 
@@ -66,20 +53,5 @@ public struct DecodedMessage: Sendable {
 		} catch {
 			return fallbackContent
 		}
-	}
-}
-
-extension DecodedMessage {
-	public static func preview(
-		client: Client, topic: String, body: String, senderAddress: String,
-		sent: Date
-	) -> DecodedMessage {
-		// swiftlint:disable force_try
-		let encoded = try! TextCodec().encode(content: body, client: client)
-		// swiftlint:enable force_try
-
-		return DecodedMessage(
-			client: client, topic: topic, encodedContent: encoded,
-			senderAddress: senderAddress, sent: sent)
 	}
 }

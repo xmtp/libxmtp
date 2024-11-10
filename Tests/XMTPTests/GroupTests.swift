@@ -177,64 +177,22 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(1, boGroupCount)
 	}
 	
-	func testCanFindConversationByTopic() async throws {
+	func testCanListGroupsFiltered() async throws {
 		let fixtures = try await fixtures()
 
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caro.walletAddress)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caro.walletAddress
 		])
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
-
-		let sameDm = try fixtures.boClient.findConversationByTopic(
-			topic: dm.topic)
-		let sameGroup = try fixtures.boClient.findConversationByTopic(
-			topic: group.topic)
-
-		XCTAssertEqual(group.id, try sameGroup?.id)
-		XCTAssertEqual(dm.id, try sameDm?.id)
-	}
-
-	func testCanListConversations() async throws {
-		let fixtures = try await fixtures()
-
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
-		let group = try await fixtures.boClient.conversations.newGroup(with: [
+		let group2 = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caro.walletAddress
 		])
 
 		let convoCount = try await fixtures.boClient.conversations
-			.list().count
-		let dmCount = try await fixtures.boClient.conversations.listDms().count
-		let groupCount = try await fixtures.boClient.conversations.listGroups()
-			.count
-		XCTAssertEqual(convoCount, 2)
-		XCTAssertEqual(dmCount, 1)
-		XCTAssertEqual(groupCount, 1)
-
-		try await fixtures.caroClient.conversations.sync()
-		let convoCount2 = try await fixtures.caroClient.conversations.list()
-			.count
-		let groupCount2 = try await fixtures.caroClient.conversations
 			.listGroups().count
-		XCTAssertEqual(convoCount2, 2)
-		XCTAssertEqual(groupCount2, 1)
-	}
-
-	func testCanListConversationsFiltered() async throws {
-		let fixtures = try await fixtures()
-
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
-		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caro.walletAddress
-		])
-
-		let convoCount = try await fixtures.boClient.conversations
-			.list().count
 		let convoCountConsent = try await fixtures.boClient.conversations
-			.list(consentState: .allowed).count
+			.listGroups(consentState: .allowed).count
 
 		XCTAssertEqual(convoCount, 2)
 		XCTAssertEqual(convoCountConsent, 2)
@@ -242,15 +200,15 @@ class GroupTests: XCTestCase {
 		try await group.updateConsentState(state: .denied)
 
 		let convoCountAllowed = try await fixtures.boClient.conversations
-			.list(consentState: .allowed).count
+			.listGroups(consentState: .allowed).count
 		let convoCountDenied = try await fixtures.boClient.conversations
-			.list(consentState: .denied).count
+			.listGroups(consentState: .denied).count
 
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
 	}
 
-	func testCanListConversationsOrder() async throws {
+	func testCanListGroupsOrder() async throws {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
@@ -265,41 +223,18 @@ class GroupTests: XCTestCase {
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 
 		let conversations = try await fixtures.boClient.conversations
-			.list()
+			.listGroups()
 		let conversationsOrdered = try await fixtures.boClient.conversations
-			.list(order: .lastMessage)
+			.listGroups(order: .lastMessage)
 
-		XCTAssertEqual(conversations.count, 3)
-		XCTAssertEqual(conversationsOrdered.count, 3)
+		XCTAssertEqual(conversations.count, 2)
+		XCTAssertEqual(conversationsOrdered.count, 2)
 
 		XCTAssertEqual(
-			try conversations.map { try $0.id }, [dm.id, group1.id, group2.id])
+			try conversations.map { try $0.id }, [group1.id, group2.id])
 		XCTAssertEqual(
 			try conversationsOrdered.map { try $0.id },
-			[group2.id, dm.id, group1.id])
-	}
-
-	func testCanListGroupsAndConversations() async throws {
-		let fixtures = try await fixtures()
-		_ = try await fixtures.alixClient.conversations.newGroup(with: [
-			fixtures.bo.address
-		])
-		_ = try await fixtures.alixClient.conversations.newConversation(
-			with: fixtures.bo.address)
-		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.bo.walletAddress)
-		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alix.walletAddress)
-
-		let alixGroupCount = try await fixtures.alixClient.conversations
-			.list().count
-
-		try await fixtures.boClient.conversations.sync()
-		let boGroupCount = try await fixtures.boClient.conversations.list()
-			.count
-
-		XCTAssertEqual(2, alixGroupCount)
-		XCTAssertEqual(3, boGroupCount)
+			[group2.id, group1.id])
 	}
 
 	func testCanListGroupMembers() async throws {
@@ -679,10 +614,11 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let expectation1 = XCTestExpectation(description: "got a group")
+		expectation1.expectedFulfillmentCount = 1
 
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.alixClient.conversations
-				.stream()
+				.stream(type: .groups)
 			{
 				expectation1.fulfill()
 			}
@@ -691,30 +627,6 @@ class GroupTests: XCTestCase {
 		_ = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.alix.address
 		])
-		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alix.address)
-
-		await fulfillment(of: [expectation1], timeout: 3)
-	}
-
-	func testCanStreamGroupsAndConversationsWorksGroups() async throws {
-		let fixtures = try await fixtures()
-
-		let expectation1 = XCTestExpectation(description: "got a conversation")
-		expectation1.expectedFulfillmentCount = 2
-
-		Task(priority: .userInitiated) {
-			for try await _ in await fixtures.alixClient.conversations.stream()
-			{
-				expectation1.fulfill()
-			}
-		}
-
-		_ = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alix.address
-		])
-		_ = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alix.address)
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
 			with: fixtures.alix.address)
 
@@ -815,35 +727,6 @@ class GroupTests: XCTestCase {
 		await fulfillment(of: [expectation], timeout: 3)
 	}
 
-	func testCanStreamAllMessages() async throws {
-		let fixtures = try await fixtures()
-
-		let expectation1 = XCTestExpectation(description: "got a conversation")
-		expectation1.expectedFulfillmentCount = 2
-		let convo = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alix.address)
-		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alix.address
-		])
-		let dm = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alix.address)
-
-		try await fixtures.alixClient.conversations.sync()
-		Task(priority: .userInitiated) {
-			for try await _ in await fixtures.alixClient.conversations
-				.streamAllMessages()
-			{
-				expectation1.fulfill()
-			}
-		}
-
-		_ = try await group.send(content: "hi")
-		_ = try await convo.send(content: "hi")
-		_ = try await dm.send(content: "hi")
-
-		await fulfillment(of: [expectation1], timeout: 3)
-	}
-
 	func testCanStreamAllGroupMessages() async throws {
 		let fixtures = try await fixtures()
 
@@ -857,7 +740,7 @@ class GroupTests: XCTestCase {
 		try await fixtures.alixClient.conversations.sync()
 		Task(priority: .userInitiated) {
 			for try await _ in await fixtures.alixClient.conversations
-				.streamAllMessages()
+				.streamAllMessages(type: .groups)
 			{
 				expectation1.fulfill()
 			}

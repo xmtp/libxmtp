@@ -387,8 +387,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func messages(
-		before: Date? = nil,
-		after: Date? = nil,
+		beforeNs: Int64? = nil,
+		afterNs: Int64? = nil,
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all
@@ -401,14 +401,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 			direction: nil
 		)
 
-		if let before {
-			options.sentBeforeNs = Int64(
-				before.millisecondsSinceEpoch * 1_000_000)
+		if let beforeNs {
+			options.sentBeforeNs = beforeNs
 		}
 
-		if let after {
-			options.sentAfterNs = Int64(
-				after.millisecondsSinceEpoch * 1_000_000)
+		if let afterNs {
+			options.sentAfterNs = afterNs
 		}
 
 		if let limit {

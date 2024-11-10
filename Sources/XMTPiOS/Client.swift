@@ -140,7 +140,7 @@ public final class Client {
 	{
 		let accountAddress = account.address.lowercased()
 		let inboxId = try await getOrCreateInboxId(
-			options: options, address: accountAddress)
+			api: options.api, address: accountAddress)
 
 		return try await initializeClient(
 			accountAddress: accountAddress,
@@ -155,7 +155,7 @@ public final class Client {
 	{
 		let accountAddress = address.lowercased()
 		let inboxId = try await getOrCreateInboxId(
-			options: options, address: accountAddress)
+			api: options.api, address: accountAddress)
 
 		return try await initializeClient(
 			accountAddress: accountAddress,
@@ -256,19 +256,19 @@ public final class Client {
 	}
 
 	public static func getOrCreateInboxId(
-		options: ClientOptions, address: String
+		api: ClientOptions.Api, address: String
 	) async throws -> String {
 		var inboxId: String
 		do {
 			inboxId =
 				try await getInboxIdForAddress(
 					logger: XMTPLogger(),
-					host: options.api.env.url,
-					isSecure: options.api.env.isSecure == true,
+					host: api.env.url,
+					isSecure: api.env.isSecure == true,
 					accountAddress: address
 				) ?? generateInboxId(accountAddress: address, nonce: 0)
 		} catch {
-			inboxId = generateInboxId(accountAddress: address, nonce: 0)
+			inboxId = try generateInboxId(accountAddress: address, nonce: 0)
 		}
 		return inboxId
 	}
@@ -387,7 +387,11 @@ public final class Client {
 	}
 
 	public func requestMessageHistorySync() async throws {
-		try await ffiClient.requestHistorySync()
+		try await ffiClient.sendSyncRequest(kind: .messages)
+	}
+
+	public func syncConsent() async throws {
+		try await ffiClient.sendSyncRequest(kind: .consent)
 	}
 
 	public func revokeAllOtherInstallations(signingKey: SigningKey) async throws

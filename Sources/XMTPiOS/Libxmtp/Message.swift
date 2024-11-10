@@ -42,6 +42,10 @@ public struct Message: Identifiable {
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
 				/ 1_000_000_000)
 	}
+	
+	var sentAtNs: Int64 {
+		return ffiMessage.sentAtNs
+	}
 
 	var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus {
@@ -66,6 +70,7 @@ public struct Message: Identifiable {
 				encodedContent: encodedContent,
 				senderAddress: senderInboxId,
 				sent: sentAt,
+				sentNs: sentAtNs,
 				deliveryStatus: deliveryStatus
 			)
 

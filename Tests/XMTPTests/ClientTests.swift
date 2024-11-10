@@ -250,24 +250,6 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(boClient.inboxID, boInboxId)
 	}
 
-	func testCreatesAV3Client() async throws {
-		let key = try Crypto.secureRandomBytes(count: 32)
-		let alix = try PrivateKey.generate()
-		let options = ClientOptions.init(
-			api: .init(env: .local, isSecure: false),
-			dbEncryptionKey: key
-		)
-
-		let inboxId = try await Client.getOrCreateInboxId(
-			options: options, address: alix.address)
-		let alixClient = try await Client.create(
-			account: alix,
-			options: options
-		)
-
-		XCTAssertEqual(inboxId, alixClient.inboxID)
-	}
-
 	func testCreatesAClient() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
@@ -277,7 +259,7 @@ class ClientTests: XCTestCase {
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			options: options, address: alix.address)
+			api: options.api, address: alix.address)
 		let alixClient = try await Client.create(
 			account: alix,
 			options: options
