@@ -54,6 +54,7 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
                 senderAddress = senderInboxId,
                 sent = sentAt,
+                sentNs = sentAtNs,
                 deliveryStatus = deliveryStatus
             )
             if (decodedMessage.encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {

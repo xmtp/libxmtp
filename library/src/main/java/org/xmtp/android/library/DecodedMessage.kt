@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.proto.message.contents.Content
@@ -13,21 +12,9 @@ data class DecodedMessage(
     var encodedContent: Content.EncodedContent,
     var senderAddress: String,
     var sent: Date,
+    var sentNs: Long,
     var deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.PUBLISHED
 ) {
-    companion object {
-        fun preview(client: Client, topic: String, body: String, senderAddress: String, sent: Date): DecodedMessage {
-            val encoded = TextCodec().encode(content = body)
-            return DecodedMessage(
-                client = client,
-                topic = topic,
-                encodedContent = encoded,
-                senderAddress = senderAddress,
-                sent = sent
-            )
-        }
-    }
-
     fun <T> content(): T? =
         encodedContent.decoded()
 
