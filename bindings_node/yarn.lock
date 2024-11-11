@@ -1667,7 +1667,7 @@ __metadata:
     uuid: "npm:^11.0.3"
     viem: "npm:^2.21.41"
     vite: "npm:^5.4.10"
-    vite-tsconfig-paths: "npm:^5.1.0"
+    vite-tsconfig-paths: "npm:^5.1.2"
     vitest: "npm:^2.1.4"
   languageName: unknown
   linkType: soft
@@ -3911,9 +3911,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vite-tsconfig-paths@npm:^5.1.0":
-  version: 5.1.0
-  resolution: "vite-tsconfig-paths@npm:5.1.0"
+"vite-tsconfig-paths@npm:^5.1.2":
+  version: 5.1.2
+  resolution: "vite-tsconfig-paths@npm:5.1.2"
   dependencies:
     debug: "npm:^4.1.1"
     globrex: "npm:^0.1.2"
@@ -3923,7 +3923,7 @@ __metadata:
   peerDependenciesMeta:
     vite:
       optional: true
-  checksum: 10/ba5b55c67159fe77af1456a9d04e9e650de10603a2ad07eb687e3d8ae52e95e4c9936afe503ec83f2d7c0fedb8e6f9acfa3976b2e3b1424ffee3d6065a0b5e9c
+  checksum: 10/0a46db04653b60621a5d77f2054de5c29a8a6b069535ba3137e0a466b3da0308b07efb95b52713695873e99fadf35ae8878820a7227eabf1c0c1b159d9083bc0
   languageName: node
   linkType: hard
 
