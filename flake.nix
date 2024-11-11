@@ -1,23 +1,27 @@
 # Flake Shell for building release artifacts for swift and kotlin
+# Learn about nix: https://nix.dev
+# Consistent with `nix` terminology, the `build` system is the machine _building_ the package,
+#   while the `host` system is where the package _will_ run.
 {
+  description = "Flake for building & cross-compiling the components of libxmtp in one deterministic place";
+
   inputs = {
+    # The nix package set (stable)
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
 
+    # An nix-native and customizable overlay for Rust
     fenix = {
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
     };
-
+    # A nix-native packaging system for rust (docs: https://crane.dev/index.html)
+    crane.url = "github:ipetkov/crane";
     flake-utils = { url = "github:numtide/flake-utils"; };
   };
 
-  outputs = { nixpkgs, flake-utils, fenix, ... }:
+  outputs = { nixpkgs, flake-utils, fenix, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        inherit (pkgs.stdenv) isDarwin;
-        inherit (pkgs) androidenv;
-        inherit (androidComposition) androidsdk;
-        frameworks = if isDarwin then pkgs.darwin.apple_sdk.frameworks else null;
         pkgs = import nixpkgs {
           inherit system;
           # Rust Overlay
@@ -27,61 +31,38 @@
             allowUnfree = true;
           };
         };
+        inherit (import ./nix/util.nix) eachSystem eachCrossSystem;
 
-        android = {
-          platforms = [ "34" ];
-          platformTools = "33.0.3";
-          buildTools = [ "30.0.3" ];
-        };
-
-        sdkArgs = {
-          platformVersions = android.platforms;
-          platformToolsVersion = android.platformTools;
-          buildToolsVersions = android.buildTools;
-          includeNDK = true;
-        };
-
-        fenixPkgs = fenix.packages.${system};
-        # Pinned Rust Version
-        rust-toolchain = fenixPkgs.fromToolchainFile {
-          file = ./rust-toolchain;
-          sha256 = "sha256-yMuSb5eQPO/bHv+Bcf/US8LVMbf/G/0MSfiPwBhiPpk=";
-        };
-
-        # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
-        androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
-        androidComposition = androidenv.composeAndroidPackages sdkArgs;
-
-        # Packages available to flake while building the environment
-        nativeBuildInputs = with pkgs; [ pkg-config ];
-        # Define the packages available to the build environment
-        # https://search.nixos.org/packages
-        buildInputs = with pkgs; [
-          rust-toolchain
-          kotlin
-          androidsdk
-          jdk17
-          cargo-ndk
-
-          # System Libraries
-          sqlite
-          openssl
-        ] ++ lib.optionals isDarwin [ # optional packages if on darwin, in order to check if build passes locally
-          libiconv
-          frameworks.CoreServices
-          frameworks.Carbon
-          frameworks.ApplicationServices
-          frameworks.AppKit
-          darwin.cctools
+        # Function to make a toolchain that includes a foreign target
+        mkToolchain = with fenix.packages.${system}; target: combine [
+          stable.cargo
+          stable.rustc
+          targets.${target}.stable.rust-std
         ];
-      in {
-        devShells.default = pkgs.mkShell {
-            OPENSSL_DIR = "${pkgs.openssl.dev}";
-            ANDROID_HOME = androidHome;
-            ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
-            ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
 
-            inherit buildInputs nativeBuildInputs;
-          };
+        # Function to create a package set with an optional foreign host
+        mkPkgs = buildSystem: hostSystem: buildTargets: import nixpkgs ({
+          system = buildSystem;
+        } // (if hostSystem == null then {} else {
+          # The nixpkgs cache doesn't have any packages where cross-compiling has
+          # been enabled, even if the host platform is actually the same as the
+          # build platform (and therefore it's not really cross-compiling). So we
+          # only set up the cross-compiling config if the host platform is
+          # different.
+          crossSystem.config = buildTargets.${hostSystem}.crossSystemConfig;
+          # crossSystem = buildTargets.${hostSystem};
+        }));
+
+        iosPackages = import ./nix/ios { inherit mkPkgs eachCrossSystem mkToolchain crane system; };
+      in {
+        # The shell where android and iOS can be built from
+        devShells.default = pkgs.callPackage ./nix/buildshell.nix { };
+        packages = {
+          ios = iosPackages;
+          # ios = pkgs.callPackage ./nix { inherit craneLib; };
+          # android
+          # wasm
+          # validation service
+        };
       });
 }
