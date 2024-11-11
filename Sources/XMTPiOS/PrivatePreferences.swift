@@ -9,6 +9,12 @@ public enum EntryType: String, Codable {
 }
 
 public struct ConsentListEntry: Codable, Hashable {
+	public init(value: String, entryType: EntryType, consentType: ConsentState) {
+		self.value = value
+		self.entryType = entryType
+		self.consentType = consentType
+	}
+	
 	static func address(_ address: String, type: ConsentState = .unknown)
 		-> ConsentListEntry
 	{
@@ -65,25 +71,25 @@ public class ConsentList {
 		self.ffiClient = ffiClient
 	}
 
-	func setConsentState(entries: [ConsentListEntry]) async throws {
+	public func setConsentState(entries: [ConsentListEntry]) async throws {
 		try await ffiClient.setConsentStates(records: entries.map(\.toFFI))
 	}
 
-	func addressState(address: String) async throws -> ConsentState {
+	public func addressState(address: String) async throws -> ConsentState {
 		return try await ffiClient.getConsentState(
 			entityType: .address,
 			entity: address
 		).fromFFI
 	}
 
-	func conversationState(conversationId: String) async throws -> ConsentState {
+	public func conversationState(conversationId: String) async throws -> ConsentState {
 		return try await ffiClient.getConsentState(
 			entityType: .conversationId,
 			entity: conversationId
 		).fromFFI
 	}
 
-	func inboxIdState(inboxId: String) async throws -> ConsentState {
+	public func inboxIdState(inboxId: String) async throws -> ConsentState {
 		return try await ffiClient.getConsentState(
 			entityType: .inboxId,
 			entity: inboxId
