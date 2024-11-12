@@ -42,7 +42,7 @@ impl TryFrom<UploadKeyPackageRequest> for PublishClientEnvelopesRequest {
                 envelopes: vec![ClientEnvelope {
                     aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
                         key_package,
-                    ))),
+                    )?)),
                     payload: Some(Payload::UploadKeyPackage(req)),
                 }],
             })
@@ -80,7 +80,7 @@ impl TryFrom<GroupMessageInput> for PublishClientEnvelopesRequest {
                 envelopes: vec![ClientEnvelope {
                     aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
                         version.data.clone(),
-                    ))),
+                    )?)),
                     payload: Some(Payload::GroupMessage(req)),
                 }],
             })

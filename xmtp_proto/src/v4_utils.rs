@@ -7,7 +7,7 @@ use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
 use openmls_rust_crypto::RustCrypto;
 use prost::Message;
-use crate::{Error, ErrorKind};
+use crate::{Error, ErrorKind, InternalError};
 use crate::InternalError::{MissingPayloadError};
 use crate::types::TopicKind;
 
@@ -65,34 +65,33 @@ pub fn extract_client_envelope(req: &OriginatorEnvelope) -> Result<ClientEnvelop
     Ok(ClientEnvelope::decode(&mut payer_bytes)?)
 }
 
-pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Vec<u8> {
-    let topic_str = String::from_utf8(topic).expect("Failed to convert topic to string");
-    let group_id = topic_str
+pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Result<Vec<u8>, Error> {
+    let topic_str = String::from_utf8(topic)?;
+    let binding = topic_str.clone();
+    let group_id = binding
         .split("/")
         .nth(1)
-        .expect("Failed to extract group id from topic");
-    group_id.as_bytes().to_vec()
+        .ok_or(Error::new(ErrorKind::InternalError(InternalError::InvalidTopicError(topic_str))))?;
+    Ok(group_id.as_bytes().to_vec())
 }
 
-pub fn get_group_message_topic(message: Vec<u8>) -> Vec<u8> {
-    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
-        .expect("Failed to deserialize message");
-
+pub fn get_group_message_topic(message: Vec<u8>) -> Result<Vec<u8>, Error> {
+    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())?;
     let protocol_message: ProtocolMessage = msg_result
         .try_into_protocol_message()
-        .expect("Failed to convert to protocol message");
+        .map_err(|_| Error::new(ErrorKind::MlsError).with(
+        "Failed to convert to protocol message"))?;
 
-    build_group_message_topic(protocol_message.group_id().as_slice())
+    Ok(build_group_message_topic(protocol_message.group_id().as_slice()))
 }
 
-pub fn get_key_package_topic(key_package: &KeyPackageUpload) -> Vec<u8> {
+pub fn get_key_package_topic(key_package: &KeyPackageUpload) -> Result<Vec<u8>, Error> {
     let kp_in: KeyPackageIn =
-        KeyPackageIn::tls_deserialize_exact(key_package.key_package_tls_serialized.as_slice())
-            .expect("key package serialization");
+        KeyPackageIn::tls_deserialize_exact(key_package.key_package_tls_serialized.as_slice())?;
     let rust_crypto = RustCrypto::default();
     let kp = kp_in
         .validate(&rust_crypto, MLS_PROTOCOL_VERSION)
-        .expect("key package validation");
+        .map_err(|_| Error::new(ErrorKind::MlsError).with("key package validation failed"))?;
     let installation_key = kp.leaf_node().signature_key().as_slice();
-    build_key_package_topic(installation_key)
+    Ok(build_key_package_topic(installation_key))
 }
