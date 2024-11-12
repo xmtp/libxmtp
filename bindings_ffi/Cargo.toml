@@ -12,7 +12,7 @@ futures.workspace = true
 log = { version = "0.4", features = ["std"] }
 parking_lot.workspace = true
 thiserror.workspace = true
-thread-id = "4.2.1"
+thread-id = "5.0.0"
 tokio = { workspace = true, features = ["macros"] }
 uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

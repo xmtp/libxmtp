@@ -35,7 +35,7 @@ struct CipherProviderVersion {
 }
 
 /// Specialized Connection for r2d2 connection pool.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, zeroize::ZeroizeOnDrop)]
 pub struct EncryptedConnection {
     key: EncryptionKey,
     /// We don't store the salt for Ephemeral Dbs

@@ -17,12 +17,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Nix
-        uses: cachix/install-nix-action@v17
+        uses: cachix/install-nix-action@v30
         with:
           # Mostly to avoid GitHub rate limiting
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - uses: DeterminateSystems/magic-nix-cache-action@v2
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -43,14 +43,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - uses: DeterminateSystems/magic-nix-cache-action@v2
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
       - name: Install Nix
-        uses: cachix/install-nix-action@v17
+        uses: cachix/install-nix-action@v30
         with:
           # Mostly to avoid GitHub rate limiting
           extra_nix_config: |
@@ -92,7 +92,7 @@ jobs:
         id: slug
         run: echo "sha7=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
       - name: Create release and upload asset
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ./bindings_ffi/LibXMTPSwiftFFI.zip
           tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}

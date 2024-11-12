@@ -19,6 +19,7 @@ use xmtp_id::{
         SignatureError,
     },
     scw_verifier::SmartContractSignatureVerifier,
+    InboxIdRef,
 };
 
 use crate::{
@@ -58,30 +59,26 @@ impl RetryableError for InstallationDiffError {
 impl DbConnection {
     /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
     /// in the local DB
-    pub(crate) fn filter_inbox_ids_needing_updates<InboxId: AsRef<str> + ToString>(
+    pub(crate) fn filter_inbox_ids_needing_updates<'a>(
         &self,
-        filters: Vec<(InboxId, i64)>,
-    ) -> Result<Vec<String>, ClientError> {
-        let existing_sequence_ids = self.get_latest_sequence_id(
-            &filters
-                .iter()
-                .map(|f| f.0.to_string())
-                .collect::<Vec<String>>(),
-        )?;
+        filters: &[(InboxIdRef<'a>, i64)],
+    ) -> Result<Vec<&'a str>, ClientError> {
+        let existing_sequence_ids =
+            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
 
         let needs_update = filters
             .iter()
             .filter_map(|filter| {
-                let existing_sequence_id = existing_sequence_ids.get(filter.0.as_ref());
+                let existing_sequence_id = existing_sequence_ids.get(filter.0);
                 if let Some(sequence_id) = existing_sequence_id {
                     if sequence_id.ge(&filter.1) {
                         return None;
                     }
                 }
 
-                Some(filter.0.to_string())
+                Some(filter.0)
             })
-            .collect::<Vec<String>>();
+            .collect::<Vec<&str>>();
 
         Ok(needs_update)
     }
@@ -119,7 +116,7 @@ where
         conn: &DbConnection,
         inbox_id: InboxId,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(&self.api_client, conn, vec![inbox_id.as_ref().to_string()]).await?;
+        load_identity_updates(&self.api_client, conn, &[inbox_id.as_ref()]).await?;
 
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -355,7 +352,7 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
-        let inbox_id = signature_request.inbox_id();
+        let inbox_id = signature_request.inbox_id().to_string();
         // If the signature request isn't completed, this will error
         let identity_update = signature_request
             .build_identity_update()
@@ -375,7 +372,7 @@ where
                 load_identity_updates(
                     &self.api_client,
                     &self.store().conn()?,
-                    vec![inbox_id.clone()],
+                    &[inbox_id.as_str()],
                 )
                 .await
             })
@@ -401,23 +398,22 @@ where
         let added_and_updated_members = membership_diff
             .added_inboxes
             .iter()
-            .chain(membership_diff.updated_inboxes.iter())
-            .cloned();
+            .chain(membership_diff.updated_inboxes.iter());
 
         let filters = added_and_updated_members
             .clone()
             .map(|i| {
                 (
-                    i,
+                    i.as_str(),
                     new_group_membership.get(i).map(|i| *i as i64).unwrap_or(0),
                 )
             })
-            .collect::<Vec<(&String, i64)>>();
+            .collect::<Vec<(&str, i64)>>();
 
         load_identity_updates(
             &self.api_client,
             conn,
-            conn.filter_inbox_ids_needing_updates(filters)?,
+            &conn.filter_inbox_ids_needing_updates(filters.as_slice())?,
         )
         .await?;
 
@@ -471,19 +467,19 @@ where
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
-    inbox_ids: Vec<String>,
+    inbox_ids: &[&str],
 ) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
     if inbox_ids.is_empty() {
         return Ok(HashMap::new());
     }
     tracing::debug!("Fetching identity updates for: {:?}", inbox_ids);
 
-    let existing_sequence_ids = conn.get_latest_sequence_id(&inbox_ids)?;
+    let existing_sequence_ids = conn.get_latest_sequence_id(inbox_ids)?;
     let filters: Vec<GetIdentityUpdatesV2Filter> = inbox_ids
-        .into_iter()
+        .iter()
         .map(|inbox_id| GetIdentityUpdatesV2Filter {
-            sequence_id: existing_sequence_ids.get(&inbox_id).map(|i| *i as u64),
-            inbox_id,
+            sequence_id: existing_sequence_ids.get(*inbox_id).map(|i| *i as u64),
+            inbox_id: inbox_id.to_string(),
         })
         .collect();
 
@@ -551,7 +547,7 @@ pub(crate) mod tests {
         Verifier: SmartContractSignatureVerifier,
     {
         let conn = client.store().conn().unwrap();
-        load_identity_updates(&client.api_client, &conn, vec![inbox_id.clone()])
+        load_identity_updates(&client.api_client, &conn, &[inbox_id.as_str()])
             .await
             .unwrap();
 
@@ -580,7 +576,7 @@ pub(crate) mod tests {
             .create_inbox(wallet_address.clone(), None)
             .await
             .unwrap();
-        let inbox_id = signature_request.inbox_id();
+        let inbox_id = signature_request.inbox_id().to_string();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
 
@@ -589,7 +585,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, inbox_id.clone()).await;
+        let association_state = get_association_state(&client, inbox_id.to_string()).await;
 
         assert_eq!(association_state.members().len(), 2);
         assert_eq!(association_state.recovery_address(), &wallet_address);
@@ -617,7 +613,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, client.inbox_id()).await;
+        let association_state = get_association_state(&client, client.inbox_id().to_string()).await;
 
         let members =
             association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
@@ -643,12 +639,12 @@ pub(crate) mod tests {
             let client = ClientBuilder::new_test_client(&wallet).await;
             let inbox_id = client.inbox_id();
 
-            get_association_state(&client, inbox_id.clone()).await;
+            get_association_state(&client, inbox_id.to_string()).await;
 
             assert_logged!("Loaded association", 0);
             assert_logged!("Wrote association", 1);
 
-            let association_state = get_association_state(&client, inbox_id.clone()).await;
+            let association_state = get_association_state(&client, inbox_id.to_string()).await;
 
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(association_state.recovery_address(), &wallet_address);
@@ -671,12 +667,12 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            get_association_state(&client, inbox_id.clone()).await;
+            get_association_state(&client, inbox_id.to_string()).await;
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 2);
 
-            let association_state = get_association_state(&client, inbox_id.clone()).await;
+            let association_state = get_association_state(&client, inbox_id.to_string()).await;
 
             assert_logged!("Loaded association", 2);
             assert_logged!("Wrote association", 2);
@@ -701,7 +697,7 @@ pub(crate) mod tests {
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
-            conn.filter_inbox_ids_needing_updates(vec![("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
+            conn.filter_inbox_ids_needing_updates(&[("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
@@ -731,8 +727,8 @@ pub(crate) mod tests {
                 .create_inbox(wallet.get_address(), None)
                 .await
                 .unwrap();
-            let inbox_id = signature_request.inbox_id();
-            inbox_ids.push(inbox_id.clone());
+            let inbox_id = signature_request.inbox_id().to_string();
+            inbox_ids.push(inbox_id);
 
             add_wallet_signature(&mut signature_request, &wallet).await;
             client
@@ -756,15 +752,14 @@ pub(crate) mod tests {
         // Create a new client to test group operations with
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let other_conn = other_client.store().conn().unwrap();
+        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         // Load all the identity updates for the new inboxes
-        load_identity_updates(&other_client.api_client, &other_conn, inbox_ids.clone())
+        load_identity_updates(&other_client.api_client, &other_conn, ids.as_slice())
             .await
             .expect("load should succeed");
 
         // Get the latest sequence IDs so we can construct the updates
-        let latest_sequence_ids = other_conn
-            .get_latest_sequence_id(&inbox_ids.clone())
-            .unwrap();
+        let latest_sequence_ids = other_conn.get_latest_sequence_id(ids.as_slice()).unwrap();
 
         let inbox_1_first_sequence_id = other_conn
             .get_identity_updates(inbox_ids[0].clone(), None, None)
@@ -774,20 +769,20 @@ pub(crate) mod tests {
             .sequence_id;
 
         let mut original_group_membership = GroupMembership::new();
-        original_group_membership.add(inbox_ids[0].clone(), inbox_1_first_sequence_id as u64);
+        original_group_membership.add(inbox_ids[0].to_string(), inbox_1_first_sequence_id as u64);
         original_group_membership.add(
-            inbox_ids[1].clone(),
+            inbox_ids[1].to_string(),
             *latest_sequence_ids.get(&inbox_ids[1]).unwrap() as u64,
         );
 
         let mut new_group_membership = original_group_membership.clone();
         // Update the first inbox to have a higher sequence ID, but no new installations
         new_group_membership.add(
-            inbox_ids[0].clone(),
+            inbox_ids[0].to_string(),
             *latest_sequence_ids.get(&inbox_ids[0]).unwrap() as u64,
         );
         new_group_membership.add(
-            inbox_ids[2].clone(),
+            inbox_ids[2].to_string(),
             *latest_sequence_ids.get(&inbox_ids[2]).unwrap() as u64,
         );
         new_group_membership.remove(&inbox_ids[1]);
@@ -833,7 +828,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state_after_add = get_association_state(&client, client.inbox_id()).await;
+        let association_state_after_add =
+            get_association_state(&client, client.inbox_id().to_string()).await;
         assert_eq!(association_state_after_add.account_addresses().len(), 2);
 
         // Make sure the inbox ID is correctly registered
@@ -859,7 +855,7 @@ pub(crate) mod tests {
 
         // Make sure that the association state has removed the second wallet
         let association_state_after_revoke =
-            get_association_state(&client, client.inbox_id()).await;
+            get_association_state(&client, client.inbox_id().to_string()).await;
         assert_eq!(association_state_after_revoke.account_addresses().len(), 1);
 
         // Make sure the inbox ID is correctly unregistered
@@ -878,7 +874,8 @@ pub(crate) mod tests {
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
         let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
 
-        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        let association_state =
+            get_association_state(&client1, client1.inbox_id().to_string()).await;
         // Ensure there are two installations on the inbox
         assert_eq!(association_state.installation_ids().len(), 2);
 
@@ -894,7 +891,8 @@ pub(crate) mod tests {
             .unwrap();
 
         // Make sure there is only one installation on the inbox
-        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        let association_state =
+            get_association_state(&client1, client1.inbox_id().to_string()).await;
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 }

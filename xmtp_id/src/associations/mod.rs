@@ -136,7 +136,7 @@ pub(crate) mod tests {
 
     pub fn new_test_inbox_with_installation() -> AssociationState {
         let initial_state = new_test_inbox();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let initial_wallet_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
 
@@ -152,7 +152,7 @@ pub(crate) mod tests {
 
         apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update], inbox_id.to_string()),
         )
         .unwrap()
     }
@@ -175,7 +175,7 @@ pub(crate) mod tests {
     #[test]
     fn create_and_add_separately() {
         let initial_state = new_test_inbox();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let new_installation_identifier: MemberIdentifier = rand_vec().into();
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
 
@@ -197,7 +197,7 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update], inbox_id.to_string()),
         )
         .unwrap();
         assert_eq!(new_state.members().len(), 2);
@@ -285,7 +285,7 @@ pub(crate) mod tests {
     #[test]
     fn add_wallet_from_installation_key() {
         let initial_state = new_test_inbox_with_installation();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
             .first()
@@ -312,7 +312,7 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![add_association], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![add_association], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
@@ -347,7 +347,7 @@ pub(crate) mod tests {
     #[test]
     fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         // Signature is from a random address
         let bad_signature = VerifiedSignature::new(
             rand_string().into(),
@@ -363,7 +363,7 @@ pub(crate) mod tests {
 
         let update_result = apply_update(
             initial_state.clone(),
-            IdentityUpdate::new_test(vec![update_with_bad_existing_member], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update_with_bad_existing_member], inbox_id.to_string()),
         );
 
         assert!(matches!(
@@ -384,7 +384,7 @@ pub(crate) mod tests {
 
         let update_result_2 = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update_with_bad_new_member], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update_with_bad_new_member], inbox_id.to_string()),
         );
         assert!(matches!(
             update_result_2,
@@ -423,7 +423,7 @@ pub(crate) mod tests {
     #[test]
     fn reject_if_installation_adding_installation() {
         let existing_state = new_test_inbox_with_installation();
-        let inbox_id = existing_state.inbox_id().clone();
+        let inbox_id = existing_state.inbox_id().to_string();
         let existing_installations = existing_state.members_by_kind(MemberKind::Installation);
         let existing_installation = existing_installations.first().unwrap();
         let new_installation_id: MemberIdentifier = rand_vec().into();
@@ -446,7 +446,7 @@ pub(crate) mod tests {
 
         let update_result = apply_update(
             existing_state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update], inbox_id.to_string()),
         );
         assert!(matches!(
             update_result,
@@ -460,7 +460,7 @@ pub(crate) mod tests {
     #[test]
     fn revoke() {
         let initial_state = new_test_inbox_with_installation();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
             .first()
@@ -479,7 +479,7 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert!(new_state.get(&installation_id).is_none());
@@ -488,7 +488,7 @@ pub(crate) mod tests {
     #[test]
     fn revoke_children() {
         let initial_state = new_test_inbox_with_installation();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
             .first()
@@ -508,7 +508,7 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![add_second_installation], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![add_second_installation], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
@@ -526,7 +526,7 @@ pub(crate) mod tests {
         // With this revocation the original wallet + both installations should be gone
         let new_state = apply_update(
             new_state,
-            IdentityUpdate::new_test(vec![revocation], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![revocation], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 0);
@@ -542,7 +542,7 @@ pub(crate) mod tests {
             .unwrap()
             .identifier;
 
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
 
         let second_wallet_address: MemberIdentifier = rand_string().into();
         let add_second_wallet = Action::AddAssociation(AddAssociation {
@@ -575,7 +575,7 @@ pub(crate) mod tests {
             initial_state,
             IdentityUpdate::new_test(
                 vec![add_second_wallet, revoke_second_wallet],
-                inbox_id.clone(),
+                inbox_id.to_string(),
             ),
         )
         .expect("expected update to succeed");
@@ -599,7 +599,7 @@ pub(crate) mod tests {
 
         let state_after_re_add = apply_update(
             state_after_remove,
-            IdentityUpdate::new_test(vec![add_second_wallet_again], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![add_second_wallet_again], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert_eq!(state_after_re_add.members().len(), 2);
@@ -608,7 +608,7 @@ pub(crate) mod tests {
     #[test]
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id().to_string();
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
         let new_recovery_address = rand_string();
@@ -624,7 +624,7 @@ pub(crate) mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new_test(vec![update_recovery], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![update_recovery], inbox_id.to_string()),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
@@ -641,7 +641,7 @@ pub(crate) mod tests {
 
         let revoke_result = apply_update(
             new_state,
-            IdentityUpdate::new_test(vec![attempted_revoke], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![attempted_revoke], inbox_id.to_string()),
         );
         assert!(revoke_result.is_err());
         assert!(matches!(
@@ -672,7 +672,7 @@ pub(crate) mod tests {
         )])
         .expect("initial state should be OK");
 
-        let inbox_id = initial_state.inbox_id().clone();
+        let inbox_id = initial_state.inbox_id();
 
         let new_chain_id: u64 = 2;
         let new_member: MemberIdentifier = rand_vec().into();
@@ -710,7 +710,7 @@ pub(crate) mod tests {
         for action in actions {
             let apply_result = apply_update(
                 initial_state.clone(),
-                IdentityUpdate::new_test(vec![action], inbox_id.clone()),
+                IdentityUpdate::new_test(vec![action], inbox_id.to_string()),
             );
 
             assert!(matches!(

@@ -50,9 +50,9 @@ pub struct SignatureRequestBuilder {
 
 impl SignatureRequestBuilder {
     /// Create a new IdentityUpdateBuilder for the given `inbox_id`
-    pub fn new(inbox_id: String) -> Self {
+    pub fn new<S: AsRef<str>>(inbox_id: S) -> Self {
         Self {
-            inbox_id,
+            inbox_id: inbox_id.as_ref().to_string(),
             client_timestamp_ns: now_ns() as u64,
             actions: vec![],
         }
@@ -311,8 +311,8 @@ impl SignatureRequest {
         ))
     }
 
-    pub fn inbox_id(&self) -> String {
-        self.inbox_id.clone()
+    pub fn inbox_id(&self) -> crate::InboxIdRef<'_> {
+        &self.inbox_id
     }
 }
 

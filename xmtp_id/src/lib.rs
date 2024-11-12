@@ -31,8 +31,13 @@ pub enum IdentityError {
     Signing(#[from] xmtp_cryptography::SignerError),
 }
 
-/// The global InboxID Type.
+/// The global InboxID Reference Type.
+pub type InboxIdRef<'a> = &'a str;
+
+/// Global InboxID Owned Type.
 pub type InboxId = String;
+
+pub type WalletAddress = String;
 
 // Check if the given address is a smart contract by checking if there is code at the given address.
 pub async fn is_smart_contract(

@@ -24,6 +24,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{
     fmt::{format, time},
     layer::SubscriberExt,
+    prelude::*,
     Registry,
 };
 use valuable::Valuable;
@@ -181,17 +182,17 @@ impl InboxOwner for Wallet {
 async fn main() -> color_eyre::eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    let crate_name = env!("CARGO_PKG_NAME");
+    let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO"))?;
     if cli.json {
-        let fmt = tracing_subscriber::fmt::format()
+        let fmt = tracing_subscriber::fmt::layer()
             .json()
             .flatten_event(true)
-            .with_thread_ids(true)
             .with_level(true)
             .with_timer(time::ChronoLocal::new("%s".into()));
-        tracing_subscriber::fmt().event_format(fmt).init();
+
+        tracing_subscriber::registry().with(filter).with(fmt).init();
     } else {
-        let crate_name = env!("CARGO_PKG_NAME");
-        let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO"))?;
         let layer = tracing_subscriber::fmt::layer()
             .without_time()
             .map_event_format(|_| pretty::PrettyTarget)
@@ -318,8 +319,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     "messages",
                 );
             } else {
-                let messages =
-                    format_messages(messages, client.inbox_id()).expect("failed to get messages");
+                let messages = format_messages(messages, client.inbox_id().to_string())
+                    .expect("failed to get messages");
                 info!(
                     "====== Group {} ======\n{}",
                     hex::encode(group.group_id),

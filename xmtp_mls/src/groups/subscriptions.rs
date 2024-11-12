@@ -28,8 +28,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let msg_id = msgv1.id;
         let client_id = self.client.inbox_id();
         tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&self.group_id),
+            msg_id = msgv1.id,
             "client [{}]  is about to process streamed envelope: [{}]",
-            &client_id.clone(),
+            &client_id,
             &msg_id
         );
         let created_ns = msgv1.created_ns;
@@ -48,29 +51,57 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                             // Attempt processing immediately, but fail if the message is not an Application Message
                             // Returning an error should roll back the DB tx
                             tracing::info!(
+                                inbox_id = self.client.inbox_id(),
+                                group_id = hex::encode(&self.group_id),
+                                current_epoch = openmls_group.epoch().as_u64(),
+                                msg_id = msgv1.id,
                                 "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
                                 client_id,
                                 openmls_group.epoch()
                             );
 
                             self.process_message(&mut openmls_group, &provider, msgv1, false)
-                                .await?;
-                            Ok::<_, SubscribeError>(())
+                                .await
+                                // NOTE: We want to make sure we retry an error in process_message
+                                .map_err(SubscribeError::Receive)
                         })
                         .await
                 })
             );
 
             if let Err(SubscribeError::Receive(_)) = process_result {
+                tracing::debug!(
+                    inbox_id = self.client.inbox_id(),
+                    group_id = hex::encode(&self.group_id),
+                    msg_id = msgv1.id,
+                    "attempting recovery sync"
+                );
                 // Swallow errors here, since another process may have successfully saved the message
                 // to the DB
                 if let Err(err) = self.sync_with_conn(&self.client.mls_provider()?).await {
-                    tracing::warn!("Sync triggered by streamed message failed: {}", err);
+                    tracing::warn!(
+                        inbox_id = self.client.inbox_id(),
+                        group_id = hex::encode(&self.group_id),
+                        msg_id = msgv1.id,
+                        err = %err,
+                        "recovery sync triggered by streamed message failed: {}", err
+                    );
                 } else {
-                    tracing::debug!("Sync triggered by streamed message successful")
+                    tracing::debug!(
+                        inbox_id = self.client.inbox_id(),
+                        group_id = hex::encode(&self.group_id),
+                        msg_id = msgv1.id,
+                        "recovery sync triggered by streamed message successful"
+                    )
                 }
             } else if let Err(e) = process_result {
-                tracing::error!("Process stream entry {:?}", e);
+                tracing::error!(
+                    inbox_id = self.client.inbox_id(),
+                    group_id = hex::encode(&self.group_id),
+                    msg_id = msgv1.id,
+                    err = %e,
+                    "process stream entry {:?}", e
+                );
             }
         }
 
@@ -104,8 +135,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage, SubscribeError> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        // .map_err(|e| GroupError::Generic(e.to_string()))?;
-
         self.process_stream_entry(envelope).await
     }
 

@@ -1,8 +1,13 @@
-use bindings_wasm::{client::create_client, inbox_id::get_inbox_id_for_address};
+use bindings_wasm::client::Level;
+use bindings_wasm::{
+  client::{create_client, LogOptions},
+  inbox_id::get_inbox_id_for_address,
+};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
 use xmtp_cryptography::utils::{rng, LocalWallet};
+use xmtp_id::associations::generate_inbox_id;
 use xmtp_id::InboxOwner;
 
 // Only run these tests in a browser.
@@ -19,9 +24,7 @@ pub async fn test_create_client() {
   let wallet = LocalWallet::new(&mut rng());
   let account_address = wallet.get_address();
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
-  let inbox_id = get_inbox_id_for_address(host.clone(), account_address.clone())
-    .await
-    .unwrap_or_else(|_| panic!("Error getting inbox ID"));
+  let inbox_id = generate_inbox_id(&account_address, &1);
   let client = create_client(
     host.clone(),
     inbox_id.unwrap(),
@@ -29,6 +32,11 @@ pub async fn test_create_client() {
     "test".to_string(),
     None,
     None,
+    Some(LogOptions {
+      structured: false,
+      performance: false,
+      level: Some(Level::Info),
+    }),
   )
   .await;
 

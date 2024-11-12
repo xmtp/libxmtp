@@ -167,6 +167,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
             let span = trace_span!(BENCH_ROOT_SPAN, size);
+            let id_slice = ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
             b.to_async(&runtime).iter_batched(
                 || {
                     bench_async_setup(|| async {
@@ -181,13 +182,14 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
                             )
                             .await
                             .unwrap();
+                        let id_slice = id_slice.clone();
 
-                        (group, span.clone(), ids.clone())
+                        (group, span.clone(), id_slice)
                     })
                 },
-                |(group, span, ids)| async move {
+                |(group, span, id_slice)| async move {
                     group
-                        .add_members_by_inbox_id(&ids)
+                        .add_members_by_inbox_id(&id_slice)
                         .instrument(span)
                         .await
                         .unwrap();
@@ -217,6 +219,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
         benchmark_group.throughput(Throughput::Elements(*size as u64));
         benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let ids = map.get(&size).unwrap();
+            let id_slice = ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
             let span = trace_span!(BENCH_ROOT_SPAN, size);
             b.to_async(&runtime).iter_batched(
                 || {
@@ -225,7 +228,8 @@ fn remove_all_members_from_group(c: &mut Criterion) {
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
                         group.add_members_by_inbox_id(ids).await.unwrap();
-                        (group, span.clone(), ids.clone())
+                        let ids = id_slice.clone();
+                        (group, span.clone(), ids)
                     })
                 },
                 |(group, span, ids)| async move {
@@ -268,12 +272,17 @@ fn remove_half_members_from_group(c: &mut Criterion) {
                             .create_group(None, GroupMetadataOptions::default())
                             .unwrap();
                         group.add_members_by_inbox_id(ids).await.unwrap();
-                        (group, span.clone(), ids[0..(size / 2)].into())
+                        let ids = ids
+                            .iter()
+                            .map(AsRef::as_ref)
+                            .take(size / 2)
+                            .collect::<Vec<&str>>();
+                        (group, span.clone(), ids)
                     })
                 },
                 |(group, span, ids)| async move {
                     group
-                        .remove_members_by_inbox_id(ids)
+                        .remove_members_by_inbox_id(&ids)
                         .instrument(span)
                         .await
                         .unwrap();
