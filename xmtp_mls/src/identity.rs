@@ -140,7 +140,7 @@ pub enum IdentityError {
     #[error(transparent)]
     WrappedApi(#[from] WrappedApiError),
     #[error(transparent)]
-    Api(#[from] xmtp_proto::api_client::Error),
+    Api(#[from] xmtp_proto::Error),
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]

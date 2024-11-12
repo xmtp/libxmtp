@@ -102,7 +102,7 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::api_client::Error),
+    Api(#[from] xmtp_proto::Error),
     #[error("api error: {0}")]
     WrappedApi(#[from] WrappedApiError),
     #[error("invalid group membership")]

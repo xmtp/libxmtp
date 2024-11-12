@@ -29,7 +29,7 @@ pub enum VerifierError {
     #[error(transparent)]
     Provider(#[from] ethers::providers::ProviderError),
     #[error(transparent)]
-    ApiClient(#[from] xmtp_proto::api_client::Error),
+    ApiClient(#[from] xmtp_proto::Error),
     #[error(transparent)]
     Url(#[from] url::ParseError),
     #[error(transparent)]

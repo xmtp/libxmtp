@@ -7,7 +7,8 @@ use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
 use openmls_rust_crypto::RustCrypto;
 use prost::Message;
-use crate::api_client;
+use crate::{Error, ErrorKind};
+use crate::InternalError::{MissingPayloadError};
 use crate::types::TopicKind;
 
 pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
@@ -41,25 +42,27 @@ pub fn build_welcome_message_topic(installation_id: &[u8]) -> Vec<u8> {
     topic
 }
 
-pub fn build_identity_topic_from_hex_encoded(hex_encoded_inbox_id: &String) -> Result<Vec<u8>, api_client::Error> {
+pub fn build_identity_topic_from_hex_encoded(hex_encoded_inbox_id: &String) -> Result<Vec<u8>, Error> {
     let decoded_inbox_id = hex::decode(hex_encoded_inbox_id)?;
     Ok(build_identity_update_topic(&decoded_inbox_id))
 }
 
 pub fn extract_unsigned_originator_envelope(
     req: &OriginatorEnvelope,
-) -> UnsignedOriginatorEnvelope {
+) -> Result<UnsignedOriginatorEnvelope, Error> {
     let mut unsigned_bytes = req.unsigned_originator_envelope.as_slice();
-    UnsignedOriginatorEnvelope::decode(&mut unsigned_bytes)
-        .expect("Failed to decode unsigned originator envelope")
+    Ok(UnsignedOriginatorEnvelope::decode(&mut unsigned_bytes)?)
 }
 
-pub fn extract_client_envelope(req: &OriginatorEnvelope) -> ClientEnvelope {
-    let unsigned_originator = extract_unsigned_originator_envelope(req);
+pub fn extract_client_envelope(req: &OriginatorEnvelope) -> Result<ClientEnvelope, Error> {
+    let unsigned_originator = extract_unsigned_originator_envelope(req)?;
 
-    let payer_envelope = unsigned_originator.payer_envelope.unwrap();
+    let payer_envelope = unsigned_originator
+        .payer_envelope
+        .ok_or(Error::new(ErrorKind::InternalError(MissingPayloadError)))?;
+
     let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
-    ClientEnvelope::decode(&mut payer_bytes).expect("Failed to decode client envelope")
+    Ok(ClientEnvelope::decode(&mut payer_bytes)?)
 }
 
 pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Vec<u8> {

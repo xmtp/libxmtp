@@ -32,30 +32,24 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 };
 use xmtp_proto::xmtp::xmtpv4::payer_api::payer_api_client::PayerApiClient;
 use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
-use xmtp_proto::{
-    api_client::{
-        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
-    },
-    xmtp::identity::api::v1::{
-        get_inbox_ids_response, GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
-        GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
-        GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-    },
-    xmtp::message_api::v1::{
-        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
-        QueryRequest, QueryResponse, SubscribeRequest,
-    },
-    xmtp::mls::api::v1::{
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
-        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
-    },
-    xmtp::xmtpv4::message_api::{
-        get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
-    },
-};
+use xmtp_proto::{api_client::{
+    MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+}, xmtp::identity::api::v1::{
+    get_inbox_ids_response, GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+    GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+    GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+}, xmtp::message_api::v1::{
+    BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+    QueryRequest, QueryResponse, SubscribeRequest,
+}, xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+    QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+}, xmtp::xmtpv4::message_api::{
+    get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
+}, Error, ErrorKind};
 use xmtp_proto::v4_utils::{build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic, build_key_package_topic, build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope};
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
@@ -338,7 +332,7 @@ impl XmtpMlsClient for ClientV4 {
             .map(|envelopes| {
                 // The last envelope should be the newest key package upload
                 let unsigned = envelopes.last().unwrap();
-                let client_env = extract_client_envelope(unsigned);
+                let client_env = extract_client_envelope(unsigned).unwrap();
                 if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
                     fetch_key_packages_response::KeyPackage {
                         key_package_tls_serialized: upload_key_package
@@ -407,8 +401,8 @@ impl XmtpMlsClient for ClientV4 {
                 .iter()
                 .map(|envelope| {
                     let unsigned_originator_envelope =
-                        extract_unsigned_originator_envelope(envelope);
-                    let client_envelope = extract_client_envelope(envelope);
+                        extract_unsigned_originator_envelope(envelope).unwrap();
+                    let client_envelope = extract_client_envelope(envelope).unwrap();
                     let Payload::GroupMessage(group_message) = client_envelope.payload.unwrap()
                     else {
                         panic!("Payload is not a group message");
@@ -457,8 +451,8 @@ impl XmtpMlsClient for ClientV4 {
                 .iter()
                 .map(|envelope| {
                     let unsigned_originator_envelope =
-                        extract_unsigned_originator_envelope(envelope);
-                    let client_envelope = extract_client_envelope(envelope);
+                        extract_unsigned_originator_envelope(envelope).unwrap();
+                    let client_envelope = extract_client_envelope(envelope).unwrap();
                     let Payload::WelcomeMessage(welcome_message) = client_envelope.payload.unwrap()
                     else {
                         panic!("Payload is not a group message");

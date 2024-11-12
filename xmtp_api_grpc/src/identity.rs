@@ -1,6 +1,7 @@
 use crate::Client;
 use xmtp_proto::{
-    api_client::{Error, ErrorKind, XmtpIdentityClient},
+    Error, ErrorKind,
+    api_client::{XmtpIdentityClient},
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,

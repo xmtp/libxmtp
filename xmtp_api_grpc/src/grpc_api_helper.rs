@@ -11,9 +11,9 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
-use xmtp_proto::{
+use xmtp_proto::{Error, ErrorKind,
     api_client::{
-        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{

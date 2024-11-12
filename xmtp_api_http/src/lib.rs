@@ -6,8 +6,7 @@ mod util;
 use futures::stream;
 use reqwest::header;
 use util::{create_grpc_stream, handle_error};
-// use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::api_client::{ClientWithMetadata, Error, ErrorKind, XmtpIdentityClient};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -15,15 +14,12 @@ use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
-use xmtp_proto::{
-    api_client::{XmtpMlsClient, XmtpMlsStreams},
-    xmtp::mls::api::v1::{
-        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
-        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
-    },
-};
+use xmtp_proto::{api_client::{XmtpMlsClient, XmtpMlsStreams}, xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+    QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+}, Error, ErrorKind};
 
 use crate::constants::ApiEndpoints;
 
