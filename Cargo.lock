@@ -6937,11 +6937,13 @@ dependencies = [
 name = "xmtp_cli"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "color-eyre",
  "ethers",
  "futures",
  "hex",
+ "openmls",
  "owo-colors 4.1.0",
  "prost",
  "serde",
