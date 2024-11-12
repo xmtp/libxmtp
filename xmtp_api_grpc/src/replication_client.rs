@@ -16,6 +16,8 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
 
+use crate::grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription};
+use crate::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic,
     build_key_package_topic, build_welcome_message_topic, extract_client_envelope,
@@ -60,8 +62,6 @@ use xmtp_proto::{
     },
     Error, ErrorKind, InternalError,
 };
-use crate::{GroupMessageStream, WelcomeMessageStream};
-use crate::grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription};
 
 #[derive(Debug, Clone)]
 pub struct ClientV4 {
@@ -322,7 +322,6 @@ impl XmtpMlsClient for ClientV4 {
         Ok(response)
     }
 }
-
 
 #[async_trait::async_trait]
 impl XmtpMlsStreams for ClientV4 {

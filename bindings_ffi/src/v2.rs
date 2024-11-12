@@ -562,7 +562,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use futures::stream;
-    use xmtp_proto::api_client::{Envelope};
+    use xmtp_proto::api_client::Envelope;
     use xmtp_proto::Error as ApiError;
 
     use crate::{

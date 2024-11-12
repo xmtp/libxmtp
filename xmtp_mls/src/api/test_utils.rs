@@ -1,6 +1,5 @@
 use mockall::mock;
 use xmtp_proto::{
-    Error,
     api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
@@ -19,6 +18,7 @@ use xmtp_proto::{
             UploadKeyPackageRequest,
         },
     },
+    Error,
 };
 
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]

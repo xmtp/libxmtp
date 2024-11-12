@@ -302,11 +302,11 @@ pub mod tests {
     use super::super::*;
 
     use xmtp_proto::{
-        Error, ErrorKind,
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
             QueryGroupMessagesResponse,
         },
+        Error, ErrorKind,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
