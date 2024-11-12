@@ -54,6 +54,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
     "binaryen": "^120.0.0",
     "wasm-pack": "^0.13.1"
   },
