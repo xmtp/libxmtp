@@ -1,6 +1,9 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use xmtp_id::associations::unverified::UnverifiedSignature;
+use xmtp_id::associations::{
+  unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
+  AccountId,
+};
 
 use crate::client::Client;
 
@@ -108,6 +111,36 @@ impl Client {
 
       signature_request
         .add_signature(signature, self.inner_client().scw_verifier())
+        .await
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    } else {
+      return Err(JsError::new("Signature request not found"));
+    }
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = addScwSignature)]
+  pub async fn add_scw_signature(
+    &self,
+    signature_type: SignatureRequestType,
+    signature_bytes: Uint8Array,
+    chain_id: u64,
+    block_number: Option<u64>,
+  ) -> Result<(), JsError> {
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
+      let address = self.account_address();
+      let account_id = AccountId::new_evm(chain_id, address);
+      let signature = NewUnverifiedSmartContractWalletSignature::new(
+        signature_bytes.to_vec(),
+        account_id,
+        block_number,
+      );
+
+      signature_request
+        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     } else {
