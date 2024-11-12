@@ -4,7 +4,7 @@ use crate::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
 };
 use crate::InternalError::MissingPayloadError;
-use crate::{Error, ErrorKind, InternalError};
+use crate::{Error, ErrorKind};
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
@@ -64,18 +64,6 @@ pub fn extract_client_envelope(req: &OriginatorEnvelope) -> Result<ClientEnvelop
 
     let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
     Ok(ClientEnvelope::decode(&mut payer_bytes)?)
-}
-
-pub fn extract_group_id_from_topic(topic: Vec<u8>) -> Result<Vec<u8>, Error> {
-    let topic_str = String::from_utf8(topic)?;
-    let binding = topic_str.clone();
-    let group_id = binding.split("/").nth(1).ok_or(
-        Error::new(ErrorKind::InternalError(InternalError::InvalidTopicError(
-            topic_str,
-        )))
-        .with("Failed to extract group id from topic"),
-    )?;
-    Ok(group_id.as_bytes().to_vec())
 }
 
 pub fn get_group_message_topic(message: Vec<u8>) -> Result<Vec<u8>, Error> {
