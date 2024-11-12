@@ -14,12 +14,16 @@ use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
-use xmtp_proto::{api_client::{XmtpMlsClient, XmtpMlsStreams}, xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
-    QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
-}, Error, ErrorKind};
+use xmtp_proto::{
+    api_client::{XmtpMlsClient, XmtpMlsStreams},
+    xmtp::mls::api::v1::{
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+    },
+    Error, ErrorKind,
+};
 
 use crate::constants::ApiEndpoints;
 

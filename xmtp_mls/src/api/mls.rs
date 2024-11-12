@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
-use xmtp_proto::{Error as ApiError, ErrorKind};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
@@ -13,6 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
+use xmtp_proto::{Error as ApiError, ErrorKind};
 
 /// A filter for querying group messages
 pub struct GroupFilter {

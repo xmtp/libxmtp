@@ -11,10 +11,8 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
-use xmtp_proto::{Error, ErrorKind,
-    api_client::{
-        MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
-    },
+use xmtp_proto::{
+    api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
         message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
@@ -27,9 +25,10 @@ use xmtp_proto::{Error, ErrorKind,
         SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
         UploadKeyPackageRequest,
     },
+    Error, ErrorKind,
 };
 
-async fn create_tls_channel(address: String) -> Result<Channel, Error> {
+pub async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.

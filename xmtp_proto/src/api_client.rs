@@ -1,5 +1,3 @@
-use futures::Stream;
-use crate::Error;
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
@@ -16,6 +14,8 @@ use crate::xmtp::mls::api::v1::{
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+use crate::Error;
+use futures::Stream;
 
 #[cfg(any(test, feature = "test-utils"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]

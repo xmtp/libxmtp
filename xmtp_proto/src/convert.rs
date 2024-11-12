@@ -5,15 +5,16 @@ use crate::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{
-    AuthenticatedData, ClientEnvelope,
-};
+use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope};
 use crate::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
-use crate::{Error};
+use crate::v4_utils::{
+    build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
+    get_key_package_topic,
+};
+use crate::Error;
 use crate::ErrorKind::InternalError;
-use crate::InternalError::{MissingPayloadError};
-use crate::v4_utils::{build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic, get_key_package_topic};
+use crate::InternalError::MissingPayloadError;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -59,9 +60,9 @@ impl TryFrom<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
         if let Some(identity_update) = req.identity_update {
             Ok(PublishClientEnvelopesRequest {
                 envelopes: vec![ClientEnvelope {
-                    aad: Some(AuthenticatedData::with_topic(build_identity_topic_from_hex_encoded(
-                        &identity_update.inbox_id
-                    )?)),
+                    aad: Some(AuthenticatedData::with_topic(
+                        build_identity_topic_from_hex_encoded(&identity_update.inbox_id)?,
+                    )),
                     payload: Some(Payload::IdentityUpdate(identity_update)),
                 }],
             })

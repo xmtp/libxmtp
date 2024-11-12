@@ -1,7 +1,7 @@
+use openmls::prelude::tls_codec::Error as TlsCodecError;
+use serde::de::StdError;
 use std::fmt;
 use std::string::FromUtf8Error;
-use serde::de::StdError;
-use openmls::prelude::tls_codec::Error as TlsCodecError;
 
 #[derive(Debug)]
 pub enum ErrorKind {
@@ -16,7 +16,7 @@ pub enum ErrorKind {
     IdentityError,
     SubscriptionUpdateError,
     MetadataError,
-    InternalError(InternalError)
+    InternalError(InternalError),
 }
 
 #[derive(Debug)]
@@ -47,25 +47,33 @@ impl Error {
 
 impl From<hex::FromHexError> for Error {
     fn from(err: hex::FromHexError) -> Self {
-        Error::new(ErrorKind::InternalError(InternalError::DecodingError(err.to_string())))
+        Error::new(ErrorKind::InternalError(InternalError::DecodingError(
+            err.to_string(),
+        )))
     }
 }
 
 impl From<prost::DecodeError> for Error {
     fn from(err: prost::DecodeError) -> Self {
-        Error::new(ErrorKind::InternalError(InternalError::DecodingError(err.to_string())))
+        Error::new(ErrorKind::InternalError(InternalError::DecodingError(
+            err.to_string(),
+        )))
     }
 }
 
 impl From<FromUtf8Error> for Error {
     fn from(err: FromUtf8Error) -> Self {
-        Error::new(ErrorKind::InternalError(InternalError::DecodingError(err.to_string())))
+        Error::new(ErrorKind::InternalError(InternalError::DecodingError(
+            err.to_string(),
+        )))
     }
 }
 
 impl From<TlsCodecError> for Error {
     fn from(err: TlsCodecError) -> Self {
-        Error::new(ErrorKind::InternalError(InternalError::TLSError(err.to_string())))
+        Error::new(ErrorKind::InternalError(InternalError::TLSError(
+            err.to_string(),
+        )))
     }
 }
 
@@ -105,7 +113,9 @@ impl fmt::Display for Error {
             ErrorKind::MetadataError => "metadata error",
             ErrorKind::InternalError(internal) => match internal {
                 InternalError::MissingPayloadError => "missing payload error",
-                InternalError::InvalidTopicError(topic) => &format!("invalid topic error: {}", topic),
+                InternalError::InvalidTopicError(topic) => {
+                    &format!("invalid topic error: {}", topic)
+                }
                 InternalError::DecodingError(msg) => msg,
                 InternalError::TLSError(msg) => msg,
             },
