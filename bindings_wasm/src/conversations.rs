@@ -283,6 +283,16 @@ impl Conversations {
     Ok(())
   }
 
+  #[wasm_bindgen(js_name = syncAllConversations)]
+  pub async fn sync_all_conversations(&self) -> Result<usize, JsError> {
+    let groups = self
+      .inner_client
+      .find_groups(GroupQueryArgs::default())
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let num_groups_synced = self.inner_client.sync_all_groups(groups).await?;
+    Ok(num_groups_synced)
+  }
+
   #[wasm_bindgen]
   pub async fn list(
     &self,
