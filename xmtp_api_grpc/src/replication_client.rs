@@ -15,10 +15,7 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
-use xmtp_proto::convert::{
-    build_group_message_topic, build_identity_update_topic, build_key_package_topic,
-    build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
-};
+
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::xmtp::mls::api::v1::{
@@ -59,6 +56,7 @@ use xmtp_proto::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
 };
+use xmtp_proto::v4_utils::{build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic, build_key_package_topic, build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope};
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
@@ -315,7 +313,7 @@ impl XmtpMlsClient for ClientV4 {
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let client = &mut self.payer_client.clone();
         let res = client
-            .publish_client_envelopes(PublishClientEnvelopesRequest::from(req))
+            .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(req)?)
             .await;
         match res {
             Ok(_) => Ok(()),
@@ -362,7 +360,7 @@ impl XmtpMlsClient for ClientV4 {
         let client = &mut self.payer_client.clone();
         for message in req.messages {
             let res = client
-                .publish_client_envelopes(PublishClientEnvelopesRequest::from(message))
+                .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(message)?)
                 .await;
             if let Err(e) = res {
                 return Err(Error::new(ErrorKind::MlsError).with(e));
@@ -376,7 +374,7 @@ impl XmtpMlsClient for ClientV4 {
         let client = &mut self.payer_client.clone();
         for message in req.messages {
             let res = client
-                .publish_client_envelopes(PublishClientEnvelopesRequest::from(message))
+                .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(message)?)
                 .await;
             if let Err(e) = res {
                 return Err(Error::new(ErrorKind::MlsError).with(e));
@@ -560,7 +558,7 @@ impl XmtpIdentityClient for ClientV4 {
     ) -> Result<PublishIdentityUpdateResponse, Error> {
         let client = &mut self.payer_client.clone();
         let res = client
-            .publish_client_envelopes(PublishClientEnvelopesRequest::from(request))
+            .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(request)?)
             .await;
         match res {
             Ok(_) => Ok(PublishIdentityUpdateResponse {}),
@@ -603,12 +601,12 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        let topics = request
+        let topics: Result<Vec<_>, Error> = request
             .requests
             .iter()
-            .map(|r| build_identity_update_topic(r.inbox_id.clone()))
+            .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
             .collect();
-        let v4_envelopes = self.query_v4_envelopes(topics).await?;
+        let v4_envelopes = self.query_v4_envelopes(topics?).await?;
         let joined_data = v4_envelopes
             .into_iter()
             .zip(request.requests.into_iter())

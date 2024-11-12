@@ -9,6 +9,10 @@ pub mod api_client;
 
 #[cfg(feature = "convert")]
 pub mod convert;
+#[cfg(feature = "convert")]
+pub mod v4_utils;
+#[cfg(feature = "convert")]
+pub mod types;
 
 #[cfg(test)]
 pub mod test {

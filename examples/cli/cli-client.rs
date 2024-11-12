@@ -211,26 +211,18 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc = match (cli.testnet, cli.local) {
-        (true, true) => Box::new(
-            ClientV4::create("http://localhost:5050".into(), false)
-                .await
-                .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (true, false) => Box::new(
-            ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (false, true) => Box::new(
-            ClientV3::create("http://localhost:5556".into(), false)
-                .await
-                .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (false, false) => Box::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        ) as Box<dyn XmtpApi>,
+        (true, true) => Box::new(ClientV4::create("http://localhost:5050".into(), false).await?)
+            as Box<dyn XmtpApi>,
+        (true, false) => {
+            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true).await?)
+                as Box<dyn XmtpApi>
+        }
+        (false, true) => Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
+            as Box<dyn XmtpApi>,
+        (false, false) => {
+            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true).await?)
+                as Box<dyn XmtpApi>
+        }
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {

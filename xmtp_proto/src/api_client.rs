@@ -1,7 +1,7 @@
 use std::{error::Error as StdError, fmt};
 
 use futures::Stream;
-
+use crate::api_client::ErrorKind::DecodingError;
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
@@ -112,6 +112,8 @@ pub enum ErrorKind {
     IdentityError,
     SubscriptionUpdateError,
     MetadataError,
+    MissingPayloadError,
+    DecodingError(hex::FromHexError),
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -129,6 +131,12 @@ impl Error {
     pub fn with(mut self, source: impl Into<ErrorSource>) -> Self {
         self.source = Some(source.into());
         self
+    }
+}
+
+impl From<hex::FromHexError> for Error {
+    fn from(err: hex::FromHexError) -> Self {
+        Error::new(DecodingError(err))
     }
 }
 
@@ -160,6 +168,8 @@ impl fmt::Display for Error {
             ErrorKind::MlsError => "mls error",
             ErrorKind::SubscriptionUpdateError => "subscription update error",
             ErrorKind::MetadataError => "metadata error",
+            ErrorKind::MissingPayloadError => "missing payload error",
+            DecodingError(_) => "could not convert payload from hex"
         };
         f.write_str(s)?;
         if self.source().is_some() {
