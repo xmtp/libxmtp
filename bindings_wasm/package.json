@@ -24,8 +24,9 @@
     "directory": "bindings_wasm"
   },
   "scripts": {
-    "build": "yarn clean && yarn build:web && yarn clean:release",
+    "build": "yarn clean && yarn build:web && yarn build:copy && yarn clean:release",
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist --plain -- --release",
+    "build:copy": "node scripts/copyFiles.js",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "lint": "yarn lint:clippy && yarn lint:fmt",
