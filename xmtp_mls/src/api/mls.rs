@@ -302,7 +302,7 @@ pub mod tests {
     use super::super::*;
 
     use xmtp_proto::{
-        api_client::{Error, ErrorKind},
+        Error, ErrorKind,
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
             QueryGroupMessagesResponse,

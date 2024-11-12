@@ -1,6 +1,7 @@
 use mockall::mock;
 use xmtp_proto::{
-    api_client::{ClientWithMetadata, Error, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    Error,
+    api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
