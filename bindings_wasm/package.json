@@ -1,6 +1,7 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "0.0.3",
+  "version": "0.0.4",
+  "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
   "keywords": [
@@ -23,8 +24,9 @@
     "directory": "bindings_wasm"
   },
   "scripts": {
-    "build": "yarn clean && yarn build:web && yarn clean:release",
+    "build": "yarn clean && yarn build:web && yarn build:copy && yarn clean:release",
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist --plain -- --release",
+    "build:copy": "node scripts/copyFiles.js",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "lint": "yarn lint:clippy && yarn lint:fmt",
@@ -53,6 +55,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "devDependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
     "binaryen": "^120.0.0",
     "wasm-pack": "^0.13.1"
   },

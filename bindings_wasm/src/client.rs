@@ -45,7 +45,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
 
 #[wasm_bindgen]
 #[derive(Copy, Clone, Debug)]
-pub enum Level {
+pub enum LogLevel {
   Off = "off",
   Error = "error",
   Warn = "warn",
@@ -63,7 +63,19 @@ pub struct LogOptions {
   /// enable performance metrics for libxmtp in the `performance` tab
   pub performance: bool,
   /// filter for logs
-  pub level: Option<Level>,
+  pub level: Option<LogLevel>,
+}
+
+#[wasm_bindgen]
+impl LogOptions {
+  #[wasm_bindgen(constructor)]
+  pub fn new(structured: bool, performance: bool, level: Option<LogLevel>) -> Self {
+    Self {
+      structured,
+      performance,
+      level,
+    }
+  }
 }
 
 fn init_logging(options: LogOptions) -> Result<(), JsError> {
