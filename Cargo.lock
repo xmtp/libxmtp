@@ -639,9 +639,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.1.36"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baee610e9452a8f6f0a1b6194ec09ff9e2d85dea54432acdae41aa0761c95d70"
+checksum = "1aeb932158bd710538c73702db6945cb68a8fb08c519e6e12706b94263b36db8"
 dependencies = [
  "jobserver",
  "libc",
@@ -874,7 +874,7 @@ dependencies = [
  "encode_unicode",
  "lazy_static",
  "libc",
- "unicode-width",
+ "unicode-width 0.1.14",
  "windows-sys 0.52.0",
 ]
 
@@ -940,9 +940,9 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.14"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "608697df725056feaccfa42cffdaeeec3fccc4ffc38358ecd19b243e716a78e0"
+checksum = "0ca741a962e1b0bff6d724a1a0958b686406e853bb14061f218562e1896f95e6"
 dependencies = [
  "libc",
 ]
@@ -1210,7 +1210,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.4"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -1222,7 +1222,7 @@ dependencies = [
 [[package]]
 name = "diesel-wasm-sqlite"
 version = "0.0.1"
-source = "git+https://github.com/xmtp/diesel-wasm-sqlite?branch=main#eac6c9064f346b32e226379d60c624d9424e08bb"
+source = "git+https://github.com/xmtp/diesel-wasm-sqlite?branch=main#df437741e19c4e1bad27af8d0680479a73472332"
 dependencies = [
  "diesel",
  "diesel_derives",
@@ -1240,7 +1240,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1252,7 +1252,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1262,7 +1262,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "syn 2.0.87",
 ]
@@ -1356,7 +1356,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "darling",
  "either",
@@ -1866,9 +1866,9 @@ dependencies = [
 
 [[package]]
 name = "fastrand"
-version = "2.1.1"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8c02a5121d4ea3eb16a80748c74f5549a5665e4c21333c6098f283870fbdea6"
+checksum = "486f806e73c5707928240ddc295403b1b93c96a02038563881c4a2fd84b81ac4"
 
 [[package]]
 name = "ff"
@@ -2878,15 +2878,15 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.17.8"
+version = "0.17.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "763a5a8f45087d6bcea4222e7b72c291a054edf80e4ef6efd2a4979878c7bea3"
+checksum = "cbf675b85ed934d3c67b5c5469701eec7db22689d0a2139d856e0925fa28b281"
 dependencies = [
  "console",
- "instant",
  "number_prefix",
  "portable-atomic",
- "unicode-width",
+ "unicode-width 0.2.0",
+ "web-time",
 ]
 
 [[package]]
@@ -3071,7 +3071,7 @@ version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "507460a910eb7b32ee961886ff48539633b788a36b65692b95f225b844c82553"
 dependencies = [
- "regex-automata 0.4.8",
+ "regex-automata 0.4.9",
 ]
 
 [[package]]
@@ -3258,7 +3258,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3267,7 +3267,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#cd4300bd88c9dd53f41b7d87ca134b0cbb9d0f93"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#7e55d407f053f03bd9e074616c2f21d7df1038e8"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3389,9 +3389,9 @@ dependencies = [
 
 [[package]]
 name = "mockito"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09b34bd91b9e5c5b06338d392463e1318d683cf82ec3d3af4014609be6e2108d"
+checksum = "1434004280bb637ca90a44a68b73260b9a982c32f7d417a8412bdc9521ac1260"
 dependencies = [
  "assert-json-diff",
  "bytes",
@@ -4503,7 +4503,7 @@ checksum = "b544ef1b4eac5dc2db33ea63606ae9ffcfac26c1416a2806ae0bf5f56b201191"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata 0.4.8",
+ "regex-automata 0.4.9",
  "regex-syntax 0.8.5",
 ]
 
@@ -4518,9 +4518,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.8"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368758f23274712b504848e9d5a6f010445cc8b87a7cdb4d7cbee666c1288da3"
+checksum = "809e8dc61f6de73b46c85f4c96486310fe304c434cfa43669d7b40f711150908"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -4733,9 +4733,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.39"
+version = "0.38.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "375116bee2be9ed569afe2154ea6a99dfdffd257f533f187498c2a8f5feaf4ee"
+checksum = "99e4ea3e1cdc4b559b8e5650f9c8e5998e3e5c1343b4eaf034565f32318d63c0"
 dependencies = [
  "bitflags 2.6.0",
  "errno",
@@ -4998,9 +4998,9 @@ dependencies = [
 
 [[package]]
 name = "security-framework-sys"
-version = "2.12.0"
+version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea4a292869320c0272d7bc55a5a6aafaff59b4f63404a003887b679a2e05b4b6"
+checksum = "fa39c7303dc58b5543c94d22c1766b0d31f2ee58306363ea622b10bbc075eaa2"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -5029,9 +5029,9 @@ checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
 
 [[package]]
 name = "serde"
-version = "1.0.214"
+version = "1.0.215"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f55c3193aca71c12ad7890f1785d2b73e1b9f63a0bbc353c08ef26fe03fc56b5"
+checksum = "6513c1ad0b11a9376da888e3e0baa0077f1aed55c17f50e7b2397136129fb88f"
 dependencies = [
  "serde_derive",
 ]
@@ -5049,9 +5049,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.214"
+version = "1.0.215"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de523f781f095e28fa605cdce0f8307e451cc0fd14e2eb4cd2e98a355b147766"
+checksum = "ad1e866f866923f252f05c889987993144fb74e722403468a4ebd70c3cd756c0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5502,18 +5502,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.68"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02dd99dc800bbb97186339685293e1cc5d9df1f8fae2d0aecd9ff1c77efea892"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.68"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7c61ec9a6f64d2793d8a45faba21efbe3ced62a886d44c36a009b2b519b4c7e"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6116,6 +6116,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
+name = "unicode-width"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
+
+[[package]]
 name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6564,6 +6570,16 @@ name = "web-sys"
 version = "0.3.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6488b90108c040df0fe62fa815cbdee25124641df01814dd7282749234c6112"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
