@@ -50,11 +50,11 @@ diesel::table! {
         created_at_ns -> BigInt,
         membership_state -> Integer,
         installations_last_checked -> BigInt,
-        purpose -> Integer,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
         dm_inbox_id -> Nullable<Text>,
         rotated_at_ns -> BigInt,
+        conversation_type -> Integer,
     }
 }
 

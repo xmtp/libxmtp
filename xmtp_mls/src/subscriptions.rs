@@ -11,11 +11,11 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
-    groups::{group_metadata::ConversationType, subscriptions, GroupError, MlsGroup},
+    groups::{subscriptions, GroupError, MlsGroup},
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
-        group::{GroupQueryArgs, StoredGroup},
+        group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         StorageError,
     },
@@ -421,8 +421,11 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::{group_metadata::ConversationType, GroupMetadataOptions},
-        storage::{group::GroupQueryArgs, group_message::StoredGroupMessage},
+        groups::GroupMetadataOptions,
+        storage::{
+            group::{ConversationType, GroupQueryArgs},
+            group_message::StoredGroupMessage,
+        },
         utils::test::{Delivery, FullXmtpClient, TestClient},
         Client, StreamHandle,
     };

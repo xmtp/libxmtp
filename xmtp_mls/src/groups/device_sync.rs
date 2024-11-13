@@ -1,8 +1,7 @@
-use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
 use crate::retry::{RetryBuilder, RetryableError};
-use crate::storage::group::GroupQueryArgs;
+use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
@@ -226,10 +225,10 @@ where
         if self.get_sync_group().is_err() {
             self.ensure_sync_group(provider).await?;
 
-            self.send_sync_request(provider, DeviceSyncKind::Consent)
-                .await?;
-            self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-                .await?;
+            // self.send_sync_request(provider, DeviceSyncKind::Consent)
+            // .await?;
+            // self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+            // .await?;
         }
         tracing::info!("Device sync initialized.");
 
