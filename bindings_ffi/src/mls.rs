@@ -858,7 +858,7 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(GroupQueryArgs::default())?;
+        let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",

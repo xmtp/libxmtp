@@ -124,6 +124,7 @@ pub struct GroupQueryArgs {
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_state: Option<ConsentState>,
+    pub include_sync_groups: bool,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -188,6 +189,11 @@ impl GroupQueryArgs {
         self.consent_state = consent_state;
         self
     }
+
+    pub fn include_sync_groups(mut self) -> Self {
+        self.include_sync_groups = true;
+        self
+    }
 }
 
 impl DbConnection {
@@ -205,6 +211,7 @@ impl DbConnection {
             limit,
             conversation_type,
             consent_state,
+            include_sync_groups,
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
@@ -229,6 +236,12 @@ impl DbConnection {
 
         if let Some(conversation_type) = conversation_type {
             query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
+        }
+
+        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
+        // Otherwise filter sync groups out by default.
+        if !matches!(conversation_type, Some(ConversationType::Sync)) && !include_sync_groups {
+            query = query.filter(groups_dsl::conversation_type.ne(ConversationType::Sync));
         }
 
         let groups = if let Some(consent_state) = consent_state {
