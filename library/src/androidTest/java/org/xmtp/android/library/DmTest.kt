@@ -61,12 +61,24 @@ class DmTest {
     }
 
     @Test
+    fun testsCanFindDmByInboxId() {
+        runBlocking {
+            val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
+
+            val caroDm = boClient.findDmByInboxId(caroClient.inboxId)
+            val alixDm = boClient.findDmByInboxId(alixClient.inboxId)
+            assertNull(alixDm)
+            assertEquals(caroDm?.id, dm.id)
+        }
+    }
+
+    @Test
     fun testsCanFindDmByAddress() {
         runBlocking {
             val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
 
-            val caroDm = boClient.findDm(caro.walletAddress)
-            val alixDm = boClient.findDm(alix.walletAddress)
+            val caroDm = boClient.findDmByAddress(caro.walletAddress)
+            val alixDm = boClient.findDmByAddress(alix.walletAddress)
             assertNull(alixDm)
             assertEquals(caroDm?.id, dm.id)
         }
@@ -253,7 +265,7 @@ class DmTest {
     fun testCanStreamDmMessages() = kotlinx.coroutines.test.runTest {
         val group = boClient.conversations.findOrCreateDm(alix.walletAddress.lowercase())
         alixClient.conversations.sync()
-        val alixDm = alixClient.findDm(bo.walletAddress)
+        val alixDm = alixClient.findDmByAddress(bo.walletAddress)
         group.streamMessages().test {
             alixDm?.send("hi")
             assertEquals("hi", awaitItem().body)

@@ -146,7 +146,7 @@ data class Conversations(
         if (falseAddresses.isNotEmpty()) {
             throw XMTPException("${falseAddresses.joinToString()} not on network")
         }
-        var dm = client.findDm(peerAddress)
+        var dm = client.findDmByAddress(peerAddress)
         if (dm == null) {
             val dmConversation = ffiConversations.createDm(peerAddress.lowercase())
             dm = Dm(client, dmConversation)

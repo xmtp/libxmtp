@@ -9,6 +9,7 @@ import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.GenericException
 import java.security.SecureRandom
 import java.util.concurrent.CompletableFuture
@@ -319,5 +320,18 @@ class ClientTest {
 
         state = runBlocking { alixClient3.inboxState(true) }
         assertEquals(state.installations.size, 1)
+    }
+
+    @Test
+    fun testsCanFindOthersInboxStates() {
+        val fixtures = fixtures()
+        val states = runBlocking {
+            fixtures.alixClient.inboxStatesForInboxIds(
+                true,
+                listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId)
+            )
+        }
+        assertEquals(states.first().recoveryAddress.lowercase(), fixtures.bo.walletAddress.lowercase())
+        assertEquals(states.last().recoveryAddress.lowercase(), fixtures.caro.walletAddress.lowercase())
     }
 }
