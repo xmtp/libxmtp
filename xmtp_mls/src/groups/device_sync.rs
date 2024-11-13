@@ -225,10 +225,10 @@ where
         if self.get_sync_group().is_err() {
             self.ensure_sync_group(provider).await?;
 
-            // self.send_sync_request(provider, DeviceSyncKind::Consent)
-            // .await?;
-            // self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-            // .await?;
+            self.send_sync_request(provider, DeviceSyncKind::Consent)
+                .await?;
+            self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
+                .await?;
         }
         tracing::info!("Device sync initialized.");
 
