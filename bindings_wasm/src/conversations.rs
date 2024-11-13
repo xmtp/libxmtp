@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::group_metadata::ConversationType as XmtpConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 

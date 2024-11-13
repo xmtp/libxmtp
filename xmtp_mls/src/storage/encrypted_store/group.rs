@@ -734,8 +734,8 @@ pub(crate) mod tests {
 
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
-            let purpose = fetched_group.unwrap().purpose;
-            assert_eq!(purpose, Purpose::Conversation);
+            let conversation_type = fetched_group.unwrap().conversation_type;
+            assert_eq!(conversation_type, ConversationType::Group);
         })
         .await
     }
@@ -749,14 +749,14 @@ pub(crate) mod tests {
             let membership_state = GroupMembershipState::Allowed;
 
             let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
-            let purpose = sync_group.purpose;
-            assert_eq!(purpose, Purpose::Sync);
+            let conversation_type = sync_group.conversation_type;
+            assert_eq!(conversation_type, ConversationType::Sync);
 
             sync_group.store(conn).unwrap();
 
             let found = conn.latest_sync_group().unwrap();
             assert!(found.is_some());
-            assert_eq!(found.unwrap().purpose, Purpose::Sync)
+            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync)
         })
         .await
     }

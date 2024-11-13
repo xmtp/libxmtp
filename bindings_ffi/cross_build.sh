@@ -21,9 +21,9 @@ main() {
     exit
   fi
   # Uncomment to build for all targets. aarch64-linux-android is the default target for an emulator on Android Studio on an M1 mac.
-  cross build --manifest-path $BINDINGS_MANIFEST --target x86_64-linux-android --target-dir $TARGET_DIR --profile $PROFILE && \
-  cross build --manifest-path $BINDINGS_MANIFEST --target i686-linux-android --target-dir $TARGET_DIR --profile $PROFILE && \
-  cross build --manifest-path $BINDINGS_MANIFEST --target armv7-linux-androideabi --target-dir $TARGET_DIR --profile $PROFILE && \
+  # cross build --manifest-path $BINDINGS_MANIFEST --target x86_64-linux-android --target-dir $TARGET_DIR --profile $PROFILE && \
+  # cross build --manifest-path $BINDINGS_MANIFEST --target i686-linux-android --target-dir $TARGET_DIR --profile $PROFILE && \
+  # cross build --manifest-path $BINDINGS_MANIFEST --target armv7-linux-androideabi --target-dir $TARGET_DIR --profile $PROFILE && \
   cross build --manifest-path $BINDINGS_MANIFEST --target aarch64-linux-android --target-dir $TARGET_DIR --profile $PROFILE
 
   # Move everything to jniLibs folder and rename
@@ -32,13 +32,13 @@ main() {
   cd $(dirname $BINDINGS_MANIFEST) # cd bindings_ffi
   rm -rf jniLibs/
   mkdir -p jniLibs/armeabi-v7a/ && \
-      cp $WORKSPACE_PATH/target/armv7-linux-androideabi/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so && \
-    mkdir -p jniLibs/x86/ && \
-      cp $WORKSPACE_PATH/target/i686-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86/$TARGET_NAME.so && \
-    mkdir -p jniLibs/x86_64/ && \
-      cp $WORKSPACE_PATH/target/x86_64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so && \
-    mkdir -p jniLibs/arm64-v8a/ && \
-      cp $WORKSPACE_PATH/target/aarch64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so
+      cp $WORKSPACE_PATH/target/armv7-linux-androideabi/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/armeabi-v7a/$TARGET_NAME.so
+    # mkdir -p jniLibs/x86/ && \
+    #   cp $WORKSPACE_PATH/target/i686-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86/$TARGET_NAME.so && \
+    # mkdir -p jniLibs/x86_64/ && \
+    #   cp $WORKSPACE_PATH/target/x86_64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so && \
+    # mkdir -p jniLibs/arm64-v8a/ && \
+    #   cp $WORKSPACE_PATH/target/aarch64-linux-android/$BINARY_PROFILE/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so
 }
 
 time main
