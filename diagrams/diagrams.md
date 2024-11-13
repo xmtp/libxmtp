@@ -2,7 +2,7 @@
 
 The sequence diagrams stored here are for documenting LibXMTP's group chat implementation using MLS.  They are part of a work in progress but we are putting them here for transparency and to keep them current with the implementation.
 
-The diagrams represent the creation of a group chat between Alice, Bob, and Charlie, our implmentation of [Figure 2](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html#fig-group-formation-example) from [The Messaging Layer Security (MLS) Architecture](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html) spec. 
+The diagrams represent the creation of a group chat between Alice, Bob, and Charlie, our implementation of [Figure 2](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html#fig-group-formation-example) from [The Messaging Layer Security (MLS) Architecture](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html) spec. 
 
 Note: calls into LibXMTP with the `conversations.` prefix use the [Conversations](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L188) protocol, and calls with a `group.` prefix use the [Group](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L315) protocol.
 
