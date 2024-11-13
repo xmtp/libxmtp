@@ -361,11 +361,7 @@ public final class Client {
 		return nil
 	}
 
-	public func findDm(address: String) async throws -> Dm? {
-		guard let inboxId = try await inboxIdFromAddress(address: address)
-		else {
-			throw ClientError.creationError("No inboxId present")
-		}
+	public func findDmByInboxId(inboxId: String) throws -> Dm? {
 		do {
 			let conversation = try ffiClient.dmConversation(
 				targetInboxId: inboxId)
@@ -373,6 +369,14 @@ public final class Client {
 		} catch {
 			return nil
 		}
+	}
+
+	public func findDmByAddress(address: String) async throws -> Dm? {
+		guard let inboxId = try await inboxIdFromAddress(address: address)
+		else {
+			throw ClientError.creationError("No inboxId present")
+		}
+		return try findDmByInboxId(inboxId: inboxId)
 	}
 
 	public func findMessage(messageId: String) throws -> Message? {
@@ -415,5 +419,13 @@ public final class Client {
 		return InboxState(
 			ffiInboxState: try await ffiClient.inboxState(
 				refreshFromNetwork: refreshFromNetwork))
+	}
+
+	public func inboxStatesForInboxIds(
+		refreshFromNetwork: Bool, inboxIds: [String]
+	) async throws -> [InboxState] {
+		return try await ffiClient.addressesFromInboxId(
+			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
+		).map { InboxState(ffiInboxState: $0) }
 	}
 }

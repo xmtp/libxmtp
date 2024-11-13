@@ -7,6 +7,30 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DmTests: XCTestCase {
+	
+	func testCanFindDmByInboxId() async throws {
+		let fixtures = try await fixtures()
+
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(with: fixtures.caro.walletAddress)
+
+		let caroDm = try fixtures.boClient.findDmByInboxId(inboxId: fixtures.caroClient.inboxID)
+		let alixDm = try fixtures.boClient.findDmByInboxId(inboxId: fixtures.alixClient.inboxID)
+		
+		XCTAssertNil(alixDm)
+		XCTAssertEqual(caroDm?.id, dm.id)
+	}
+
+	func testCanFindDmByAddress() async throws {
+		let fixtures = try await fixtures()
+
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(with: fixtures.caro.walletAddress)
+
+		let caroDm = try await fixtures.boClient.findDmByAddress(address: fixtures.caroClient.address)
+		let alixDm = try await fixtures.boClient.findDmByAddress(address: fixtures.alixClient.address)
+		
+		XCTAssertNil(alixDm)
+		XCTAssertEqual(caroDm?.id, dm.id)
+	}
 
 	func testCanCreateADm() async throws {
 		let fixtures = try await fixtures()

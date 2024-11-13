@@ -312,4 +312,18 @@ class ClientTests: XCTestCase {
 			refreshFromNetwork: true)
 		XCTAssertEqual(newState.installations.count, 1)
 	}
+
+	func testsCanFindOthersInboxStates() async throws {
+		let fixtures = try await fixtures()
+		let states = try await fixtures.alixClient.inboxStatesForInboxIds(
+			refreshFromNetwork: true,
+			inboxIds: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
+		)
+		XCTAssertEqual(
+			states.first!.recoveryAddress.lowercased(),
+			fixtures.bo.walletAddress.lowercased())
+		XCTAssertEqual(
+			states.last!.recoveryAddress.lowercased(),
+			fixtures.caro.walletAddress.lowercased())
+	}
 }

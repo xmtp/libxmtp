@@ -268,7 +268,7 @@ public actor Conversations {
 		if !canMessage {
 			throw ConversationError.memberNotRegistered([peerAddress])
 		}
-		if let existingDm = try await client.findDm(address: peerAddress) {
+		if let existingDm = try await client.findDmByAddress(address: peerAddress) {
 			return existingDm
 		}
 
