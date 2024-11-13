@@ -14,11 +14,19 @@ where
         &self,
         conn: &DbConnection,
     ) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups = conn
+        let mut groups: Vec<_> = conn
             .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?
             .into_iter()
             .map(Syncable::Group)
             .collect();
+        let mut dms: Vec<_> = conn
+            .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Dm))?
+            .into_iter()
+            .map(Syncable::Group)
+            .collect();
+
+        groups.append(&mut dms);
+
         Ok(groups)
     }
 

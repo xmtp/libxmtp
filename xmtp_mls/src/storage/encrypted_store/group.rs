@@ -228,15 +228,7 @@ impl DbConnection {
         }
 
         if let Some(conversation_type) = conversation_type {
-            match conversation_type {
-                ConversationType::Group => {
-                    query = query.filter(groups_dsl::dm_inbox_id.is_null());
-                }
-                ConversationType::Dm => {
-                    query = query.filter(groups_dsl::dm_inbox_id.is_not_null());
-                }
-                ConversationType::Sync => {}
-            }
+            query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
         let groups = if let Some(consent_state) = consent_state {
