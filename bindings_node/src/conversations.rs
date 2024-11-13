@@ -248,6 +248,19 @@ impl Conversations {
     Ok(())
   }
 
+  pub async fn sync_all_conversations(&self) -> Result<usize> {
+    let groups = self
+      .inner_client
+      .find_groups(GroupQueryArgs::default())
+      .map_err(ErrorWrapper::from)?;
+    let num_groups_synced = self
+      .inner_client
+      .sync_all_groups(groups)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(num_groups_synced)
+  }
+
   #[napi]
   pub async fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
     let convo_list: Vec<Conversation> = self
