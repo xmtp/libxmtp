@@ -3358,11 +3358,11 @@ pub(crate) mod tests {
             .unwrap();
 
         let alix_message = vec![1];
-        alix_group
-            .send_message(&alix_message)
+        alix_group.send_message(&alix_message).await.unwrap();
+        bo_client
+            .sync_welcomes(&bo_client.store().conn().unwrap())
             .await
             .unwrap();
-        bo_client.sync_welcomes(&bo_client.store().conn().unwrap()).await.unwrap();
         let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
 
@@ -3378,7 +3378,9 @@ pub(crate) mod tests {
             }
         }
 
-        let process_result = bo_group.process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap()).await;
+        let process_result = bo_group
+            .process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap())
+            .await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
             assert_eq!(errors.len(), 2);
             assert!(errors
