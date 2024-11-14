@@ -1,0 +1,34 @@
+[package]
+name = "xdbg"
+description = "Debug and Inspection Tool for the XMTP Network"
+edition = "2021"
+version = "0.1.0"
+license.workspace = true
+
+[dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+clap-verbosity-flag = "2.2"
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["time", "json", "chrono", "env-filter"] }
+xmtp_mls.workspace = true
+xmtp_id.workspace = true
+xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
+xmtp_api_grpc.workspace = true
+xmtp_proto.workspace = true
+openmls.workspace = true
+indicatif = "0.17"
+color-eyre = "0.6"
+tracing-logfmt = "0.3"
+owo-colors = "4.1"
+url.workspace = true
+redb = "2.2"
+directories = "5.0"
+const_format = "0.2"
+rkyv = "0.8"
+hex.workspace = true
+prost.workspace = true
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+tokio = "1.41"
+ecdsa = "0.16"
+k256 = "0.13"
+tempfile = "3.14"

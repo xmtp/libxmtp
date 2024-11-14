@@ -14,7 +14,7 @@ members = [
   "bindings_node",
   "bindings_ffi",
   "xtask"
-]
+, "xmtp-debug", "common"]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
@@ -91,6 +91,7 @@ console_error_panic_hook = "0.1"
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }
+xmtp_api_grpc = { path = "xmtp_api_grpc" }
 xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }

@@ -8,6 +8,7 @@ c = "check"
 t = "test"
 r = "run"
 xli = "run --bin xmtp_cli"
+dbg = "run --bin xdbg"
 
 [build]
 rustflags = ["--cfg", "tracing_unstable"]
