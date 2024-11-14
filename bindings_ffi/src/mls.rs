@@ -1660,11 +1660,11 @@ impl FfiConversationMetadata {
         self.inner.creator_inbox_id.clone()
     }
 
-    pub fn conversation_type(&self) -> String {
+    pub fn conversation_type(&self) -> FfiConversationType {
         match self.inner.conversation_type {
-            ConversationType::Group => "group".to_string(),
-            ConversationType::Dm => "dm".to_string(),
-            ConversationType::Sync => "sync".to_string(),
+            ConversationType::Group => FfiConversationType::Group,
+            ConversationType::Dm => FfiConversationType::Dm,
+            ConversationType::Sync => FfiConversationType::Sync,
         }
     }
 }
