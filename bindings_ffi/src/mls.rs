@@ -16,6 +16,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
@@ -23,7 +24,7 @@ use xmtp_mls::{
     builder::ClientBuilder,
     client::{Client as MlsClient, ClientError},
     groups::{
-        group_metadata::{ConversationType, GroupMetadata},
+        group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
@@ -857,7 +858,7 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(GroupQueryArgs::default())?;
+        let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",
@@ -1174,6 +1175,11 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type()? {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Sync => None,
+        };
 
         let messages: Vec<FfiMessage> = self
             .inner
@@ -1181,6 +1187,7 @@ impl FfiConversation {
                 &MsgQueryArgs::default()
                     .maybe_sent_before_ns(opts.sent_before_ns)
                     .maybe_sent_after_ns(opts.sent_after_ns)
+                    .maybe_kind(kind)
                     .maybe_delivery_status(delivery_status)
                     .maybe_limit(opts.limit)
                     .maybe_direction(direction),
@@ -1448,6 +1455,12 @@ impl FfiConversation {
     pub fn dm_peer_inbox_id(&self) -> Result<String, GenericError> {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
+
+    pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        let conversation_type = self.inner.conversation_type(&provider)?;
+        Ok(conversation_type.into())
+    }
 }
 
 #[uniffi::export]
@@ -1457,7 +1470,7 @@ impl FfiConversation {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq)]
+#[derive(uniffi::Enum, PartialEq, Debug)]
 pub enum FfiConversationMessageKind {
     Application,
     MembershipChange,
@@ -1468,6 +1481,23 @@ impl From<GroupMessageKind> for FfiConversationMessageKind {
         match kind {
             GroupMessageKind::Application => FfiConversationMessageKind::Application,
             GroupMessageKind::MembershipChange => FfiConversationMessageKind::MembershipChange,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, PartialEq, Debug)]
+pub enum FfiConversationType {
+    Group,
+    Dm,
+    Sync,
+}
+
+impl From<ConversationType> for FfiConversationType {
+    fn from(kind: ConversationType) -> Self {
+        match kind {
+            ConversationType::Group => FfiConversationType::Group,
+            ConversationType::Dm => FfiConversationType::Dm,
+            ConversationType::Sync => FfiConversationType::Sync,
         }
     }
 }
@@ -1630,11 +1660,11 @@ impl FfiConversationMetadata {
         self.inner.creator_inbox_id.clone()
     }
 
-    pub fn conversation_type(&self) -> String {
+    pub fn conversation_type(&self) -> FfiConversationType {
         match self.inner.conversation_type {
-            ConversationType::Group => "group".to_string(),
-            ConversationType::Dm => "dm".to_string(),
-            ConversationType::Sync => "sync".to_string(),
+            ConversationType::Group => FfiConversationType::Group,
+            ConversationType::Dm => FfiConversationType::Dm,
+            ConversationType::Sync => FfiConversationType::Sync,
         }
     }
 }
@@ -4047,5 +4077,86 @@ mod tests {
         } else {
             panic!("Error: No member found with the given inbox_id.");
         }
+    }
+
+    // Groups contain membership updates, but dms do not
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_first_messages() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Alix creates DM with Bo
+        let alix_dm = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        // Alix creates group with Bo
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Bo syncs to get both conversations
+        bo.conversations().sync().await.unwrap();
+        let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
+
+        // Alix sends messages in both conversations
+        alix_dm
+            .send("Hello in DM".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group
+            .send("Hello in group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Bo syncs the dm and the group
+        bo_dm.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Get messages for both participants in both conversations
+        let alix_dm_messages = alix_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_dm_messages = bo_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let alix_group_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_group_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Verify DM messages
+        assert_eq!(alix_dm_messages.len(), 1);
+        assert_eq!(bo_dm_messages.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&alix_dm_messages[0].content),
+            "Hello in DM"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&bo_dm_messages[0].content),
+            "Hello in DM"
+        );
+
+        // Verify group messages
+        assert_eq!(alix_group_messages.len(), 2);
+        assert_eq!(bo_group_messages.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&alix_group_messages[1].content),
+            "Hello in group"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&bo_group_messages[0].content),
+            "Hello in group"
+        );
     }
 }

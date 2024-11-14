@@ -148,6 +148,11 @@ impl MsgQueryArgs {
         self
     }
 
+    pub fn maybe_kind(mut self, kind: Option<GroupMessageKind>) -> Self {
+        self.kind = kind;
+        self
+    }
+
     pub fn direction(mut self, direction: SortDirection) -> Self {
         self.direction = Some(direction);
         self
