@@ -226,7 +226,6 @@ pub(crate) mod tests {
         utils::test::rand_vec, Store,
     };
 
-    use ethers::signers::Wallet;
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
