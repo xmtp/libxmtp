@@ -129,6 +129,8 @@ pub async fn create_client(
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
+  let account_address = account_address.to_lowercase();
+
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(host.clone(), is_secure)
     .await
@@ -153,7 +155,7 @@ pub async fn create_client(
 
   let identity_strategy = IdentityStrategy::CreateIfNotFound(
     inbox_id.clone(),
-    account_address.clone().to_lowercase(),
+    account_address.clone(),
     // this is a temporary solution
     1,
     None,
