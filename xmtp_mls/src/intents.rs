@@ -54,10 +54,7 @@ impl Intents {
             .await
             .map(|result| {
                 tracing::info!(
-                    entity_id,
-                    entity_kind,
-                    cursor,
-                    "Transaction completed successfully: process for entity [{}] envelope cursor[{}]",
+                    "Transaction completed successfully: process for entity [{:?}] envelope cursor[{}]",
                     entity_id,
                     cursor
                 );
@@ -65,10 +62,7 @@ impl Intents {
             })
             .map_err(|err| {
                 tracing::info!(
-                    entity_id,
-                    entity_kind,
-                    cursor,
-                    "Transaction failed: process for entity [{}] envelope cursor[{}]",
+                    "Transaction failed: process for entity [{:?}] envelope cursor[{}]",
                     entity_id,
                     cursor
                 );

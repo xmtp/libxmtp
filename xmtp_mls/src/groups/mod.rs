@@ -1526,6 +1526,7 @@ pub(crate) mod tests {
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
@@ -3334,6 +3335,57 @@ pub(crate) mod tests {
                 .unwrap()
                 .to_string()
                 .contains("database is locked"));
+        } else {
+            panic!("Expected error")
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    async fn skip_already_processed_messages() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let bo_wallet = generate_local_wallet();
+        let bo_client = ClientBuilder::new_test_client(&bo_wallet).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&[bo_client.inbox_id()])
+            .await
+            .unwrap();
+
+        let alix_message = vec![1];
+        alix_group
+            .send_message(&alix_message)
+            .await
+            .unwrap();
+        bo_client.sync_welcomes(&bo_client.store().conn().unwrap()).await.unwrap();
+        let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+
+        let mut bo_messages_from_api = bo_client
+            .query_group_messages(&bo_group.group_id, &bo_client.store().conn().unwrap())
+            .await
+            .unwrap();
+
+        // override the messages to contain already processed messaged
+        for msg in &mut bo_messages_from_api {
+            if let Some(Version::V1(ref mut v1)) = msg.version {
+                v1.id = 0;
+            }
+        }
+
+        let process_result = bo_group.process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap()).await;
+        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
+            assert_eq!(errors.len(), 2);
+            assert!(errors
+                .first()
+                .unwrap()
+                .to_string()
+                .contains("already processed"));
         } else {
             panic!("Expected error")
         }

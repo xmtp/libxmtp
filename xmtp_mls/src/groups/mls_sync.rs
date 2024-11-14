@@ -74,7 +74,6 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
-use crate::storage::schema::association_state::inbox_id;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
     Reply, Request,
 };
@@ -706,16 +705,18 @@ where
         };
 
         let last_cursor = conn.get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
+        tracing::info!("### last cursor --> [{:?}]", last_cursor);
         let should_skip_message = last_cursor > msgv1.id as i64;
-        if (should_skip_message) {
+        if should_skip_message {
             tracing::info!(
-                inbox_id = self.inbox_id(),
+                inbox_id = "self.inbox_id()",
                 group_id = hex::encode(&self.group_id),
-                message_entity_kind,
-                "Message already processed: skipped msgId:[{}] last cursor in db: [{}]",
+                "Message already processed: skipped msgId:[{}] entity kind:[{:?}] last cursor in db: [{}]",
                 msgv1.id,
+                message_entity_kind,
                 last_cursor
             );
+            Err(MessageProcessingError::AlreadyProcessed(msgv1.id))
         } else {
             self.client
                 .intents()
@@ -730,8 +731,8 @@ where
                     },
                 )
                 .await?;
+            Ok(())
         }
-        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
