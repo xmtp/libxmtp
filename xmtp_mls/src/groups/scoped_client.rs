@@ -1,13 +1,4 @@
-use std::sync::Arc;
-
-// use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
-
-use xmtp_id::{
-    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
-};
-
-use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
-
+use super::group_membership::{GroupMembership, MembershipDiff};
 use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
@@ -19,8 +10,11 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
 };
-
-use super::group_membership::{GroupMembership, MembershipDiff};
+use std::sync::Arc;
+use xmtp_id::{
+    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
+};
+use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send ))]
 #[cfg(not(target_arch = "wasm32"))]

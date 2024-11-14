@@ -2,7 +2,10 @@ use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -56,11 +59,12 @@ pub enum LocalEvents<C> {
     ConsentUpdate(StoredConsentRecord),
 }
 
-/// This struct puts a buffer channel in front of the broadcast channel,
+/// This struct optionally puts a buffer channel in front of the broadcast channel,
 /// which has a limited capacity, so that we don't lose messages.
 pub struct BufferableBroadcast<C> {
     buffer: Option<UnboundedSender<LocalEvents<C>>>,
     broadcast: Sender<LocalEvents<C>>,
+    buffer_len: Arc<AtomicUsize>,
     capacity: usize,
 }
 
@@ -72,6 +76,7 @@ where
         let (buffer, mut buffer_rx) = unbounded_channel();
         tokio::spawn({
             let broadcast = self.broadcast.clone();
+            let buffer_len = self.buffer_len.clone();
             let capacity = self.capacity;
 
             async move {
@@ -87,6 +92,8 @@ where
                         }
                         crate::sleep(Duration::from_millis(20)).await;
                     }
+
+                    buffer_len.store(buffer_rx.len(), Ordering::SeqCst);
 
                     if let Err(err) = broadcast.send(evt) {
                         tracing::error!("Broadcast error: {}", err.to_string());
@@ -108,6 +115,7 @@ impl<C: Clone> BufferableBroadcast<C> {
             buffer: None,
             broadcast,
             capacity,
+            buffer_len: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -117,18 +125,24 @@ impl<C> BufferableBroadcast<C> {
         self.broadcast.subscribe()
     }
 
+    pub fn len(&self) -> usize {
+        self.buffer_len.load(Ordering::SeqCst) + self.broadcast.len()
+    }
+
     pub fn send(&self, evt: LocalEvents<C>) -> Result<(), LocalEventError> {
-        let Some(buffer) = &self.buffer else {
-            self.broadcast
-                .send(evt)
-                .map_err(|e| LocalEventError::Send(e.to_string()))?;
-
-            return Ok(());
-        };
-
-        buffer
-            .send(evt)
-            .map_err(|e| LocalEventError::Send(e.to_string()))?;
+        match &self.buffer {
+            Some(buffer) => {
+                buffer
+                    .send(evt)
+                    .map_err(|e| LocalEventError::Send(e.to_string()))?;
+                self.buffer_len.fetch_add(1, Ordering::SeqCst);
+            }
+            None => {
+                self.broadcast
+                    .send(evt)
+                    .map_err(|e| LocalEventError::Send(e.to_string()))?;
+            }
+        }
 
         Ok(())
     }

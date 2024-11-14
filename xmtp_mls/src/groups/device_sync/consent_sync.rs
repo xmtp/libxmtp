@@ -18,6 +18,7 @@ where
         provider: &XmtpOpenMlsProvider,
         record: &StoredConsentRecord,
     ) -> Result<(), DeviceSyncError> {
+        tracing::info!("Streaming consent update. {:?}", record);
         let conn = provider.conn_ref();
 
         let consent_update_proto = ConsentUpdateProto {
@@ -66,7 +67,10 @@ pub(crate) mod tests {
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::time::{Duration, Instant};
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use crate::{
@@ -142,6 +146,40 @@ pub(crate) mod tests {
 
             if start.elapsed() > Duration::from_secs(3) {
                 panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
+            }
+        }
+
+        // Stream consent
+        let amal_b_sync_group = amal_b.get_sync_group().unwrap();
+        assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
+        while amal_b.local_events().len() > 0 {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let amal_b_consent_count = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
+        let bo_wallet = generate_local_wallet();
+
+        // thread::sleep(Duration::from_millis(1000));
+
+        // amal_a
+        // .set_consent_states(&[StoredConsentRecord::new(
+        // ConsentType::Address,
+        // ConsentState::Allowed,
+        // bo_wallet.get_address(),
+        // )])
+        // .await
+        // .unwrap();
+
+        let mut updated_amal_b_consent_count = amal_b_consent_count;
+        let start = Instant::now();
+        while amal_b_consent_count == updated_amal_b_consent_count {
+            assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
+
+            updated_amal_b_consent_count =
+                amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
+
+            if start.elapsed() > Duration::from_secs(3) {
+                panic!("Consent update did not stream");
             }
         }
     }
