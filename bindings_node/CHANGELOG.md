@@ -1,5 +1,11 @@
 # @xmtp/node-bindings
 
+## 0.0.18
+
+- Added `syncAllConversations` to `Conversations`
+- Added smart contract wallet support
+- Converted package to ESM
+
 ## 0.0.17
 
 - Removed all `Napi` prefixes

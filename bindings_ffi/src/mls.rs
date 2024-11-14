@@ -16,6 +16,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
@@ -23,7 +24,7 @@ use xmtp_mls::{
     builder::ClientBuilder,
     client::{Client as MlsClient, ClientError},
     groups::{
-        group_metadata::{ConversationType, GroupMetadata},
+        group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
@@ -240,7 +241,7 @@ pub struct FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn inbox_id(&self) -> InboxId {
-        self.inner_client.inbox_id()
+        self.inner_client.inbox_id().to_string()
     }
 
     pub fn conversations(&self) -> Arc<FfiConversations> {
@@ -857,7 +858,7 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(GroupQueryArgs::default())?;
+        let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",
@@ -1258,7 +1259,10 @@ impl FfiConversation {
         &self,
         inbox_ids: Vec<String>,
     ) -> Result<(), GenericError> {
-        self.inner.remove_members_by_inbox_id(&inbox_ids).await?;
+        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        self.inner
+            .remove_members_by_inbox_id(ids.as_slice())
+            .await?;
         Ok(())
     }
 

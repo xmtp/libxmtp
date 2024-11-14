@@ -3,6 +3,7 @@
 XLI is a Commandline client using XMTPv3.
 */
 
+mod debug;
 mod pretty;
 mod serializable;
 
@@ -12,6 +13,7 @@ use std::{fs, path::PathBuf, time::Duration};
 use crate::serializable::{SerializableGroup, SerializableMessage};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
+use debug::DebugCommands;
 use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use futures::future::join_all;
 use owo_colors::OwoColorize;
@@ -24,6 +26,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{
     fmt::{format, time},
     layer::SubscriberExt,
+    prelude::*,
     Registry,
 };
 use valuable::Valuable;
@@ -60,6 +63,15 @@ extern crate tracing;
 type Client = xmtp_mls::client::Client<Box<dyn XmtpApi>>;
 type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
 
+#[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum Env {
+    #[default]
+    Local,
+    Dev,
+    Production,
+}
+
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
 #[command(name = "xli")]
@@ -70,8 +82,8 @@ struct Cli {
     /// Sets a custom config file
     #[arg(long, value_name = "FILE", global = true)]
     db: Option<PathBuf>,
-    #[clap(long, default_value_t = false)]
-    local: bool,
+    #[clap(long, value_enum, default_value_t)]
+    env: Env,
     #[clap(long, default_value_t = false)]
     json: bool,
     #[clap(long, default_value_t = false)]
@@ -129,6 +141,8 @@ enum Commands {
     /// Information about the account that owns the DB
     Info {},
     Clear {},
+    #[command(subcommand)]
+    Debug(DebugCommands),
 }
 
 #[derive(Debug, Error)]
@@ -181,17 +195,17 @@ impl InboxOwner for Wallet {
 async fn main() -> color_eyre::eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
+    let crate_name = env!("CARGO_PKG_NAME");
+    let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO"))?;
     if cli.json {
-        let fmt = tracing_subscriber::fmt::format()
+        let fmt = tracing_subscriber::fmt::layer()
             .json()
             .flatten_event(true)
-            .with_thread_ids(true)
             .with_level(true)
             .with_timer(time::ChronoLocal::new("%s".into()));
-        tracing_subscriber::fmt().event_format(fmt).init();
+
+        tracing_subscriber::registry().with(filter).with(fmt).init();
     } else {
-        let crate_name = env!("CARGO_PKG_NAME");
-        let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO"))?;
         let layer = tracing_subscriber::fmt::layer()
             .without_time()
             .map_event_format(|_| pretty::PrettyTarget)
@@ -210,27 +224,33 @@ async fn main() -> color_eyre::eyre::Result<()> {
     }
     info!("Starting CLI Client....");
 
-    let grpc = match (cli.testnet, cli.local) {
-        (true, true) => Box::new(
+    let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
+        (true, Env::Local) => Box::new(
             ClientV4::create("http://localhost:5050".into(), false)
                 .await
                 .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (true, false) => Box::new(
+        ),
+        (true, Env::Dev) => Box::new(
             ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (false, true) => Box::new(
+        ),
+        (false, Env::Local) => Box::new(
             ClientV3::create("http://localhost:5556".into(), false)
                 .await
                 .unwrap(),
-        ) as Box<dyn XmtpApi>,
-        (false, false) => Box::new(
+        ),
+        (false, Env::Dev) => Box::new(
             ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
-        ) as Box<dyn XmtpApi>,
+        ),
+        (false, Env::Production) => Box::new(
+            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true)
+                .await
+                .unwrap(),
+        ),
+        (true, Env::Production) => todo!("not supported"),
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {
@@ -326,8 +346,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     "messages",
                 );
             } else {
-                let messages =
-                    format_messages(messages, client.inbox_id()).expect("failed to get messages");
+                let messages = format_messages(messages, client.inbox_id().to_string())
+                    .expect("failed to get messages");
                 info!(
                     "====== Group {} ======\n{}",
                     hex::encode(group.group_id),
@@ -455,6 +475,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::Clear {} => {
             fs::remove_file(cli.db.ok_or(eyre!("DB Missing"))?)?;
         }
+        Commands::Debug(debug_commands) => {
+            debug::handle_debug(&client, debug_commands).await.unwrap();
+        }
     }
 
     Ok(())
@@ -470,7 +493,7 @@ async fn create_client<C: XmtpApi + 'static>(
 
     builder = builder.api_client(grpc);
 
-    if cli.local {
+    if cli.env == Env::Local {
         builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
     } else {
         builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);

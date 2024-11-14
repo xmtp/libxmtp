@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use xmtp_mls::storage::group::ConversationType;
 
 use crate::client::RustXmtpClient;
 use crate::encoded_content::EncodedContent;
@@ -8,9 +9,8 @@ use crate::messages::{ListMessagesOptions, Message};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
-  group_metadata::{ConversationType, GroupMetadata as XmtpGroupMetadata},
-  members::PermissionLevel as XmtpPermissionLevel,
-  MlsGroup, UpdateAdminListType,
+  group_metadata::GroupMetadata as XmtpGroupMetadata,
+  members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -23,12 +23,12 @@ pub struct GroupMetadata {
 
 #[wasm_bindgen]
 impl GroupMetadata {
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = creatorInboxId)]
   pub fn creator_inbox_id(&self) -> String {
     self.inner.creator_inbox_id.clone()
   }
 
-  #[wasm_bindgen]
+  #[wasm_bindgen(js_name = conversationType)]
   pub fn conversation_type(&self) -> String {
     match self.inner.conversation_type {
       ConversationType::Group => "group".to_string(),
@@ -50,14 +50,19 @@ pub enum PermissionLevel {
 #[derive(Clone, serde::Serialize)]
 pub struct GroupMember {
   #[wasm_bindgen(js_name = inboxId)]
+  #[serde(rename = "inboxId")]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountAddresses)]
+  #[serde(rename = "accountAddresses")]
   pub account_addresses: Vec<String>,
   #[wasm_bindgen(js_name = installationIds)]
+  #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
   #[wasm_bindgen(js_name = permissionLevel)]
+  #[serde(rename = "permissionLevel")]
   pub permission_level: PermissionLevel,
   #[wasm_bindgen(js_name = consentState)]
+  #[serde(rename = "consentState")]
   pub consent_state: ConsentState,
 }
 
@@ -353,8 +358,9 @@ impl Conversation {
   pub async fn remove_members_by_inbox_id(&self, inbox_ids: Vec<String>) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
+    let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
     group
-      .remove_members_by_inbox_id(&inbox_ids)
+      .remove_members_by_inbox_id(ids.as_slice())
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 

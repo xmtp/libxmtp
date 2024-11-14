@@ -26,7 +26,7 @@ use xmtp_id::{
         AssociationError, AssociationState, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    InboxId,
+    InboxId, InboxIdRef,
 };
 
 use xmtp_proto::xmtp::mls::api::v1::{
@@ -266,8 +266,8 @@ impl XmtpMlsLocalContext {
     }
 
     /// Get the account address of the blockchain account associated with this client
-    pub fn inbox_id(&self) -> InboxId {
-        self.identity.inbox_id().clone()
+    pub fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.identity.inbox_id()
     }
 
     /// Get sequence id, may not be consistent with the backend
@@ -344,7 +344,7 @@ where
         self.context.installation_public_key()
     }
     /// Retrieves the client's inbox ID
-    pub fn inbox_id(&self) -> String {
+    pub fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context.inbox_id()
     }
 
@@ -440,7 +440,7 @@ where
         let conn = self.store().conn()?;
         let inbox_id = self.inbox_id();
         if refresh_from_network {
-            load_identity_updates(&self.api_client, &conn, vec![inbox_id.clone()]).await?;
+            load_identity_updates(&self.api_client, &conn, &[inbox_id]).await?;
         }
         let state = self.get_association_state(&conn, inbox_id, None).await?;
         Ok(state)
@@ -457,7 +457,7 @@ where
             load_identity_updates(
                 &self.api_client,
                 &conn,
-                inbox_ids.iter().map(|s| String::from(s.as_ref())).collect(),
+                &inbox_ids.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
             )
             .await?;
         }
@@ -898,8 +898,14 @@ where
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
                     let mls_group = group.load_mls_group(provider_ref)?;
-                    tracing::info!("[{}] syncing group", self.inbox_id());
                     tracing::info!(
+                        inbox_id = self.inbox_id(),
+                        "[{}] syncing group",
+                        self.inbox_id()
+                    );
+                    tracing::info!(
+                        inbox_id = self.inbox_id(),
+                        group_epoch = mls_group.epoch().as_u64(),
                         "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                         self.inbox_id(),
                         mls_group.epoch()
@@ -1135,7 +1141,7 @@ pub(crate) mod tests {
                 .find_inbox_id_from_address(wallet.get_address())
                 .await
                 .unwrap(),
-            Some(client.inbox_id())
+            Some(client.inbox_id().to_string())
         );
     }
 
@@ -1329,7 +1335,7 @@ pub(crate) mod tests {
         );
         alix.set_consent_states(&[record]).await.unwrap();
         let inbox_consent = alix
-            .get_consent_state(ConsentType::InboxId, bo.inbox_id())
+            .get_consent_state(ConsentType::InboxId, bo.inbox_id().to_string())
             .await
             .unwrap();
         let address_consent = alix

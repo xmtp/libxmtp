@@ -5,10 +5,20 @@ __metadata:
   version: 8
   cacheKey: 10
 
+"@sqlite.org/sqlite-wasm@npm:^3.47.0-build1":
+  version: 3.47.0-build1
+  resolution: "@sqlite.org/sqlite-wasm@npm:3.47.0-build1"
+  bin:
+    sqlite-wasm: bin/index.js
+  checksum: 10/2953f9220b5553b2adedb308ae064e742d5fa062da58bba5402ad7ceec01472e972c7ab25d3559fea508361c8564741161a8e97e88395701de9eb6c2218b8982
+  languageName: node
+  linkType: hard
+
 "@xmtp/wasm-bindings@workspace:.":
   version: 0.0.0-use.local
   resolution: "@xmtp/wasm-bindings@workspace:."
   dependencies:
+    "@sqlite.org/sqlite-wasm": "npm:^3.47.0-build1"
     binaryen: "npm:^120.0.0"
     wasm-pack: "npm:^0.13.1"
   languageName: unknown

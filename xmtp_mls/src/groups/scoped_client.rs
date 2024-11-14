@@ -1,5 +1,11 @@
 use std::sync::Arc;
-use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
+
+// use xmtp_id::{associations::AssociationState, scw_verifier::SmartContractSignatureVerifier};
+
+use xmtp_id::{
+    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
+};
+
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
 use crate::{
@@ -30,8 +36,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
 
-    fn inbox_id(&self) -> String {
-        self.context().inbox_id()
+    fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.context_ref().inbox_id()
     }
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
@@ -92,8 +98,8 @@ pub trait ScopedGroupClient: Sized {
 
     fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
 
-    fn inbox_id(&self) -> String {
-        self.context().inbox_id()
+    fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.context_ref().inbox_id()
     }
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
@@ -247,7 +253,7 @@ where
         (**self).intents()
     }
 
-    fn inbox_id(&self) -> String {
+    fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
 
@@ -337,7 +343,7 @@ where
         (**self).intents()
     }
 
-    fn inbox_id(&self) -> String {
+    fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
 

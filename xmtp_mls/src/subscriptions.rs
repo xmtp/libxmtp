@@ -19,12 +19,12 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 
 use crate::{
     client::{extract_welcome_message, ClientError, MessageProcessingError},
-    groups::{group_metadata::ConversationType, subscriptions, GroupError, MlsGroup},
+    groups::{subscriptions, GroupError, MlsGroup},
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
         consent_record::StoredConsentRecord,
-        group::{GroupQueryArgs, StoredGroup},
+        group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         StorageError,
     },
@@ -263,7 +263,10 @@ where
         let creation_result = retry_async!(
             Retry::default(),
             (async {
-                tracing::info!("Trying to process streamed welcome");
+                tracing::info!(
+                    installation_id = &welcome_v1.id,
+                    "Trying to process streamed welcome"
+                );
                 let welcome_v1 = &welcome_v1;
                 self.context
                     .store()
@@ -287,6 +290,8 @@ where
             match result {
                 Ok(Some(group)) => {
                     tracing::info!(
+                        group_id = hex::encode(&group.id),
+                        welcome_id = ?group.welcome_id,
                         "Loading existing group for welcome_id: {:?}",
                         group.welcome_id
                     );
@@ -513,8 +518,11 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::{group_metadata::ConversationType, GroupMetadataOptions},
-        storage::{group::GroupQueryArgs, group_message::StoredGroupMessage},
+        groups::GroupMetadataOptions,
+        storage::{
+            group::{ConversationType, GroupQueryArgs},
+            group_message::StoredGroupMessage,
+        },
         utils::test::{Delivery, FullXmtpClient, TestClient},
         Client, StreamHandle,
     };
@@ -925,7 +933,9 @@ pub(crate) mod tests {
             },
         );
 
-        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .await
+            .unwrap();
 
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a DM group");
@@ -973,7 +983,9 @@ pub(crate) mod tests {
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .await
+            .unwrap();
         notify.wait_for_delivery().await.unwrap();
         {
             let grps = groups.lock();
@@ -994,14 +1006,19 @@ pub(crate) mod tests {
                 notify_pointer.notify_one();
             });
 
-        alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .await
+            .unwrap();
         notify.wait_for_delivery().await.unwrap();
         {
             let grps = groups.lock();
             assert_eq!(grps.len(), 1);
         }
 
-        let dm = bo.create_dm_by_inbox_id(alix.inbox_id()).await.unwrap();
+        let dm = bo
+            .create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .await
+            .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
@@ -1042,7 +1059,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let alix_dm = alix.create_dm_by_inbox_id(bo.inbox_id()).await.unwrap();
+        let alix_dm = alix
+            .create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .await
+            .unwrap();
 
         // Start a stream with only groups
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));

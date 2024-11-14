@@ -15,10 +15,11 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<Syncable>, DeviceSyncError> {
         let groups = conn
-            .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?
+            .find_groups(GroupQueryArgs::default())?
             .into_iter()
             .map(Syncable::Group)
             .collect();
+
         Ok(groups)
     }
 

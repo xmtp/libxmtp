@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::group_metadata::ConversationType as XmtpConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
@@ -281,6 +281,16 @@ impl Conversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(())
+  }
+
+  #[wasm_bindgen(js_name = syncAllConversations)]
+  pub async fn sync_all_conversations(&self) -> Result<usize, JsError> {
+    let groups = self
+      .inner_client
+      .find_groups(GroupQueryArgs::default())
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let num_groups_synced = self.inner_client.sync_all_groups(groups).await?;
+    Ok(num_groups_synced)
   }
 
   #[wasm_bindgen]

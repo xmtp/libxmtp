@@ -137,7 +137,7 @@ pub(crate) mod tests {
                 None,
             )
             .unwrap();
-            let inbox_id = association_state.inbox_id().clone();
+            let inbox_id = association_state.inbox_id().to_string();
             StoredAssociationState::write_to_cache(
                 conn,
                 inbox_id.to_string(),
@@ -152,10 +152,10 @@ pub(crate) mod tests {
                 None,
             )
             .unwrap();
-            let inbox_id_2 = association_state_2.inbox_id().clone();
+            let inbox_id_2 = association_state_2.inbox_id().to_string();
             StoredAssociationState::write_to_cache(
                 conn,
-                association_state_2.inbox_id().clone(),
+                association_state_2.inbox_id().to_string(),
                 2,
                 association_state_2,
             )
@@ -167,7 +167,7 @@ pub(crate) mod tests {
             )
             .unwrap();
             assert_eq!(first_association_state.len(), 1);
-            assert_eq!(first_association_state[0].inbox_id(), &inbox_id);
+            assert_eq!(&first_association_state[0].inbox_id(), &inbox_id);
 
             let both_association_states = StoredAssociationState::batch_read_from_cache(
                 conn,

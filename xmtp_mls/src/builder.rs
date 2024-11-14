@@ -197,7 +197,7 @@ where
     load_identity_updates(
         &api_client_wrapper,
         &store.conn()?,
-        vec![identity.clone().inbox_id],
+        vec![identity.inbox_id.as_str()].as_slice(),
     )
     .await?;
 

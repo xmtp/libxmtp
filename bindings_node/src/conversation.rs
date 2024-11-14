@@ -8,11 +8,10 @@ use napi::{
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::{
   groups::{
-    group_metadata::{ConversationType, GroupMetadata as XmtpGroupMetadata},
-    members::PermissionLevel as XmtpPermissionLevel,
-    MlsGroup, UpdateAdminListType,
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
-  storage::group_message::MsgQueryArgs,
+  storage::{group::ConversationType, group_message::MsgQueryArgs},
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -410,7 +409,13 @@ impl Conversation {
     );
 
     group
-      .remove_members_by_inbox_id(&inbox_ids)
+      .remove_members_by_inbox_id(
+        inbox_ids
+          .iter()
+          .map(AsRef::as_ref)
+          .collect::<Vec<&str>>()
+          .as_slice(),
+      )
       .await
       .map_err(ErrorWrapper::from)?;
 
