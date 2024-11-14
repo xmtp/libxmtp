@@ -6,8 +6,8 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::group_metadata::ConversationType as XmtpConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
@@ -246,6 +246,19 @@ impl Conversations {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
+  }
+
+  pub async fn sync_all_conversations(&self) -> Result<usize> {
+    let groups = self
+      .inner_client
+      .find_groups(GroupQueryArgs::default())
+      .map_err(ErrorWrapper::from)?;
+    let num_groups_synced = self
+      .inner_client
+      .sync_all_groups(groups)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    Ok(num_groups_synced)
   }
 
   #[napi]
