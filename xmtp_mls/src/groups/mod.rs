@@ -52,7 +52,7 @@ use self::{
     validated_commit::extract_group_membership,
 };
 use self::{
-    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
+    group_metadata::{GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
@@ -85,7 +85,7 @@ use crate::{
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
-        group::{GroupMembershipState, Purpose, StoredGroup},
+        group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
@@ -313,7 +313,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let provider = XmtpOpenMlsProvider::new(conn);
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, Purpose::Conversation)?;
+            build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
         let mutable_metadata = build_mutable_metadata_extension_default(creator_inbox_id, opts)?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
@@ -427,16 +427,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         } else {
             None
         };
-        let group_type = metadata.conversation_type;
+        let conversation_type = metadata.conversation_type;
 
-        let to_store = match group_type {
+        let to_store = match conversation_type {
             ConversationType::Group => StoredGroup::new_from_welcome(
                 group_id.clone(),
                 now_ns(),
                 GroupMembershipState::Pending,
                 added_by_inbox,
                 welcome_id,
-                Purpose::Conversation,
+                conversation_type,
                 dm_inbox_id,
             ),
             ConversationType::Dm => {
@@ -447,7 +447,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     GroupMembershipState::Pending,
                     added_by_inbox,
                     welcome_id,
-                    Purpose::Conversation,
+                    conversation_type,
                     dm_inbox_id,
                 )
             }
@@ -457,7 +457,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 GroupMembershipState::Allowed,
                 added_by_inbox,
                 welcome_id,
-                Purpose::Sync,
+                conversation_type,
                 dm_inbox_id,
             ),
         };
@@ -517,7 +517,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let provider = client.mls_provider()?;
 
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, Purpose::Sync)?;
+            build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
             creator_inbox_id,
             GroupMetadataOptions::default(),
@@ -1156,14 +1156,9 @@ pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProces
 
 fn build_protected_metadata_extension(
     creator_inbox_id: &str,
-    group_purpose: Purpose,
+    conversation_type: ConversationType,
 ) -> Result<Extension, GroupError> {
-    let group_type = match group_purpose {
-        Purpose::Conversation => ConversationType::Group,
-        Purpose::Sync => ConversationType::Sync,
-    };
-
-    let metadata = GroupMetadata::new(group_type, creator_inbox_id.to_string(), None);
+    let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
@@ -1541,7 +1536,7 @@ pub(crate) mod tests {
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
             build_protected_metadata_extension,
-            group_metadata::{ConversationType, GroupMetadata},
+            group_metadata::GroupMetadata,
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
@@ -1550,8 +1545,7 @@ pub(crate) mod tests {
         },
         storage::{
             consent_record::ConsentState,
-            group::GroupQueryArgs,
-            group::Purpose,
+            group::{ConversationType, GroupQueryArgs},
             group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         },
@@ -3721,7 +3715,7 @@ pub(crate) mod tests {
 
         // Test case 2: Invalid conversation type
         let invalid_protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, Purpose::Conversation).unwrap();
+            build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
         let invalid_type_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
             client.clone().into(),
             dm_target_inbox_id.clone(),

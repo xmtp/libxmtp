@@ -5,9 +5,7 @@ use super::{
     schema::groups::{self, dsl},
     Sqlite,
 };
-use crate::{
-    groups::group_metadata::ConversationType, impl_fetch, impl_store, DuplicateItem, StorageError,
-};
+use crate::{impl_fetch, impl_store, DuplicateItem, StorageError};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -34,8 +32,8 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
-    /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
-    pub purpose: Purpose,
+    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
+    pub conversation_type: ConversationType,
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
@@ -57,7 +55,7 @@ impl StoredGroup {
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
         welcome_id: i64,
-        purpose: Purpose,
+        conversation_type: ConversationType,
         dm_inbox_id: Option<String>,
     ) -> Self {
         Self {
@@ -65,7 +63,7 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
-            purpose,
+            conversation_type,
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
@@ -86,7 +84,10 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
-            purpose: Purpose::Conversation,
+            conversation_type: match dm_inbox_id {
+                Some(_) => ConversationType::Dm,
+                None => ConversationType::Group,
+            },
             added_by_inbox_id,
             welcome_id: None,
             rotated_at_ns: 0,
@@ -106,7 +107,7 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
-            purpose: Purpose::Sync,
+            conversation_type: ConversationType::Sync,
             added_by_inbox_id: "".into(),
             welcome_id: None,
             rotated_at_ns: 0,
@@ -123,6 +124,7 @@ pub struct GroupQueryArgs {
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_state: Option<ConsentState>,
+    pub include_sync_groups: bool,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -183,9 +185,13 @@ impl GroupQueryArgs {
     pub fn consent_state(self, consent_state: ConsentState) -> Self {
         self.maybe_consent_state(Some(consent_state))
     }
-
     pub fn maybe_consent_state(mut self, consent_state: Option<ConsentState>) -> Self {
         self.consent_state = consent_state;
+        self
+    }
+
+    pub fn include_sync_groups(mut self) -> Self {
+        self.include_sync_groups = true;
         self
     }
 }
@@ -205,6 +211,7 @@ impl DbConnection {
             limit,
             conversation_type,
             consent_state,
+            include_sync_groups,
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
@@ -228,18 +235,14 @@ impl DbConnection {
         }
 
         if let Some(conversation_type) = conversation_type {
-            match conversation_type {
-                ConversationType::Group => {
-                    query = query.filter(groups_dsl::dm_inbox_id.is_null());
-                }
-                ConversationType::Dm => {
-                    query = query.filter(groups_dsl::dm_inbox_id.is_not_null());
-                }
-                ConversationType::Sync => {}
-            }
+            query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
-        query = query.filter(groups_dsl::purpose.eq(Purpose::Conversation));
+        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
+        // Otherwise filter sync groups out by default.
+        if !matches!(conversation_type, Some(ConversationType::Sync)) && !include_sync_groups {
+            query = query.filter(groups_dsl::conversation_type.ne(ConversationType::Sync));
+        }
 
         let groups = if let Some(consent_state) = consent_state {
             if *consent_state == ConsentState::Unknown {
@@ -285,7 +288,7 @@ impl DbConnection {
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
-            .filter(dsl::purpose.eq(Purpose::Sync))
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .limit(1);
 
         Ok(self.raw_query(|conn| query.load(conn))?.pop())
@@ -484,12 +487,12 @@ where
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
-pub enum Purpose {
-    Conversation = 1,
-    Sync = 2,
+pub enum ConversationType {
+    Group = 1,
+    Dm = 2,
+    Sync = 3,
 }
-
-impl ToSql<Integer, Sqlite> for Purpose
+impl ToSql<Integer, Sqlite> for ConversationType
 where
     i32: ToSql<Integer, Sqlite>,
 {
@@ -499,14 +502,15 @@ where
     }
 }
 
-impl FromSql<Integer, Sqlite> for Purpose
+impl FromSql<Integer, Sqlite> for ConversationType
 where
     i32: FromSql<Integer, Sqlite>,
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
-            1 => Ok(Purpose::Conversation),
-            2 => Ok(Purpose::Sync),
+            1 => Ok(ConversationType::Group),
+            2 => Ok(ConversationType::Dm),
+            3 => Ok(ConversationType::Sync),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -735,8 +739,8 @@ pub(crate) mod tests {
 
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
-            let purpose = fetched_group.unwrap().purpose;
-            assert_eq!(purpose, Purpose::Conversation);
+            let conversation_type = fetched_group.unwrap().conversation_type;
+            assert_eq!(conversation_type, ConversationType::Group);
         })
         .await
     }
@@ -750,14 +754,14 @@ pub(crate) mod tests {
             let membership_state = GroupMembershipState::Allowed;
 
             let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
-            let purpose = sync_group.purpose;
-            assert_eq!(purpose, Purpose::Sync);
+            let conversation_type = sync_group.conversation_type;
+            assert_eq!(conversation_type, ConversationType::Sync);
 
             sync_group.store(conn).unwrap();
 
             let found = conn.latest_sync_group().unwrap();
             assert!(found.is_some());
-            assert_eq!(found.unwrap().purpose, Purpose::Sync)
+            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync)
         })
         .await
     }

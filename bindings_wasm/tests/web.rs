@@ -1,8 +1,5 @@
-use bindings_wasm::client::Level;
-use bindings_wasm::{
-  client::{create_client, LogOptions},
-  inbox_id::get_inbox_id_for_address,
-};
+use bindings_wasm::client::LogLevel;
+use bindings_wasm::client::{create_client, LogOptions};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
@@ -35,7 +32,7 @@ pub async fn test_create_client() {
     Some(LogOptions {
       structured: false,
       performance: false,
-      level: Some(Level::Info),
+      level: Some(LogLevel::Info),
     }),
   )
   .await;

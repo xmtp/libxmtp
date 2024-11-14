@@ -500,6 +500,7 @@ where
 
                             // Ignore this installation's sync messages
                             if !sent_from_this_installation {
+                                tracing::info!("Received a history request.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Request { message_id },
                                 ));
@@ -531,6 +532,7 @@ where
 
                             // Ignore this installation's sync messages
                             if !sent_from_this_installation {
+                                tracing::info!("Received a history reply.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Reply { message_id },
                                 ));

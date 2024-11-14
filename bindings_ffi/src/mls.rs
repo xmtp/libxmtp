@@ -16,6 +16,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::{
@@ -23,7 +24,7 @@ use xmtp_mls::{
     builder::ClientBuilder,
     client::{Client as MlsClient, ClientError},
     groups::{
-        group_metadata::{ConversationType, GroupMetadata},
+        group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
@@ -857,7 +858,7 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let groups = inner.find_groups(GroupQueryArgs::default())?;
+        let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
         log::info!(
             "groups for client inbox id {:?}: {:?}",
