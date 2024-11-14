@@ -8,11 +8,10 @@ use napi::{
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::{
   groups::{
-    group_metadata::{ConversationType, GroupMetadata as XmtpGroupMetadata},
-    members::PermissionLevel as XmtpPermissionLevel,
-    MlsGroup, UpdateAdminListType,
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
-  storage::group_message::MsgQueryArgs,
+  storage::{group::ConversationType, group_message::MsgQueryArgs},
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 

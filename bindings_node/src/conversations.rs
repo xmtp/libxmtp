@@ -6,8 +6,8 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::group_metadata::ConversationType as XmtpConversationType;
 use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 

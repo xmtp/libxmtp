@@ -1,8 +1,7 @@
-use super::group_metadata::ConversationType;
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
 use crate::retry::{RetryBuilder, RetryableError};
-use crate::storage::group::GroupQueryArgs;
+use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
@@ -219,6 +218,10 @@ where
      * Will auto-send a sync request if sync group is created.
      */
     pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+        tracing::info!(
+            "Initializing device sync... url: {:?}",
+            self.history_sync_url
+        );
         if self.get_sync_group().is_err() {
             self.ensure_sync_group(provider).await?;
 
@@ -227,6 +230,7 @@ where
             self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
                 .await?;
         }
+        tracing::info!("Device sync initialized.");
 
         Ok(())
     }
@@ -252,6 +256,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
+        tracing::info!("Sending a sync request for {kind:?}");
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
