@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
@@ -14,6 +15,7 @@ use crate::{
     XmtpApi,
 };
 use crate::{retryable, Fetch, Store};
+use ethers::{types::H160, utils::to_checksum};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
@@ -185,6 +187,8 @@ pub enum IdentityError {
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
+    #[error("Error deserializing hex value: {0}")]
+    FromHex(String),
 }
 
 impl RetryableError for IdentityError {
@@ -222,6 +226,14 @@ impl Clone for Identity {
 }
 
 impl Identity {
+    async fn checksum_inbox_id(address_lower: &str) -> Result<String, IdentityError> {
+        let checksum_address = to_checksum(
+            &H160::from_str(address_lower).map_err(|e| IdentityError::FromHex(e.to_string()))?,
+            None,
+        );
+        Ok(generate_inbox_id(&checksum_address, &0)?)
+    }
+
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
@@ -245,12 +257,14 @@ impl Identity {
         let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
         let associated_inbox_id = inbox_ids.get(&address);
         let installation_keys = XmtpInstallationCredential::new();
-        let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
+        let member_identifier: MemberIdentifier = address.clone().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
+            let checksum_inbox_id = Self::checksum_inbox_id(&address).await?;
+
             // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
             // We would need a signature from user's wallet.
-            if *associated_inbox_id != inbox_id {
+            if *associated_inbox_id != inbox_id && *associated_inbox_id != checksum_inbox_id {
                 return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
             }
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
