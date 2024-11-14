@@ -60,13 +60,13 @@ impl Intents {
                 );
                 result
             })
-            .map_err(|err| {
+            .inspect_err(|err| {
                 tracing::info!(
-                    "Transaction failed: process for entity [{:?}] envelope cursor[{}]",
+                    "Transaction failed: process for entity [{:?}] envelope cursor[{}] error:[{}]",
                     entity_id,
-                    cursor
+                    cursor,
+                    err
                 );
-                err
             })
     }
 }
