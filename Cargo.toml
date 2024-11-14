@@ -13,8 +13,9 @@ members = [
   "bindings_wasm",
   "bindings_node",
   "bindings_ffi",
-  "xtask"
-, "xmtp-debug", "common"]
+  "xtask",
+  "xmtp_debug"
+]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
@@ -67,7 +68,7 @@ tokio = { version = "1.35.1", default-features = false }
 # - https://github.com/hyperium/tonic/pull/1974
 # - https://github.com/rustls/rustls-platform-verifier/issues/58
 tonic = { version = "0.12", default-features = false }
-tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", default-features = false }
 diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
