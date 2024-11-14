@@ -3794,4 +3794,82 @@ pub(crate) mod tests {
             Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
         ));
     }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 5)
+    )]
+    async fn test_parallel_member_removal() {
+        // Create all clients
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let new_one = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let new_two = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    
+        // Alix creates group with Bo
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+    
+        // Add Bo first
+        alix_group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+    
+        // Add new_one and new_two to the group
+        alix_group
+            .add_members_by_inbox_id(&[new_one.inbox_id(), new_two.inbox_id()])
+            .await
+            .unwrap();
+    
+        // Get Bo's group and sync
+        let bo_group = receive_group_invite(&bo).await;
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+    
+        // Verify all members are in the group
+        assert_eq!(alix_group.members().await.unwrap().len(), 4);
+        assert_eq!(bo_group.members().await.unwrap().len(), 4);
+    
+        // Attempt parallel removal of new_one and new_two
+        let new_one_id = [new_one.inbox_id()];
+        let new_two_id = [new_two.inbox_id()];
+        let remove_tasks = vec![
+            alix_group.remove_members_by_inbox_id(&new_one_id),
+            alix_group.remove_members_by_inbox_id(&new_two_id),
+        ];
+        join_all(remove_tasks).await;
+    
+        // Sync both clients
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+    
+        // Verify removals were successful
+        assert_eq!(alix_group.members().await.unwrap().len(), 2);
+        assert_eq!(bo_group.members().await.unwrap().len(), 2);
+    
+        // Send 5 messages from Alix
+        for i in 1..=5 {
+            alix_group
+                .send_message(format!("Message {}", i).as_bytes())
+                .await
+                .unwrap();
+        }
+    
+        // Sync Bo and verify messages
+        bo_group.sync().await.unwrap();
+        let bo_messages = bo_group
+            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .unwrap();
+        
+        assert_eq!(bo_messages.len(), 5);
+        for (i, msg) in bo_messages.iter().enumerate() {
+            assert_eq!(
+                msg.decrypted_message_bytes,
+                format!("Message {}", i + 1).as_bytes()
+            );
+        }
+    }
 }
