@@ -117,7 +117,7 @@ pub async fn debug_key_packages(
     for envelope in envelopes.unwrap() {
         let inbox_id = envelope.credential.inbox_id;
         let pkey = hex::encode(envelope.installation_public_key);
-        info!("[InboxId] {inbox_id} [Key Packages] {pkey}");
+        info!("[InboxId {inbox_id}]  [Key Packages {pkey}] ");
     }
 
     Ok(())
