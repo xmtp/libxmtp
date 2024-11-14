@@ -4079,6 +4079,7 @@ mod tests {
         }
     }
 
+    // Groups contain membership updates, but dms do not
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_dm_first_messages() {
         let alix = new_test_client().await;
@@ -4091,24 +4092,71 @@ mod tests {
             .await
             .unwrap();
 
-        // Bo syncs to get the DM
+        // Alix creates group with Bo
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Bo syncs to get both conversations
         bo.conversations().sync().await.unwrap();
         let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
 
-        // Get first messages for both participants
-        let alix_messages = alix_dm
+        // Alix sends messages in both conversations
+        alix_dm
+            .send("Hello in DM".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group
+            .send("Hello in group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Bo syncs the dm and the group
+        bo_dm.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Get messages for both participants in both conversations
+        let alix_dm_messages = alix_dm
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
-        let bo_messages = bo_dm
+        let bo_dm_messages = bo_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let alix_group_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_group_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
             .unwrap();
 
-        // Verify first message for creator (Alix)
-        assert_eq!(alix_messages.len(), 0);
-        // assert_eq!(alix_messages[0].kind, FfiConversationMessageKind::MembershipChange);
+        // Verify DM messages
+        assert_eq!(alix_dm_messages.len(), 1);
+        assert_eq!(bo_dm_messages.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&alix_dm_messages[0].content),
+            "Hello in DM"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&bo_dm_messages[0].content),
+            "Hello in DM"
+        );
 
-        // Verify first message for invitee (Bo)
-        assert_eq!(bo_messages.len(), 0);
-        // assert_eq!(bo_messages[0].kind, FfiConversationMessageKind::MembershipChange);
+        // Verify group messages
+        assert_eq!(alix_group_messages.len(), 2);
+        assert_eq!(bo_group_messages.len(), 1);
+        assert_eq!(
+            String::from_utf8_lossy(&alix_group_messages[1].content),
+            "Hello in group"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&bo_group_messages[0].content),
+            "Hello in group"
+        );
     }
 }
