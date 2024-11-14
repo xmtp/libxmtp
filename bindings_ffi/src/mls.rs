@@ -1175,6 +1175,11 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type()? {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Sync => None,
+        };
 
         let messages: Vec<FfiMessage> = self
             .inner
@@ -1182,6 +1187,7 @@ impl FfiConversation {
                 &MsgQueryArgs::default()
                     .maybe_sent_before_ns(opts.sent_before_ns)
                     .maybe_sent_after_ns(opts.sent_after_ns)
+                    .maybe_kind(kind)
                     .maybe_delivery_status(delivery_status)
                     .maybe_limit(opts.limit)
                     .maybe_direction(direction),
@@ -1449,6 +1455,12 @@ impl FfiConversation {
     pub fn dm_peer_inbox_id(&self) -> Result<String, GenericError> {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
+
+    pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        let conversation_type = self.inner.conversation_type(&provider)?;
+        Ok(conversation_type.into())
+    }
 }
 
 #[uniffi::export]
@@ -1458,7 +1470,7 @@ impl FfiConversation {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq)]
+#[derive(uniffi::Enum, PartialEq, Debug)]
 pub enum FfiConversationMessageKind {
     Application,
     MembershipChange,
@@ -1469,6 +1481,23 @@ impl From<GroupMessageKind> for FfiConversationMessageKind {
         match kind {
             GroupMessageKind::Application => FfiConversationMessageKind::Application,
             GroupMessageKind::MembershipChange => FfiConversationMessageKind::MembershipChange,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, PartialEq, Debug)]
+pub enum FfiConversationType {
+    Group,
+    Dm,
+    Sync,
+}
+
+impl From<ConversationType> for FfiConversationType {
+    fn from(kind: ConversationType) -> Self {
+        match kind {
+            ConversationType::Group => FfiConversationType::Group,
+            ConversationType::Dm => FfiConversationType::Dm,
+            ConversationType::Sync => FfiConversationType::Sync,
         }
     }
 }
@@ -4048,5 +4077,38 @@ mod tests {
         } else {
             panic!("Error: No member found with the given inbox_id.");
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_first_messages() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Alix creates DM with Bo
+        let alix_dm = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        // Bo syncs to get the DM
+        bo.conversations().sync().await.unwrap();
+        let bo_dm = bo.conversation(alix_dm.id()).unwrap();
+
+        // Get first messages for both participants
+        let alix_messages = alix_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_messages = bo_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Verify first message for creator (Alix)
+        assert_eq!(alix_messages.len(), 0);
+        // assert_eq!(alix_messages[0].kind, FfiConversationMessageKind::MembershipChange);
+
+        // Verify first message for invitee (Bo)
+        assert_eq!(bo_messages.len(), 0);
+        // assert_eq!(bo_messages[0].kind, FfiConversationMessageKind::MembershipChange);
     }
 }
