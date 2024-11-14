@@ -1,6 +1,3 @@
-use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
@@ -15,7 +12,6 @@ use crate::{
     XmtpApi,
 };
 use crate::{retryable, Fetch, Store};
-use ethers::{types::H160, utils::to_checksum};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
@@ -30,12 +26,13 @@ use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::AssociationError;
+use xmtp_id::associations::{generate_inbox_id_from_checksum, AssociationError};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -187,8 +184,6 @@ pub enum IdentityError {
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
-    #[error("Error deserializing hex value: {0}")]
-    FromHex(String),
 }
 
 impl RetryableError for IdentityError {
@@ -226,14 +221,6 @@ impl Clone for Identity {
 }
 
 impl Identity {
-    async fn checksum_inbox_id(address_lower: &str) -> Result<String, IdentityError> {
-        let checksum_address = to_checksum(
-            &H160::from_str(address_lower).map_err(|e| IdentityError::FromHex(e.to_string()))?,
-            None,
-        );
-        Ok(generate_inbox_id(&checksum_address, &0)?)
-    }
-
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
@@ -260,7 +247,7 @@ impl Identity {
         let member_identifier: MemberIdentifier = address.clone().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
-            let checksum_inbox_id = Self::checksum_inbox_id(&address).await?;
+            let checksum_inbox_id = generate_inbox_id_from_checksum(&address, &0)?;
 
             // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
             // We would need a signature from user's wallet.

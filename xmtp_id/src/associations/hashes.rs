@@ -1,3 +1,6 @@
+use std::str::FromStr;
+
+use ethers::{types::H160, utils::to_checksum};
 use sha2::{Digest, Sha256};
 
 use super::AssociationError;
@@ -28,4 +31,15 @@ pub fn generate_inbox_id(account_address: &str, nonce: &u64) -> Result<String, A
         account_address.to_lowercase(),
         nonce
     )))
+}
+
+pub fn generate_inbox_id_from_checksum(
+    account_address: &str,
+    nonce: &u64,
+) -> Result<String, AssociationError> {
+    let checksum_address = to_checksum(
+        &H160::from_str(account_address).map_err(|_| AssociationError::InvalidAccountAddress)?,
+        None,
+    );
+    generate_inbox_id(&checksum_address, nonce)
 }

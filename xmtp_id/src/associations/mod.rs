@@ -12,7 +12,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
-pub use self::hashes::generate_inbox_id;
+pub use self::hashes::{generate_inbox_id, generate_inbox_id_from_checksum};
 pub use self::member::{Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;

@@ -44,7 +44,6 @@ async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 diesel_migrations.workspace = true
-ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 openmls_rust_crypto = { workspace = true }
