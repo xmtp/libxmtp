@@ -475,9 +475,9 @@ where
                                 update.state()
                             );
 
-                            provider
-                                .conn_ref()
-                                .insert_or_replace_consent_records(&[update.try_into()?])?;
+                            self.client
+                                .local_events()
+                                .send(LocalEvents::ConsentUpdate(update.try_into()?))?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);

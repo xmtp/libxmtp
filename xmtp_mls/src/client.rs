@@ -56,7 +56,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{BufferableBroadcast, EventError, LocalEvents},
+    subscriptions::{BufferableBroadcast, LocalEventError, LocalEvents},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
@@ -107,7 +107,7 @@ pub enum ClientError {
     #[error(transparent)]
     Group(Box<GroupError>),
     #[error(transparent)]
-    LocalEvent(#[from] EventError),
+    LocalEvent(#[from] LocalEventError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -192,6 +192,8 @@ pub enum MessageProcessingError {
     IntentMissingStagedCommit,
     #[error(transparent)]
     Deserialization(#[from] xmtp_id::associations::DeserializationError),
+    #[error(transparent)]
+    LocalEvent(#[from] LocalEventError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {

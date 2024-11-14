@@ -33,7 +33,7 @@ use crate::{
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum EventError {
+pub enum LocalEventError {
     #[error("Unable to send event: {0}")]
     Send(String),
 }
@@ -117,18 +117,18 @@ impl<C> BufferableBroadcast<C> {
         self.broadcast.subscribe()
     }
 
-    pub fn send(&self, evt: LocalEvents<C>) -> Result<(), EventError> {
+    pub fn send(&self, evt: LocalEvents<C>) -> Result<(), LocalEventError> {
         let Some(buffer) = &self.buffer else {
             self.broadcast
                 .send(evt)
-                .map_err(|e| EventError::Send(e.to_string()))?;
+                .map_err(|e| LocalEventError::Send(e.to_string()))?;
 
             return Ok(());
         };
 
         buffer
             .send(evt)
-            .map_err(|e| EventError::Send(e.to_string()))?;
+            .map_err(|e| LocalEventError::Send(e.to_string()))?;
 
         Ok(())
     }

@@ -90,7 +90,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
     },
-    subscriptions::{EventError, LocalEvents},
+    subscriptions::{LocalEventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
@@ -147,7 +147,7 @@ pub enum GroupError {
     #[error(transparent)]
     AddressValidation(#[from] AddressValidationError),
     #[error(transparent)]
-    LocalEvent(#[from] EventError),
+    LocalEvent(#[from] LocalEventError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]

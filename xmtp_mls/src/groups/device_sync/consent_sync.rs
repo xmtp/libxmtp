@@ -130,7 +130,7 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
             if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive consent reply.");
+                panic!("Did not receive sync reply.");
             }
         }
 
