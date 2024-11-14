@@ -967,6 +967,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
+    /// Retrieves the conversation type of the group from the group's metadata extension.
+    pub fn conversation_type(
+        &self,
+        provider: impl OpenMlsProvider,
+    ) -> Result<ConversationType, GroupError> {
+        let metadata = self.metadata(provider)?;
+        Ok(metadata.conversation_type)
+    }
+
     /// Updates the admin list of the group and syncs the changes to the network.
     pub async fn update_admin_list(
         &self,
