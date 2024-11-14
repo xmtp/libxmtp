@@ -103,7 +103,8 @@ impl IdentityStrategy {
                 legacy_signed_private_key,
             ) => {
                 if let Some(stored_identity) = stored_identity {
-                    if inbox_id != stored_identity.inbox_id {
+                    let checksum_inbox_id = generate_inbox_id_from_checksum(&address, &nonce)?;
+                    if inbox_id != stored_identity.inbox_id && inbox_id != checksum_inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
                             stored: stored_identity.inbox_id,
@@ -247,7 +248,7 @@ impl Identity {
         let member_identifier: MemberIdentifier = address.clone().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
-            let checksum_inbox_id = generate_inbox_id_from_checksum(&address, &0)?;
+            let checksum_inbox_id = generate_inbox_id_from_checksum(&address, &nonce)?;
 
             // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
             // We would need a signature from user's wallet.

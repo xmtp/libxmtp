@@ -381,6 +381,7 @@ impl IdentityAction for IdentityUpdate {
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
+        // Do we need to handle this case for checksum inboxIds?
         if new_state.inbox_id().ne(&self.inbox_id) {
             tracing::error!(
                 "state inbox id mismatch, old: {}, new: {}",

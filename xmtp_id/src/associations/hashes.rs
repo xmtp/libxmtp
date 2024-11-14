@@ -7,8 +7,9 @@ use super::AssociationError;
 
 /// Helper function to generate a SHA256 hash as a hex string.
 fn sha256_string(input: String) -> String {
+    let normalized_input = input.to_lowercase();
     let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
+    hasher.update(normalized_input.as_bytes());
     let result = hasher.finalize();
     format!("{:x}", result)
 }
