@@ -1,7 +1,7 @@
 use napi::bindgen_prelude::Uint8Array;
 use prost::Message as ProstMessage;
 use xmtp_mls::storage::group_message::{
-  DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind,
+  DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortDirection as XmtpSortDirection, StoredGroupMessage,
 };
 
@@ -75,6 +75,20 @@ pub struct ListMessagesOptions {
   pub limit: Option<i64>,
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
+}
+
+impl From<ListMessagesOptions> for MsgQueryArgs {
+  fn from(opts: ListMessagesOptions) -> MsgQueryArgs {
+    let delivery_status = opts.delivery_status.map(Into::into);
+    let direction = opts.direction.map(Into::into);
+
+    MsgQueryArgs::default()
+      .maybe_sent_before_ns(opts.sent_before_ns)
+      .maybe_sent_after_ns(opts.sent_after_ns)
+      .maybe_delivery_status(delivery_status)
+      .maybe_limit(opts.limit)
+      .maybe_direction(direction)
+  }
 }
 
 #[napi(object)]
