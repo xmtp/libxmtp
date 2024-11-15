@@ -1,5 +1,10 @@
 # @xmtp/node-bindings
 
+## 0.0.19
+
+- Renamed `Level` to `LogLevel`
+- Filtered out group membership messages from DM groups
+
 ## 0.0.18
 
 - Added `syncAllConversations` to `Conversations`
