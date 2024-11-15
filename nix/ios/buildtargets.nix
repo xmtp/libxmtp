@@ -19,27 +19,12 @@
   };
 
   "aarch64-darwin" = {
-    crossSystemConfig = "aarch64-apple-darwin";
+    crossSystemConfig = "aarch64-darwin"; #hostSystem
     rustTarget = "aarch64-apple-darwin";
   };
 
   "x86_64-apple-darwin" = {
-    crossSystemConfig = "x86_64-apple-darwin";
+    crossSystemConfig = "x86_64-darwin";
     rustTarget = "x86_64-apple-darwin";
   };
 }
-
-
-
-#
-#
-#
-#
-# aarch64-darwin = {
-#   default = normal
-#   cross-iphone64 = cross derivation for iphone64
-# }
-#
-#
-#
-

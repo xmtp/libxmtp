@@ -31,7 +31,7 @@
             allowUnfree = true;
           };
         };
-        inherit (import ./nix/util.nix) eachSystem eachCrossSystem;
+        inherit (import ./nix/util.nix system) eachCrossSystem;
 
         # Function to make a toolchain that includes a foreign target
         mkToolchain = with fenix.packages.${system}; target: combine [
@@ -41,9 +41,9 @@
         ];
 
         # Function to create a package set with an optional foreign host
-        mkPkgs = buildSystem: hostSystem: buildTargets: import nixpkgs ({
-          system = buildSystem;
-        } // (if hostSystem == null then {} else {
+        mkPkgs = hostSystem: buildTargets: import nixpkgs ({
+          localSystem = system;
+        } // (if hostSystem == system then { } else {
           # The nixpkgs cache doesn't have any packages where cross-compiling has
           # been enabled, even if the host platform is actually the same as the
           # build platform (and therefore it's not really cross-compiling). So we
@@ -53,8 +53,9 @@
           # crossSystem = buildTargets.${hostSystem};
         }));
 
-        iosPackages = import ./nix/ios { inherit mkPkgs eachCrossSystem mkToolchain crane system; };
-      in {
+        iosPackages = import ./nix/ios { inherit mkPkgs eachCrossSystem mkToolchain crane; };
+      in
+      {
         # The shell where android and iOS can be built from
         devShells.default = pkgs.callPackage ./nix/buildshell.nix { };
         packages = {

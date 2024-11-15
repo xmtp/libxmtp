@@ -1,12 +1,12 @@
 # Utility functions for cross-compiling
-rec {
+system: {
   # eachSystem [system] (system: ...)
   #
   # Returns an attrset with a key for every system in the given array, with
   # the key's value being the result of calling the callback with that key.
   eachSystem = supportedSystems: callback: builtins.foldl'
     (overall: system: overall // { ${system} = callback system; })
-    {}
+    { }
     supportedSystems;
 
   # eachCrossSystem [system] (buildSystem: hostSystem: ...)
@@ -19,13 +19,14 @@ rec {
   # There will also be keys "$system.default", which are aliases of
   # "$system.cross-$system" for every system.
   #
-  eachCrossSystem = { buildSystem, supportedSystems, mkDerivationFor }:
+  eachCrossSystem = { supportedSystems, mkDerivationFor }:
     builtins.foldl'
-        (allCross: hostSystem: allCross // { # the function being applied to `supportedSystems`
-          "cross-${hostSystem}" = mkDerivationFor buildSystem hostSystem;
-        })
-        { default = mkDerivationFor buildSystem buildSystem; }
-        supportedSystems;
+      (allCross: hostSystem: allCross // {
+        # the function being applied to `supportedSystems`
+        "cross-${hostSystem}" = mkDerivationFor hostSystem;
+      })
+      { default = mkDerivationFor system; }
+      supportedSystems;
 }
 
 # cross-iphone64-simulator = callback
