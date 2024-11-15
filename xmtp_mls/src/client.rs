@@ -996,9 +996,14 @@ pub(crate) mod tests {
 
     use super::Client;
     use diesel::RunQueryDsl;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
+    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxId, InboxIdRef, InboxOwner};
 
+    use crate::groups::scoped_client::{LocalScopedGroupClient, ScopedGroupClient};
+    use crate::groups::MlsGroup;
+    use crate::utils::test::FullXmtpClient;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1415,5 +1420,176 @@ pub(crate) mod tests {
             .unwrap()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
         assert!(bo_original_after_delete.is_err());
+    }
+
+    #[tokio::test]
+    async fn groups_cannot_fork() {
+        let user_a_wallet = generate_local_wallet();
+        let user_a_client = ClientBuilder::new_test_client(&user_a_wallet).await;
+
+        async fn create_clients(count: usize) -> Vec<FullXmtpClient> {
+            let mut clients = Vec::new();
+            for _ in 0..count {
+                let wallet = generate_local_wallet();
+                let client = ClientBuilder::new_test_client(&wallet).await;
+                clients.push(client);
+            }
+            clients
+        }
+
+        pub async fn create_group_with_members<S: AsRef<str>>(
+            creator_client: &FullXmtpClient,
+            inbox_ids: &[S; 2],
+        ) -> Result<MlsGroup<FullXmtpClient>, Box<dyn std::error::Error>> {
+            // Create a new group with default metadata
+            let group = creator_client
+                .create_group(None, GroupMetadataOptions::default())
+                .map_err(|err| format!("Failed to create group: {}", err))?;
+
+            // Add members to the group
+            group
+                .add_members_by_inbox_id(inbox_ids)
+                .await
+                .map_err(|err| format!("Failed to add members: {}", err))?;
+
+            // Return the group object
+            Ok(group)
+        }
+        
+        async fn get_group_for_client(
+            client: &FullXmtpClient,
+            group_id: &Vec<u8>,
+        ) -> MlsGroup<FullXmtpClient> {
+            // Attempt to sync the client
+            client.sync_welcomes(&client.store().conn().unwrap()).await.unwrap();
+
+            // Retrieve groups
+            let groups = client
+                .find_groups(GroupQueryArgs::default()).unwrap();
+
+            // Search for the matching group
+            if let Some(group) = groups.iter().find(|g| &g.group_id == group_id) {
+                group.clone()
+            } else {
+                panic!("Group not found for client")
+            }
+        }
+
+        async fn sync_client_and_group(client: &FullXmtpClient, group_id: &Vec<u8>) {
+            let group = get_group_for_client(client, group_id).await;
+            group.sync().await.unwrap();
+        }
+
+        async fn add_member_to_group<S: AsRef<str>>(
+            client: &FullXmtpClient,
+            group_id: &Vec<u8>,
+            inbox_ids: &[S],
+        ) {
+            sync_client_and_group(client, group_id).await;
+            let group = get_group_for_client(client, group_id).await;
+            group.add_members_by_inbox_id(inbox_ids).await.unwrap();
+            sleep(Duration::from_millis(500)).await;
+        }
+
+        async fn remove_member_from_group(
+            client: &FullXmtpClient,
+            group_id: &Vec<u8>,
+            inbox_ids: &[InboxId],
+        ) {
+            sync_client_and_group(client, group_id).await;
+            let group = get_group_for_client(client, group_id).await;
+            group.remove_members(&inbox_ids).await;
+            sleep(Duration::from_millis(500)).await;
+        }
+
+        async fn test_message_sending(
+            sender: &FullXmtpClient,
+            receiver: &FullXmtpClient,
+            group_id: &Vec<u8>,
+        )-> Result<(), String> {
+            let message_content = vec![1, 2, 3];
+            sync_client_and_group(sender, group_id).await;
+            let sender_group = get_group_for_client(sender, group_id).await;
+            sender_group.send_message(&message_content).await.unwrap();
+
+            sleep(Duration::from_millis(500)).await;
+            sender_group.sync().await.unwrap();
+            sync_client_and_group(receiver, group_id).await;
+
+            let receiver_group = get_group_for_client(receiver, group_id).await;
+            receiver_group.sync().await.unwrap();
+
+            let messages = receiver_group
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap();
+            let last_message = messages.first().unwrap();
+            if last_message.decrypted_message_bytes != message_content {
+                return Err(format!(
+                    "{} should have received the message, FORK? {:?} !== {:?}",
+                    receiver.inbox_id(),
+                    last_message.decrypted_message_bytes,
+                    message_content
+                ));
+            }
+
+            Ok(())
+        }
+
+        let clients = create_clients(3).await;
+        let (alix, bo, caro) = (clients[0].clone(), clients[1].clone(), clients[2].clone());
+        // Create group with 3 users
+        let group = create_group_with_members(&alix, &[bo.inbox_id(), caro.inbox_id()])
+            .await
+            .unwrap();
+
+        println!("Testing that messages sent by alix are received by bo");
+        test_message_sending(&alix, &bo, &group.group_id).await.expect("TODO: failed");
+        println!("Alix & Bo are not forked at the beginning");
+
+        let new_clients = create_clients(10).await;
+        println!("Adding new members to the group...");
+        for client in &new_clients {
+            println!("Adding member {}...", client.inbox_id());
+            add_member_to_group(&alix, &group.group_id, &vec![client.inbox_id()]).await;
+        }
+        sleep(Duration::from_millis(1000)).await;
+        sync_client_and_group(&alix, &group.group_id).await;
+
+        println!("Removing members in parallel");
+        let inbox_ids_vec: Vec<Vec<InboxId>> = new_clients
+            .iter()
+            .map(|client| vec![client.inbox_id().to_string()])
+            .collect();
+
+        let remove_futures: Vec<_> = inbox_ids_vec.iter()
+            .map(|inbox_ids| {
+                println!("Removing member {:?}...", inbox_ids);
+                remove_member_from_group(&alix, &group.group_id, inbox_ids)
+            })
+            .collect();
+        futures::future::join_all(remove_futures).await;
+        sleep(Duration::from_millis(1000)).await;
+
+        let mut fork_count = 0;
+        let try_count = 10;
+        for i in 0..try_count {
+            println!("Checking fork status {}/{}", i + 1, try_count);
+
+            // Sync the client and group
+            sync_client_and_group(&alix, &group.group_id).await;
+
+            sync_client_and_group(&bo, &group.group_id).await;
+
+            match test_message_sending(&alix, &bo, &group.group_id).await {
+                Ok(_) => println!("Not forked!"),
+                Err(e) => {
+                    println!("Forked!");
+                    println!("{:?}", e);
+                    fork_count += 1;
+                }
+            }
+        }
+
+        assert_eq!(fork_count, 0, "Forked {}/{} times", fork_count, try_count);
     }
 }
