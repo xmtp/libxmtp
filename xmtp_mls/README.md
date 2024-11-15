@@ -133,7 +133,7 @@ In addition to all validations performed by OpenMLS, `libxmtp` is expected to pe
 2. Validate the credentials and key packages of any new members to the group according to the guides below.
 3. Ensure that the actual change in MLS group members matches the expected change in membership found by diffing the previous `GroupMembership` struct and the new `GroupMembership`.
 
-There is currently non mechanism to detect, report, or recover from group splits due to invalid commits.
+There is currently no mechanism to detect, report, or recover from group splits due to invalid commits.
 This may have to be solved by the application rather than the SDK.
 
 ### Key Packages
@@ -203,7 +203,7 @@ In this section we describe the parameters, selected for instating MLS, as well 
 
 ### Parameter Selection
 
-The MLS group is [built](https://github.com/xmtp/libxmtp/blob/428826ecc7b86ac49787db4c9a49eb0e63e7a05e/xmtp_mls/src/groups/mod.rs#L1218-L1225) with the following paramters.
+The MLS group is [built](https://github.com/xmtp/libxmtp/blob/428826ecc7b86ac49787db4c9a49eb0e63e7a05e/xmtp_mls/src/groups/mod.rs#L1218-L1225) with the following parameters.
 
 - ciphersuite: MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519
 - maximum past epochs: 3
@@ -239,11 +239,11 @@ The DS describes the set of mechanisms used to transport messages and key packag
 
 The server provides APIs for submitting and reading (MLS-encrypted) chat messages by their group ID and Welcome messages by the installation key. Reading a message from the server does not chage the server state. The order in which the server receives the messages determines the order in which they are returned to clients.
 
-Clients can query group invites (in the form of Welcome messages) by their installation key. The Welcome messages have an additional layer of encryption using HPKE, applied at the client side. This is done because when creating a commit with several Add proposals, a large part of the Welcome messages sent to each user is shared, which would make it possible to see that the several users have been added to the same group. The additional layer of encryption makes these messages unlinkable.
+Clients can query group invites (in the form of Welcome messages) by their installation key. The Welcome messages have an additional layer of encryption using HPKE, applied at the client side. This is done because when creating a commit with several Add proposals, a large part of the Welcome messages sent to each user is shared, which would make it possible to see that several users have been added to the same group. The additional layer of encryption makes these messages unlinkable.
 
 It is possible that a client fails to decrypt an incoming messages. Possible sources of decryption failures could be that an attacker mounts a DoS attack by sending spam, or that the group state of clients somehow diverged, such that honest clients use different encryption keys and thus produce undecryptable messages. This should not be possible and would require a bug in the XMTP SDK or OpenMLS, and that bug to be tripped inadvertently or adversarially.
 
-Should decryption of an incoming message fail, In the SDK, messages that fail to decrypt are just dropped. The XMTP messaging app uses telemetry to notifiy the developers of decryption failures, so they have some understanding of whether this problem needs additinal mitigation. Should the data indicate that this is in fact a real problem, methods for group state fork discovery and recovery mechanisms will be developed and deployed.
+Should decryption of an incoming message fail, In the SDK, messages that fail to decrypt are just dropped. The XMTP messaging app uses telemetry to notify the developers of decryption failures, so they have some understanding of whether this problem needs additional mitigation. Should the data indicate that this is in fact a real problem, methods for group state fork discovery and recovery mechanisms will be developed and deployed.
 
 ## Security Considerations
 
@@ -297,7 +297,7 @@ This is because MLS messages may still leak metadata.
 However, note that [XMTP uses private messages everywhere](https://github.com/xmtp/libxmtp/blob/3af97cb69435e5b9daa4577bad6a3bd187834d97/xmtp_mls/src/groups/mod.rs#L1222C29-L1222C45), which has the highest metadata hiding properties possible in MLS.
 Further note that the secure transport is supposed to protect MLS and XMTP metadata but is not necessary for the end-to-end security of the MLS-based messaging.
 
-To hide the reamining metadata, XMTP uses GRPC with TLS.
+To hide the remaining metadata, XMTP uses GRPC with TLS.
 TLS is instantiated through [Rustls](https://github.com/xmtp/libxmtp/blob/3af97cb69435e5b9daa4577bad6a3bd187834d97/xmtp_api_grpc/src/grpc_api_helper.rs#L59).
 
 :::warning
