@@ -34,8 +34,8 @@ class ReadReceiptTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 3)
-        if (messages.size == 3) {
+        assertEquals(messages.size, 2)
+        if (messages.size == 2) {
             val contentType: String = messages.first().encodedContent.type.typeId
             assertEquals(contentType, "readReceipt")
         }

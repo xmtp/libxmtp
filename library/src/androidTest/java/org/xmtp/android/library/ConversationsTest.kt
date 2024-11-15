@@ -209,10 +209,15 @@ class ConversationsTest {
         runBlocking {
             boClient.conversations.sync()
             boDm?.sync()
+            alixClient.conversations.sync()
             alixClient2.conversations.sync()
-            val dm2 = alixClient2.findConversation(dm.id)!!
             alixClient2.syncConsent()
-            assertEquals(dm2.consentState(), ConsentState.DENIED)
+            alixClient.conversations.syncAllConversations()
+            Thread.sleep(2000)
+            alixClient2.conversations.syncAllConversations()
+            Thread.sleep(2000)
+            val dm2 = alixClient2.findConversation(dm.id)!!
+            assertEquals(ConsentState.DENIED, dm2.consentState())
             alixClient2.preferences.consentList.setConsentState(
                 listOf(
                     ConsentListEntry(

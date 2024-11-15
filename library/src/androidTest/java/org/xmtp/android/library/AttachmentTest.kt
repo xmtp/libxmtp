@@ -36,8 +36,8 @@ class AttachmentTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 1)
+        if (messages.size == 1) {
             val content: Attachment? = messages[0].content()
             assertEquals("test.txt", content?.filename)
             assertEquals("text/plain", content?.mimeType)

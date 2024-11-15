@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.xmtp.android.library.libxmtp.Message
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationCallback
+import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiDirection
@@ -41,10 +42,9 @@ data class Conversations(
 
     suspend fun fromWelcome(envelopeBytes: ByteArray): Conversation {
         val conversation = ffiConversations.processStreamedWelcomeMessage(envelopeBytes)
-        return if (conversation.groupMetadata().conversationType() == "dm") {
-            Conversation.Dm(Dm(client, conversation))
-        } else {
-            Conversation.Group(Group(client, conversation))
+        return when (conversation.conversationType()) {
+            FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))
+            else -> Conversation.Group(Group(client, conversation))
         }
     }
 
@@ -250,10 +250,9 @@ data class Conversations(
     }
 
     private fun FfiConversation.toConversation(): Conversation {
-        return if (groupMetadata().conversationType() == "dm") {
-            Conversation.Dm(Dm(client, this))
-        } else {
-            Conversation.Group(Group(client, this))
+        return when (conversationType()) {
+            FfiConversationType.DM -> Conversation.Dm(Dm(client, this))
+            else -> Conversation.Group(Group(client, this))
         }
     }
 
@@ -261,10 +260,9 @@ data class Conversations(
         callbackFlow {
             val conversationCallback = object : FfiConversationCallback {
                 override fun onConversation(conversation: FfiConversation) {
-                    if (conversation.groupMetadata().conversationType() == "dm") {
-                        trySend(Conversation.Dm(Dm(client, conversation)))
-                    } else {
-                        trySend(Conversation.Group(Group(client, conversation)))
+                    when (conversation.conversationType()) {
+                        FfiConversationType.DM -> trySend(Conversation.Dm(Dm(client, conversation)))
+                        else -> trySend(Conversation.Group(Group(client, conversation)))
                     }
                 }
 

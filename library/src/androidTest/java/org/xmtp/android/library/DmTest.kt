@@ -198,7 +198,7 @@ class DmTest {
         assertEquals(dm.messages().first().body, "gm")
         assertEquals(dm.messages().first().id, messageId)
         assertEquals(dm.messages().first().deliveryStatus, MessageDeliveryStatus.PUBLISHED)
-        assertEquals(dm.messages().size, 3)
+        assertEquals(dm.messages().size, 2)
 
         runBlocking { alixClient.conversations.sync() }
         val sameDm = runBlocking { alixClient.conversations.listDms().last() }
@@ -215,12 +215,12 @@ class DmTest {
             dm.send("gm")
         }
 
-        assertEquals(dm.messages().size, 3)
-        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
+        assertEquals(dm.messages().size, 2)
+        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
         runBlocking { dm.sync() }
-        assertEquals(dm.messages().size, 3)
+        assertEquals(dm.messages().size, 2)
         assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
-        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
+        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
 
         runBlocking { alixClient.conversations.sync() }
         val sameDm = runBlocking { alixClient.conversations.listDms().last() }
@@ -253,7 +253,7 @@ class DmTest {
         runBlocking { dm.sync() }
 
         val messages = dm.messages()
-        assertEquals(messages.size, 3)
+        assertEquals(messages.size, 2)
         val content: Reaction? = messages.first().content()
         assertEquals("U+1F603", content?.content)
         assertEquals(messageToReact.id, content?.reference)

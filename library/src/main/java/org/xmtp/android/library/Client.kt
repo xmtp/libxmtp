@@ -7,6 +7,7 @@ import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.XMTPLogger
 import org.xmtp.android.library.messages.rawData
+import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiDeviceSyncKind
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.createClient
@@ -25,7 +26,7 @@ data class ClientOptions(
     val dbEncryptionKey: ByteArray,
     val historySyncUrl: String = when (api.env) {
         XMTPEnvironment.PRODUCTION -> "https://message-history.production.ephemera.network/"
-        XMTPEnvironment.LOCAL -> "http://0.0.0.0:5558"
+        XMTPEnvironment.LOCAL -> "http://10.0.2.2:5558"
         else -> "https://message-history.dev.ephemera.network/"
     },
     val dbDirectory: String? = null,
@@ -63,10 +64,10 @@ class Client() {
                 logger = XMTPLogger(),
                 host = environment.env.getUrl(),
                 isSecure = environment.isSecure,
-                accountAddress = address
+                accountAddress = address.lowercase()
             )
             if (inboxId.isNullOrBlank()) {
-                inboxId = generateInboxId(address, 0.toULong())
+                inboxId = generateInboxId(address.lowercase(), 0.toULong())
             }
             return inboxId
         }
@@ -84,7 +85,7 @@ class Client() {
         inboxId: String,
         environment: XMTPEnvironment,
     ) : this() {
-        this.address = address
+        this.address = address.lowercase()
         this.preferences = PrivatePreferences(client = this, ffiClient = libXMTPClient)
         this.ffiClient = libXMTPClient
         this.conversations =
@@ -169,7 +170,7 @@ class Client() {
             isSecure = options.api.isSecure,
             db = dbPath,
             encryptionKey = options.dbEncryptionKey,
-            accountAddress = accountAddress,
+            accountAddress = accountAddress.lowercase(),
             inboxId = inboxId,
             nonce = 0.toULong(),
             legacySignedPrivateKeyProto = null,
@@ -218,12 +219,10 @@ class Client() {
     fun findConversation(conversationId: String): Conversation? {
         return try {
             val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-            if (conversation.groupMetadata().conversationType() == "dm") {
-                Conversation.Dm(Dm(this, conversation))
-            } else if (conversation.groupMetadata().conversationType() == "group") {
-                Conversation.Group(Group(this, conversation))
-            } else {
-                null
+            when (conversation.conversationType()) {
+                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
+                else -> null
             }
         } catch (e: Exception) {
             null
@@ -236,12 +235,10 @@ class Client() {
         val conversationId = matchResult?.groupValues?.get(1) ?: ""
         return try {
             val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-            if (conversation.groupMetadata().conversationType() == "dm") {
-                Conversation.Dm(Dm(this, conversation))
-            } else if (conversation.groupMetadata().conversationType() == "group") {
-                Conversation.Group(Group(this, conversation))
-            } else {
-                null
+            when (conversation.conversationType()) {
+                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
+                else -> null
             }
         } catch (e: Exception) {
             null

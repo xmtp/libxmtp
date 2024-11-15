@@ -959,6 +959,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtpv3_fn_method_fficonversation_conversation_type(
+        `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_method_fficonversation_created_at_ns(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): Long
@@ -1843,6 +1847,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_fficonversation_consent_state(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_fficonversation_conversation_type(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns(
     ): Short
 
@@ -2223,6 +2230,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 25033.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 16402.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2322,7 +2332,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 461.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 48024.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 22241.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 61067.toShort()) {
@@ -2977,6 +2987,8 @@ public interface FfiConversationInterface {
 
     fun `consentState`(): FfiConsentState
 
+    fun `conversationType`(): FfiConversationType
+
     fun `createdAtNs`(): kotlin.Long
 
     fun `dmPeerInboxId`(): kotlin.String
@@ -3300,6 +3312,20 @@ open class FfiConversation : Disposable, AutoCloseable, FfiConversationInterface
             callWithPointer {
                 uniffiRustCallWithError(GenericException) { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_consent_state(
+                        it, _status
+                    )
+                }
+            }
+        )
+    }
+
+
+    @Throws(GenericException::class)
+    override fun `conversationType`(): FfiConversationType {
+        return FfiConverterTypeFfiConversationType.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_conversation_type(
                         it, _status
                     )
                 }
@@ -4497,7 +4523,7 @@ public object FfiConverterTypeFfiConversationCallback :
 
 public interface FfiConversationMetadataInterface {
 
-    fun `conversationType`(): kotlin.String
+    fun `conversationType`(): FfiConversationType
 
     fun `creatorInboxId`(): kotlin.String
 
@@ -4585,8 +4611,8 @@ open class FfiConversationMetadata : Disposable, AutoCloseable, FfiConversationM
         }
     }
 
-    override fun `conversationType`(): kotlin.String {
-        return FfiConverterString.lift(
+    override fun `conversationType`(): FfiConversationType {
+        return FfiConverterTypeFfiConversationType.lift(
             callWithPointer {
                 uniffiRustCall() { _status ->
                     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversationmetadata_conversation_type(
@@ -9302,6 +9328,34 @@ public object FfiConverterTypeFfiConversationMessageKind :
     override fun allocationSize(value: FfiConversationMessageKind) = 4UL
 
     override fun write(value: FfiConversationMessageKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+enum class FfiConversationType {
+
+    GROUP,
+    DM,
+    SYNC;
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiConversationType : FfiConverterRustBuffer<FfiConversationType> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiConversationType.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiConversationType) = 4UL
+
+    override fun write(value: FfiConversationType, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }

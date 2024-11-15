@@ -60,8 +60,8 @@ class CodecTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 1)
+        if (messages.size == 1) {
             val content: Double? = messages[0].content()
             assertEquals(3.14, content)
             assertEquals("Error: This app does not support numbers.", messages[0].fallbackContent)
