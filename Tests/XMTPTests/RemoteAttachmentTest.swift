@@ -88,7 +88,7 @@ class RemoteAttachmentTests: XCTestCase {
 			options: .init(contentType: ContentTypeRemoteAttachment))
 		let messages = try await conversation.messages()
 
-		XCTAssertEqual(2, messages.count)
+		XCTAssertEqual(1, messages.count)
 
 		let receivedMessage = messages[0]
 		var remoteAttachment: RemoteAttachment = try receivedMessage.content()

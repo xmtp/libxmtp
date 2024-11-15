@@ -11,7 +11,7 @@ extension FfiConversation {
 	}
 
 	func toConversation(client: Client) throws -> Conversation {
-		if try groupMetadata().conversationType() == "dm" {
+		if try conversationType() == .dm {
 			return Conversation.dm(self.dmFromFFI(client: client))
 		} else {
 			return Conversation.group(self.groupFromFFI(client: client))

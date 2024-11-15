@@ -74,7 +74,7 @@ public struct ClientOptions {
 				self.historySyncUrl =
 					"https://message-history.production.ephemera.network/"
 			case .local:
-				self.historySyncUrl = "http://0.0.0.0:5558"
+				self.historySyncUrl = "http://localhost:5558"
 			default:
 				self.historySyncUrl =
 					"https://message-history.dev.ephemera.network/"
@@ -112,14 +112,14 @@ public final class Client {
 		inboxId: String
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
-			accountAddress: accountAddress,
+			accountAddress: accountAddress.lowercased(),
 			options: options,
 			signingKey: signingKey,
 			inboxId: inboxId
 		)
 
 		let client = try Client(
-			address: accountAddress,
+			address: accountAddress.lowercased(),
 			ffiClient: libxmtpClient,
 			dbPath: dbPath,
 			installationID: libxmtpClient.installationId().toHex,
@@ -224,7 +224,7 @@ public final class Client {
 							message: signatureRequest.signatureText())
 						try await signatureRequest.addScwSignature(
 							signatureBytes: signedData,
-							address: signingKey.address,
+							address: signingKey.address.lowercased(),
 							chainId: UInt64(chainId),
 							blockNumber: signingKey.blockNumber.flatMap {
 								$0 >= 0 ? UInt64($0) : nil
@@ -265,10 +265,13 @@ public final class Client {
 					logger: XMTPLogger(),
 					host: api.env.url,
 					isSecure: api.env.isSecure == true,
-					accountAddress: address
-				) ?? generateInboxId(accountAddress: address, nonce: 0)
+					accountAddress: address.lowercased()
+				)
+				?? generateInboxId(
+					accountAddress: address.lowercased(), nonce: 0)
 		} catch {
-			inboxId = try generateInboxId(accountAddress: address, nonce: 0)
+			inboxId = try generateInboxId(
+				accountAddress: address.lowercased(), nonce: 0)
 		}
 		return inboxId
 	}

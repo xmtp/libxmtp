@@ -211,14 +211,13 @@ public actor Conversations {
 					return
 				}
 				do {
-					let conversationType = try conversation.groupMetadata()
-						.conversationType()
-					if conversationType == "dm" {
+					let conversationType = try conversation.conversationType()
+					if conversationType == .dm {
 						continuation.yield(
 							Conversation.dm(
 								conversation.dmFromFFI(client: self.client))
 						)
-					} else if conversationType == "group" {
+					} else if conversationType == .group {
 						continuation.yield(
 							Conversation.group(
 								conversation.groupFromFFI(client: self.client))

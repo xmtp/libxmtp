@@ -198,10 +198,15 @@ class ConversationTests: XCTestCase {
 
 		try await fixtures.boClient.conversations.sync()
 		try await boDm?.sync()
+		try await alixClient.conversations.sync()
 		try await alixClient2.conversations.sync()
+		try await alixClient2.syncConsent()
+		try await alixClient.conversations.syncAllConversations()
+		sleep(2)
+		try await alixClient2.conversations.syncAllConversations()
+		sleep(2)
 
 		if let dm2 = try alixClient2.findConversation(conversationId: dm.id) {
-			try await alixClient2.syncConsent()
 			XCTAssertEqual(try dm2.consentState(), .denied)
 
 			try await alixClient2.preferences.consentList.setConsentState(

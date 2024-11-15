@@ -23,7 +23,7 @@ class AttachmentsTests: XCTestCase {
 			options: .init(contentType: ContentTypeAttachment))
 		let messages = try await conversation.messages()
 
-		XCTAssertEqual(2, messages.count)
+		XCTAssertEqual(1, messages.count)
 
 		let message = messages[0]
 		let attachment: Attachment = try message.content()

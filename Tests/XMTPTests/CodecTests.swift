@@ -55,7 +55,7 @@ class CodecTests: XCTestCase {
 			options: .init(contentType: NumberCodec().contentType))
 
 		let messages = try await alixConversation.messages()
-		XCTAssertEqual(messages.count, 2)
+		XCTAssertEqual(messages.count, 1)
 
 		if messages.count == 1 {
 			let content: Double = try messages[0].content()
@@ -80,7 +80,7 @@ class CodecTests: XCTestCase {
 		alixClient.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)
 
 		let messages = try await alixConversation.messages()
-		XCTAssertEqual(messages.count, 2)
+		XCTAssertEqual(messages.count, 1)
 
 		let content: Double? = try? messages[0].content()
 		XCTAssertEqual(nil, content)

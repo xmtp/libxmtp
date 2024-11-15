@@ -951,7 +951,7 @@ class GroupTests: XCTestCase {
 			let end = Date()
 			print(end.timeIntervalSince(start))
 			XCTAssert(end.timeIntervalSince(start) < 1)
-			XCTAssert(numGroupsSynced == 100)
+			XCTAssertEqual(numGroupsSynced, 101)
 		} catch {
 			print("Failed to list groups members: \(error)")
 			throw error  // Rethrow the error to fail the test if group creation fails
@@ -973,12 +973,12 @@ class GroupTests: XCTestCase {
 		// first syncAllGroups after removal still sync groups in order to process the removal
 		var numGroupsSynced = try await fixtures.boClient.conversations
 			.syncAllConversations()
-		XCTAssert(numGroupsSynced == 100)
+		XCTAssertEqual(numGroupsSynced, 101)
 
 		// next syncAllGroups only will sync active groups
 		numGroupsSynced = try await fixtures.boClient.conversations
 			.syncAllConversations()
-		XCTAssert(numGroupsSynced == 0)
+		XCTAssertEqual(numGroupsSynced, 1)
 	}
 
 	func testCanListManyMembersInParallelInUnderASecond() async throws {

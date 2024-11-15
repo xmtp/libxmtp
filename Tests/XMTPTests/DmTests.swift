@@ -162,7 +162,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(firstMessage.id, messageId)
 		XCTAssertEqual(firstMessage.deliveryStatus, .published)
 		let messages = try await dm.messages()
-		XCTAssertEqual(messages.count, 3)
+		XCTAssertEqual(messages.count, 2)
 
 		try await fixtures.alixClient.conversations.sync()
 		let sameDm = try await fixtures.alixClient.conversations.listDms().last!
