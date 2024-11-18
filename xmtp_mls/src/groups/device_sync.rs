@@ -567,7 +567,7 @@ where
                     {
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                            self.local_events()
+                            self.local_events
                                 .send(LocalEvents::ConsentUpdate(vec![existing_consent_record]))
                                 .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
                         }
