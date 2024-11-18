@@ -253,7 +253,10 @@ impl RetryableError for SqlKeyStoreError {
     fn is_retryable(&self) -> bool {
         match self {
             SqlKeyStoreError::Storage(err) => retryable!(err),
-            _ => false,
+            SqlKeyStoreError::SerializationError => false,
+            SqlKeyStoreError::UnsupportedMethod => false,
+            SqlKeyStoreError::UnsupportedValueTypeBytes => false,
+            SqlKeyStoreError::NotFound => false,
         }
     }
 }
