@@ -36,7 +36,7 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
             logger: parking_lot::Mutex::new(logger),
         };
         log::set_boxed_logger(Box::new(logger))
-            .map(|()| log::set_max_level(LevelFilter::Info))
+            .map(|()| log::set_max_level(LevelFilter::Trace))
             .expect("Failed to initialize logger");
         log::info!("Logger initialized");
     });
