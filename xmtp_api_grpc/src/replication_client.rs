@@ -454,7 +454,7 @@ impl ClientV4 {
             let v4_envelopes = client
                 .query_envelopes(QueryEnvelopesRequest {
                     query: Some(EnvelopesQuery {
-                        topics: topics.clone(),
+                        topics: vec![topic.clone()],
                         originator_node_ids: vec![],
                         last_seen: None,
                     }),

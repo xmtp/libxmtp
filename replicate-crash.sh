@@ -18,6 +18,13 @@ group_id=$(echo "$output" | grep 'SerializableGroup' | sed -E 's/.*group_id: "([
 
 echo "$group_id"
 
-./examples/cli/xli.sh --db client1.db --testnet --env local send "$group_id" "Automated message send"
 
 ./examples/cli/xli.sh --db client1.db --testnet --env local add-group-members "$group_id" -a "$client_2_address"
+
+./examples/cli/xli.sh --db client1.db --testnet --env local send "$group_id" "Automated message send from client 1"
+
+./examples/cli/xli.sh --db client2.db --testnet --env local send "$group_id" "Automated message send from client 2"
+
+./examples/cli/xli.sh --db client1.db --testnet --env local list-group-messages "$group_id"
+
+./examples/cli/xli.sh --db client2.db --testnet --env local list-group-messages "$group_id"
