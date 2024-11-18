@@ -39,6 +39,7 @@ use xmtp_cryptography::{
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_id::associations::{generate_inbox_id, AssociationError, AssociationState, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
+use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_mls::XmtpApi;
@@ -55,7 +56,6 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner,
 };
-use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 #[macro_use]
@@ -201,7 +201,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
     let crate_name = env!("CARGO_PKG_NAME");
-    let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO,xmtp_api_grpc=INFO"))?;
+    let filter = EnvFilter::builder().parse(format!(
+        "{crate_name}=INFO,xmtp_mls=INFO,xmtp_api_grpc=INFO"
+    ))?;
     if cli.json {
         let fmt = tracing_subscriber::fmt::layer()
             .json()
@@ -474,8 +476,11 @@ async fn main() -> color_eyre::eyre::Result<()> {
             debug::handle_debug(&client, debug_commands).await.unwrap();
         }
         Commands::GetInboxId { account_address } => {
-            let mapping = client.api().get_inbox_ids(vec![account_address.clone()]).await?;
-            let inbox_id  = mapping.get(account_address).unwrap();
+            let mapping = client
+                .api()
+                .get_inbox_ids(vec![account_address.clone()])
+                .await?;
+            let inbox_id = mapping.get(account_address).unwrap();
             info!("Inbox_id {inbox_id}");
         }
     }
