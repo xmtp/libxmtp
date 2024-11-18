@@ -381,8 +381,12 @@ where
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
-            let msg_content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let Ok(msg_content) =
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)
+            else {
+                continue;
+            };
+
             match msg_content {
                 DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
                     return Err(DeviceSyncError::NoPendingRequest);
@@ -410,8 +414,11 @@ where
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
-            let msg_content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let Ok(msg_content) =
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)
+            else {
+                continue;
+            };
             match msg_content {
                 DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
                     return Ok(Some((msg, reply)));
