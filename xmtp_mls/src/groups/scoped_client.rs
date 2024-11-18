@@ -95,6 +95,8 @@ pub trait ScopedGroupClient: Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
+    fn history_sync_url(&self) -> &Option<String>;
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
     }
@@ -110,8 +112,6 @@ pub trait ScopedGroupClient: Sized {
     fn context(&self) -> Arc<XmtpMlsLocalContext> {
         self.context_ref().clone()
     }
-
-    fn history_sync_url() -> &Option<String>;
 
     async fn get_installation_diff(
         &self,
