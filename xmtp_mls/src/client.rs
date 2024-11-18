@@ -512,7 +512,8 @@ where
         records.append(&mut new_records);
 
         self.local_events()
-            .send(LocalEvents::ConsentUpdate(records));
+            .send(LocalEvents::ConsentUpdate(records))
+            .map_err(|e| ClientError::Generic(e.to_string()))?;
 
         Ok(())
     }

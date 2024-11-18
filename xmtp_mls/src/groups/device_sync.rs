@@ -1,6 +1,5 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
-use crate::groups::scoped_client::LocalScopedGroupClient;
 use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
