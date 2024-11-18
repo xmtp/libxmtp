@@ -289,4 +289,15 @@ impl Client {
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
   }
+
+  #[napi]
+  pub fn sign_with_installation_key(&self, text: String) -> Result<Vec<u8>> {
+    let result = self
+      .inner_client
+      .context()
+      .sign_with_public_context(text)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(result)
+  }
 }

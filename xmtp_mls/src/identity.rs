@@ -262,7 +262,7 @@ impl Identity {
                 .build();
 
             let signature =
-                installation_keys.credential_sign(signature_request.signature_text())?;
+                installation_keys.credential_sign(signature_request.signature_text(), None)?;
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(
@@ -305,7 +305,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
+            let sig =
+                installation_keys.credential_sign(signature_request.signature_text(), None)?;
 
             signature_request
                 .add_signature(
@@ -361,7 +362,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
+            let sig =
+                installation_keys.credential_sign(signature_request.signature_text(), None)?;
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
@@ -409,9 +411,23 @@ impl Identity {
     /**
      * Sign the given text with the installation private key.
      */
-    pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+    pub(crate) fn sign_identity_update<Text: AsRef<str>>(
+        &self,
+        text: Text,
+    ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
-            .credential_sign(text)
+            .credential_sign(text, None)
+            .map_err(Into::into)
+    }
+
+    pub fn sign_with_public_context<Text: AsRef<str>>(
+        &self,
+        text: Text,
+    ) -> Result<Vec<u8>, IdentityError> {
+        const PUBLIC_SIGNATURE_CONTEXT: &[u8] = b"PUBLIC SIGNATURE CONTEXT";
+
+        self.installation_keys
+            .credential_sign(text, Some(PUBLIC_SIGNATURE_CONTEXT))
             .map_err(Into::into)
     }
 

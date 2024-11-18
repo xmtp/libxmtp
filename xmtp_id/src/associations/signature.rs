@@ -61,11 +61,13 @@ impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredentia
     fn credential_sign<S: AsRef<str>>(
         &self,
         text: S,
-        context: Option<&[u8]>,
+        context_bytes: Option<&[u8]>,
     ) -> Result<Vec<u8>, Self::Error> {
+        let context_bytes = context_bytes.unwrap_or(Self::CONTEXT);
+
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(text.as_ref());
-        let context = self.with_context(Self::CONTEXT)?;
+        let context = self.with_context(context_bytes)?;
         let sig = context
             .try_sign_digest(prehashed)
             .map_err(SignatureError::from)?;

@@ -48,6 +48,8 @@ pub enum GenericError {
     Association(#[from] xmtp_id::associations::AssociationError),
     #[error(transparent)]
     DeviceSync(#[from] xmtp_mls::groups::device_sync::DeviceSyncError),
+    #[error(transparent)]
+    Identity(#[from] xmtp_mls::identity::IdentityError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

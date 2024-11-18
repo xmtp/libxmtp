@@ -283,6 +283,13 @@ impl XmtpMlsLocalContext {
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
     }
+
+    pub fn sign_with_public_context<Text: AsRef<str>>(
+        &self,
+        text: Text,
+    ) -> Result<Vec<u8>, IdentityError> {
+        self.identity.sign_with_public_context(text)
+    }
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
