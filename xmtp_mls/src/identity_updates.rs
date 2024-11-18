@@ -259,7 +259,7 @@ where
 
         let sig_bytes = self
             .identity()
-            .sign(signature_request.signature_text())?
+            .sign_identity_update(signature_request.signature_text())?
             .to_vec();
         // We can pre-sign the request with an installation key signature, since we have access to the key
         signature_request
