@@ -18,6 +18,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
+use tokio::sync::broadcast;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{
@@ -56,7 +57,7 @@ use crate::{
         refresh_state::EntityKind,
         sql_key_store, EncryptedMessageStore, StorageError,
     },
-    subscriptions::{BufferableBroadcast, LocalEventError, LocalEvents},
+    subscriptions::{LocalEventError, LocalEvents},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
@@ -229,7 +230,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) intents: Arc<Intents>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: Arc<BufferableBroadcast<Self>>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 }
@@ -305,7 +306,6 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
-        local_events: Arc<BufferableBroadcast<Self>>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -318,12 +318,13 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
+        let (tx, _) = broadcast::channel(32);
 
         Self {
             api_client: api_client.into(),
             context,
             history_sync_url,
-            local_events,
+            local_events: tx,
             scw_verifier: scw_verifier.into(),
             intents,
         }
@@ -507,13 +508,11 @@ where
         conn.insert_or_replace_consent_records(records)?;
         conn.insert_or_replace_consent_records(&new_records)?;
 
-        let local_events = self.local_events();
-        for record in records {
-            local_events.send(LocalEvents::ConsentUpdate(record.clone()))?;
-        }
-        for record in new_records {
-            local_events.send(LocalEvents::ConsentUpdate(record))?;
-        }
+        let mut records = records.to_vec();
+        records.append(&mut new_records);
+
+        self.local_events()
+            .send(LocalEvents::ConsentUpdate(records));
 
         Ok(())
     }

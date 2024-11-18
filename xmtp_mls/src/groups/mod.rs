@@ -1051,7 +1051,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Dispatch an update event so it can be synced across devices
         self.client
             .local_events()
-            .send(LocalEvents::ConsentUpdate(consent_record))?;
+            .send(LocalEvents::ConsentUpdate(vec![consent_record]));
 
         Ok(())
     }

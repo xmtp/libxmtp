@@ -13,7 +13,6 @@ use crate::{
     identity_updates::load_identity_updates,
     retry::Retry,
     storage::EncryptedMessageStore,
-    subscriptions::BufferableBroadcast,
     StorageError, XmtpApi,
 };
 
@@ -201,18 +200,12 @@ where
     )
     .await?;
 
-    let local_events = BufferableBroadcast::new(32);
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let local_events = local_events.with_buffer().await;
-
     Ok(Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
-        Arc::new(local_events),
     ))
 }
 

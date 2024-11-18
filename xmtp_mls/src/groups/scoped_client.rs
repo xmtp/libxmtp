@@ -5,12 +5,13 @@ use crate::{
     identity_updates::{InstallationDiff, InstallationDiffError},
     intents::Intents,
     storage::{DbConnection, EncryptedMessageStore},
-    subscriptions::BufferableBroadcast,
+    subscriptions::LocalEvents,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
 };
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use xmtp_id::{
     associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
 };
@@ -28,7 +29,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -90,7 +91,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -152,8 +153,8 @@ where
         &self.api_client
     }
 
-    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
-        self.local_events.as_ref()
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+        &self.local_events
     }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
@@ -235,7 +236,7 @@ where
         (**self).api()
     }
 
-    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
     }
 
@@ -329,7 +330,7 @@ where
         (**self).store()
     }
 
-    fn local_events(&self) -> &BufferableBroadcast<impl ScopedGroupClient> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
     }
 
