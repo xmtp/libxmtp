@@ -5,7 +5,8 @@ use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
 use xmtp_cryptography::{
-    CredentialSign, CredentialVerify, SignerError, XmtpInstallationCredential,
+    CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
+    XmtpInstallationCredential,
 };
 use xmtp_proto::xmtp::message_contents::{
     signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
@@ -54,20 +55,19 @@ pub enum SignatureError {
 /// Xmtp Installation Credential for Specialized for XMTP Identity
 pub struct InboxIdInstallationCredential;
 
+pub struct InstallationKeyContext;
+pub struct PublicContext;
+
 impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredential {
-    const CONTEXT: &[u8] = crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
     type Error = SignatureError;
 
-    fn credential_sign<S: AsRef<str>>(
+    fn credential_sign<T: SigningContextProvider, S: AsRef<str>>(
         &self,
         text: S,
-        context_bytes: Option<&[u8]>,
     ) -> Result<Vec<u8>, Self::Error> {
-        let context_bytes = context_bytes.unwrap_or(Self::CONTEXT);
-
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(text.as_ref());
-        let context = self.with_context(context_bytes)?;
+        let context = self.with_context(T::context())?;
         let sig = context
             .try_sign_digest(prehashed)
             .map_err(SignatureError::from)?;
@@ -89,6 +89,18 @@ impl CredentialVerify<InboxIdInstallationCredential> for ed25519_dalek::Verifyin
         prehashed.update(signature_text.as_ref());
         self.verify_prehashed(prehashed, Some(Self::CONTEXT), &signature)?;
         Ok(())
+    }
+}
+
+impl SigningContextProvider for InstallationKeyContext {
+    fn context() -> &'static [u8] {
+        crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT
+    }
+}
+
+impl SigningContextProvider for PublicContext {
+    fn context() -> &'static [u8] {
+        crate::constants::PUBLIC_SIGNATURE_CONTEXT
     }
 }
 

@@ -284,10 +284,7 @@ impl XmtpMlsLocalContext {
         self.identity.signature_request()
     }
 
-    pub fn sign_with_public_context<Text: AsRef<str>>(
-        &self,
-        text: Text,
-    ) -> Result<Vec<u8>, IdentityError> {
+    pub fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
         self.identity.sign_with_public_context(text)
     }
 }

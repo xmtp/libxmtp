@@ -33,6 +33,7 @@ impl std::fmt::Display for SignerError {
 }
 
 mod private {
+
     /// A rudimentary form of specialization
     /// this allows implementing CredentialSigning
     /// on `XmtpInstallationCredential` in foreign crates.
@@ -44,15 +45,16 @@ mod private {
 /// Sign with some public/private keypair credential
 pub trait CredentialSign<SP = private::NotSpecialized> {
     /// the hashed context this credential signature takes place in
-    // If this is not defined the context will be empty
-    const CONTEXT: &[u8] = b"";
     type Error;
 
-    fn credential_sign<S: AsRef<str>>(
+    fn credential_sign<T: SigningContextProvider, S: AsRef<str>>(
         &self,
         text: S,
-        context: Option<&[u8]>,
     ) -> Result<Vec<u8>, Self::Error>;
+}
+
+pub trait SigningContextProvider {
+    fn context() -> &'static [u8];
 }
 
 /// Verify a credential signature with its public key

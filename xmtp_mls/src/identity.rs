@@ -33,7 +33,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::AssociationError;
+use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -261,8 +261,8 @@ impl Identity {
                 )
                 .build();
 
-            let signature =
-                installation_keys.credential_sign(signature_request.signature_text(), None)?;
+            let signature = installation_keys
+                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(
@@ -305,8 +305,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig =
-                installation_keys.credential_sign(signature_request.signature_text(), None)?;
+            let sig = installation_keys
+                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
 
             signature_request
                 .add_signature(
@@ -362,8 +362,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig =
-                installation_keys.credential_sign(signature_request.signature_text(), None)?;
+            let sig = installation_keys
+                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
@@ -416,7 +416,7 @@ impl Identity {
         text: Text,
     ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
-            .credential_sign(text, None)
+            .credential_sign::<InstallationKeyContext, _>(text)
             .map_err(Into::into)
     }
 
@@ -427,7 +427,7 @@ impl Identity {
         const PUBLIC_SIGNATURE_CONTEXT: &[u8] = b"PUBLIC SIGNATURE CONTEXT";
 
         self.installation_keys
-            .credential_sign(text, Some(PUBLIC_SIGNATURE_CONTEXT))
+            .credential_sign::<PublicContext, _>(text)
             .map_err(Into::into)
     }
 

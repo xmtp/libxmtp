@@ -3,7 +3,7 @@ use super::{
     builder::SignatureRequest,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
-    AccountId,
+    AccountId, InstallationKeyContext,
 };
 use crate::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use ethers::{
@@ -84,7 +84,7 @@ pub async fn add_installation_key_signature(
 ) {
     let signature_text = signature_request.signature_text();
     let sig = installation_key
-        .credential_sign(signature_text, None)
+        .credential_sign::<InstallationKeyContext, _>(signature_text)
         .unwrap();
 
     let unverified_sig =

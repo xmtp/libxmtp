@@ -295,7 +295,7 @@ impl Client {
     let result = self
       .inner_client
       .context()
-      .sign_with_public_context(text)
+      .sign(text)
       .map_err(ErrorWrapper::from)?;
 
     Ok(result)
