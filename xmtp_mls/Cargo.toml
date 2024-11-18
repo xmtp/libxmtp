@@ -128,7 +128,7 @@ web-sys.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
-mockall = "0.13.0"
+mockall = "0.13.1"
 openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
