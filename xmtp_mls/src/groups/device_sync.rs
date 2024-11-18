@@ -103,7 +103,7 @@ pub enum DeviceSyncError {
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
-    SyncReplyTimestamp,
+    SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
 }
@@ -212,8 +212,7 @@ where
                     }
                 },
                 LocalEvents::ConsentUpdate(consent_record) => {
-                    self.stream_consent_update(&provider, &consent_record)
-                        .await?;
+                    self.send_consent_update(&provider, &consent_record).await?;
                 }
                 _ => {}
             }
@@ -440,7 +439,7 @@ where
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
         if time_diff > NS_IN_HOUR as u64 {
             // time discrepancy is too much
-            return Err(DeviceSyncError::SyncReplyTimestamp);
+            return Err(DeviceSyncError::SyncPayloadTooOld);
         }
 
         let Some(enc_key) = reply.encryption_key.clone() else {

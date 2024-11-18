@@ -28,6 +28,7 @@ use crate::{
     retry::{Retry, RetryableError},
     retry_async,
     storage::{
+        consent_record::StoredConsentRecord,
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -548,9 +549,8 @@ where
                                 update.state()
                             );
 
-                            self.client
-                                .local_events()
-                                .send(LocalEvents::ConsentUpdate(update.try_into()?))?;
+                            let conn = provider.conn_ref();
+                            conn.insert_or_replace_consent_records(&[update.try_into()?])?;
                         }
                         _ => {
                             return Err(MessageProcessingError::InvalidPayload);

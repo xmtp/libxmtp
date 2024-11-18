@@ -13,7 +13,7 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn stream_consent_update(
+    pub(crate) async fn send_consent_update(
         &self,
         provider: &XmtpOpenMlsProvider,
         record: &StoredConsentRecord,
@@ -151,34 +151,38 @@ pub(crate) mod tests {
 
         // Stream consent
         let amal_b_sync_group = amal_b.get_sync_group().unwrap();
-        assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
-        while amal_b.local_events().len() > 0 {
-            thread::sleep(Duration::from_millis(10));
-        }
-
-        let amal_b_consent_count = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
         let bo_wallet = generate_local_wallet();
 
-        // thread::sleep(Duration::from_millis(1000));
+        amal_a
+            .set_consent_states(&[StoredConsentRecord::new(
+                ConsentType::Address,
+                ConsentState::Allowed,
+                bo_wallet.get_address(),
+            )])
+            .await
+            .unwrap();
 
-        // amal_a
-        // .set_consent_states(&[StoredConsentRecord::new(
-        // ConsentType::Address,
-        // ConsentState::Allowed,
-        // bo_wallet.get_address(),
-        // )])
-        // .await
-        // .unwrap();
+        // Ensure bo is not consented with amal_b
+        let mut bo_consent_with_amal_b = amal_b_conn
+            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .unwrap();
+        assert!(bo_consent_with_amal_b.is_none());
 
-        let mut updated_amal_b_consent_count = amal_b_consent_count;
+        // Consent with bo on the amal_a installation
+        assert!(amal_a_conn
+            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .unwrap()
+            .is_some());
+
+        // Wait for the consent to get streamed to the amal_b
         let start = Instant::now();
-        while amal_b_consent_count == updated_amal_b_consent_count {
+        while bo_consent_with_amal_b.is_none() {
             assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
+            bo_consent_with_amal_b = amal_b_conn
+                .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+                .unwrap();
 
-            updated_amal_b_consent_count =
-                amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
-
-            if start.elapsed() > Duration::from_secs(3) {
+            if start.elapsed() > Duration::from_secs(1) {
                 panic!("Consent update did not stream");
             }
         }

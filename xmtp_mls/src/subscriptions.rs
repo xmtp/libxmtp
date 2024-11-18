@@ -125,7 +125,7 @@ impl<C> BufferableBroadcast<C> {
         self.broadcast.subscribe()
     }
 
-    pub fn len(&self) -> usize {
+    pub fn buffer_len(&self) -> usize {
         self.buffer_len.load(Ordering::SeqCst) + self.broadcast.len()
     }
 
