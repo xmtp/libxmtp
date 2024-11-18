@@ -424,8 +424,6 @@ impl Identity {
         &self,
         text: Text,
     ) -> Result<Vec<u8>, IdentityError> {
-        const PUBLIC_SIGNATURE_CONTEXT: &[u8] = b"PUBLIC SIGNATURE CONTEXT";
-
         self.installation_keys
             .credential_sign::<PublicContext, _>(text)
             .map_err(Into::into)
