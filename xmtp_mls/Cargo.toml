@@ -136,7 +136,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
 ethers = { workspace = true, features = ["openssl"] }
-mockito = "1.4.0"
+mockito = "1.6.1"
 openmls = { workspace = true }
 tempfile = "3.14.0"
 tracing-subscriber = { workspace = true, features = [
