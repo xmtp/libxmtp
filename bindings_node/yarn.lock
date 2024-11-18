@@ -1841,7 +1841,7 @@ __metadata:
     prettier-plugin-packagejson: "npm:^2.5.3"
     typescript: "npm:^5.6.3"
     uuid: "npm:^11.0.3"
-    viem: "npm:^2.21.44"
+    viem: "npm:^2.21.47"
     vite: "npm:^5.4.11"
     vite-tsconfig-paths: "npm:^5.1.2"
     vitest: "npm:^2.1.5"
@@ -3702,9 +3702,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"viem@npm:^2.21.44":
-  version: 2.21.44
-  resolution: "viem@npm:2.21.44"
+"viem@npm:^2.21.47":
+  version: 2.21.47
+  resolution: "viem@npm:2.21.47"
   dependencies:
     "@noble/curves": "npm:1.6.0"
     "@noble/hashes": "npm:1.5.0"
@@ -3720,7 +3720,7 @@ __metadata:
   peerDependenciesMeta:
     typescript:
       optional: true
-  checksum: 10/c909480514128165f927d369c887b827191c9f104638866521ab2fce74ab9ef388a436bc781b661a5a93bb96f0d5e2bcde37e3b8ff7fdb3d36c387a783d9342e
+  checksum: 10/378390c9367b124632a63b37b2871faf74d87b6dd6f15cf98a7416cb36db864c07ef9a4edc231ae5410f30a5f97b29e609d65423e3dff0238d149ac0c3fb5a97
   languageName: node
   linkType: hard
 
