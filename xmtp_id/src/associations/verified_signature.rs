@@ -9,7 +9,8 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    AccountId, MemberIdentifier, SignatureError, SignatureKind, ValidatedLegacySignedPublicKey,
+    to_lower_s, AccountId, MemberIdentifier, SignatureError, SignatureKind,
+    ValidatedLegacySignedPublicKey,
 };
 
 #[derive(Debug, Clone)]
@@ -43,13 +44,14 @@ impl VerifiedSignature {
         signature_text: Text,
         signature_bytes: &[u8],
     ) -> Result<Self, SignatureError> {
-        let signature = EthersSignature::try_from(signature_bytes)?;
+        let normalized_signature_bytes = to_lower_s(signature_bytes)?;
+        let signature = EthersSignature::try_from(normalized_signature_bytes.as_slice())?;
         let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
 
         Ok(Self::new(
             MemberIdentifier::Address(address),
             SignatureKind::Erc191,
-            signature_bytes.to_vec(),
+            normalized_signature_bytes.to_vec(),
             None,
         ))
     }

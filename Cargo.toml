@@ -60,11 +60,13 @@ tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
 # Changing this version and rustls may potentially break the android build. Use Caution.
 # Test with Android and Swift first.
-# Its probably preferable to one day use https://github.com/rustls/rustls-native-certs
+# Its probably preferable to one day use https://github.com/rustls/rustls-platform-verifier
 # Until then, always test agains iOS/Android after updating these dependencies & making a PR
-tonic = { version = "0.12.3", features = ["tls", "tls-native-roots", "tls-webpki-roots"] }
-rustls = { version = "=0.23.7", features = ["ring"] }
-# Pinned Dependencies
+# Related Issues:
+# - https://github.com/seanmonstar/reqwest/issues/2159
+# - https://github.com/hyperium/tonic/pull/1974
+# - https://github.com/rustls/rustls-platform-verifier/issues/58
+tonic = { version = "0.12", default-features = false }
 tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-subscriber = { version = "0.3", default-features = false }
 diesel = { version = "2.2", default-features = false }
@@ -136,4 +138,3 @@ diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branc
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
-

@@ -17,6 +17,8 @@ use super::{
     verified_signature::VerifiedSignature,
 };
 
+use ethers::core::k256::ecdsa::Signature as K256Signature;
+
 #[derive(Debug, Error)]
 pub enum SignatureError {
     // ethers errors
@@ -247,5 +249,91 @@ impl ValidatedLegacySignedPublicKey {
 
     pub fn created_ns(&self) -> u64 {
         self.created_ns
+    }
+}
+
+/// Converts a signature to use the lower-s value to prevent signature malleability
+pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
+    // Check if we have a recovery id byte
+    let (sig_data, recovery_id) = match sig_bytes.len() {
+        64 => (sig_bytes, None),                       // No recovery id
+        65 => (&sig_bytes[..64], Some(sig_bytes[64])), // Recovery id present
+        _ => return Err(SignatureError::Invalid),
+    };
+
+    // Parse the signature bytes into a K256Signature
+    let sig = K256Signature::try_from(sig_data)?;
+
+    // If s is already normalized (lower-s), return the original bytes
+    let normalized = match sig.normalize_s() {
+        None => sig_data.to_vec(),
+        Some(normalized) => normalized.to_vec(),
+    };
+
+    // Add back recovery id if it was present
+    if let Some(rid) = recovery_id {
+        let mut result = normalized;
+        result.push(rid);
+        Ok(result)
+    } else {
+        Ok(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_lower_s;
+    use ethers::core::k256::{ecdsa::Signature as K256Signature, elliptic_curve::scalar::IsHigh};
+    use ethers::signers::{LocalWallet, Signer};
+    use rand::thread_rng;
+
+    #[tokio::test]
+    async fn test_to_lower_s() {
+        // Create a test wallet
+        let wallet = LocalWallet::new(&mut thread_rng());
+
+        // Sign a test message
+        let message = "test message";
+        let signature = wallet.sign_message(message).await.unwrap();
+        let sig_bytes = signature.to_vec();
+
+        // Test normalizing an already normalized signature
+        let normalized = to_lower_s(&sig_bytes).unwrap();
+        assert_eq!(
+            normalized, sig_bytes,
+            "Already normalized signature should not change"
+        );
+
+        // Create a signature with high-s value by manipulating the s component
+        let mut high_s_sig = sig_bytes.clone();
+        // Flip bits in the s component (last 32 bytes) to create a high-s value
+        for byte in high_s_sig[32..64].iter_mut() {
+            *byte = !*byte;
+        }
+
+        // Normalize the manipulated signature
+        let normalized_high_s = to_lower_s(&high_s_sig).unwrap();
+        assert_ne!(
+            normalized_high_s, high_s_sig,
+            "High-s signature should be normalized"
+        );
+
+        // Verify the normalized signature is valid
+        let recovered_sig = K256Signature::try_from(&normalized_high_s.as_slice()[..64]).unwrap();
+        let is_high: bool = recovered_sig.s().is_high().into();
+        assert!(!is_high, "Normalized signature should have low-s value");
+    }
+
+    #[test]
+    fn test_invalid_signature() {
+        // Test with invalid signature bytes
+        let invalid_sig = vec![0u8; 65];
+        let result = to_lower_s(&invalid_sig);
+        assert!(result.is_err(), "Should fail with invalid signature");
+
+        // Test with wrong length
+        let wrong_length = vec![0u8; 63];
+        let result = to_lower_s(&wrong_length);
+        assert!(result.is_err(), "Should fail with wrong length");
     }
 }
