@@ -1047,11 +1047,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         );
         conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
 
-        // Dispatch an update event so it can be synced across devices
-        self.client
-            .local_events()
-            .send(LocalEvents::ConsentUpdate(vec![consent_record]))
-            .map_err(|e| GroupError::Generic(e.to_string()))?;
+        if self.client.history_sync_url().is_some() {
+            // Dispatch an update event so it can be synced across devices
+            self.client
+                .local_events()
+                .send(LocalEvents::ConsentUpdate(vec![consent_record]))
+                .map_err(|e| GroupError::Generic(e.to_string()))?;
+        }
 
         Ok(())
     }

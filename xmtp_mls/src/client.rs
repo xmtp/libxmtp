@@ -232,7 +232,6 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
-    _local_events_rx: broadcast::Receiver<LocalEvents<Self>>,
 }
 
 // most of these things are `Arc`'s
@@ -245,7 +244,6 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             intents: self.intents.clone(),
-            _local_events_rx: self.local_events.subscribe(),
         }
     }
 }
@@ -319,7 +317,7 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
-        let (tx, _local_events_rx) = broadcast::channel(32);
+        let (tx, _) = broadcast::channel(32);
 
         Self {
             api_client: api_client.into(),
@@ -328,7 +326,6 @@ where
             local_events: tx,
             scw_verifier: scw_verifier.into(),
             intents,
-            _local_events_rx,
         }
     }
 
@@ -510,12 +507,13 @@ where
         conn.insert_or_replace_consent_records(records)?;
         conn.insert_or_replace_consent_records(&new_records)?;
 
-        let mut records = records.to_vec();
-        records.append(&mut new_records);
-
-        self.local_events
-            .send(LocalEvents::ConsentUpdate(records))
-            .map_err(|e| ClientError::Generic(e.to_string()))?;
+        if self.history_sync_url.is_some() {
+            let mut records = records.to_vec();
+            records.append(&mut new_records);
+            self.local_events
+                .send(LocalEvents::ConsentUpdate(records))
+                .map_err(|e| ClientError::Generic(e.to_string()))?;
+        }
 
         Ok(())
     }

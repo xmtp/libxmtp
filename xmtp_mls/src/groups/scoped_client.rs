@@ -31,6 +31,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
 
+    fn history_sync_url(&self) -> &Option<String>;
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
     }
@@ -109,6 +111,8 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().clone()
     }
 
+    fn history_sync_url() -> &Option<String>;
+
     async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -163,6 +167,10 @@ where
 
     fn intents(&self) -> &Arc<Intents> {
         crate::Client::<ApiClient, Verifier>::intents(self)
+    }
+
+    fn history_sync_url(&self) -> &Option<String> {
+        &self.history_sync_url
     }
 
     async fn get_installation_diff(
@@ -238,6 +246,10 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
+    }
+
+    fn history_sync_url(&self) -> &Option<String> {
+        (**self).history_sync_url()
     }
 
     fn store(&self) -> &EncryptedMessageStore {
@@ -332,6 +344,10 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
+    }
+
+    fn history_sync_url(&self) -> &Option<String> {
+        (**self).history_sync_url()
     }
 
     fn intents(&self) -> &Arc<Intents> {
