@@ -146,18 +146,9 @@ pub(crate) mod tests {
             }
         }
 
-        // Stream consent
+        // Test consent streaming
         let amal_b_sync_group = amal_b.get_sync_group().unwrap();
         let bo_wallet = generate_local_wallet();
-
-        amal_a
-            .set_consent_states(&[StoredConsentRecord::new(
-                ConsentType::Address,
-                ConsentState::Allowed,
-                bo_wallet.get_address(),
-            )])
-            .await
-            .unwrap();
 
         // Ensure bo is not consented with amal_b
         let mut bo_consent_with_amal_b = amal_b_conn
@@ -166,6 +157,14 @@ pub(crate) mod tests {
         assert!(bo_consent_with_amal_b.is_none());
 
         // Consent with bo on the amal_a installation
+        amal_a
+            .set_consent_states(&[StoredConsentRecord::new(
+                ConsentType::Address,
+                ConsentState::Allowed,
+                bo_wallet.get_address(),
+            )])
+            .await
+            .unwrap();
         assert!(amal_a_conn
             .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
             .unwrap()
