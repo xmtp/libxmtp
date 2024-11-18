@@ -233,6 +233,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
+    _local_events_rx: broadcast::Receiver<LocalEvents<Self>>,
 }
 
 // most of these things are `Arc`'s
@@ -245,6 +246,7 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             intents: self.intents.clone(),
+            _local_events_rx: self.local_events.subscribe(),
         }
     }
 }
@@ -318,7 +320,7 @@ where
         let intents = Arc::new(Intents {
             context: context.clone(),
         });
-        let (tx, _) = broadcast::channel(32);
+        let (tx, _local_events_rx) = broadcast::channel(32);
 
         Self {
             api_client: api_client.into(),
@@ -327,6 +329,7 @@ where
             local_events: tx,
             scw_verifier: scw_verifier.into(),
             intents,
+            _local_events_rx,
         }
     }
 
