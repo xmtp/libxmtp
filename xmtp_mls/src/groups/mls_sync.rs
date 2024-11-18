@@ -28,7 +28,6 @@ use crate::{
     retry::{Retry, RetryableError},
     retry_async,
     storage::{
-        consent_record::StoredConsentRecord,
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},

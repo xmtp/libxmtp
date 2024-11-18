@@ -67,10 +67,7 @@ pub(crate) mod tests {
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::{
-        thread,
-        time::{Duration, Instant},
-    };
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::{
