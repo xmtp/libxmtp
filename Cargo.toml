@@ -55,7 +55,7 @@ serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 sha2 = "0.10.8"
 sha3 = "0.10.8"
-thiserror = "1.0"
+thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
 # Changing this version and rustls may potentially break the android build. Use Caution.
