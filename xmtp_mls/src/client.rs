@@ -754,12 +754,12 @@ where
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
-        let welcomes = self
+        let messages = self
             .api_client
             .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
-        Ok(welcomes)
+        Ok(messages)
     }
 
     /// Query for welcome messages that have a `sequence_id` > than the highest cursor

@@ -41,6 +41,7 @@ use crate::{
 };
 use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
+use openmls::framing::WireFormat;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -690,26 +691,48 @@ where
         &self,
         envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
+        conn: &DbConnection,
     ) -> Result<(), MessageProcessingError> {
         let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
             _ => return Err(MessageProcessingError::InvalidPayload),
         };
 
-        self.client
-            .intents()
-            .process_for_id(
-                &msgv1.group_id,
-                EntityKind::Group,
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data)?;
+        let message_entity_kind = match mls_message_in.wire_format() {
+            WireFormat::Welcome => EntityKind::Welcome,
+            _ => EntityKind::Group,
+        };
+
+        let last_cursor = conn.get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
+        tracing::info!("### last cursor --> [{:?}]", last_cursor);
+        let should_skip_message = last_cursor > msgv1.id as i64;
+        if should_skip_message {
+            tracing::info!(
+                inbox_id = "self.inbox_id()",
+                group_id = hex::encode(&self.group_id),
+                "Message already processed: skipped msgId:[{}] entity kind:[{:?}] last cursor in db: [{}]",
                 msgv1.id,
-                |provider| async move {
-                    self.process_message(openmls_group, &provider, msgv1, true)
-                        .await?;
-                    Ok(())
-                },
-            )
-            .await?;
-        Ok(())
+                message_entity_kind,
+                last_cursor
+            );
+            Err(MessageProcessingError::AlreadyProcessed(msgv1.id))
+        } else {
+            self.client
+                .intents()
+                .process_for_id(
+                    &msgv1.group_id,
+                    EntityKind::Group,
+                    msgv1.id,
+                    |provider| async move {
+                        self.process_message(openmls_group, &provider, msgv1, true)
+                            .await?;
+                        Ok(())
+                    },
+                )
+                .await?;
+            Ok(())
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -724,7 +747,10 @@ where
         for message in messages.into_iter() {
             let result = retry_async!(
                 Retry::default(),
-                (async { self.consume_message(&message, &mut openmls_group).await })
+                (async {
+                    self.consume_message(&message, &mut openmls_group, provider.conn_ref())
+                        .await
+                })
             );
             if let Err(e) = result {
                 let is_retryable = e.is_retryable();

@@ -52,5 +52,20 @@ impl Intents {
                 process_envelope(provider).await
             })
             .await
+            .inspect(|_| {
+                tracing::info!(
+                    "Transaction completed successfully: process for entity [{:?}] envelope cursor[{}]",
+                    entity_id,
+                    cursor
+            );
+            })
+            .inspect_err(|err| {
+                tracing::info!(
+                    "Transaction failed: process for entity [{:?}] envelope cursor[{}] error:[{}]",
+                    entity_id,
+                    cursor,
+                    err
+                );
+            })
     }
 }
