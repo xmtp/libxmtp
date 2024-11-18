@@ -164,8 +164,8 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    C: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let ClientBuilder {
         mut store,

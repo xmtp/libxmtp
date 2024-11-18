@@ -38,7 +38,7 @@ use crate::storage::wallet_addresses::WalletEntry;
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        group_permissions::PolicySet, scoped_client::LocalScopedGroupClient,
+        group_permissions::PolicySet, scoped_client::ScopedGroupClient,
         validated_commit::CommitValidationError, GroupError, GroupMetadataOptions, IntentError,
         MlsGroup,
     },
