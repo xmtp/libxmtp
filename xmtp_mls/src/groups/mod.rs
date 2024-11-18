@@ -1038,8 +1038,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let provider = self.context().mls_provider()?;
-        let conn = provider.conn_ref();
+        let conn = self.context().store().conn()?;
 
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
@@ -1049,10 +1048,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
 
         // Dispatch an update event so it can be synced across devices
-        // self.client
-        // .local_events()
-        // .send(LocalEvents::ConsentUpdate(vec![consent_record]))
-        // .map_err(|e| GroupError::Generic(e.to_string()))?;
+        self.client
+            .local_events()
+            .send(LocalEvents::ConsentUpdate(vec![consent_record]))
+            .map_err(|e| GroupError::Generic(e.to_string()))?;
 
         Ok(())
     }
