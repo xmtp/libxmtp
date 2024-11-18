@@ -48,7 +48,11 @@ pub trait CredentialSign<SP = private::NotSpecialized> {
     const CONTEXT: &[u8] = b"";
     type Error;
 
-    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, Self::Error>;
+    fn credential_sign<S: AsRef<str>>(
+        &self,
+        text: S,
+        context: Option<&[u8]>,
+    ) -> Result<Vec<u8>, Self::Error>;
 }
 
 /// Verify a credential signature with its public key

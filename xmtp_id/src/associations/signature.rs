@@ -58,7 +58,11 @@ impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredentia
     const CONTEXT: &[u8] = crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
     type Error = SignatureError;
 
-    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, Self::Error> {
+    fn credential_sign<S: AsRef<str>>(
+        &self,
+        text: S,
+        context: Option<&[u8]>,
+    ) -> Result<Vec<u8>, Self::Error> {
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(text.as_ref());
         let context = self.with_context(Self::CONTEXT)?;

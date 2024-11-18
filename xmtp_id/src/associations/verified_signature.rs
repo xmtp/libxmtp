@@ -220,7 +220,7 @@ mod tests {
         let key = XmtpInstallationCredential::new();
         let verifying_key = key.verifying_key();
         let signature_text = "test signature text";
-        let sig = key.credential_sign(signature_text).unwrap();
+        let sig = key.credential_sign(signature_text, None).unwrap();
 
         let verified_sig =
             VerifiedSignature::from_installation_key(signature_text, sig.as_slice(), verifying_key)

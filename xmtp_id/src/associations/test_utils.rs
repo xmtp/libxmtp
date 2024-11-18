@@ -83,7 +83,9 @@ pub async fn add_installation_key_signature(
     installation_key: &XmtpInstallationCredential,
 ) {
     let signature_text = signature_request.signature_text();
-    let sig = installation_key.credential_sign(signature_text).unwrap();
+    let sig = installation_key
+        .credential_sign(signature_text, None)
+        .unwrap();
 
     let unverified_sig =
         UnverifiedSignature::new_installation_key(sig, installation_key.verifying_key());

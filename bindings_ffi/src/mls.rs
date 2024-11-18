@@ -364,6 +364,11 @@ impl FfiXmtpClient {
 
         Ok(result.into())
     }
+
+    pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let context = inner.context().identity.sign(text)?;
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
