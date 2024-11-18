@@ -511,7 +511,7 @@ where
         let mut records = records.to_vec();
         records.append(&mut new_records);
 
-        self.local_events()
+        self.local_events
             .send(LocalEvents::ConsentUpdate(records))
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
