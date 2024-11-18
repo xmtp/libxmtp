@@ -5,19 +5,38 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      dependencies:
+        dependency-type: "production"
+      dev-dependencies:
+        dependency-type: "development"
   # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
     # Workflow files stored in the default location of `.github/workflows`. (You don't need to specify `/.github/workflows` for `directory`. You can use `directory: "/"`.)
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
   # Maintain dependencies for yarn
   - package-ecosystem: "npm"
     directory: "/bindings_wasm"
     schedule:
       interval: "weekly"
+    groups:
+      wasm-prod:
+        dependency-type: "production"
+      wasm-dev:
+        dependency-type: "development"
   # Maintain dependencies for yarn
   - package-ecosystem: "npm"
     directory: "/bindings_node"
     schedule:
       interval: "weekly"
+      groups:
+        node-prod:
+          dependency-type: "production"
+        node-dev:
+          dependency-type: "development"
