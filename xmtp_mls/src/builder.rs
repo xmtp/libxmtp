@@ -164,8 +164,8 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    C: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
 {
     let ClientBuilder {
         mut store,
@@ -201,7 +201,10 @@ where
     )
     .await?;
 
-    let local_events = BufferableBroadcast::new(32).with_buffer().await;
+    let local_events = BufferableBroadcast::new(32);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let local_events = local_events.with_buffer().await;
 
     Ok(Client::new(
         api_client_wrapper,
