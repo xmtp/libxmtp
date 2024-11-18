@@ -12,6 +12,7 @@ pub(super) mod subscriptions;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
+use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::{BasicCredential, CredentialType},
     error::LibraryError,
@@ -72,7 +73,7 @@ use xmtp_proto::xmtp::mls::{
 
 use crate::{
     api::WrappedApiError,
-    client::{deserialize_welcome, ClientError, MessageProcessingError, XmtpMlsLocalContext},
+    client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
@@ -81,6 +82,7 @@ use crate::{
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
+    intents::ProcessIntentError,
     retry::RetryableError,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -136,9 +138,9 @@ pub enum GroupError {
     #[error("client: {0}")]
     Client(#[from] ClientError),
     #[error("receive error: {0}")]
-    ReceiveError(#[from] MessageProcessingError),
+    ReceiveError(#[from] GroupMessageProcessingError),
     #[error("Receive errors: {0:?}")]
-    ReceiveErrors(Vec<MessageProcessingError>),
+    ReceiveErrors(Vec<GroupMessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
     #[error("diesel error {0}")]
@@ -180,32 +182,29 @@ pub enum GroupError {
     NoPSKSupport,
     #[error("Metadata update must specify a metadata field")]
     InvalidPermissionUpdate,
-    #[error("The intent publishing task was cancelled")]
-    PublishCancelled,
-    #[error("the publish failed to complete due to panic")]
-    PublishPanicked,
     #[error("dm requires target inbox_id")]
     InvalidDmMissingInboxId,
     #[error("Missing metadata field {name}")]
     MissingMetadataField { name: String },
-    #[error("Message was processed but is missing")]
-    MissingMessage,
     #[error("sql key store error: {0}")]
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
-    #[error("No pending commit found")]
-    MissingPendingCommit,
     #[error("Sync failed to wait for intent")]
     SyncFailedToWait,
     #[error("cannot change metadata of DM")]
     DmGroupMetadataForbidden,
-    #[error("Group intent could not be committed")]
+    #[error("Missing pending commit")]
+    MissingPendingCommit,
+    #[error("Intent not committed")]
     IntentNotCommitted,
+    #[error(transparent)]
+    ProcessIntent(#[from] ProcessIntentError),
 }
 
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Api(api_error) => api_error.is_retryable(),
+            Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Diesel(diesel) => diesel.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
@@ -216,9 +215,41 @@ impl RetryableError for GroupError {
             Self::GroupCreate(group) => group.is_retryable(),
             Self::SelfUpdate(update) => update.is_retryable(),
             Self::WelcomeError(welcome) => welcome.is_retryable(),
+            Self::SqlKeyStore(sql) => sql.is_retryable(),
+            Self::Sync(errs) => errs.iter().any(|e| e.is_retryable()),
             Self::InstallationDiff(diff) => diff.is_retryable(),
             Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
-            _ => false,
+            Self::CommitValidation(err) => err.is_retryable(),
+            Self::WrappedApi(err) => err.is_retryable(),
+            Self::MessageHistory(err) => err.is_retryable(),
+            Self::ProcessIntent(err) => err.is_retryable(),
+            Self::SyncFailedToWait => true,
+            Self::GroupNotFound
+            | Self::GroupMetadata(_)
+            | Self::GroupMutableMetadata(_)
+            | Self::GroupMutablePermissions(_)
+            | Self::UserLimitExceeded
+            | Self::InvalidGroupMembership
+            | Self::Intent(_)
+            | Self::CreateMessage(_)
+            | Self::TlsError(_)
+            | Self::IntentNotCommitted
+            | Self::Generic(_)
+            | Self::InvalidDmMissingInboxId
+            | Self::MissingSequenceId
+            | Self::AddressNotFound(_)
+            | Self::InvalidExtension(_)
+            | Self::MissingMetadataField { .. }
+            | Self::DmGroupMetadataForbidden
+            | Self::Signature(_)
+            | Self::LeafNodeError(_)
+            | Self::NoPSKSupport
+            | Self::MissingPendingCommit
+            | Self::InvalidPermissionUpdate
+            | Self::AddressValidation(_)
+            | Self::InvalidPublicKeys(_)
+            | Self::CredentialError(_)
+            | Self::EncodeError(_) => false, // _ => false,
         }
     }
 }
@@ -1149,17 +1180,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 }
 
-fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
+fn extract_message_v1(
+    message: GroupMessage,
+) -> Result<GroupMessageV1, GroupMessageProcessingError> {
     match message.version {
         Some(GroupMessageVersion::V1(value)) => Ok(value),
-        _ => Err(MessageProcessingError::InvalidPayload),
+        _ => Err(GroupMessageProcessingError::InvalidPayload),
     }
 }
 
-pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProcessingError> {
+pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, GroupMessageProcessingError> {
     match &message.version {
         Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
-        _ => Err(MessageProcessingError::InvalidPayload),
+        _ => Err(GroupMessageProcessingError::InvalidPayload),
     }
 }
 
@@ -1541,7 +1574,6 @@ pub(crate) mod tests {
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        client::MessageProcessingError,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
@@ -1550,6 +1582,7 @@ pub(crate) mod tests {
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
+            mls_sync::GroupMessageProcessingError,
             validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
             PreconfiguredPolicies, UpdateAdminListType,
         },
@@ -1870,7 +1903,7 @@ pub(crate) mod tests {
             let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
             let mut existing_extensions = mls_group.extensions().clone();
             let mut group_membership = GroupMembership::new();
-            group_membership.add("foo".to_string(), 1);
+            group_membership.add("deadbeef".to_string(), 1);
             existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
             mls_group
                 .update_group_context_extensions(
@@ -3625,7 +3658,7 @@ pub(crate) mod tests {
 
         assert_err!(
             process_result,
-            MessageProcessingError::EpochIncrementNotAllowed
+            GroupMessageProcessingError::EpochIncrementNotAllowed
         );
     }
 

@@ -1,8 +1,3 @@
-use std::{
-    collections::{HashMap, HashSet},
-    mem::discriminant,
-};
-
 use super::{
     build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
     build_extensions_for_permissions_update, build_group_membership_extension,
@@ -10,12 +5,10 @@ use super::{
         Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::extract_group_membership,
-    GroupError, MlsGroup, ScopedGroupClient,
+    validated_commit::{extract_group_membership, CommitValidationError},
+    GroupError, IntentError, MlsGroup, ScopedGroupClient,
 };
-
 use crate::{
-    client::MessageProcessingError,
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -23,8 +16,9 @@ use crate::{
     },
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
-    identity::parse_credential,
+    identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
+    intents::ProcessIntentError,
     retry::{Retry, RetryableError},
     retry_async,
     storage::{
@@ -33,6 +27,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
+        sql_key_store,
     },
     subscriptions::LocalEvents,
     utils::{hash::sha256, id::calculate_message_id},
@@ -41,7 +36,6 @@ use crate::{
 };
 use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
-use openmls::framing::WireFormat;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -49,15 +43,21 @@ use openmls::{
     group::{GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
     prelude::{
-        tls_codec::{Deserialize, Serialize},
+        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     treesync::LeafNodeParameters,
 };
+use openmls::{framing::WireFormat, prelude::BasicCredentialError};
 use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
+use std::{
+    collections::{HashMap, HashSet},
+    mem::{discriminant, Discriminant},
+};
+use thiserror::Error;
 use tracing::debug;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -77,6 +77,83 @@ use xmtp_proto::xmtp::mls::{
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
     Reply, Request,
 };
+
+#[derive(Debug, Error)]
+pub enum GroupMessageProcessingError {
+    #[error("[{0}] already processed")]
+    AlreadyProcessed(u64),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
+    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
+    InvalidSender {
+        message_time_ns: u64,
+        credential: Vec<u8>,
+    },
+    #[error("invalid payload")]
+    InvalidPayload,
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
+    #[error(transparent)]
+    Identity(#[from] IdentityError),
+    #[error("openmls process message error: {0}")]
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    #[error("merge staged commit: {0}")]
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
+    #[error("unsupported message type: {0:?}")]
+    UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
+    #[error("commit validation")]
+    CommitValidation(#[from] CommitValidationError),
+    #[error("epoch increment not allowed")]
+    EpochIncrementNotAllowed,
+    #[error("clear pending commit error: {0}")]
+    ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
+    #[error("Serialization/Deserialization Error {0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("intent is missing staged_commit field")]
+    IntentMissingStagedCommit,
+    #[error("encode proto: {0}")]
+    EncodeProto(#[from] prost::EncodeError),
+    #[error("proto decode error: {0}")]
+    DecodeProto(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Intent(#[from] IntentError),
+    #[error(transparent)]
+    Codec(#[from] crate::codecs::CodecError),
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
+    #[error(transparent)]
+    ProcessIntent(#[from] ProcessIntentError),
+}
+
+impl crate::retry::RetryableError for GroupMessageProcessingError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Diesel(err) => err.is_retryable(),
+            Self::Storage(err) => err.is_retryable(),
+            Self::Identity(err) => err.is_retryable(),
+            Self::OpenMlsProcessMessage(err) => err.is_retryable(),
+            Self::MergeStagedCommit(err) => err.is_retryable(),
+            Self::ProcessIntent(err) => err.is_retryable(),
+            Self::CommitValidation(err) => err.is_retryable(),
+            Self::ClearPendingCommit(err) => err.is_retryable(),
+            Self::WrongCredentialType(_)
+            | Self::Codec(_)
+            | Self::AlreadyProcessed(_)
+            | Self::InvalidSender { .. }
+            | Self::DecodeProto(_)
+            | Self::InvalidPayload
+            | Self::Intent(_)
+            | Self::EpochIncrementNotAllowed
+            | Self::EncodeProto(_)
+            | Self::IntentMissingStagedCommit
+            | Self::Serde(_)
+            | Self::TlsError(_)
+            | Self::UnsupportedMessageType(_) => false,
+        }
+    }
+}
 
 #[derive(Debug)]
 struct PublishIntentData {
@@ -276,7 +353,7 @@ where
         provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope: &GroupMessageV1,
-    ) -> Result<IntentState, MessageProcessingError> {
+    ) -> Result<IntentState, GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref msg_id,
@@ -334,7 +411,7 @@ where
                 let pending_commit = if let Some(staged_commit) = intent.staged_commit {
                     decode_staged_commit(staged_commit)?
                 } else {
-                    return Err(MessageProcessingError::IntentMissingStagedCommit);
+                    return Err(GroupMessageProcessingError::IntentMissingStagedCommit);
                 };
 
                 tracing::info!(
@@ -404,7 +481,7 @@ where
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope: &GroupMessageV1,
-    ) -> Result<(), MessageProcessingError> {
+    ) -> Result<(), GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref msg_id,
@@ -450,8 +527,7 @@ where
                 let message_bytes = application_message.into_bytes();
 
                 let mut bytes = Bytes::from(message_bytes.clone());
-                let envelope = PlaintextEnvelope::decode(&mut bytes)
-                    .map_err(MessageProcessingError::DecodeError)?;
+                let envelope = PlaintextEnvelope::decode(&mut bytes)?;
 
                 match envelope.content {
                     Some(Content::V1(V1 {
@@ -540,10 +616,10 @@ where
                             }
                         }
                         _ => {
-                            return Err(MessageProcessingError::InvalidPayload);
+                            return Err(GroupMessageProcessingError::InvalidPayload);
                         }
                     },
-                    None => return Err(MessageProcessingError::InvalidPayload),
+                    None => return Err(GroupMessageProcessingError::InvalidPayload),
                 }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
@@ -607,17 +683,17 @@ where
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
-    ) -> Result<(), MessageProcessingError> {
+    ) -> Result<(), GroupMessageProcessingError> {
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
             MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
-            other => Err(MessageProcessingError::UnsupportedMessageType(
+            other => Err(GroupMessageProcessingError::UnsupportedMessageType(
                 discriminant(&other),
             )),
         }?;
         if !allow_epoch_increment && message.content_type() == ContentType::Commit {
-            return Err(MessageProcessingError::EpochIncrementNotAllowed);
+            return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
 
         let intent = provider
@@ -682,7 +758,7 @@ where
                 self.process_external_message(openmls_group, provider, message, envelope)
                     .await
             }
-            Err(err) => Err(MessageProcessingError::Storage(err)),
+            Err(err) => Err(GroupMessageProcessingError::Storage(err)),
         }
     }
 
@@ -692,10 +768,10 @@ where
         envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
         conn: &DbConnection,
-    ) -> Result<(), MessageProcessingError> {
+    ) -> Result<(), GroupMessageProcessingError> {
         let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
-            _ => return Err(MessageProcessingError::InvalidPayload),
+            _ => return Err(GroupMessageProcessingError::InvalidPayload),
         };
 
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data)?;
@@ -716,7 +792,7 @@ where
                 message_entity_kind,
                 last_cursor
             );
-            Err(MessageProcessingError::AlreadyProcessed(msgv1.id))
+            Err(GroupMessageProcessingError::AlreadyProcessed(msgv1.id))
         } else {
             self.client
                 .intents()
@@ -727,7 +803,7 @@ where
                     |provider| async move {
                         self.process_message(openmls_group, &provider, msgv1, true)
                             .await?;
-                        Ok(())
+                        Ok::<(), GroupMessageProcessingError>(())
                     },
                 )
                 .await?;
@@ -743,7 +819,7 @@ where
     ) -> Result<(), GroupError> {
         let mut openmls_group = self.load_mls_group(provider)?;
 
-        let mut receive_errors = vec![];
+        let mut receive_errors: Vec<GroupMessageProcessingError> = vec![];
         for message in messages.into_iter() {
             let result = retry_async!(
                 Retry::default(),
@@ -792,7 +868,7 @@ where
         conn: &DbConnection,
         validated_commit: ValidatedCommit,
         timestamp_ns: u64,
-    ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
+    ) -> Result<Option<StoredGroupMessage>, GroupMessageProcessingError> {
         if validated_commit.is_empty() {
             return Ok(None);
         }
@@ -1261,7 +1337,7 @@ fn extract_message_sender(
     openmls_group: &mut OpenMlsGroup,
     decrypted_message: &ProcessedMessage,
     message_created_ns: u64,
-) -> Result<(InboxId, Vec<u8>), MessageProcessingError> {
+) -> Result<(InboxId, Vec<u8>), GroupMessageProcessingError> {
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
@@ -1273,7 +1349,7 @@ fn extract_message_sender(
     }
 
     let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
-    return Err(MessageProcessingError::InvalidSender {
+    return Err(GroupMessageProcessingError::InvalidSender {
         message_time_ns: message_created_ns,
         credential: basic_credential.identity().to_vec(),
     });
@@ -1396,7 +1472,7 @@ fn get_and_clear_pending_commit(
     Ok(commit)
 }
 
-fn decode_staged_commit(data: Vec<u8>) -> Result<StagedCommit, MessageProcessingError> {
+fn decode_staged_commit(data: Vec<u8>) -> Result<StagedCommit, GroupMessageProcessingError> {
     Ok(db_deserialize(&data)?)
 }
 
