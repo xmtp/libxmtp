@@ -1,4 +1,11 @@
-use super::group_membership::{GroupMembership, MembershipDiff};
+use std::sync::Arc;
+
+use tokio::sync::broadcast;
+use xmtp_id::{
+    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
+};
+use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
+
 use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
@@ -10,12 +17,8 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
 };
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use xmtp_id::{
-    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
-};
-use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
+
+use super::group_membership::{GroupMembership, MembershipDiff};
 
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send ))]
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,8 +33,6 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
-
-    fn history_sync_url(&self) -> &Option<String>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -94,8 +95,6 @@ pub trait ScopedGroupClient: Sized {
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
-
-    fn history_sync_url(&self) -> &Option<String>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -167,10 +166,6 @@ where
 
     fn intents(&self) -> &Arc<Intents> {
         crate::Client::<ApiClient, Verifier>::intents(self)
-    }
-
-    fn history_sync_url(&self) -> &Option<String> {
-        &self.history_sync_url
     }
 
     async fn get_installation_diff(
@@ -246,10 +241,6 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
-    }
-
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
     }
 
     fn store(&self) -> &EncryptedMessageStore {
@@ -344,10 +335,6 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
         (**self).local_events()
-    }
-
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
     }
 
     fn intents(&self) -> &Arc<Intents> {
