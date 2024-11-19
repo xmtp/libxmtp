@@ -364,7 +364,7 @@ where
             })),
         })?;
 
-        sync_group.publish_messages().await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
 
         Ok(())
     }

@@ -490,8 +490,7 @@ where
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-        let sent_from_this_installation =
-            sender_installation_id == self.context().installation_public_key();
+
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             sender_inbox_id = sender_inbox_id,
@@ -574,13 +573,10 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
-                                tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Request { message_id },
-                                ));
-                            }
+                            tracing::info!("Received a history request.");
+                            let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                SyncMessage::Request { message_id },
+                            ));
                         }
 
                         Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -606,20 +602,13 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
-                                tracing::info!("Received a history reply.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Reply { message_id },
-                                ));
-                            }
+                            tracing::info!("Received a history reply.");
+                            let _ = self
+                                .client
+                                .local_events()
+                                .send(LocalEvents::SyncMessage(SyncMessage::Reply { message_id }));
                         }
                         Some(MessageType::ConsentUpdate(update)) => {
-                            // Ignore this installation's sync messages
-                            if sent_from_this_installation {
-                                return Ok(());
-                            }
-
                             tracing::info!(
                                 "Incoming streamed consent update: {:?} {} updated to {:?}.",
                                 update.entity_type(),
