@@ -1448,6 +1448,10 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer, `records`: RustBuffer.ByValue,
     ): Long
 
+    fun uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(
+        `ptr`: Pointer, `text`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(
         `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
@@ -2132,6 +2136,9 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states(
     ): Short
 
+    fun uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key(
+    ): Short
+
     fun uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request(
     ): Short
 
@@ -2513,6 +2520,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 64566.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 49813.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270.toShort()) {
@@ -7835,6 +7845,8 @@ public interface FfiXmtpClientInterface {
 
     suspend fun `setConsentStates`(`records`: List<FfiConsent>)
 
+    fun `signWithInstallationKey`(`text`: kotlin.String): kotlin.ByteArray
+
     fun `signatureRequest`(): FfiSignatureRequest?
 
     companion object
@@ -8532,6 +8544,21 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
             GenericException.ErrorHandler,
         )
     }
+
+
+    @Throws(GenericException::class)
+    override fun `signWithInstallationKey`(`text`: kotlin.String): kotlin.ByteArray {
+        return FfiConverterByteArray.lift(
+            callWithPointer {
+                uniffiRustCallWithError(GenericException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(
+                        it, FfiConverterString.lower(`text`), _status
+                    )
+                }
+            }
+        )
+    }
+
 
     override fun `signatureRequest`(): FfiSignatureRequest? {
         return FfiConverterOptionalTypeFfiSignatureRequest.lift(
@@ -9691,6 +9718,8 @@ sealed class GenericException(message: String) : kotlin.Exception(message) {
 
     class DeviceSync(message: String) : GenericException(message)
 
+    class Identity(message: String) : GenericException(message)
+
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<GenericException> {
         override fun lift(error_buf: RustBuffer.ByValue): GenericException =
@@ -9720,6 +9749,7 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             13 -> GenericException.FailedToConvertToU32(FfiConverterString.read(buf))
             14 -> GenericException.Association(FfiConverterString.read(buf))
             15 -> GenericException.DeviceSync(FfiConverterString.read(buf))
+            16 -> GenericException.Identity(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
 
@@ -9803,6 +9833,11 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
             is GenericException.DeviceSync -> {
                 buf.putInt(15)
+                Unit
+            }
+
+            is GenericException.Identity -> {
+                buf.putInt(16)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
