@@ -4,6 +4,7 @@
 
 - Renamed `Level` to `LogLevel`
 - Filtered out group membership messages from DM groups
+- Fixed `syncAllConversations` export
 
 ## 0.0.18
 
