@@ -44,7 +44,7 @@ impl Client {
 #[napi(string_enum)]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
-pub enum Level {
+pub enum LogLevel {
   off,
   error,
   warn,
@@ -53,9 +53,9 @@ pub enum Level {
   trace,
 }
 
-impl std::fmt::Display for Level {
+impl std::fmt::Display for LogLevel {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    use Level::*;
+    use LogLevel::*;
     let s = match self {
       off => "off",
       error => "error",
@@ -76,7 +76,7 @@ pub struct LogOptions {
   /// an option so that it does not require being specified in js object.
   pub structured: Option<bool>,
   /// Filter logs by level
-  pub level: Option<Level>,
+  pub level: Option<LogLevel>,
 }
 
 fn init_logging(options: LogOptions) -> Result<()> {

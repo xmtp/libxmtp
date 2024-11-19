@@ -12,6 +12,7 @@ use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
   members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
+use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
@@ -182,8 +183,20 @@ impl Conversation {
   pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
+    let provider = group
+      .mls_provider()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let conversation_type = group
+      .conversation_type(&provider)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
+      ConversationType::Sync => None,
+    };
+    let opts: MsgQueryArgs = opts.into();
     let messages: Vec<Message> = group
-      .find_messages(&opts.into())
+      .find_messages(&opts.maybe_kind(kind))
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
       .map(Into::into)
