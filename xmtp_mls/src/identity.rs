@@ -33,7 +33,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::AssociationError;
+use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -261,8 +261,8 @@ impl Identity {
                 )
                 .build();
 
-            let signature =
-                installation_keys.credential_sign(signature_request.signature_text())?;
+            let signature = installation_keys
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(
@@ -305,7 +305,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
+            let sig = installation_keys
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
 
             signature_request
                 .add_signature(
@@ -361,7 +362,8 @@ impl Identity {
                 )
                 .build();
 
-            let sig = installation_keys.credential_sign(signature_request.signature_text())?;
+            let sig = installation_keys
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
@@ -409,9 +411,21 @@ impl Identity {
     /**
      * Sign the given text with the installation private key.
      */
-    pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+    pub(crate) fn sign_identity_update<Text: AsRef<str>>(
+        &self,
+        text: Text,
+    ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
-            .credential_sign(text)
+            .credential_sign::<InstallationKeyContext>(text)
+            .map_err(Into::into)
+    }
+
+    pub fn sign_with_public_context(
+        &self,
+        text: impl AsRef<str>,
+    ) -> Result<Vec<u8>, IdentityError> {
+        self.installation_keys
+            .credential_sign::<PublicContext>(text)
             .map_err(Into::into)
     }
 

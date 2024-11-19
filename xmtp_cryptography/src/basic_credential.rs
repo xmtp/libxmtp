@@ -1,11 +1,10 @@
-use std::io::BufReader;
-
 use ed25519_dalek::SigningKey;
 use k256::schnorr::CryptoRngCore;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
 use serde::de::Error;
+use std::io::BufReader;
 use tls_codec::SecretTlsVecU8;
 use zeroize::Zeroizing;
 
@@ -33,6 +32,7 @@ impl std::fmt::Display for SignerError {
 }
 
 mod private {
+
     /// A rudimentary form of specialization
     /// this allows implementing CredentialSigning
     /// on `XmtpInstallationCredential` in foreign crates.
@@ -44,21 +44,23 @@ mod private {
 /// Sign with some public/private keypair credential
 pub trait CredentialSign<SP = private::NotSpecialized> {
     /// the hashed context this credential signature takes place in
-    // If this is not defined the context will be empty
-    const CONTEXT: &[u8] = b"";
     type Error;
 
-    fn credential_sign<S: AsRef<str>>(&self, text: S) -> Result<Vec<u8>, Self::Error>;
+    fn credential_sign<T: SigningContextProvider>(
+        &self,
+        text: impl AsRef<str>,
+    ) -> Result<Vec<u8>, Self::Error>;
+}
+
+pub trait SigningContextProvider {
+    fn context() -> &'static [u8];
 }
 
 /// Verify a credential signature with its public key
 pub trait CredentialVerify<SP = private::NotSpecialized> {
-    /// the hashed context this credential signature verification takes place in
-    /// if this is not defined, the context will be empty
-    const CONTEXT: &[u8] = b"";
     type Error;
 
-    fn credential_verify(
+    fn credential_verify<T: SigningContextProvider>(
         &self,
         signature_text: impl AsRef<str>,
         signature_bytes: &[u8; 64],
