@@ -5,6 +5,7 @@ use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -367,13 +368,25 @@ impl FfiXmtpClient {
 
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
-        Ok(inner.context().public_sign(text)?)
+        Ok(inner.context().sign_with_public_context(text)?)
     }
 
     pub fn verify_signed_with_installation_key(
         &self,
         signature_text: &str,
         signature_bytes: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let public_key = inner.installation_public_key();
+
+        self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
+    }
+
+    pub fn verify_signed_with_public_key(
+        &self,
+        signature_text: &str,
+        signature_bytes: Vec<u8>,
+        public_key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let signature_bytes: [u8; 64] =
             signature_bytes
@@ -385,10 +398,21 @@ impl FfiXmtpClient {
                     ),
                 })?;
 
-        let inner = self.inner_client.as_ref();
-        Ok(inner
-            .context()
-            .public_verify(signature_text, &signature_bytes)?)
+        let public_key: [u8; 32] =
+            public_key
+                .try_into()
+                .map_err(|v: Vec<u8>| GenericError::Generic {
+                    err: format!(
+                        "public_key is not 32 bytes long. (Actual size: {})",
+                        v.len()
+                    ),
+                })?;
+
+        Ok(verify_signed_with_public_context(
+            signature_text,
+            &signature_bytes,
+            &public_key,
+        )?)
     }
 }
 

@@ -13,6 +13,7 @@ use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -295,9 +296,40 @@ impl Client {
     let result = self
       .inner_client
       .context()
-      .public_sign(text)
+      .sign_with_public_context(text)
       .map_err(ErrorWrapper::from)?;
 
     Ok(result)
+  }
+
+  #[napi]
+  pub fn verify_signed_with_installation_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Vec<u8>,
+  ) -> Result<()> {
+    let public_key = self.inner_client().installation_public_key();
+    self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
+  }
+
+  #[napi]
+  pub fn verify_signed_with_public_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Vec<u8>,
+    public_key: Vec<u8>,
+  ) -> Result<()> {
+    let signature_bytes: [u8; 64] = signature_bytes
+      .try_into()
+      .map_err(|_| Error::from_reason("signature_bytes is not 64 bytes long."))?;
+
+    let public_key: [u8; 32] = public_key
+      .try_into()
+      .map_err(|_| Error::from_reason("public_key is not 32 bytes long."))?;
+
+    Ok(
+      verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 }

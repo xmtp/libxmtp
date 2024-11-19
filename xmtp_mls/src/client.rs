@@ -199,17 +199,11 @@ impl XmtpMlsLocalContext {
         self.identity.signature_request()
     }
 
-    pub fn public_sign(&self, text: impl AsRef<str>) -> Result<Vec<u8>, IdentityError> {
-        self.identity.sign_with_public_context(text)
-    }
-
-    pub fn public_verify(
+    pub fn sign_with_public_context(
         &self,
-        signature_text: impl AsRef<str>,
-        signature_bytes: &[u8; 64],
-    ) -> Result<(), IdentityError> {
-        self.identity
-            .verify_with_public_context(signature_text, signature_bytes)
+        text: impl AsRef<str>,
+    ) -> Result<Vec<u8>, IdentityError> {
+        self.identity.sign_with_public_context(text)
     }
 }
 

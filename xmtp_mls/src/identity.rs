@@ -31,7 +31,7 @@ use prost::Message;
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
-use xmtp_cryptography::{CredentialSign, CredentialVerify, XmtpInstallationCredential};
+use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -426,17 +426,6 @@ impl Identity {
     ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
             .credential_sign::<PublicContext>(text)
-            .map_err(Into::into)
-    }
-
-    pub fn verify_with_public_context(
-        &self,
-        signature_text: impl AsRef<str>,
-        signature_bytes: &[u8; 64],
-    ) -> Result<(), IdentityError> {
-        self.installation_keys
-            .verifying_key()
-            .credential_verify::<PublicContext>(signature_text, signature_bytes)
             .map_err(Into::into)
     }
 
