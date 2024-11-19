@@ -367,9 +367,28 @@ impl FfiXmtpClient {
 
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let context = inner.context().public_sign(text)?;
+        Ok(inner.context().public_sign(text)?)
+    }
 
-        Ok(context)
+    pub fn verify_signed_with_installation_key(
+        &self,
+        signature_text: String,
+        signature_bytes: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let signature_bytes: [u8; 64] =
+            signature_bytes
+                .try_into()
+                .map_err(|v: Vec<u8>| GenericError::Generic {
+                    err: format!(
+                        "signature_bytes is not 64 bytes long. (Actual size: {})",
+                        v.len()
+                    ),
+                })?;
+
+        let inner = self.inner_client.as_ref();
+        Ok(inner
+            .context()
+            .public_verify(signature_text, &signature_bytes)?)
     }
 }
 

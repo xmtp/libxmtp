@@ -63,9 +63,9 @@ pub struct PublicContext;
 impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredential {
     type Error = SignatureError;
 
-    fn credential_sign<T: SigningContextProvider, S: AsRef<str>>(
+    fn credential_sign<T: SigningContextProvider>(
         &self,
-        text: S,
+        text: impl AsRef<str>,
     ) -> Result<Vec<u8>, Self::Error> {
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(text.as_ref());
@@ -78,10 +78,9 @@ impl CredentialSign<InboxIdInstallationCredential> for XmtpInstallationCredentia
 }
 
 impl CredentialVerify<InboxIdInstallationCredential> for ed25519_dalek::VerifyingKey {
-    const CONTEXT: &[u8] = crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
     type Error = SignatureError;
 
-    fn credential_verify(
+    fn credential_verify<T: SigningContextProvider>(
         &self,
         signature_text: impl AsRef<str>,
         signature_bytes: &[u8; 64],
@@ -89,7 +88,7 @@ impl CredentialVerify<InboxIdInstallationCredential> for ed25519_dalek::Verifyin
         let signature = Signature::from_bytes(signature_bytes);
         let mut prehashed = Sha512::new();
         prehashed.update(signature_text.as_ref());
-        self.verify_prehashed(prehashed, Some(Self::CONTEXT), &signature)?;
+        self.verify_prehashed(prehashed, Some(T::context()), &signature)?;
         Ok(())
     }
 }
