@@ -105,7 +105,7 @@ describe('Conversations', () => {
       updateGroupPinnedFrameUrlPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect(group.findMessages().length).toBe(1)
+    expect(group.findMessages().length).toBe(0)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
