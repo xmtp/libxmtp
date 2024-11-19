@@ -10,8 +10,8 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
-    client::{extract_welcome_message, ClientError, MessageProcessingError},
-    groups::{subscriptions, GroupError, MlsGroup},
+    client::{extract_welcome_message, ClientError},
+    groups::{mls_sync::GroupMessageProcessingError, subscriptions, GroupError, MlsGroup},
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
@@ -124,8 +124,8 @@ pub enum SubscribeError {
     Group(#[from] GroupError),
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
-    #[error("processing message in stream: {0}")]
-    Receive(#[from] MessageProcessingError),
+    #[error("processing group message in stream: {0}")]
+    ReceiveGroup(#[from] GroupMessageProcessingError),
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
@@ -144,7 +144,7 @@ impl RetryableError for SubscribeError {
             Client(e) => retryable!(e),
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
-            Receive(e) => retryable!(e),
+            ReceiveGroup(e) => retryable!(e),
             Database(e) => retryable!(e),
             Storage(e) => retryable!(e),
             Api(e) => retryable!(e),

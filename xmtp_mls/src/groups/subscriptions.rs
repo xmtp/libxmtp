@@ -63,13 +63,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                             self.process_message(&mut openmls_group, &provider, msgv1, false)
                                 .await
                                 // NOTE: We want to make sure we retry an error in process_message
-                                .map_err(SubscribeError::Receive)
+                                .map_err(SubscribeError::ReceiveGroup)
                         })
                         .await
                 })
             );
 
-            if let Err(SubscribeError::Receive(_)) = process_result {
+            if let Err(SubscribeError::ReceiveGroup(_)) = process_result {
                 tracing::debug!(
                     inbox_id = self.client.inbox_id(),
                     group_id = hex::encode(&self.group_id),
@@ -99,8 +99,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     inbox_id = self.client.inbox_id(),
                     group_id = hex::encode(&self.group_id),
                     msg_id = msgv1.id,
-                    err = %e,
-                    "process stream entry {:?}", e
+                    err = e.to_string(),
+                    "process stream entry {:?}",
+                    e
                 );
             }
         }
