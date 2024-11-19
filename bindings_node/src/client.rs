@@ -292,37 +292,39 @@ impl Client {
   }
 
   #[napi]
-  pub fn sign_with_installation_key(&self, text: String) -> Result<Vec<u8>> {
+  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
     let result = self
       .inner_client
       .context()
-      .sign_with_public_context(text)
+      .sign_with_public_context(signature_text)
       .map_err(ErrorWrapper::from)?;
 
-    Ok(result)
+    Ok(result.into())
   }
 
   #[napi]
   pub fn verify_signed_with_installation_key(
     &self,
     signature_text: String,
-    signature_bytes: Vec<u8>,
+    signature_bytes: Uint8Array,
   ) -> Result<()> {
     let public_key = self.inner_client().installation_public_key();
-    self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
+    self.verify_signed_with_public_key(signature_text, signature_bytes, public_key.into())
   }
 
   #[napi]
   pub fn verify_signed_with_public_key(
     &self,
     signature_text: String,
-    signature_bytes: Vec<u8>,
-    public_key: Vec<u8>,
+    signature_bytes: Uint8Array,
+    public_key: Uint8Array,
   ) -> Result<()> {
+    let signature_bytes = signature_bytes.deref().to_vec();
     let signature_bytes: [u8; 64] = signature_bytes
       .try_into()
       .map_err(|_| Error::from_reason("signature_bytes is not 64 bytes long."))?;
 
+    let public_key = public_key.deref().to_vec();
     let public_key: [u8; 32] = public_key
       .try_into()
       .map_err(|_| Error::from_reason("public_key is not 32 bytes long."))?;
