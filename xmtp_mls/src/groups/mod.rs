@@ -231,7 +231,6 @@ impl RetryableError for GroupError {
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
-            | Self::LocalEvent(_)
             | Self::CreateMessage(_)
             | Self::TlsError(_)
             | Self::IntentNotCommitted
