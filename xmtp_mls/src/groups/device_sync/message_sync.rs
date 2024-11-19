@@ -119,11 +119,11 @@ pub(crate) mod tests {
         let mut reply = None;
         while reply.is_none() {
             reply = amal_b
-                .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
+                .sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
                 .await
                 .unwrap();
             if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive sync reply.");
+                panic!("Did not receive consent reply.");
             }
         }
 
