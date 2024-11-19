@@ -1,4 +1,4 @@
-use ed25519_dalek::{DigestSigner, Signature};
+use ed25519_dalek::{DigestSigner, Signature, VerifyingKey};
 use ethers::signers::{LocalWallet, Signer};
 use prost::Message;
 use sha2::{Digest as _, Sha512};
@@ -103,6 +103,17 @@ impl SigningContextProvider for PublicContext {
     fn context() -> &'static [u8] {
         crate::constants::PUBLIC_SIGNATURE_CONTEXT
     }
+}
+
+pub fn verify_signed_with_public_context(
+    signature_text: impl AsRef<str>,
+    signature_bytes: &[u8; 64],
+    public_key: &[u8; 32],
+) -> Result<(), SignatureError> {
+    let verifying_key = VerifyingKey::from_bytes(public_key)?;
+    verifying_key
+        .credential_verify::<PublicContext>(signature_text, signature_bytes)
+        .map_err(Into::into)
 }
 
 #[derive(Clone, Debug, PartialEq)]
