@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    mem::Discriminant,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -9,14 +8,11 @@ use std::{
 
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::{
-    credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
-    group::GroupEpoch,
     messages::Welcome,
     prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use openmls_traits::OpenMlsProvider;
-use prost::EncodeError;
 use thiserror::Error;
 use tokio::sync::broadcast;
 
@@ -35,26 +31,23 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessage, WelcomeMessage,
 };
 
-use crate::storage::wallet_addresses::WalletEntry;
 use crate::{
     api::ApiClientWrapper,
-    groups::{
-        group_permissions::PolicySet, validated_commit::CommitValidationError, GroupError,
-        GroupMetadataOptions, IntentError, MlsGroup,
-    },
+    groups::{group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup},
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
     intents::Intents,
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
+    storage::wallet_addresses::WalletEntry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
-        sql_key_store, EncryptedMessageStore, StorageError,
+        EncryptedMessageStore, StorageError,
     },
     subscriptions::LocalEvents,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -91,8 +84,6 @@ pub enum ClientError {
     TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
-    #[error("syncing errors: {0:?}")]
-    SyncingError(Vec<MessageProcessingError>),
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
     #[error("Association error: {0}")]
@@ -124,82 +115,6 @@ impl crate::retry::RetryableError for ClientError {
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Generic(err) => err.contains("database is locked"),
-            _ => false,
-        }
-    }
-}
-
-/// Errors that can occur when reading and processing a message off the network
-#[derive(Debug, Error)]
-pub enum MessageProcessingError {
-    #[error("[{0}] already processed")]
-    AlreadyProcessed(u64),
-    #[error("diesel error: {0}")]
-    Diesel(#[from] diesel::result::Error),
-    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
-    InvalidSender {
-        message_time_ns: u64,
-        credential: Vec<u8>,
-    },
-    #[error("invalid payload")]
-    InvalidPayload,
-    #[error(transparent)]
-    Identity(#[from] IdentityError),
-    #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<sql_key_store::SqlKeyStoreError>),
-    #[error(
-        "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
-    )]
-    NoPendingCommit {
-        message_epoch: GroupEpoch,
-        group_epoch: GroupEpoch,
-    },
-    #[error("intent error: {0}")]
-    Intent(#[from] IntentError),
-    #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
-    #[error("TLS Codec error: {0}")]
-    TlsError(#[from] TlsCodecError),
-    #[error("unsupported message type: {0:?}")]
-    UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
-    #[error("commit validation")]
-    CommitValidation(#[from] CommitValidationError),
-    #[error("codec")]
-    Codec(#[from] crate::codecs::CodecError),
-    #[error("encode proto: {0}")]
-    EncodeProto(#[from] EncodeError),
-    #[error("epoch increment not allowed")]
-    EpochIncrementNotAllowed,
-    #[error("Welcome processing error: {0}")]
-    WelcomeProcessing(Box<GroupError>),
-    #[error("wrong credential type")]
-    WrongCredentialType(#[from] BasicCredentialError),
-    #[error("proto decode error: {0}")]
-    DecodeError(#[from] prost::DecodeError),
-    #[error("clear pending commit error: {0}")]
-    ClearPendingCommit(#[from] sql_key_store::SqlKeyStoreError),
-    #[error(transparent)]
-    Group(#[from] Box<GroupError>),
-    #[error("Serialization/Deserialization Error {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("generic:{0}")]
-    Generic(String),
-    #[error("intent is missing staged_commit field")]
-    IntentMissingStagedCommit,
-}
-
-impl crate::retry::RetryableError for MessageProcessingError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Group(group_error) => retryable!(group_error),
-            Self::Identity(identity_error) => retryable!(identity_error),
-            Self::OpenMlsProcessMessage(err) => retryable!(err),
-            Self::MergeStagedCommit(err) => retryable!(err),
-            Self::Diesel(diesel_error) => retryable!(diesel_error),
-            Self::Storage(s) => retryable!(s),
-            Self::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
     }
@@ -282,6 +197,10 @@ impl XmtpMlsLocalContext {
     /// If `signature_request` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn signature_request(&self) -> Option<SignatureRequest> {
         self.identity.signature_request()
+    }
+
+    pub fn public_sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+        self.identity.sign_with_public_context(text)
     }
 }
 
@@ -754,12 +673,12 @@ where
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
-        let welcomes = self
+        let messages = self
             .api_client
             .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
-        Ok(welcomes)
+        Ok(messages)
     }
 
     /// Query for welcome messages that have a `sequence_id` > than the highest cursor
@@ -843,9 +762,7 @@ where
                                             tracing::error!("failed to create group from welcome: {}", err);
                                         }
 
-                                        Err(MessageProcessingError::WelcomeProcessing(
-                                            Box::new(err)
-                                        ))
+                                        Err(err)
                                     }
                                 }
                             },

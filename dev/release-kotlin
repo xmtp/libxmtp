@@ -1,6 +1,21 @@
 #!/bin/bash
 set -eou pipefail
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+WHITE='\033[0;97m'
+
+NC='\033[0m' # No Color
+
+XMTP_ANDROID="${1:-$(realpath ../xmtp-android)}"
+if [ ! -d $XMTP_ANDROID ]; then
+  echo -e "${RED}xmtp-android directory not detected${NC}"
+  echo -e "${RED}Ensure directory exists.${NC}"
+  echo -e "${RED}Ensure \`github.com/xmtp/xmtp_android\` is cloned as a sibling directory or passed as the first argument to this script.${NC}"
+  exit
+fi
+echo -e "${GREEN}Android Directory:${NC} $XMTP_ANDROID"
+
 # Local script to release android jniLibs with same environment as CI
 if [[ "${OSTYPE}" == "darwin"* ]]; then
   if ! which nix &>/dev/null; then
@@ -31,7 +46,15 @@ for arch in arm64-v8a armeabi-v7a x86 x86_64; do
   mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
 done
 
-if [[ -n "$1" ]]; then
-  rm -rf $1/library/src/main/jniLibs
-  mv "./bindings_ffi/jniLibs" $1/library/src/main
+echo -e "${WHITE}jniLib generation successful.${NC}"
+
+read -r -p "$(echo -e $WHITE"Delete existing jniLibs and copy new ones? [y/N] "$NC)" response
+response=${response}
+if [[ "$response" =~ ^(yes|y)$ ]]
+then
+  rm -rf $XMTP_ANDROID/library/src/main/jniLibs
+  cp -r "./bindings_ffi/jniLibs" $XMTP_ANDROID/library/src/main
+  echo "libs copied"
+else
+  echo "done"
 fi
