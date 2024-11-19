@@ -84,7 +84,7 @@ pub async fn add_installation_key_signature(
 ) {
     let signature_text = signature_request.signature_text();
     let sig = installation_key
-        .credential_sign::<InstallationKeyContext, _>(signature_text)
+        .credential_sign::<InstallationKeyContext>(signature_text)
         .unwrap();
 
     let unverified_sig =

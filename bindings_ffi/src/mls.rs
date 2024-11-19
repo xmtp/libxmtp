@@ -367,9 +367,28 @@ impl FfiXmtpClient {
 
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let context = inner.context().public_sign(text)?;
+        Ok(inner.context().public_sign(text)?)
+    }
 
-        Ok(context)
+    pub fn verify_signed_with_installation_key(
+        &self,
+        signature_text: &str,
+        signature_bytes: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let signature_bytes: [u8; 64] =
+            signature_bytes
+                .try_into()
+                .map_err(|v: Vec<u8>| GenericError::Generic {
+                    err: format!(
+                        "signature_bytes is not 64 bytes long. (Actual size: {})",
+                        v.len()
+                    ),
+                })?;
+
+        let inner = self.inner_client.as_ref();
+        Ok(inner
+            .context()
+            .public_verify(signature_text, &signature_bytes)?)
     }
 }
 
@@ -3679,6 +3698,28 @@ mod tests {
             .await;
 
         assert!(results_4.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_sign_and_verify() {
+        let signature_text = "Hello there.";
+
+        let client = new_test_client().await;
+        let signature_bytes = client.sign_with_installation_key(signature_text).unwrap();
+
+        // check if verification works
+        let result =
+            client.verify_signed_with_installation_key(signature_text, signature_bytes.clone());
+        assert!(result.is_ok());
+
+        // different text should result in an error.
+        let result = client.verify_signed_with_installation_key("Hello here.", signature_bytes);
+        assert!(result.is_err());
+
+        // different bytes should result in an error
+        let signature_bytes = vec![0; 64];
+        let result = client.verify_signed_with_installation_key(signature_text, signature_bytes);
+        assert!(result.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

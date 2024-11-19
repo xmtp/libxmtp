@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    to_lower_s, AccountId, MemberIdentifier, SignatureError, SignatureKind,
+    to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
     ValidatedLegacySignedPublicKey,
 };
 
@@ -88,7 +88,10 @@ impl VerifiedSignature {
         signature_bytes: &[u8],
         verifying_key: ed25519_dalek::VerifyingKey,
     ) -> Result<Self, SignatureError> {
-        verifying_key.credential_verify(signature_text, signature_bytes.try_into()?)?;
+        verifying_key.credential_verify::<InstallationKeyContext>(
+            signature_text,
+            signature_bytes.try_into()?,
+        )?;
         Ok(Self::new(
             MemberIdentifier::Installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
@@ -223,7 +226,7 @@ mod tests {
         let verifying_key = key.verifying_key();
         let signature_text = "test signature text";
         let sig = key
-            .credential_sign::<InstallationKeyContext, _>(signature_text)
+            .credential_sign::<InstallationKeyContext>(signature_text)
             .unwrap();
 
         let verified_sig =
