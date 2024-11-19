@@ -403,7 +403,7 @@ impl FfiXmtpClient {
                 .try_into()
                 .map_err(|v: Vec<u8>| GenericError::Generic {
                     err: format!(
-                        "public_key is not 64 bytes long. (Actual size: {})",
+                        "public_key is not 32 bytes long. (Actual size: {})",
                         v.len()
                     ),
                 })?;
