@@ -73,6 +73,7 @@ pub(crate) mod tests {
     use crate::{
         assert_ok,
         builder::ClientBuilder,
+        groups::scoped_client::LocalScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
     };
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -169,6 +170,7 @@ pub(crate) mod tests {
             .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
             .unwrap()
             .is_some());
+        let amal_a_subscription = amal_a.local_events().subscribe();
 
         // Wait for the consent to get streamed to the amal_b
         let start = Instant::now();
@@ -182,5 +184,8 @@ pub(crate) mod tests {
                 panic!("Consent update did not stream");
             }
         }
+
+        // No new messages were generated for the amal_a installation during this time.
+        assert!(amal_a_subscription.is_empty());
     }
 }
