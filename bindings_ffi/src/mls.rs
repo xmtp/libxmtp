@@ -3714,12 +3714,12 @@ mod tests {
 
         // different text should result in an error.
         let result = client.verify_signed_with_installation_key("Hello here.", signature_bytes);
-        assert!(!result.is_ok());
+        assert!(result.is_err());
 
         // different bytes should result in an error
         let signature_bytes = vec![0; 64];
         let result = client.verify_signed_with_installation_key(signature_text, signature_bytes);
-        assert!(!result.is_ok());
+        assert!(result.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
