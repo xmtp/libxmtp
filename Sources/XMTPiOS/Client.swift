@@ -321,6 +321,10 @@ public final class Client {
 	public func inboxIdFromAddress(address: String) async throws -> String? {
 		return try await ffiClient.findInboxId(address: address.lowercased())
 	}
+	
+	public func signWithInstallationKey(message: String) throws -> Data {
+		return try ffiClient.signWithInstallationKey(text: message)
+	}
 
 	public func findGroup(groupId: String) throws -> Group? {
 		do {
