@@ -211,18 +211,11 @@ where
                     }
                 },
                 LocalEvents::OutgoingConsentUpdates(consent_records) => {
-                    tracing::info!(
-                        "outgoing ======================================================"
-                    );
-
                     for consent_record in consent_records {
                         self.send_consent_update(&provider, &consent_record).await?;
                     }
                 }
                 LocalEvents::IncomingConsentUpdates(consent_records) => {
-                    tracing::info!(
-                        "incoming ======================================================"
-                    );
                     let conn = provider.conn_ref();
                     conn.insert_or_replace_consent_records(&consent_records)?;
                 }

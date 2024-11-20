@@ -1816,6 +1816,7 @@ mod tests {
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
         },
+        time::Duration,
     };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
@@ -1823,7 +1824,11 @@ mod tests {
         generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
-    use xmtp_mls::{groups::GroupError, storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{
+        groups::{scoped_client::LocalScopedGroupClient, GroupError},
+        storage::EncryptionKey,
+        InboxOwner,
+    };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
@@ -1927,7 +1932,7 @@ mod tests {
 
     impl FfiConsentCallback for RustStreamCallback {
         fn on_consent_update(&self, mut consent: Vec<FfiConsent>) {
-            log::debug!("received consent update============================================================");
+            log::debug!("received consent update");
             let mut consent_updates = self.consent_updates.lock().unwrap();
             consent_updates.append(&mut consent);
             self.notify.notify_one();
@@ -4098,12 +4103,18 @@ mod tests {
         let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
-        let stream_callback = Arc::new(RustStreamCallback::default());
-        let stream = alix_b
+        let stream_a_callback = Arc::new(RustStreamCallback::default());
+        let stream_b_callback = Arc::new(RustStreamCallback::default());
+        let a_stream = alix_a
             .conversations()
-            .stream_consent(stream_callback.clone())
+            .stream_consent(stream_a_callback.clone())
             .await;
-        stream.wait_for_ready().await;
+        let b_stream = alix_b
+            .conversations()
+            .stream_consent(stream_b_callback.clone())
+            .await;
+        a_stream.wait_for_ready().await;
+        b_stream.wait_for_ready().await;
 
         alix_a
             .set_consent_states(vec![FfiConsent {
@@ -4113,6 +4124,14 @@ mod tests {
             }])
             .await
             .unwrap();
+
+        while alix_a.inner_client.local_events().len() > 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        while alix_b.inner_client.local_events().len() > 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(200));
 
         alix_a
             .conversations()
@@ -4125,11 +4144,18 @@ mod tests {
             .await
             .unwrap();
 
-        let result = stream_callback.wait_for_delivery(Some(1)).await;
+        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
+        assert!(result.is_ok());
+        let result = stream_b_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
-        assert_eq!(stream_callback.consent_updates_count(), 1);
-        stream.end_and_wait().await.unwrap();
+        // two outgoing consent updates
+        assert_eq!(stream_a_callback.consent_updates_count(), 2);
+        // and two incoming consent updates
+        assert_eq!(stream_b_callback.consent_updates_count(), 2);
+
+        a_stream.end_and_wait().await.unwrap();
+        b_stream.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
