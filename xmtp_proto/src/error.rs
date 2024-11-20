@@ -22,6 +22,7 @@ pub enum ErrorKind {
 #[derive(Debug)]
 pub enum InternalError {
     MissingPayloadError,
+    UnexpectedPayloadError,
     InvalidTopicError(String),
     DecodingError(String),
     TLSError(String),
@@ -113,6 +114,7 @@ impl fmt::Display for Error {
             ErrorKind::MetadataError => "metadata error",
             ErrorKind::InternalError(internal) => match internal {
                 InternalError::MissingPayloadError => "missing payload error",
+                InternalError::UnexpectedPayloadError => "unexpected payload error",
                 InternalError::InvalidTopicError(topic) => {
                     &format!("invalid topic error: {}", topic)
                 }

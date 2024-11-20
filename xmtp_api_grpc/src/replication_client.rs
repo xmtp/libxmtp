@@ -247,17 +247,23 @@ impl XmtpMlsClient for ClientV4 {
                 .iter()
                 .map(|envelope| {
                     let unsigned_originator_envelope =
-                        extract_unsigned_originator_envelope(envelope).unwrap();
-                    let client_envelope = extract_client_envelope(envelope).unwrap();
-                    let Payload::GroupMessage(group_message) = client_envelope.payload.unwrap()
-                    else {
-                        panic!("Payload is not a group message");
+                        extract_unsigned_originator_envelope(envelope)?;
+                    let client_envelope = extract_client_envelope(envelope)?;
+                    let payload = client_envelope.payload.ok_or_else(|| {
+                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
+                    })?;
+                    let Payload::GroupMessage(group_message) = payload else {
+                        return Err(Error::new(ErrorKind::InternalError(
+                            InternalError::MissingPayloadError,
+                        )));
                     };
 
                     let group_message_input::Version::V1(v1_group_message) =
-                        group_message.version.unwrap();
+                        group_message.version.ok_or_else(|| {
+                            Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
+                        })?;
 
-                    GroupMessage {
+                    Ok(GroupMessage {
                         version: Some(group_message::Version::V1(group_message::V1 {
                             id: unsigned_originator_envelope.originator_sequence_id,
                             created_ns: unsigned_originator_envelope.originator_ns as u64,
@@ -265,9 +271,9 @@ impl XmtpMlsClient for ClientV4 {
                             data: v1_group_message.data,
                             sender_hmac: v1_group_message.sender_hmac,
                         })),
-                    }
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, Error>>()?,
             paging_info: None,
         };
         Ok(response)
@@ -297,16 +303,22 @@ impl XmtpMlsClient for ClientV4 {
                 .iter()
                 .map(|envelope| {
                     let unsigned_originator_envelope =
-                        extract_unsigned_originator_envelope(envelope).unwrap();
-                    let client_envelope = extract_client_envelope(envelope).unwrap();
-                    let Payload::WelcomeMessage(welcome_message) = client_envelope.payload.unwrap()
-                    else {
-                        panic!("Payload is not a group message");
+                        extract_unsigned_originator_envelope(envelope)?;
+                    let client_envelope = extract_client_envelope(envelope)?;
+                    let payload = client_envelope.payload.ok_or_else(|| {
+                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
+                    })?;
+                    let Payload::WelcomeMessage(welcome_message) = payload else {
+                        return Err(Error::new(ErrorKind::InternalError(
+                            InternalError::MissingPayloadError,
+                        )));
                     };
                     let welcome_message_input::Version::V1(v1_welcome_message) =
-                        welcome_message.version.unwrap();
+                        welcome_message.version.ok_or_else(|| {
+                            Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
+                        })?;
 
-                    WelcomeMessage {
+                    Ok(WelcomeMessage {
                         version: Some(welcome_message::Version::V1(welcome_message::V1 {
                             id: unsigned_originator_envelope.originator_sequence_id,
                             created_ns: unsigned_originator_envelope.originator_ns as u64,
@@ -314,9 +326,9 @@ impl XmtpMlsClient for ClientV4 {
                             data: v1_welcome_message.data,
                             hpke_public_key: v1_welcome_message.hpke_public_key,
                         })),
-                    }
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, Error>>()?,
             paging_info: None,
         };
         Ok(response)
