@@ -11,7 +11,10 @@ use xmtp_mls::{
     group_metadata::GroupMetadata as XmtpGroupMetadata,
     members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
-  storage::{group::ConversationType, group_message::MsgQueryArgs},
+  storage::{
+    group::ConversationType,
+    group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs},
+  },
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -158,25 +161,23 @@ impl Conversation {
   #[napi]
   pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
-
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
       self.created_at_ns,
     );
-
-    let delivery_status = opts.delivery_status.map(|status| status.into());
-    let direction = opts.direction.map(|dir| dir.into());
-
+    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
+    let conversation_type = group
+      .conversation_type(&provider)
+      .map_err(ErrorWrapper::from)?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
+      ConversationType::Sync => None,
+    };
+    let opts: MsgQueryArgs = opts.into();
     let messages: Vec<Message> = group
-      .find_messages(
-        &MsgQueryArgs::default()
-          .maybe_sent_before_ns(opts.sent_before_ns)
-          .maybe_sent_after_ns(opts.sent_after_ns)
-          .maybe_delivery_status(delivery_status)
-          .maybe_limit(opts.limit)
-          .maybe_direction(direction),
-      )
+      .find_messages(&opts.maybe_kind(kind))
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|msg| msg.into())

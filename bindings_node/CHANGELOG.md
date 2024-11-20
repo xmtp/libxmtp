@@ -1,5 +1,16 @@
 # @xmtp/node-bindings
 
+## 0.0.20
+
+- Fixed argument types for new signing methods
+
+## 0.0.19
+
+- Renamed `Level` to `LogLevel`
+- Filtered out group membership messages from DM groups
+- Fixed `syncAllConversations` export
+- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and `verify_signed_with_public_key` to `Client`
+
 ## 0.0.18
 
 - Added `syncAllConversations` to `Conversations`

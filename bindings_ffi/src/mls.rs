@@ -5,6 +5,7 @@ use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -367,9 +368,51 @@ impl FfiXmtpClient {
 
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let context = inner.context().public_sign(text)?;
+        Ok(inner.context().sign_with_public_context(text)?)
+    }
 
-        Ok(context)
+    pub fn verify_signed_with_installation_key(
+        &self,
+        signature_text: &str,
+        signature_bytes: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let inner = self.inner_client.as_ref();
+        let public_key = inner.installation_public_key();
+
+        self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
+    }
+
+    pub fn verify_signed_with_public_key(
+        &self,
+        signature_text: &str,
+        signature_bytes: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let signature_bytes: [u8; 64] =
+            signature_bytes
+                .try_into()
+                .map_err(|v: Vec<u8>| GenericError::Generic {
+                    err: format!(
+                        "signature_bytes is not 64 bytes long. (Actual size: {})",
+                        v.len()
+                    ),
+                })?;
+
+        let public_key: [u8; 32] =
+            public_key
+                .try_into()
+                .map_err(|v: Vec<u8>| GenericError::Generic {
+                    err: format!(
+                        "public_key is not 32 bytes long. (Actual size: {})",
+                        v.len()
+                    ),
+                })?;
+
+        Ok(verify_signed_with_public_context(
+            signature_text,
+            &signature_bytes,
+            &public_key,
+        )?)
     }
 }
 
@@ -863,6 +906,12 @@ impl FfiConversations {
         Ok(())
     }
 
+    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let sync_group = inner.get_sync_group()?;
+        Ok(sync_group.into())
+    }
+
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
@@ -1015,6 +1064,18 @@ impl FfiConversations {
 
         FfiStreamCloser::new(handle)
     }
+
+    pub async fn stream_consent(&self, callback: Arc<dyn FfiConsentCallback>) -> FfiStreamCloser {
+        let handle =
+            RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
+                match msg {
+                    Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
+                    Err(e) => callback.on_error(e.into()),
+                }
+            });
+
+        FfiStreamCloser::new(handle)
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -1025,6 +1086,20 @@ pub struct FfiConversation {
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
     fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
         FfiConversation { inner: mls_group }
+    }
+}
+
+impl From<StoredConsentRecord> for FfiConsent {
+    fn from(value: StoredConsentRecord) -> Self {
+        FfiConsent {
+            entity: value.entity,
+            entity_type: match value.entity_type {
+                ConsentType::Address => FfiConsentEntityType::Address,
+                ConsentType::ConversationId => FfiConsentEntityType::ConversationId,
+                ConsentType::InboxId => FfiConsentEntityType::InboxId,
+            },
+            state: value.state.into(),
+        }
     }
 }
 
@@ -1656,6 +1731,12 @@ pub trait FfiConversationCallback: Send + Sync {
     fn on_error(&self, error: FfiSubscribeError);
 }
 
+#[uniffi::export(with_foreign)]
+pub trait FfiConsentCallback: Send + Sync {
+    fn on_consent_update(&self, consent: Vec<FfiConsent>);
+    fn on_error(&self, error: FfiSubscribeError);
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversationMetadata {
     inner: Arc<GroupMetadata>,
@@ -1719,7 +1800,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_client, FfiMessage, FfiMessageCallback, FfiXmtpClient};
+    use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
@@ -1735,6 +1816,7 @@ mod tests {
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
         },
+        time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
@@ -1742,7 +1824,13 @@ mod tests {
         generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
-    use xmtp_mls::{groups::GroupError, storage::EncryptionKey, InboxOwner};
+    use xmtp_mls::{
+        groups::{scoped_client::LocalScopedGroupClient, GroupError},
+        storage::EncryptionKey,
+        InboxOwner,
+    };
+
+    const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -1783,17 +1871,22 @@ mod tests {
         }
     }
 
-    #[derive(Default, Clone)]
+    #[derive(Default)]
     struct RustStreamCallback {
-        num_messages: Arc<AtomicU32>,
-        messages: Arc<Mutex<Vec<FfiMessage>>>,
-        conversations: Arc<Mutex<Vec<Arc<FfiConversation>>>>,
-        notify: Arc<Notify>,
+        num_messages: AtomicU32,
+        messages: Mutex<Vec<FfiMessage>>,
+        conversations: Mutex<Vec<Arc<FfiConversation>>>,
+        consent_updates: Mutex<Vec<FfiConsent>>,
+        notify: Notify,
     }
 
     impl RustStreamCallback {
         pub fn message_count(&self) -> u32 {
             self.num_messages.load(Ordering::SeqCst)
+        }
+
+        pub fn consent_updates_count(&self) -> usize {
+            self.consent_updates.lock().unwrap().len()
         }
 
         pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
@@ -1837,6 +1930,19 @@ mod tests {
         }
     }
 
+    impl FfiConsentCallback for RustStreamCallback {
+        fn on_consent_update(&self, mut consent: Vec<FfiConsent>) {
+            log::debug!("received consent update");
+            let mut consent_updates = self.consent_updates.lock().unwrap();
+            consent_updates.append(&mut consent);
+            self.notify.notify_one();
+        }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
+        }
+    }
+
     pub fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
     }
@@ -1867,6 +1973,20 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
+        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+    }
+
+    async fn new_test_client_with_wallet_and_history(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Arc<FfiXmtpClient> {
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
+    }
+
+    async fn new_test_client_with_wallet_and_history_sync_url(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+        history_sync_url: Option<String>,
+    ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
@@ -1881,7 +2001,7 @@ mod tests {
             ffi_inbox_owner.get_address(),
             nonce,
             None,
-            None,
+            history_sync_url,
         )
         .await
         .unwrap();
@@ -1893,6 +2013,12 @@ mod tests {
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
+    }
+
+    async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
     }
 
     impl FfiConversation {
@@ -2371,10 +2497,10 @@ mod tests {
         let bo = new_test_client().await;
 
         // Stream all group messages
-        let message_callbacks = RustStreamCallback::default();
+        let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Arc::new(message_callbacks.clone()))
+            .stream_all_messages(message_callbacks.clone())
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2663,10 +2789,10 @@ mod tests {
         let caro = new_test_client().await;
 
         // Alix begins a stream for all messages
-        let message_callbacks = RustStreamCallback::default();
+        let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = alix
             .conversations()
-            .stream_all_messages(Arc::new(message_callbacks.clone()))
+            .stream_all_messages(message_callbacks.clone())
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -2710,10 +2836,10 @@ mod tests {
         let bo2 = new_test_client_with_wallet(bo_wallet).await;
 
         // Bo begins a stream for all messages
-        let bo_message_callbacks = RustStreamCallback::default();
+        let bo_message_callbacks = Arc::new(RustStreamCallback::default());
         let bo_stream_messages = bo2
             .conversations()
-            .stream_all_messages(Arc::new(bo_message_callbacks.clone()))
+            .stream_all_messages(bo_message_callbacks.clone())
             .await;
         bo_stream_messages.wait_for_ready().await;
 
@@ -2969,10 +3095,10 @@ mod tests {
         let bo = new_test_client().await;
 
         // Stream all group messages
-        let message_callbacks = RustStreamCallback::default();
+        let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Arc::new(message_callbacks.clone()))
+            .stream_all_messages(message_callbacks.clone())
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3042,12 +3168,9 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
 
-        let stream = bola
-            .conversations()
-            .stream(Arc::new(stream_callback.clone()))
-            .await;
+        let stream = bola.conversations().stream(stream_callback.clone()).await;
 
         amal.conversations()
             .create_group(
@@ -3093,11 +3216,11 @@ mod tests {
             .await
             .unwrap();
 
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
 
         let stream = caro
             .conversations()
-            .stream_all_messages(Arc::new(stream_callback.clone()))
+            .stream_all_messages(stream_callback.clone())
             .await;
         stream.wait_for_ready().await;
 
@@ -3145,8 +3268,8 @@ mod tests {
         bola.inner_client.sync_welcomes(&bola_conn).await.unwrap();
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
-        let stream_callback = RustStreamCallback::default();
-        let stream_closer = bola_group.stream(Arc::new(stream_callback.clone())).await;
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream_closer = bola_group.stream(stream_callback.clone()).await;
 
         stream_closer.wait_for_ready().await;
 
@@ -3182,10 +3305,10 @@ mod tests {
             .await
             .unwrap();
 
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
         let stream_closer = bola
             .conversations()
-            .stream_all_messages(Arc::new(stream_callback.clone()))
+            .stream_all_messages(stream_callback.clone())
             .await;
         stream_closer.wait_for_ready().await;
 
@@ -3275,16 +3398,13 @@ mod tests {
         let bo = new_test_client().await;
 
         // Stream all group messages
-        let message_callback = RustStreamCallback::default();
-        let group_callback = RustStreamCallback::default();
-        let stream_groups = bo
-            .conversations()
-            .stream(Arc::new(group_callback.clone()))
-            .await;
+        let message_callback = Arc::new(RustStreamCallback::default());
+        let group_callback = Arc::new(RustStreamCallback::default());
+        let stream_groups = bo.conversations().stream(group_callback.clone()).await;
 
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(Arc::new(message_callback.clone()))
+            .stream_all_messages(message_callback.clone())
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3682,6 +3802,28 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_sign_and_verify() {
+        let signature_text = "Hello there.";
+
+        let client = new_test_client().await;
+        let signature_bytes = client.sign_with_installation_key(signature_text).unwrap();
+
+        // check if verification works
+        let result =
+            client.verify_signed_with_installation_key(signature_text, signature_bytes.clone());
+        assert!(result.is_ok());
+
+        // different text should result in an error.
+        let result = client.verify_signed_with_installation_key("Hello here.", signature_bytes);
+        assert!(result.is_err());
+
+        // different bytes should result in an error
+        let signature_bytes = vec![0; 64];
+        let result = client.verify_signed_with_installation_key(signature_text, signature_bytes);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_all_installations() {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
@@ -3782,11 +3924,8 @@ mod tests {
         let bo = new_test_client().await;
 
         // Stream all conversations
-        let stream_callback = RustStreamCallback::default();
-        let stream = bo
-            .conversations()
-            .stream(Arc::new(stream_callback.clone()))
-            .await;
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream = bo.conversations().stream(stream_callback.clone()).await;
 
         alix.conversations()
             .create_group(
@@ -3811,10 +3950,10 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just groups
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_groups(Arc::new(stream_callback.clone()))
+            .stream_groups(stream_callback.clone())
             .await;
 
         alix.conversations()
@@ -3840,11 +3979,8 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just dms
-        let stream_callback = RustStreamCallback::default();
-        let stream = bo
-            .conversations()
-            .stream_dms(Arc::new(stream_callback.clone()))
-            .await;
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
         alix.conversations()
             .create_dm(bo.account_address.clone())
@@ -3889,10 +4025,10 @@ mod tests {
             .unwrap();
 
         // Stream all conversations
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(Arc::new(stream_callback.clone()))
+            .stream_all_messages(stream_callback.clone())
             .await;
         stream.wait_for_ready().await;
 
@@ -3908,10 +4044,10 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just groups
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_group_messages(Arc::new(stream_callback.clone()))
+            .stream_all_group_messages(stream_callback.clone())
             .await;
         stream.wait_for_ready().await;
 
@@ -3928,10 +4064,10 @@ mod tests {
         assert!(stream.is_closed());
 
         // Stream just dms
-        let stream_callback = RustStreamCallback::default();
+        let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_dm_messages(Arc::new(stream_callback.clone()))
+            .stream_all_dm_messages(stream_callback.clone())
             .await;
         stream.wait_for_ready().await;
 
@@ -3949,6 +4085,75 @@ mod tests {
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_consent() {
+        let wallet = generate_local_wallet();
+        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        let bo = new_test_client_with_history().await;
+
+        // have alix_a pull down the new sync group created by alix_b
+        assert!(alix_a.conversations().sync().await.is_ok());
+
+        // check that they have the same sync group
+        let sync_group_a = alix_a.conversations().get_sync_group().unwrap();
+        let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
+        assert_eq!(sync_group_a.id(), sync_group_b.id());
+
+        // create a stream from both installations
+        let stream_a_callback = Arc::new(RustStreamCallback::default());
+        let stream_b_callback = Arc::new(RustStreamCallback::default());
+        let a_stream = alix_a
+            .conversations()
+            .stream_consent(stream_a_callback.clone())
+            .await;
+        let b_stream = alix_b
+            .conversations()
+            .stream_consent(stream_b_callback.clone())
+            .await;
+        a_stream.wait_for_ready().await;
+        b_stream.wait_for_ready().await;
+
+        // consent with bo
+        alix_a
+            .set_consent_states(vec![FfiConsent {
+                entity: bo.account_address.clone(),
+                entity_type: FfiConsentEntityType::Address,
+                state: FfiConsentState::Allowed,
+            }])
+            .await
+            .unwrap();
+
+        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
+        assert!(result.is_ok());
+
+        let start = Instant::now();
+        loop {
+            // update the sync group's messages to pipe them into the events
+            alix_b
+                .conversations()
+                .sync_all_conversations()
+                .await
+                .unwrap();
+
+            if stream_b_callback.wait_for_delivery(Some(1)).await.is_ok() {
+                break;
+            }
+
+            if start.elapsed() > Duration::from_secs(5) {
+                panic!("Timed out while waiting for alix_b consent updates.");
+            }
+        }
+
+        // two outgoing consent updates
+        assert_eq!(stream_a_callback.consent_updates_count(), 2);
+        // and two incoming consent updates
+        assert_eq!(stream_b_callback.consent_updates_count(), 2);
+
+        a_stream.end_and_wait().await.unwrap();
+        b_stream.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

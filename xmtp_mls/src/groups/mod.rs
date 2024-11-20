@@ -92,6 +92,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
     },
+    subscriptions::{LocalEventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
@@ -104,7 +105,7 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::api_client::Error),
+    Api(#[from] xmtp_proto::Error),
     #[error("api error: {0}")]
     WrappedApi(#[from] WrappedApiError),
     #[error("invalid group membership")]
@@ -147,6 +148,8 @@ pub enum GroupError {
     Diesel(#[from] diesel::result::Error),
     #[error(transparent)]
     AddressValidation(#[from] AddressValidationError),
+    #[error(transparent)]
+    LocalEvent(#[from] LocalEventError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]
@@ -223,6 +226,7 @@ impl RetryableError for GroupError {
             Self::WrappedApi(err) => err.is_retryable(),
             Self::MessageHistory(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
+            Self::LocalEvent(err) => err.is_retryable(),
             Self::SyncFailedToWait => true,
             Self::GroupNotFound
             | Self::GroupMetadata(_)
@@ -1067,11 +1071,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
-        conn.insert_or_replace_consent_records(&[StoredConsentRecord::new(
+
+        let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
-        )])?;
+        );
+        conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
+
+        if self.client.history_sync_url().is_some() {
+            // Dispatch an update event so it can be synced across devices
+            self.client
+                .local_events()
+                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]))
+                .map_err(|e| GroupError::Generic(e.to_string()))?;
+        }
 
         Ok(())
     }

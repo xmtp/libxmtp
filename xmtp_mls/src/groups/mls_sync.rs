@@ -69,7 +69,7 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage, WelcomeMessageInput,
     },
     message_contents::{
-        plaintext_envelope::{Content, V1, V2},
+        plaintext_envelope::{v2::MessageType, Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
     },
 };
@@ -153,10 +153,6 @@ impl crate::retry::RetryableError for GroupMessageProcessingError {
         }
     }
 }
-
-use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-    Reply, Request,
-};
 
 #[derive(Debug)]
 struct PublishIntentData {
@@ -494,8 +490,7 @@ where
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-        let sent_from_this_installation =
-            sender_installation_id == self.context().installation_public_key();
+
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             sender_inbox_id = sender_inbox_id,
@@ -554,74 +549,82 @@ where
                     Some(Content::V2(V2 {
                         idempotency_key,
                         message_type,
-                    })) => match message_type {
-                        Some(Request(history_request)) => {
-                            let content: DeviceSyncContent =
-                                DeviceSyncContent::Request(history_request);
-                            let content_bytes = serde_json::to_vec(&content)?;
-                            let message_id = calculate_message_id(
-                                &self.group_id,
-                                &content_bytes,
-                                &idempotency_key,
-                            );
+                    })) => {
+                        match message_type {
+                            Some(MessageType::DeviceSyncRequest(history_request)) => {
+                                let content: DeviceSyncContent =
+                                    DeviceSyncContent::Request(history_request);
+                                let content_bytes = serde_json::to_vec(&content)?;
+                                let message_id = calculate_message_id(
+                                    &self.group_id,
+                                    &content_bytes,
+                                    &idempotency_key,
+                                );
 
-                            // store the request message
-                            StoredGroupMessage {
-                                id: message_id.clone(),
-                                group_id: self.group_id.clone(),
-                                decrypted_message_bytes: content_bytes,
-                                sent_at_ns: envelope_timestamp_ns as i64,
-                                kind: GroupMessageKind::Application,
-                                sender_installation_id,
-                                sender_inbox_id: sender_inbox_id.clone(),
-                                delivery_status: DeliveryStatus::Published,
-                            }
-                            .store_or_ignore(provider.conn_ref())?;
+                                // store the request message
+                                StoredGroupMessage {
+                                    id: message_id.clone(),
+                                    group_id: self.group_id.clone(),
+                                    decrypted_message_bytes: content_bytes,
+                                    sent_at_ns: envelope_timestamp_ns as i64,
+                                    kind: GroupMessageKind::Application,
+                                    sender_installation_id,
+                                    sender_inbox_id: sender_inbox_id.clone(),
+                                    delivery_status: DeliveryStatus::Published,
+                                }
+                                .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
                                 tracing::info!("Received a history request.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Request { message_id },
                                 ));
                             }
-                        }
 
-                        Some(Reply(history_reply)) => {
-                            let content: DeviceSyncContent =
-                                DeviceSyncContent::Reply(history_reply);
-                            let content_bytes = serde_json::to_vec(&content)?;
-                            let message_id = calculate_message_id(
-                                &self.group_id,
-                                &content_bytes,
-                                &idempotency_key,
-                            );
+                            Some(MessageType::DeviceSyncReply(history_reply)) => {
+                                let content: DeviceSyncContent =
+                                    DeviceSyncContent::Reply(history_reply);
+                                let content_bytes = serde_json::to_vec(&content)?;
+                                let message_id = calculate_message_id(
+                                    &self.group_id,
+                                    &content_bytes,
+                                    &idempotency_key,
+                                );
 
-                            // store the reply message
-                            StoredGroupMessage {
-                                id: message_id.clone(),
-                                group_id: self.group_id.clone(),
-                                decrypted_message_bytes: content_bytes,
-                                sent_at_ns: envelope_timestamp_ns as i64,
-                                kind: GroupMessageKind::Application,
-                                sender_installation_id,
-                                sender_inbox_id,
-                                delivery_status: DeliveryStatus::Published,
-                            }
-                            .store_or_ignore(provider.conn_ref())?;
+                                // store the reply message
+                                StoredGroupMessage {
+                                    id: message_id.clone(),
+                                    group_id: self.group_id.clone(),
+                                    decrypted_message_bytes: content_bytes,
+                                    sent_at_ns: envelope_timestamp_ns as i64,
+                                    kind: GroupMessageKind::Application,
+                                    sender_installation_id,
+                                    sender_inbox_id,
+                                    delivery_status: DeliveryStatus::Published,
+                                }
+                                .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
                                 tracing::info!("Received a history reply.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Reply { message_id },
                                 ));
                             }
+                            Some(MessageType::ConsentUpdate(update)) => {
+                                tracing::info!(
+                                    "Incoming streamed consent update: {:?} {} updated to {:?}.",
+                                    update.entity_type(),
+                                    update.entity,
+                                    update.state()
+                                );
+
+                                let _ = self.client.local_events().send(
+                                    LocalEvents::IncomingConsentUpdates(vec![update.try_into()?]),
+                                );
+                            }
+                            _ => {
+                                return Err(GroupMessageProcessingError::InvalidPayload);
+                            }
                         }
-                        _ => {
-                            return Err(GroupMessageProcessingError::InvalidPayload);
-                        }
-                    },
+                    }
                     None => return Err(GroupMessageProcessingError::InvalidPayload),
                 }
             }

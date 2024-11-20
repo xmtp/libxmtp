@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.5
+
+- Filtered out group membership messages from DM groups
+
 ## 0.0.4
 
 - Added smart contract wallet signature support

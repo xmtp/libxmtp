@@ -140,7 +140,7 @@ pub enum IdentityError {
     #[error(transparent)]
     WrappedApi(#[from] WrappedApiError),
     #[error(transparent)]
-    Api(#[from] xmtp_proto::api_client::Error),
+    Api(#[from] xmtp_proto::Error),
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
@@ -262,7 +262,7 @@ impl Identity {
                 .build();
 
             let signature = installation_keys
-                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
             signature_request
                 .add_signature(
                     UnverifiedSignature::new_installation_key(
@@ -306,7 +306,7 @@ impl Identity {
                 .build();
 
             let sig = installation_keys
-                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
 
             signature_request
                 .add_signature(
@@ -363,7 +363,7 @@ impl Identity {
                 .build();
 
             let sig = installation_keys
-                .credential_sign::<InstallationKeyContext, _>(signature_request.signature_text())?;
+                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
             // We can pre-sign the request with an installation key signature, since we have access to the key
             signature_request
                 .add_signature(
@@ -416,16 +416,16 @@ impl Identity {
         text: Text,
     ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
-            .credential_sign::<InstallationKeyContext, _>(text)
+            .credential_sign::<InstallationKeyContext>(text)
             .map_err(Into::into)
     }
 
-    pub fn sign_with_public_context<Text: AsRef<str>>(
+    pub fn sign_with_public_context(
         &self,
-        text: Text,
+        text: impl AsRef<str>,
     ) -> Result<Vec<u8>, IdentityError> {
         self.installation_keys
-            .credential_sign::<PublicContext, _>(text)
+            .credential_sign::<PublicContext>(text)
             .map_err(Into::into)
     }
 

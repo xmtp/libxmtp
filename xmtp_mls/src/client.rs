@@ -49,7 +49,7 @@ use crate::{
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
-    subscriptions::LocalEvents,
+    subscriptions::{LocalEventError, LocalEvents},
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
@@ -75,7 +75,7 @@ pub enum ClientError {
     #[error("dieselError: {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
-    QueryError(#[from] xmtp_proto::api_client::Error),
+    QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
     Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
@@ -97,6 +97,8 @@ pub enum ClientError {
     // the box is to prevent infinite cycle between client and group errors
     #[error(transparent)]
     Group(Box<GroupError>),
+    #[error(transparent)]
+    LocalEvent(#[from] LocalEventError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -199,7 +201,10 @@ impl XmtpMlsLocalContext {
         self.identity.signature_request()
     }
 
-    pub fn public_sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+    pub fn sign_with_public_context(
+        &self,
+        text: impl AsRef<str>,
+    ) -> Result<Vec<u8>, IdentityError> {
         self.identity.sign_with_public_context(text)
     }
 }
@@ -419,6 +424,14 @@ where
 
         conn.insert_or_replace_consent_records(records)?;
         conn.insert_or_replace_consent_records(&new_records)?;
+
+        if self.history_sync_url.is_some() {
+            let mut records = records.to_vec();
+            records.append(&mut new_records);
+            self.local_events
+                .send(LocalEvents::OutgoingConsentUpdates(records))
+                .map_err(|e| ClientError::Generic(e.to_string()))?;
+        }
 
         Ok(())
     }

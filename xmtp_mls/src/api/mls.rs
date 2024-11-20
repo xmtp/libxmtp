@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
-use xmtp_proto::api_client::{Error as ApiError, ErrorKind, XmtpMlsStreams};
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
@@ -12,6 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
+use xmtp_proto::{Error as ApiError, ErrorKind};
 
 /// A filter for querying group messages
 pub struct GroupFilter {
@@ -301,11 +302,11 @@ pub mod tests {
     use super::super::*;
 
     use xmtp_proto::{
-        api_client::{Error, ErrorKind},
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
             QueryGroupMessagesResponse,
         },
+        Error, ErrorKind,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

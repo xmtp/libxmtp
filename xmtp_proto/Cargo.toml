@@ -12,6 +12,8 @@ pbjson.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
 async-trait = "0.1"
+hex.workspace = true
+openmls_rust_crypto = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { workspace = true }
@@ -20,7 +22,7 @@ tonic = { workspace = true }
 wasm-bindgen-test.workspace = true
 
 [features]
-convert = ["openmls", "proto_full"]
+convert = ["openmls", "openmls_rust_crypto", "proto_full"]
 default = []
 test-utils = []
 

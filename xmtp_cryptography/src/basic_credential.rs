@@ -1,11 +1,10 @@
-use std::io::BufReader;
-
 use ed25519_dalek::SigningKey;
 use k256::schnorr::CryptoRngCore;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
 use serde::de::Error;
+use std::io::BufReader;
 use tls_codec::SecretTlsVecU8;
 use zeroize::Zeroizing;
 
@@ -47,9 +46,9 @@ pub trait CredentialSign<SP = private::NotSpecialized> {
     /// the hashed context this credential signature takes place in
     type Error;
 
-    fn credential_sign<T: SigningContextProvider, S: AsRef<str>>(
+    fn credential_sign<T: SigningContextProvider>(
         &self,
-        text: S,
+        text: impl AsRef<str>,
     ) -> Result<Vec<u8>, Self::Error>;
 }
 
@@ -59,12 +58,9 @@ pub trait SigningContextProvider {
 
 /// Verify a credential signature with its public key
 pub trait CredentialVerify<SP = private::NotSpecialized> {
-    /// the hashed context this credential signature verification takes place in
-    /// if this is not defined, the context will be empty
-    const CONTEXT: &[u8] = b"";
     type Error;
 
-    fn credential_verify(
+    fn credential_verify<T: SigningContextProvider>(
         &self,
         signature_text: impl AsRef<str>,
         signature_bytes: &[u8; 64],

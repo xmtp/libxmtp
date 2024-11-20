@@ -248,6 +248,7 @@ impl Conversations {
     Ok(())
   }
 
+  #[napi]
   pub async fn sync_all_conversations(&self) -> Result<usize> {
     let groups = self
       .inner_client
