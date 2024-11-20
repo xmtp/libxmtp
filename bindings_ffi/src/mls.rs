@@ -1816,7 +1816,6 @@ mod tests {
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
         },
-        time::Duration,
     };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
@@ -4094,15 +4093,15 @@ mod tests {
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         let bo = new_test_client_with_history().await;
 
-        alix_a.conversations().sync().await;
-        alix_a.conversations().sync_all_conversations().await;
-        alix_b.conversations().sync().await;
-        alix_b.conversations().sync_all_conversations().await;
+        // have alix_a pull down the new sync group created by alix_b
+        assert!(alix_a.conversations().sync().await.is_ok());
 
+        // check that they have the same sync group
         let sync_group_a = alix_a.conversations().get_sync_group().unwrap();
         let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
+        // create a stream from both installations
         let stream_a_callback = Arc::new(RustStreamCallback::default());
         let stream_b_callback = Arc::new(RustStreamCallback::default());
         let a_stream = alix_a
@@ -4116,6 +4115,7 @@ mod tests {
         a_stream.wait_for_ready().await;
         b_stream.wait_for_ready().await;
 
+        // consent with bo
         alix_a
             .set_consent_states(vec![FfiConsent {
                 entity: bo.account_address.clone(),
@@ -4124,14 +4124,6 @@ mod tests {
             }])
             .await
             .unwrap();
-
-        while alix_a.inner_client.local_events().len() > 0 {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        while alix_b.inner_client.local_events().len() > 0 {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        std::thread::sleep(Duration::from_millis(200));
 
         alix_a
             .conversations()
