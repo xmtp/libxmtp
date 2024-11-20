@@ -148,7 +148,7 @@ pub enum SubscribeError {
     #[error(transparent)]
     Storage(#[from] StorageError),
     #[error(transparent)]
-    Api(#[from] xmtp_proto::api_client::Error),
+    Api(#[from] xmtp_proto::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
 }

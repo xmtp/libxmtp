@@ -11,7 +11,7 @@ use crate::{
 };
 use thiserror::Error;
 use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
-use xmtp_proto::api_client::Error as ApiError;
+use xmtp_proto::Error as ApiError;
 
 pub use identity::*;
 pub use mls::*;
