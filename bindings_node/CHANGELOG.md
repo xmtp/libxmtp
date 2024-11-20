@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.20
+
+- Fixed argument types for new signing methods
+
 ## 0.0.19
 
 - Renamed `Level` to `LogLevel`
