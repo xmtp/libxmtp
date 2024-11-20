@@ -1,12 +1,13 @@
 use crate::Client;
 use xmtp_proto::{
-    api_client::{Error, ErrorKind, XmtpIdentityClient},
+    api_client::XmtpIdentityClient,
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
+    Error, ErrorKind,
 };
 
 #[async_trait::async_trait]
