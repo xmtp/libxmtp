@@ -164,7 +164,7 @@ impl XmtpApiClient for ClientV4 {
 impl XmtpMlsClient for ClientV4 {
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        self.send_messages_to_payer(vec![req]).await
+        self.publish_envelopes_to_payer(std::iter::once(req)).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -215,12 +215,12 @@ impl XmtpMlsClient for ClientV4 {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        self.send_messages_to_payer(req.messages).await
+        self.publish_envelopes_to_payer(req.messages).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        self.send_messages_to_payer(req.messages).await
+        self.publish_envelopes_to_payer(req.messages).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -362,7 +362,7 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        self.send_messages_to_payer(vec![request]).await?;
+        self.publish_envelopes_to_payer(vec![request]).await?;
         Ok(PublishIdentityUpdateResponse {})
     }
 
@@ -475,7 +475,11 @@ impl ClientV4 {
         futures::future::try_join_all(requests).await
     }
 
-    async fn send_messages_to_payer<T>(&self, messages: Vec<T>) -> Result<(), Error>
+    #[tracing::instrument(level = "trace", skip_all)]
+    async fn publish_envelopes_to_payer<T>(
+        &self,
+        messages: impl IntoIterator<Item = T>,
+    ) -> Result<(), Error>
     where
         T: TryInto<ClientEnvelope>,
         <T as TryInto<ClientEnvelope>>::Error: std::error::Error + Send + Sync + 'static,
