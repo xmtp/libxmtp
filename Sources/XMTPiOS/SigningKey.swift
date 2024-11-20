@@ -1,12 +1,4 @@
-//
-//  SigningKey.swift
-//
-//
-//  Created by Pat Nakajima on 11/17/22.
-//
-
 import Foundation
-import web3
 import LibXMTP
 
 public enum WalletType {

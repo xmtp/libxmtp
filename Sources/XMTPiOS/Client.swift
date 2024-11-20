@@ -1,6 +1,5 @@
 import Foundation
 import LibXMTP
-import web3
 
 public typealias PreEventCallback = () async throws -> Void
 

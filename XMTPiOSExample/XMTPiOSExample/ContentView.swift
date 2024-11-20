@@ -13,7 +13,6 @@ struct ContentView: View {
 		case unknown, connecting, connected(Client), error(String)
 	}
 
-	@StateObject var accountManager = AccountManager()
 
 	@State private var status: Status = .unknown
 
@@ -27,18 +26,6 @@ struct ContentView: View {
 		VStack {
 			switch status {
 			case .unknown:
-				Button("Connect Wallet") { isConnectingWallet = true }
-					.sheet(isPresented: $isConnectingWallet) {
-						LoginView(onConnected: { client in
-							do {
-								self.status = .connected(client)
-							} catch {
-								print("Error setting up client: \(error)")
-							}
-
-							print("Got a client: \(client)")
-						})
-					}
 				Button("Generate Wallet") { generateWallet() }
 				Button("Load Saved Keys") {
 					Task {

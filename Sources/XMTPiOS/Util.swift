@@ -6,11 +6,11 @@
 //
 
 import Foundation
-import web3
+import CryptoSwift
 
 enum Util {
 	static func keccak256(_ data: Data) -> Data {
-		return data.web3.keccak256
+		return data.sha3(.keccak256)
 	}
 }
 

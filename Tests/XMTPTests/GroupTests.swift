@@ -1,4 +1,3 @@
-import CryptoKit
 import LibXMTP
 import XCTest
 import XMTPTestHelpers

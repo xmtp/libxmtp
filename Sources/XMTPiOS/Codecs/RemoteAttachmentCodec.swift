@@ -1,13 +1,6 @@
-//
-//  RemoteAttachmentCodec.swift
-//
-//
-//  Created by Pat Nakajima on 2/19/23.
-//
-
 import CryptoKit
+import CryptoSwift
 import Foundation
-import web3
 
 public let ContentTypeRemoteAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "remoteStaticAttachment", versionMajor: 1, versionMinor: 0)
 
@@ -217,11 +210,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 			throw RemoteAttachmentError.invalidParameters("missing \(name) parameter")
 		}
 
-		guard let parameterData = parameterHex.web3.hexData else {
-			throw RemoteAttachmentError.invalidParameters("invalid \(name) value")
-		}
-
-		return Data(parameterData)
+		return Data(parameterHex.hexToData)
 	}
 
 	public func shouldPush(content: RemoteAttachment) throws -> Bool {

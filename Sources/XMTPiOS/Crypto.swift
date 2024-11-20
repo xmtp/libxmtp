@@ -1,7 +1,3 @@
-//
-//  Crypto.swift
-//
-
 import CryptoKit
 import Foundation
 

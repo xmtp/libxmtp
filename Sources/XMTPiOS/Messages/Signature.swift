@@ -7,6 +7,7 @@
 
 import Foundation
 import LibXMTP
+import CryptoSwift
 
 /// Represents a secp256k1 compact recoverable signature.
 public typealias Signature = Xmtp_MessageContents_Signature
@@ -42,7 +43,7 @@ extension Signature {
 	static func ethHash(_ message: String) throws -> Data {
 		let data = try ethPersonalMessage(message)
 
-		return Util.keccak256(data)
+		return data.sha3(.keccak256)
 	}
 
 	static func createIdentityText(key: Data) -> String {

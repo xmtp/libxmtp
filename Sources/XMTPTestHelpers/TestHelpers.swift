@@ -1,6 +1,5 @@
 #if canImport(XCTest)
 	import Combine
-	import CryptoKit
 	import XCTest
 	@testable import XMTPiOS
 	import LibXMTP

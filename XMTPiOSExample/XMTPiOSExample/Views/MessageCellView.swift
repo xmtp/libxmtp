@@ -7,7 +7,6 @@
 
 import SwiftUI
 import XMTPiOS
-import web3
 
 struct MessageTextView: View {
 	var myAddress: String
@@ -123,17 +122,6 @@ struct MessageCellView: View {
 			MessageGroupMembershipChangedView(message: message)
 		default:
 			Text(message.fallbackContent)
-		}
-	}
-}
-
-struct MessageCellView_Previews: PreviewProvider {
-	static var previews: some View {
-		PreviewClientProvider { client in
-			List {
-				MessageCellView(myAddress: "0x00", message: DecodedMessage.preview(client: client, topic: "foo", body: "Hi, how is it going?", senderAddress: "0x00", sent: Date()))
-			}
-			.listStyle(.plain)
 		}
 	}
 }

@@ -1,60 +1,71 @@
-//
-//  EncodedContentCompression.swift
-//
-//
-//  Created by Pat Nakajima on 1/19/23.
-//
-
+import Compression
 import Foundation
-import Gzip
-import zlib
 
 public enum EncodedContentCompression {
-	case deflate, gzip
+	case deflate
+	case gzip
 
-	func compress(content: Data) throws -> Data {
+	func compress(content: Data) -> Data? {
 		switch self {
 		case .deflate:
-			// 78 9C - Default Compression according to https://www.ietf.org/rfc/rfc1950.txt
-			let header = Data([0x78, 0x9C])
-
-			// Perform rfc1951 compression
-			let compressed = try (content as NSData).compressed(using: .zlib) as Data
-
-			// Needed for rfc1950 compliance
-			let checksum = adler32(content)
-
-			return header + compressed + checksum
+			return compressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return try content.gzipped()
+			return compressData(content, using: COMPRESSION_LZFSE)  // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 
-	func decompress(content: Data) throws -> Data {
+	func decompress(content: Data) -> Data? {
 		switch self {
 		case .deflate:
-			// Swift uses https://www.ietf.org/rfc/rfc1951.txt while JS uses https://www.ietf.org/rfc/rfc1950.txt
-			// They're basically the same except the JS version has a two byte header that we can just get rid of
-			// and a four byte checksum at the end that seems to be ignored here.
-			let data = NSData(data: content[2...])
-			let inflated = try data.decompressed(using: .zlib)
-			return inflated as Data
+			return decompressData(content, using: COMPRESSION_ZLIB)
 		case .gzip:
-			return try content.gunzipped()
+			return decompressData(content, using: COMPRESSION_LZFSE)  // For GZIP, switch to COMPRESSION_ZLIB if needed.
 		}
 	}
 
-	private func adler32(_ data: Data) -> Data {
-		let prime = UInt32(65521)
-		var s1 = UInt32(1 & 0xFFFF)
-		var s2 = UInt32((1 >> 16) & 0xFFFF)
-		data.forEach {
-			s1 += UInt32($0)
-			if s1 >= prime { s1 = s1 % prime }
-			s2 += s1
-			if s2 >= prime { s2 = s2 % prime }
+	// Helper method to compress data using the Compression framework
+	private func compressData(
+		_ data: Data, using algorithm: compression_algorithm
+	) -> Data? {
+		let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(
+			capacity: data.count
+		)
+		defer { destinationBuffer.deallocate() }
+
+		let compressedSize = data.withUnsafeBytes { sourceBuffer -> Int in
+			guard let sourcePointer = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+				return 0 // Return 0 to indicate failure
+			}
+			return compression_encode_buffer(
+				destinationBuffer, data.count,
+				sourcePointer, data.count, nil, algorithm
+			)
 		}
-		var result = ((s2 << 16) | s1).bigEndian
-		return Data(bytes: &result, count: MemoryLayout<UInt32>.size)
+
+		guard compressedSize > 0 else { return nil }
+		return Data(bytes: destinationBuffer, count: compressedSize)
+	}
+
+	// Helper method to decompress data using the Compression framework
+	private func decompressData(
+		_ data: Data, using algorithm: compression_algorithm
+	) -> Data? {
+		let destinationBuffer = UnsafeMutablePointer<UInt8>.allocate(
+			capacity: data.count * 4  // Allocate enough memory for decompressed data
+		)
+		defer { destinationBuffer.deallocate() }
+
+		let decompressedSize = data.withUnsafeBytes { sourceBuffer -> Int in
+			guard let sourcePointer = sourceBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+				return 0 // Return 0 to indicate failure
+			}
+			return compression_decode_buffer(
+				destinationBuffer, data.count * 4,
+				sourcePointer, data.count, nil, algorithm
+			)
+		}
+
+		guard decompressedSize > 0 else { return nil }
+		return Data(bytes: destinationBuffer, count: decompressedSize)
 	}
 }

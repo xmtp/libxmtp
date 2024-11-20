@@ -40,7 +40,11 @@ extension EncodedContent {
 			copy.compression = .gzip
 		}
 
-		copy.content = try compression.compress(content: content)
+		if let compressedContent = compression.compress(content: content) {
+			copy.content = compressedContent
+		} else {
+			throw CodecError.invalidContent
+		}
 
 		return copy
 	}
@@ -54,15 +58,24 @@ extension EncodedContent {
 
 		switch compression {
 		case .gzip:
-			copy.content = try EncodedContentCompression.gzip.decompress(content: content)
+			if let decompressedContent = EncodedContentCompression.gzip.decompress(content: content) {
+				copy.content = decompressedContent
+			} else {
+				throw CodecError.invalidContent
+			}
 		case .deflate:
-			copy.content = try EncodedContentCompression.deflate.decompress(content: content)
+			if let decompressedContent = EncodedContentCompression.deflate.decompress(content: content) {
+				copy.content = decompressedContent
+			} else {
+				throw CodecError.invalidContent
+			}
 		default:
 			return copy
 		}
 
 		return copy
 	}
+
 }
 
 public protocol ContentCodec: Hashable, Equatable {
