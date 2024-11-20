@@ -210,10 +210,21 @@ where
                         }
                     }
                 },
-                LocalEvents::ConsentUpdate(consent_records) => {
+                LocalEvents::OutgoingConsentUpdates(consent_records) => {
+                    tracing::info!(
+                        "outgoing ======================================================"
+                    );
+
                     for consent_record in consent_records {
                         self.send_consent_update(&provider, &consent_record).await?;
                     }
+                }
+                LocalEvents::IncomingConsentUpdates(consent_records) => {
+                    tracing::info!(
+                        "incoming ======================================================"
+                    );
+                    let conn = provider.conn_ref();
+                    conn.insert_or_replace_consent_records(&consent_records)?;
                 }
                 _ => {}
             }
@@ -567,7 +578,9 @@ where
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
                             self.local_events
-                                .send(LocalEvents::ConsentUpdate(vec![existing_consent_record]))
+                                .send(LocalEvents::OutgoingConsentUpdates(vec![
+                                    existing_consent_record,
+                                ]))
                                 .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
                         }
                     }

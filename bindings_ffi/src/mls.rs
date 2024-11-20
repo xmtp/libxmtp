@@ -906,6 +906,12 @@ impl FfiConversations {
         Ok(())
     }
 
+    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let sync_group = inner.get_sync_group()?;
+        Ok(sync_group.into())
+    }
+
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
@@ -1819,6 +1825,8 @@ mod tests {
     };
     use xmtp_mls::{groups::GroupError, storage::EncryptionKey, InboxOwner};
 
+    const HISTORY_SYNC_URL: &str = "http://localhost:5558";
+
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
         wallet: xmtp_cryptography::utils::LocalWallet,
@@ -1919,7 +1927,7 @@ mod tests {
 
     impl FfiConsentCallback for RustStreamCallback {
         fn on_consent_update(&self, mut consent: Vec<FfiConsent>) {
-            log::debug!("received consent update");
+            log::debug!("received consent update============================================================");
             let mut consent_updates = self.consent_updates.lock().unwrap();
             consent_updates.append(&mut consent);
             self.notify.notify_one();
@@ -1963,6 +1971,13 @@ mod tests {
         new_test_client_with_wallet_and_history_sync_url(wallet, None).await
     }
 
+    async fn new_test_client_with_wallet_and_history(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Arc<FfiXmtpClient> {
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
+    }
+
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
@@ -1997,11 +2012,8 @@ mod tests {
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            Some("http://localhost:5558".to_string()),
-        )
-        .await
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
     }
 
     impl FfiConversation {
@@ -4072,25 +4084,49 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
-        let alix = new_test_client_with_history().await;
+        let wallet = generate_local_wallet();
+        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         let bo = new_test_client_with_history().await;
 
+        alix_a.conversations().sync().await;
+        alix_a.conversations().sync_all_conversations().await;
+        alix_b.conversations().sync().await;
+        alix_b.conversations().sync_all_conversations().await;
+
+        let sync_group_a = alix_a.conversations().get_sync_group().unwrap();
+        let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
+        assert_eq!(sync_group_a.id(), sync_group_b.id());
+
         let stream_callback = Arc::new(RustStreamCallback::default());
-        let stream = bo
+        let stream = alix_b
             .conversations()
             .stream_consent(stream_callback.clone())
             .await;
         stream.wait_for_ready().await;
 
-        alix.set_consent_states(vec![FfiConsent {
-            entity: bo.account_address.clone(),
-            entity_type: FfiConsentEntityType::Address,
-            state: FfiConsentState::Allowed,
-        }])
-        .await
-        .unwrap();
+        alix_a
+            .set_consent_states(vec![FfiConsent {
+                entity: bo.account_address.clone(),
+                entity_type: FfiConsentEntityType::Address,
+                state: FfiConsentState::Allowed,
+            }])
+            .await
+            .unwrap();
+
+        alix_a
+            .conversations()
+            .sync_all_conversations()
+            .await
+            .unwrap();
+        alix_b
+            .conversations()
+            .sync_all_conversations()
+            .await
+            .unwrap();
 
         let result = stream_callback.wait_for_delivery(Some(1)).await;
+        assert!(result.is_ok());
 
         assert_eq!(stream_callback.consent_updates_count(), 1);
         stream.end_and_wait().await.unwrap();

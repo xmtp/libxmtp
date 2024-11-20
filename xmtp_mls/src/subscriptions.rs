@@ -51,7 +51,8 @@ pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
-    ConsentUpdate(Vec<StoredConsentRecord>),
+    OutgoingConsentUpdates(Vec<StoredConsentRecord>),
+    IncomingConsentUpdates(Vec<StoredConsentRecord>),
 }
 
 #[derive(Clone)]
@@ -75,7 +76,7 @@ impl<C> LocalEvents<C> {
 
         match &self {
             SyncMessage(_) => Some(self),
-            ConsentUpdate(_) => Some(self),
+            OutgoingConsentUpdates(_) => Some(self),
             _ => None,
         }
     }
@@ -84,7 +85,8 @@ impl<C> LocalEvents<C> {
         use LocalEvents::*;
 
         match self {
-            ConsentUpdate(cr) => Some(cr),
+            OutgoingConsentUpdates(cr) => Some(cr),
+            IncomingConsentUpdates(cr) => Some(cr),
             _ => None,
         }
     }
