@@ -77,6 +77,7 @@ impl<C> LocalEvents<C> {
         match &self {
             SyncMessage(_) => Some(self),
             OutgoingConsentUpdates(_) => Some(self),
+            IncomingConsentUpdates(_) => Some(self),
             _ => None,
         }
     }

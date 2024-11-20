@@ -217,6 +217,7 @@ where
                 }
                 LocalEvents::IncomingConsentUpdates(consent_records) => {
                     let conn = provider.conn_ref();
+
                     conn.insert_or_replace_consent_records(&consent_records)?;
                 }
                 _ => {}
