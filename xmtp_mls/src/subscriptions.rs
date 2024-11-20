@@ -70,7 +70,7 @@ impl<C> LocalEvents<C> {
         }
     }
 
-    pub(crate) fn sync_filter(self) -> Option<Self> {
+    fn sync_filter(self) -> Option<Self> {
         use LocalEvents::*;
 
         match &self {
@@ -79,10 +79,22 @@ impl<C> LocalEvents<C> {
             _ => None,
         }
     }
+
+    fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
+        use LocalEvents::*;
+
+        match self {
+            ConsentUpdate(cr) => Some(cr),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait StreamMessages<C> {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>>;
+    fn stream_consent_updates(
+        self,
+    ) -> impl Stream<Item = Result<Vec<StoredConsentRecord>, SubscribeError>>;
 }
 
 impl<C> StreamMessages<C> for broadcast::Receiver<LocalEvents<C>>
@@ -93,6 +105,16 @@ where
         BroadcastStream::new(self).filter_map(|event| async {
             crate::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::sync_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    fn stream_consent_updates(
+        self,
+    ) -> impl Stream<Item = Result<Vec<StoredConsentRecord>, SubscribeError>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            crate::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::consent_filter)
                 .map(Result::Ok)
         })
     }
@@ -426,6 +448,26 @@ where
                 callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
+            Ok::<_, ClientError>(())
+        })
+    }
+
+    pub fn stream_consent_with_callback(
+        client: Arc<Client<ApiClient, V>>,
+        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>, SubscribeError>) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
+        let (tx, rx) = oneshot::channel();
+
+        crate::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_consent_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message) = stream.next().await {
+                callback(message)
+            }
+            tracing::debug!("`stream_consent` stream ended, dropping stream");
             Ok::<_, ClientError>(())
         })
     }
