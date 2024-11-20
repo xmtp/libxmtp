@@ -5,7 +5,7 @@ use futures::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::io::Read;
-use xmtp_proto::api_client::{Error, ErrorKind};
+use xmtp_proto::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]

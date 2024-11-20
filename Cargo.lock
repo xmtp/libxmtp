@@ -7127,7 +7127,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "hex",
  "openmls",
+ "openmls_rust_crypto",
  "pbjson",
  "pbjson-types",
  "prost",
