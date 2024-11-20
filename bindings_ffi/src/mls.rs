@@ -1816,6 +1816,7 @@ mod tests {
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
         },
+        time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
@@ -4125,21 +4126,26 @@ mod tests {
             .await
             .unwrap();
 
-        alix_a
-            .conversations()
-            .sync_all_conversations()
-            .await
-            .unwrap();
-        alix_b
-            .conversations()
-            .sync_all_conversations()
-            .await
-            .unwrap();
-
         let result = stream_a_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
-        let result = stream_b_callback.wait_for_delivery(Some(3)).await;
-        assert!(result.is_ok());
+
+        let start = Instant::now();
+        loop {
+            // update the sync group's messages to pipe them into the events
+            alix_b
+                .conversations()
+                .sync_all_conversations()
+                .await
+                .unwrap();
+
+            if stream_b_callback.wait_for_delivery(Some(1)).await.is_ok() {
+                break;
+            }
+
+            if start.elapsed() > Duration::from_secs(5) {
+                panic!("Timed out while waiting for alix_b consent updates.");
+            }
+        }
 
         // two outgoing consent updates
         assert_eq!(stream_a_callback.consent_updates_count(), 2);
