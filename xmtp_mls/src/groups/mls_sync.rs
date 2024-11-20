@@ -69,7 +69,7 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage, WelcomeMessageInput,
     },
     message_contents::{
-        plaintext_envelope::{Content, V1, V2},
+        plaintext_envelope::{v2::MessageType, Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
     },
 };
@@ -153,10 +153,6 @@ impl crate::retry::RetryableError for GroupMessageProcessingError {
         }
     }
 }
-
-use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-    Reply, Request,
-};
 
 #[derive(Debug)]
 struct PublishIntentData {
@@ -494,8 +490,7 @@ where
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-        let sent_from_this_installation =
-            sender_installation_id == self.context().installation_public_key();
+
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             sender_inbox_id = sender_inbox_id,
@@ -555,7 +550,7 @@ where
                         idempotency_key,
                         message_type,
                     })) => match message_type {
-                        Some(Request(history_request)) => {
+                        Some(MessageType::DeviceSyncRequest(history_request)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Request(history_request);
                             let content_bytes = serde_json::to_vec(&content)?;
@@ -578,16 +573,13 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
-                                tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Request { message_id },
-                                ));
-                            }
+                            tracing::info!("Received a history request.");
+                            let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                SyncMessage::Request { message_id },
+                            ));
                         }
 
-                        Some(Reply(history_reply)) => {
+                        Some(MessageType::DeviceSyncReply(history_reply)) => {
                             let content: DeviceSyncContent =
                                 DeviceSyncContent::Reply(history_reply);
                             let content_bytes = serde_json::to_vec(&content)?;
@@ -610,13 +602,22 @@ where
                             }
                             .store_or_ignore(provider.conn_ref())?;
 
-                            // Ignore this installation's sync messages
-                            if !sent_from_this_installation {
-                                tracing::info!("Received a history reply.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Reply { message_id },
-                                ));
-                            }
+                            tracing::info!("Received a history reply.");
+                            let _ = self
+                                .client
+                                .local_events()
+                                .send(LocalEvents::SyncMessage(SyncMessage::Reply { message_id }));
+                        }
+                        Some(MessageType::ConsentUpdate(update)) => {
+                            tracing::info!(
+                                "Incoming streamed consent update: {:?} {} updated to {:?}.",
+                                update.entity_type(),
+                                update.entity,
+                                update.state()
+                            );
+
+                            let conn = provider.conn_ref();
+                            conn.insert_or_replace_consent_records(&[update.try_into()?])?;
                         }
                         _ => {
                             return Err(GroupMessageProcessingError::InvalidPayload);

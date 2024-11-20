@@ -4,7 +4,7 @@ use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
-use crate::subscriptions::{StreamMessages, SubscribeError, SyncMessage};
+use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
 use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
@@ -38,8 +38,7 @@ use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType::{Reply, Request},
-    plaintext_envelope::V2,
+    plaintext_envelope::v2::MessageType, plaintext_envelope::V2,
     DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -103,7 +102,7 @@ pub enum DeviceSyncError {
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
-    SyncReplyTimestamp,
+    SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
 }
@@ -149,9 +148,9 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn sync_worker(
+    pub(crate) async fn sync_worker<C>(
         &self,
-        sync_stream: &mut (impl Stream<Item = Result<SyncMessage, SubscribeError>> + Unpin),
+        sync_stream: &mut (impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> + Unpin),
     ) -> Result<(), DeviceSyncError> {
         let provider = self.mls_provider()?;
 
@@ -160,53 +159,63 @@ where
             .duration(Duration::from_millis(20))
             .build();
 
-        while let Some(msg) = sync_stream.next().await {
-            let msg = msg?;
-            match msg {
-                SyncMessage::Reply { message_id } => {
-                    let conn = provider.conn_ref();
-                    let msg = retry_async!(
-                        &query_retry,
-                        (async {
-                            conn.get_group_message(&message_id)?
-                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                    "Message id {message_id:?} not found."
-                                ))))
-                        })
-                    )?;
+        while let Some(event) = sync_stream.next().await {
+            let event = event?;
+            match event {
+                LocalEvents::SyncMessage(msg) => match msg {
+                    SyncMessage::Reply { message_id } => {
+                        let conn = provider.conn_ref();
+                        let msg = retry_async!(
+                            &query_retry,
+                            (async {
+                                conn.get_group_message(&message_id)?.ok_or(
+                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                        "Message id {message_id:?} not found."
+                                    ))),
+                                )
+                            })
+                        )?;
 
-                    let msg_content: DeviceSyncContent =
-                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                    let DeviceSyncContent::Reply(reply) = msg_content else {
-                        unreachable!();
-                    };
+                        let msg_content: DeviceSyncContent =
+                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                        let DeviceSyncContent::Reply(reply) = msg_content else {
+                            unreachable!();
+                        };
 
-                    if let Err(err) = self.process_sync_reply(&provider, reply).await {
-                        tracing::warn!("Sync worker error: {err}");
+                        if let Err(err) = self.process_sync_reply(&provider, reply).await {
+                            tracing::warn!("Sync worker error: {err}");
+                        }
+                    }
+                    SyncMessage::Request { message_id } => {
+                        let conn = provider.conn_ref();
+                        let msg = retry_async!(
+                            &query_retry,
+                            (async {
+                                conn.get_group_message(&message_id)?.ok_or(
+                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
+                                        "Message id {message_id:?} not found."
+                                    ))),
+                                )
+                            })
+                        )?;
+
+                        let msg_content: DeviceSyncContent =
+                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                        let DeviceSyncContent::Request(request) = msg_content else {
+                            unreachable!();
+                        };
+
+                        if let Err(err) = self.reply_to_sync_request(&provider, request).await {
+                            tracing::warn!("Sync worker error: {err}");
+                        }
+                    }
+                },
+                LocalEvents::ConsentUpdate(consent_records) => {
+                    for consent_record in consent_records {
+                        self.send_consent_update(&provider, &consent_record).await?;
                     }
                 }
-                SyncMessage::Request { message_id } => {
-                    let conn = provider.conn_ref();
-                    let msg = retry_async!(
-                        &query_retry,
-                        (async {
-                            conn.get_group_message(&message_id)?
-                                .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                    "Message id {message_id:?} not found."
-                                ))))
-                        })
-                    )?;
-
-                    let msg_content: DeviceSyncContent =
-                        serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                    let DeviceSyncContent::Request(request) = msg_content else {
-                        unreachable!();
-                    };
-
-                    if let Err(err) = self.reply_to_sync_request(&provider, request).await {
-                        tracing::warn!("Sync worker error: {err}");
-                    }
-                }
+                _ => {}
             }
         }
 
@@ -266,7 +275,7 @@ where
         sync_group.sync_with_conn(provider).await?;
 
         // lookup if a request has already been made
-        if let Ok((_msg, request)) = self.pending_sync_request(provider, request.kind).await {
+        if let Ok((_msg, request)) = self.get_pending_sync_request(provider, request.kind).await {
             return Ok(request);
         }
 
@@ -280,7 +289,7 @@ where
             let request = request.clone();
             move |_time_ns| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
-                    message_type: Some(Request(request)),
+                    message_type: Some(MessageType::DeviceSyncRequest(request)),
                     idempotency_key: new_request_id(),
                 })),
             }
@@ -329,7 +338,9 @@ where
         // sync the group
         sync_group.sync_with_conn(provider).await?;
 
-        let (msg, _request) = self.pending_sync_request(provider, contents.kind()).await?;
+        let (msg, _request) = self
+            .get_pending_sync_request(provider, contents.kind())
+            .await?;
 
         // add original sender to all groups on this device on the node
         self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
@@ -346,23 +357,19 @@ where
             (content_bytes, contents)
         };
 
-        let _message_id = sync_group.prepare_message(&content_bytes, conn, move |_time_ns| {
-            PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    idempotency_key: new_request_id(),
-                    message_type: Some(Reply(contents)),
-                })),
-            }
+        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+            content: Some(Content::V2(V2 {
+                idempotency_key: new_request_id(),
+                message_type: Some(MessageType::DeviceSyncReply(contents)),
+            })),
         })?;
 
-        // publish the intent
-        if let Err(err) = sync_group.publish_messages().await {
-            tracing::error!("error publishing sync group intents: {:?}", err);
-        }
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
         Ok(())
     }
 
-    async fn pending_sync_request(
+    async fn get_pending_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
@@ -374,8 +381,12 @@ where
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
-            let msg_content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let Ok(msg_content) =
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)
+            else {
+                continue;
+            };
+
             match msg_content {
                 DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
                     return Err(DeviceSyncError::NoPendingRequest);
@@ -391,7 +402,7 @@ where
     }
 
     #[cfg(test)]
-    async fn sync_reply(
+    async fn get_latest_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
@@ -403,8 +414,11 @@ where
             .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
 
         for msg in messages.into_iter().rev() {
-            let msg_content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let Ok(msg_content) =
+                serde_json::from_slice::<DeviceSyncContent>(&msg.decrypted_message_bytes)
+            else {
+                continue;
+            };
             match msg_content {
                 DeviceSyncContent::Reply(reply) if reply.kind() == kind => {
                     return Ok(Some((msg, reply)));
@@ -426,7 +440,7 @@ where
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
         if time_diff > NS_IN_HOUR as u64 {
             // time discrepancy is too much
-            return Err(DeviceSyncError::SyncReplyTimestamp);
+            return Err(DeviceSyncError::SyncPayloadTooOld);
         }
 
         let Some(enc_key) = reply.encryption_key.clone() else {
@@ -434,7 +448,8 @@ where
         };
 
         let enc_payload = download_history_payload(&reply.url).await?;
-        insert_encrypted_syncables(conn, enc_payload, &enc_key.try_into()?)?;
+        self.insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
+            .await?;
 
         self.sync_welcomes(provider.conn_ref()).await?;
 
@@ -506,6 +521,73 @@ where
 
         Ok(sync_reply)
     }
+
+    async fn insert_encrypted_syncables(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        payload: Vec<u8>,
+        enc_key: &DeviceSyncKeyType,
+    ) -> Result<(), DeviceSyncError> {
+        let conn = provider.conn_ref();
+        let enc_key = enc_key.as_bytes();
+
+        // Split the nonce and ciphertext
+        let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
+
+        // Create a cipher instance
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
+        let nonce_array = GenericArray::from_slice(nonce);
+
+        // Decrypt the ciphertext
+        let payload = cipher.decrypt(nonce_array, ciphertext)?;
+        let payload: Vec<Syncable> = serde_json::from_slice(&payload)?;
+
+        for syncable in payload {
+            match syncable {
+                Syncable::Group(group) => {
+                    conn.insert_or_replace_group(group)?;
+                }
+                Syncable::GroupMessage(group_message) => {
+                    if let Err(err) = group_message.store(conn) {
+                        match err {
+                            // this is fine because we are inserting messages that already exist
+                            StorageError::DieselResult(diesel::result::Error::DatabaseError(
+                                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                                _,
+                            )) => {}
+                            // otherwise propagate the error
+                            _ => Err(err)?,
+                        }
+                    }
+                }
+                Syncable::ConsentRecord(consent_record) => {
+                    if let Some(existing_consent_record) =
+                        conn.maybe_insert_consent_record_return_existing(&consent_record)?
+                    {
+                        if existing_consent_record.state != consent_record.state {
+                            warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
+                            self.local_events
+                                .send(LocalEvents::ConsentUpdate(vec![existing_consent_record]))
+                                .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
+                        }
+                    }
+                }
+            };
+        }
+
+        Ok(())
+    }
+
+    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
+        let conn = self.store().conn()?;
+        let sync_group_id = conn
+            .latest_sync_group()?
+            .ok_or(GroupError::GroupNotFound)?
+            .id;
+        let sync_group = self.group(sync_group_id.clone())?;
+
+        Ok(sync_group)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -520,23 +602,6 @@ impl MessageHistoryUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
     pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
     pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
-}
-
-impl<ApiClient, V> Client<ApiClient, V>
-where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
-{
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
-        let sync_group_id = conn
-            .latest_sync_group()?
-            .ok_or(GroupError::GroupNotFound)?
-            .id;
-        let sync_group = self.group(sync_group_id.clone())?;
-
-        Ok(sync_group)
-    }
 }
 
 pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {
@@ -678,58 +743,6 @@ pub(super) fn new_pin() -> String {
     let mut rng = crypto_utils::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
-}
-
-fn insert_encrypted_syncables(
-    conn: &DbConnection,
-    payload: Vec<u8>,
-    enc_key: &DeviceSyncKeyType,
-) -> Result<(), DeviceSyncError> {
-    let enc_key = enc_key.as_bytes();
-
-    // Split the nonce and ciphertext
-    let (nonce, ciphertext) = payload.split_at(NONCE_SIZE);
-
-    // Create a cipher instance
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(enc_key));
-    let nonce_array = GenericArray::from_slice(nonce);
-
-    // Decrypt the ciphertext
-    let payload = cipher.decrypt(nonce_array, ciphertext)?;
-    let payload: Vec<Syncable> = serde_json::from_slice(&payload)?;
-
-    for syncable in payload {
-        match syncable {
-            Syncable::Group(group) => {
-                conn.insert_or_replace_group(group)?;
-            }
-            Syncable::GroupMessage(group_message) => {
-                if let Err(err) = group_message.store(conn) {
-                    match err {
-                        // this is fine because we are inserting messages that already exist
-                        StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
-                            _,
-                        )) => {}
-                        // otherwise propagate the error
-                        _ => Err(err)?,
-                    }
-                }
-            }
-            Syncable::ConsentRecord(consent_record) => {
-                if let Some(existing_consent_record) =
-                    conn.maybe_insert_consent_record_return_existing(&consent_record)?
-                {
-                    if existing_consent_record.state != consent_record.state {
-                        warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                        // Todo - stream consent record when streaming is implemented
-                    }
-                }
-            }
-        };
-    }
-
-    Ok(())
 }
 
 fn encrypt_syncables(

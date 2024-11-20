@@ -1,12 +1,54 @@
 use super::*;
-use crate::{Client, XmtpApi};
+use crate::{
+    storage::consent_record::{ConsentState, ConsentType},
+    Client, XmtpApi,
+};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::xmtp::mls::message_contents::{
+    ConsentEntityType, ConsentState as ConsentStateProto, ConsentUpdate as ConsentUpdateProto,
+};
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    pub(crate) async fn send_consent_update(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        record: &StoredConsentRecord,
+    ) -> Result<(), DeviceSyncError> {
+        tracing::info!("Streaming consent update. {:?}", record);
+        let conn = provider.conn_ref();
+
+        let consent_update_proto = ConsentUpdateProto {
+            entity: record.entity.clone(),
+            entity_type: match record.entity_type {
+                ConsentType::Address => ConsentEntityType::Address,
+                ConsentType::ConversationId => ConsentEntityType::ConversationId,
+                ConsentType::InboxId => ConsentEntityType::InboxId,
+            } as i32,
+            state: match record.state {
+                ConsentState::Allowed => ConsentStateProto::Allowed,
+                ConsentState::Denied => ConsentStateProto::Denied,
+                ConsentState::Unknown => ConsentStateProto::Unspecified,
+            } as i32,
+        };
+
+        let sync_group = self.ensure_sync_group(provider).await?;
+        let content_bytes = serde_json::to_vec(&consent_update_proto)?;
+        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+            content: Some(Content::V2(V2 {
+                idempotency_key: new_request_id(),
+                message_type: Some(MessageType::ConsentUpdate(consent_update_proto)),
+            })),
+        })?;
+
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
+        Ok(())
+    }
+
     pub(super) fn syncable_consent_records(
         &self,
         conn: &DbConnection,
@@ -31,6 +73,7 @@ pub(crate) mod tests {
     use crate::{
         assert_ok,
         builder::ClientBuilder,
+        groups::scoped_client::LocalScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
     };
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -85,11 +128,11 @@ pub(crate) mod tests {
         let mut reply = None;
         while reply.is_none() {
             reply = amal_b
-                .sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+                .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
                 .unwrap();
             if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive consent reply.");
+                panic!("Did not receive sync reply.");
             }
         }
 
@@ -103,5 +146,46 @@ pub(crate) mod tests {
                 panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
             }
         }
+
+        // Test consent streaming
+        let amal_b_sync_group = amal_b.get_sync_group().unwrap();
+        let bo_wallet = generate_local_wallet();
+
+        // Ensure bo is not consented with amal_b
+        let mut bo_consent_with_amal_b = amal_b_conn
+            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .unwrap();
+        assert!(bo_consent_with_amal_b.is_none());
+
+        // Consent with bo on the amal_a installation
+        amal_a
+            .set_consent_states(&[StoredConsentRecord::new(
+                ConsentType::Address,
+                ConsentState::Allowed,
+                bo_wallet.get_address(),
+            )])
+            .await
+            .unwrap();
+        assert!(amal_a_conn
+            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .unwrap()
+            .is_some());
+        let amal_a_subscription = amal_a.local_events().subscribe();
+
+        // Wait for the consent to get streamed to the amal_b
+        let start = Instant::now();
+        while bo_consent_with_amal_b.is_none() {
+            assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
+            bo_consent_with_amal_b = amal_b_conn
+                .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+                .unwrap();
+
+            if start.elapsed() > Duration::from_secs(1) {
+                panic!("Consent update did not stream");
+            }
+        }
+
+        // No new messages were generated for the amal_a installation during this time.
+        assert!(amal_a_subscription.is_empty());
     }
 }
