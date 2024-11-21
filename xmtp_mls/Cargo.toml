@@ -66,6 +66,7 @@ zeroize.workspace = true
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
+xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 

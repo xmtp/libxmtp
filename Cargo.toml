@@ -5,6 +5,7 @@ members = [
   "xmtp_cryptography",
   "xmtp_api_grpc",
   "xmtp_api_http",
+  "xmtp_content_types",
   "xmtp_proto",
   "xmtp_user_preferences",
   "xmtp_v2",
@@ -14,7 +15,8 @@ members = [
   "bindings_node",
   "bindings_ffi",
   "xtask",
-  "xmtp_debug"
+  "xmtp_debug",
+  "xmtp_content_types"
 ]
 
 # Make the feature resolver explicit.
