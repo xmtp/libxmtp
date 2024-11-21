@@ -1,5 +1,5 @@
 ALTER TABLE groups
-ADD COLUMN conversation_type INTEGER NOT NULL;
+ADD COLUMN conversation_type INTEGER NOT NULL DEFAULT 1;
 
 UPDATE groups
 SET conversation_type = CASE
