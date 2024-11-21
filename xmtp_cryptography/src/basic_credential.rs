@@ -133,6 +133,18 @@ impl XmtpInstallationCredential {
         let signing_key = SigningKey::from_keypair_bytes(&keypair)?;
         Ok(Self(Box::new(signing_key)))
     }
+
+    /// Alias for [`ed25519_dalek::SigningKey::from_bytes`]
+    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, ed25519_dalek::SignatureError> {
+        let key = SigningKey::from_bytes(bytes);
+        Ok(Self(Box::new(key)))
+    }
+
+    /// private key for this credential
+    #[cfg(feature = "exposed-keys")]
+    pub fn private_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
 }
 
 /// The signer here must maintain compatability with `SignatureKeyPair`
