@@ -326,4 +326,76 @@ class ClientTests: XCTestCase {
 			states.last!.recoveryAddress.lowercased(),
 			fixtures.caro.walletAddress.lowercased())
 	}
+
+	func testAddAccounts() async throws {
+		let fixtures = try await fixtures()
+		let alix2Wallet = try PrivateKey.generate()
+		let alix3Wallet = try PrivateKey.generate()
+
+		try await fixtures.alixClient.addAccount(
+			recoveryAccount: fixtures.alix, newAccount: alix2Wallet)
+		try await fixtures.alixClient.addAccount(
+			recoveryAccount: fixtures.alix, newAccount: alix3Wallet)
+
+		let state = try await fixtures.alixClient.inboxState(
+			refreshFromNetwork: true)
+		XCTAssertEqual(state.installations.count, 1)
+		XCTAssertEqual(state.addresses.count, 3)
+		XCTAssertEqual(
+			state.recoveryAddress.lowercased(),
+			fixtures.alixClient.address.lowercased())
+		XCTAssertEqual(
+			state.addresses.sorted(),
+			[
+				alix2Wallet.address.lowercased(),
+				alix3Wallet.address.lowercased(),
+				fixtures.alixClient.address.lowercased(),
+			].sorted()
+		)
+	}
+
+	func testRemovingAccounts() async throws {
+		let fixtures = try await fixtures()
+		let alix2Wallet = try PrivateKey.generate()
+		let alix3Wallet = try PrivateKey.generate()
+
+		try await fixtures.alixClient.addAccount(
+			recoveryAccount: fixtures.alix, newAccount: alix2Wallet)
+		try await fixtures.alixClient.addAccount(
+			recoveryAccount: fixtures.alix, newAccount: alix3Wallet)
+
+		var state = try await fixtures.alixClient.inboxState(
+			refreshFromNetwork: true)
+		XCTAssertEqual(state.addresses.count, 3)
+		XCTAssertEqual(
+			state.recoveryAddress.lowercased(),
+			fixtures.alixClient.address.lowercased())
+
+		try await fixtures.alixClient.removeAccount(
+			recoveryAccount: fixtures.alix, addressToRemove: alix2Wallet.address
+		)
+
+		state = try await fixtures.alixClient.inboxState(
+			refreshFromNetwork: true)
+		XCTAssertEqual(state.addresses.count, 2)
+		XCTAssertEqual(
+			state.recoveryAddress.lowercased(),
+			fixtures.alixClient.address.lowercased())
+		XCTAssertEqual(
+			state.addresses.sorted(),
+			[
+				alix3Wallet.address.lowercased(),
+				fixtures.alixClient.address.lowercased(),
+			].sorted()
+		)
+		XCTAssertEqual(state.installations.count, 1)
+
+		// Cannot remove the recovery address
+		await assertThrowsAsyncError(
+			try await fixtures.alixClient.removeAccount(
+				recoveryAccount: alix3Wallet,
+				addressToRemove: fixtures.alixClient.address
+			))
+	}
+
 }
