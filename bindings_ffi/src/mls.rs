@@ -4371,4 +4371,81 @@ mod tests {
             "Hello in group"
         );
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_installations_do_not_fork_minimum() {
+        // Create initial clients: Alix, Bo, and Caro
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix = new_test_client_with_wallet(wallet.clone()).await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
+
+        // Alix creates a group with Bo and Caro
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone(), caro.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Bo and Caro sync their conversations
+        bo.conversations().sync().await.unwrap();
+        caro.conversations().sync().await.unwrap();
+
+        // Find the group on Bo's and Caro's clients
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
+        let caro_group = caro.conversation(alix_group.id()).unwrap();
+
+        // Alix, Bo, and Caro exchange messages
+        alix_group.send("Message 1".as_bytes().to_vec()).await.unwrap();
+        bo_group.send("Message 2".as_bytes().to_vec()).await.unwrap();
+        caro_group.send("Message 3".as_bytes().to_vec()).await.unwrap();
+        alix_group.send("Message 4".as_bytes().to_vec()).await.unwrap();
+        alix_group.send("Message 5".as_bytes().to_vec()).await.unwrap();
+
+        // Simulate Alix logging in on a new client instance
+        let alix_client2 = new_test_client_with_wallet(wallet.clone()).await;
+
+        // Sync all clients
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+        caro_group.sync().await.unwrap();
+
+        // Verify message counts
+        assert_eq!(alix_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 6);
+        assert_eq!(bo_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 5);
+        assert_eq!(caro_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 5);
+
+        // Sync all clients including Alix's new instance
+        alix.conversations().sync_all_conversations().await.unwrap();
+        bo.conversations().sync_all_conversations().await.unwrap();
+        caro.conversations().sync_all_conversations().await.unwrap();
+        alix_client2.conversations().sync_all_conversations().await.unwrap();
+        alix_client2.conversations().sync().await.unwrap();
+
+        // Find the group on Alix's new client
+        let alix_group2 = alix_client2.conversation(alix_group.id()).unwrap();
+
+        // Further message exchange
+        alix_group2.send("Message 6".as_bytes().to_vec()).await.unwrap();
+        bo_group.send("Message 7".as_bytes().to_vec()).await.unwrap();
+        caro_group.send("Message 8".as_bytes().to_vec()).await.unwrap();
+        alix_group.send("Message 9".as_bytes().to_vec()).await.unwrap();
+        alix_group2.send("Message 10".as_bytes().to_vec()).await.unwrap();
+
+        // Sync all clients again
+        alix.conversations().sync_all_conversations().await.unwrap();
+        bo.conversations().sync_all_conversations().await.unwrap();
+        caro.conversations().sync_all_conversations().await.unwrap();
+        alix_client2.conversations().sync_all_conversations().await.unwrap();
+
+        // Verify final message counts
+        assert_eq!(alix_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 11);
+        assert_eq!(bo_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 10);
+        assert_eq!(caro_group.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 10);
+        assert_eq!(alix_group2.find_messages(FfiListMessagesOptions::default()).unwrap().len(), 5); // Verify fork behavior
+    }
+
 }
