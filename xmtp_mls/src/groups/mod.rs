@@ -1585,19 +1585,9 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use diesel::connection::SimpleConnection;
-    use futures::future::join_all;
-    use openmls::prelude::Member;
-    use prost::Message;
-    use std::sync::Arc;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
-    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
             build_protected_metadata_extension,
@@ -1619,6 +1609,15 @@ pub(crate) mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner, StreamHandle as _,
     };
+    use diesel::connection::SimpleConnection;
+    use futures::future::join_all;
+    use openmls::prelude::Member;
+    use prost::Message;
+    use std::sync::Arc;
+    use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use super::{group_permissions::PolicySet, MlsGroup};
 
