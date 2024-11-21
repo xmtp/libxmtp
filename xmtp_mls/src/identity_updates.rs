@@ -7,6 +7,7 @@ use crate::{
 };
 use futures::future::try_join_all;
 use thiserror::Error;
+use xmtp_cryptography::CredentialSign;
 use xmtp_id::{
     associations::{
         apply_update,
@@ -15,8 +16,8 @@ use xmtp_id::{
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
-        AssociationError, AssociationState, AssociationStateDiff, IdentityUpdate, MemberIdentifier,
-        SignatureError,
+        AssociationError, AssociationState, AssociationStateDiff, IdentityUpdate,
+        InstallationKeyContext, MemberIdentifier, SignatureError,
     },
     scw_verifier::SmartContractSignatureVerifier,
     InboxIdRef,
@@ -285,9 +286,30 @@ where
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
 
-        Ok(builder
+        let installation_public_key = self.identity().installation_keys.verifying_key();
+        let mut signature_request = builder
+            .add_association(
+                installation_public_key.as_bytes().to_vec().into(),
+                existing_wallet_address.clone().into(),
+            )
             .add_association(new_wallet_address.into(), existing_wallet_address.into())
-            .build())
+            .build();
+
+        let signature = self
+            .identity()
+            .installation_keys
+            .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+        signature_request
+            .add_signature(
+                UnverifiedSignature::new_installation_key(
+                    signature,
+                    self.identity().installation_keys.verifying_key(),
+                ),
+                &self.scw_verifier,
+            )
+            .await?;
+
+        Ok(signature_request)
     }
 
     /// Revoke the given wallets from the association state for the client's inbox
