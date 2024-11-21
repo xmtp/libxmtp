@@ -327,9 +327,7 @@ impl Client {
       .try_into()
       .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
 
-    Ok(
-      verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-    )
+    verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))
   }
 }
