@@ -202,6 +202,11 @@ impl Client {
   }
 
   #[napi]
+  pub fn installation_id_bytes(&self) -> Uint8Array {
+    self.inner_client.installation_public_key().into()
+  }
+
+  #[napi]
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<HashMap<String, bool>> {
     let results: HashMap<String, bool> = self
       .inner_client

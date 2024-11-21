@@ -148,9 +148,9 @@ impl EncryptedConnection {
         ))??;
         let salt = <String as FromSqlRow<diesel::sql_types::Text, _>>::build_from_row(&row)?;
         tracing::debug!(
-            "writing salt={} to file {:?}",
             salt,
-            Self::salt_file(PathBuf::from(path))?,
+            file = %Self::salt_file(PathBuf::from(path))?.display(),
+            "writing salt to file"
         );
         let mut f = File::create(Self::salt_file(PathBuf::from(path))?)?;
 
@@ -228,8 +228,7 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             cipher_version.first().as_ref().map(|v| &v.cipher_version),
             cipher_provider_version
         );
-
-        if tracing::enabled!(tracing::Level::INFO) {
+        if tracing::enabled!(tracing::Level::DEBUG) {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
         } else {

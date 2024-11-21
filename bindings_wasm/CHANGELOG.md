@@ -1,5 +1,10 @@
 # @xmtp/wasm-bindings
 
+## 0.0.6
+
+- Added `installation_id_bytes` to `Client`
+- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and `verify_signed_with_public_key` to `Client`
+
 ## 0.0.5
 
 - Filtered out group membership messages from DM groups
