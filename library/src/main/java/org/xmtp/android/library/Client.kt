@@ -9,6 +9,7 @@ import org.xmtp.android.library.libxmtp.XMTPLogger
 import org.xmtp.android.library.messages.rawData
 import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiDeviceSyncKind
+import uniffi.xmtpv3.FfiSignatureRequest
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.generateInboxId
@@ -183,29 +184,52 @@ class Client() {
             }
         }
         ffiClient.signatureRequest()?.let { signatureRequest ->
-            if (signingKey != null) {
-                if (signingKey.type == WalletType.SCW) {
-                    val chainId = signingKey.chainId
-                        ?: throw XMTPException("ChainId is required for smart contract wallets")
-                    signatureRequest.addScwSignature(
-                        signingKey.signSCW(signatureRequest.signatureText()),
-                        signingKey.address.lowercase(),
-                        chainId.toULong(),
-                        signingKey.blockNumber?.toULong()
-                    )
-                } else {
-                    signingKey.sign(signatureRequest.signatureText())?.let {
-                        signatureRequest.addEcdsaSignature(it.rawData)
-                    }
-                }
-
-                ffiClient.registerIdentity(signatureRequest)
-            } else {
-                throw XMTPException("No signer passed but signer was required.")
-            }
+            signingKey?.let { handleSignature(signatureRequest, it) }
+                ?: throw XMTPException("No signer passed but signer was required.")
+            ffiClient.registerIdentity(signatureRequest)
         }
 
         return Pair(ffiClient, dbPath)
+    }
+
+    suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
+        val signatureRequest = ffiClient.revokeAllOtherInstallations()
+        handleSignature(signatureRequest, signingKey)
+        ffiClient.applySignatureRequest(signatureRequest)
+    }
+
+    suspend fun addAccount(recoverAccount: SigningKey, newAccount: SigningKey) {
+        val signatureRequest =
+            ffiClient.addWallet(address.lowercase(), newAccount.address.lowercase())
+        handleSignature(signatureRequest, recoverAccount)
+        handleSignature(signatureRequest, newAccount)
+        ffiClient.applySignatureRequest(signatureRequest)
+    }
+
+    suspend fun removeAccount(recoverAccount: SigningKey, addressToRemove: String) {
+        val signatureRequest = ffiClient.revokeWallet(addressToRemove.lowercase())
+        handleSignature(signatureRequest, recoverAccount)
+        ffiClient.applySignatureRequest(signatureRequest)
+    }
+
+    private suspend fun handleSignature(
+        signatureRequest: FfiSignatureRequest,
+        signingKey: SigningKey,
+    ) {
+        if (signingKey.type == WalletType.SCW) {
+            val chainId = signingKey.chainId
+                ?: throw XMTPException("ChainId is required for smart contract wallets")
+            signatureRequest.addScwSignature(
+                signingKey.signSCW(signatureRequest.signatureText()),
+                signingKey.address.lowercase(),
+                chainId.toULong(),
+                signingKey.blockNumber?.toULong()
+            )
+        } else {
+            signingKey.sign(signatureRequest.signatureText())?.let {
+                signatureRequest.addEcdsaSignature(it.rawData)
+            }
+        }
     }
 
     fun signWithInstallationKey(message: String): ByteArray {
@@ -301,14 +325,6 @@ class Client() {
 
     suspend fun syncConsent() {
         ffiClient.sendSyncRequest(FfiDeviceSyncKind.CONSENT)
-    }
-
-    suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
-        val signatureRequest = ffiClient.revokeAllOtherInstallations()
-        signingKey.sign(signatureRequest.signatureText())?.let {
-            signatureRequest.addEcdsaSignature(it.rawData)
-            ffiClient.applySignatureRequest(signatureRequest)
-        }
     }
 
     suspend fun inboxStatesForInboxIds(

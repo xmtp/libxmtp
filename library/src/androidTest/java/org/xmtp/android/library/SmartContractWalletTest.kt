@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.BeforeClass
 import org.junit.Test
@@ -14,6 +15,7 @@ import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.GenericException
 
 @RunWith(AndroidJUnit4::class)
 class SmartContractWalletTest {
@@ -23,9 +25,9 @@ class SmartContractWalletTest {
         private lateinit var eriSCW: FakeSCWWallet
         private lateinit var eriSCWClient: Client
         private lateinit var options: ClientOptions
-        private lateinit var boV3Wallet: PrivateKeyBuilder
-        private lateinit var boV3: PrivateKey
-        private lateinit var boV3Client: Client
+        private lateinit var boEOAWallet: PrivateKeyBuilder
+        private lateinit var boEOA: PrivateKey
+        private lateinit var boEOAClient: Client
 
         @BeforeClass
         @JvmStatic
@@ -44,11 +46,11 @@ class SmartContractWalletTest {
             )
 
             // EOA
-            boV3Wallet = PrivateKeyBuilder()
-            boV3 = boV3Wallet.getPrivateKey()
-            boV3Client = runBlocking {
+            boEOAWallet = PrivateKeyBuilder()
+            boEOA = boEOAWallet.getPrivateKey()
+            boEOAClient = runBlocking {
                 Client().create(
-                    account = boV3Wallet,
+                    account = boEOAWallet,
                     options = options
                 )
             }
@@ -86,9 +88,57 @@ class SmartContractWalletTest {
     }
 
     @Test
+    fun testAddAndRemovingAccounts() {
+        val davonEOA = PrivateKeyBuilder()
+        val davonSCW2 = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_3)
+
+        runBlocking { davonSCWClient.addAccount(davonSCW, davonEOA) }
+        runBlocking { davonSCWClient.addAccount(davonSCW, davonSCW2) }
+
+        var state = runBlocking { davonSCWClient.inboxState(true) }
+        assertEquals(state.installations.size, 1)
+        assertEquals(state.addresses.size, 3)
+        assertEquals(state.recoveryAddress, davonSCWClient.address.lowercase())
+        assertEquals(
+            state.addresses.sorted(),
+            listOf(
+                davonEOA.address.lowercase(),
+                davonSCW2.address.lowercase(),
+                davonSCWClient.address.lowercase()
+            ).sorted()
+        )
+
+        runBlocking { davonSCWClient.removeAccount(davonSCW, davonSCW2.address) }
+        state = runBlocking { davonSCWClient.inboxState(true) }
+        assertEquals(state.addresses.size, 2)
+        assertEquals(state.recoveryAddress, davonSCWClient.address.lowercase())
+        assertEquals(
+            state.addresses.sorted(),
+            listOf(
+                davonEOA.address.lowercase(),
+                davonSCWClient.address.lowercase()
+            ).sorted()
+        )
+        assertEquals(state.installations.size, 1)
+
+        // Cannot remove the recovery address
+        Assert.assertThrows(
+            "Client error: Unknown Signer",
+            GenericException::class.java
+        ) {
+            runBlocking {
+                davonSCWClient.removeAccount(
+                    davonEOA,
+                    davonSCWClient.address
+                )
+            }
+        }
+    }
+
+    @Test
     fun testsCanCreateGroup() {
         val group1 = runBlocking {
-            boV3Client.conversations.newGroup(
+            boEOAClient.conversations.newGroup(
                 listOf(
                     davonSCW.walletAddress,
                     eriSCW.walletAddress
@@ -98,7 +148,7 @@ class SmartContractWalletTest {
         val group2 = runBlocking {
             davonSCWClient.conversations.newGroup(
                 listOf(
-                    boV3.walletAddress,
+                    boEOA.walletAddress,
                     eriSCW.walletAddress
                 )
             )
@@ -106,18 +156,18 @@ class SmartContractWalletTest {
 
         assertEquals(
             runBlocking { group1.members().map { it.inboxId }.sorted() },
-            listOf(davonSCWClient.inboxId, boV3Client.inboxId, eriSCWClient.inboxId).sorted()
+            listOf(davonSCWClient.inboxId, boEOAClient.inboxId, eriSCWClient.inboxId).sorted()
         )
         assertEquals(
             runBlocking { group2.members().map { it.addresses.first() }.sorted() },
-            listOf(davonSCWClient.address, boV3Client.address, eriSCWClient.address).sorted()
+            listOf(davonSCWClient.address, boEOAClient.address, eriSCWClient.address).sorted()
         )
     }
 
     @Test
     fun testsCanSendMessages() {
         val boGroup = runBlocking {
-            boV3Client.conversations.newGroup(
+            boEOAClient.conversations.newGroup(
                 listOf(
                     davonSCW.walletAddress,
                     eriSCW.walletAddress
@@ -156,7 +206,7 @@ class SmartContractWalletTest {
             val davonGroup = runBlocking {
                 davonSCWClient.conversations.newGroup(
                     listOf(
-                        boV3.walletAddress,
+                        boEOA.walletAddress,
                         eriSCW.walletAddress
                     )
                 )
@@ -197,46 +247,46 @@ class SmartContractWalletTest {
             val davonGroup = runBlocking {
                 davonSCWClient.conversations.newGroup(
                     listOf(
-                        boV3.walletAddress,
+                        boEOA.walletAddress,
                         eriSCW.walletAddress
                     )
                 )
             }
             assertEquals(
-                davonSCWClient.preferences.consentList.inboxIdState(boV3Client.inboxId),
+                davonSCWClient.preferences.consentList.inboxIdState(boEOAClient.inboxId),
                 ConsentState.UNKNOWN
             )
             davonSCWClient.preferences.consentList.setConsentState(
                 listOf(
                     ConsentListEntry(
-                        boV3Client.inboxId,
+                        boEOAClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.ALLOWED
                     )
                 )
             )
-            var alixMember = davonGroup.members().firstOrNull { it.inboxId == boV3Client.inboxId }
+            var alixMember = davonGroup.members().firstOrNull { it.inboxId == boEOAClient.inboxId }
             assertEquals(alixMember!!.consentState, ConsentState.ALLOWED)
 
             assertEquals(
-                davonSCWClient.preferences.consentList.inboxIdState(boV3Client.inboxId),
+                davonSCWClient.preferences.consentList.inboxIdState(boEOAClient.inboxId),
                 ConsentState.ALLOWED
             )
 
             davonSCWClient.preferences.consentList.setConsentState(
                 listOf(
                     ConsentListEntry(
-                        boV3Client.inboxId,
+                        boEOAClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.DENIED
                     )
                 )
             )
-            alixMember = davonGroup.members().firstOrNull { it.inboxId == boV3Client.inboxId }
+            alixMember = davonGroup.members().firstOrNull { it.inboxId == boEOAClient.inboxId }
             assertEquals(alixMember!!.consentState, ConsentState.DENIED)
 
             assertEquals(
-                davonSCWClient.preferences.consentList.inboxIdState(boV3Client.inboxId),
+                davonSCWClient.preferences.consentList.inboxIdState(boEOAClient.inboxId),
                 ConsentState.DENIED
             )
 
@@ -267,13 +317,13 @@ class SmartContractWalletTest {
         val group1 = runBlocking {
             davonSCWClient.conversations.newGroup(
                 listOf(
-                    boV3.walletAddress,
+                    boEOA.walletAddress,
                     eriSCW.walletAddress
                 )
             )
         }
         val group2 = runBlocking {
-            boV3Client.conversations.newGroup(
+            boEOAClient.conversations.newGroup(
                 listOf(
                     davonSCW.walletAddress,
                     eriSCW.walletAddress
@@ -281,7 +331,7 @@ class SmartContractWalletTest {
             )
         }
         val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCW.walletAddress) }
-        val dm2 = runBlocking { boV3Client.conversations.findOrCreateDm(davonSCW.walletAddress) }
+        val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCW.walletAddress) }
         runBlocking { davonSCWClient.conversations.sync() }
 
         val allMessages = mutableListOf<DecodedMessage>()
@@ -323,10 +373,10 @@ class SmartContractWalletTest {
         Thread.sleep(1000)
 
         runBlocking {
-            eriSCWClient.conversations.newGroup(listOf(boV3.walletAddress, davonSCW.walletAddress))
-            boV3Client.conversations.newGroup(listOf(eriSCW.walletAddress, davonSCW.walletAddress))
+            eriSCWClient.conversations.newGroup(listOf(boEOA.walletAddress, davonSCW.walletAddress))
+            boEOAClient.conversations.newGroup(listOf(eriSCW.walletAddress, davonSCW.walletAddress))
             eriSCWClient.conversations.findOrCreateDm(davonSCW.walletAddress)
-            boV3Client.conversations.findOrCreateDm(davonSCW.walletAddress)
+            boEOAClient.conversations.findOrCreateDm(davonSCW.walletAddress)
         }
 
         Thread.sleep(1000)

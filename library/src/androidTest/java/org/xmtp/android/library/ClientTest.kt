@@ -331,7 +331,74 @@ class ClientTest {
                 listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId)
             )
         }
-        assertEquals(states.first().recoveryAddress.lowercase(), fixtures.bo.walletAddress.lowercase())
-        assertEquals(states.last().recoveryAddress.lowercase(), fixtures.caro.walletAddress.lowercase())
+        assertEquals(
+            states.first().recoveryAddress.lowercase(),
+            fixtures.bo.walletAddress.lowercase()
+        )
+        assertEquals(
+            states.last().recoveryAddress.lowercase(),
+            fixtures.caro.walletAddress.lowercase()
+        )
+    }
+
+    @Test
+    fun testAddAccounts() {
+        val fixtures = fixtures()
+        val alix2Wallet = PrivateKeyBuilder()
+        val alix3Wallet = PrivateKeyBuilder()
+        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix2Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix3Wallet) }
+
+        val state = runBlocking { fixtures.alixClient.inboxState(true) }
+        assertEquals(state.installations.size, 1)
+        assertEquals(state.addresses.size, 3)
+        assertEquals(state.recoveryAddress, fixtures.alixClient.address.lowercase())
+        assertEquals(
+            state.addresses.sorted(),
+            listOf(
+                alix2Wallet.address.lowercase(),
+                alix3Wallet.address.lowercase(),
+                fixtures.alixClient.address.lowercase()
+            ).sorted()
+        )
+    }
+
+    @Test
+    fun testRemovingAccounts() {
+        val fixtures = fixtures()
+        val alix2Wallet = PrivateKeyBuilder()
+        val alix3Wallet = PrivateKeyBuilder()
+        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix2Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix3Wallet) }
+
+        var state = runBlocking { fixtures.alixClient.inboxState(true) }
+        assertEquals(state.addresses.size, 3)
+        assertEquals(state.recoveryAddress, fixtures.alixClient.address.lowercase())
+
+        runBlocking { fixtures.alixClient.removeAccount(fixtures.alixAccount, alix2Wallet.address) }
+        state = runBlocking { fixtures.alixClient.inboxState(true) }
+        assertEquals(state.addresses.size, 2)
+        assertEquals(state.recoveryAddress, fixtures.alixClient.address.lowercase())
+        assertEquals(
+            state.addresses.sorted(),
+            listOf(
+                alix3Wallet.address.lowercase(),
+                fixtures.alixClient.address.lowercase()
+            ).sorted()
+        )
+        assertEquals(state.installations.size, 1)
+
+        // Cannot remove the recovery address
+        assertThrows(
+            "Client error: Unknown Signer",
+            GenericException::class.java
+        ) {
+            runBlocking {
+                fixtures.alixClient.removeAccount(
+                    alix3Wallet,
+                    fixtures.alixClient.address
+                )
+            }
+        }
     }
 }
