@@ -276,7 +276,7 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
-    pub fn associate_wallet(
+    pub async fn associate_wallet(
         &self,
         existing_wallet_address: String,
         new_wallet_address: String,
@@ -603,6 +603,7 @@ pub(crate) mod tests {
 
         let mut add_association_request = client
             .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+            .await
             .unwrap();
 
         add_wallet_signature(&mut add_association_request, &wallet).await;
@@ -657,6 +658,7 @@ pub(crate) mod tests {
 
             let mut add_association_request = client
                 .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+                .await
                 .unwrap();
 
             add_wallet_signature(&mut add_association_request, &wallet).await;
@@ -738,6 +740,7 @@ pub(crate) mod tests {
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
                 .associate_wallet(wallet.get_address(), new_wallet.get_address())
+                .await
                 .unwrap();
 
             add_wallet_signature(&mut add_association_request, &wallet).await;
@@ -818,6 +821,7 @@ pub(crate) mod tests {
 
         let mut add_wallet_signature_request = client
             .associate_wallet(recovery_wallet.get_address(), second_wallet.get_address())
+            .await
             .unwrap();
 
         add_wallet_signature(&mut add_wallet_signature_request, &recovery_wallet).await;

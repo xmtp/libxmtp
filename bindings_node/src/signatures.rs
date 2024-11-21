@@ -46,6 +46,7 @@ impl Client {
         existing_wallet_address.to_lowercase(),
         new_wallet_address.to_lowercase(),
       )
+      .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
