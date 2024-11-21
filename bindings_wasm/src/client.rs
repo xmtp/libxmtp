@@ -203,6 +203,11 @@ impl Client {
     ed25519_public_key_to_address(self.inner_client.installation_public_key().as_slice())
   }
 
+  #[wasm_bindgen(getter, js_name = installationIdBytes)]
+  pub fn installation_id_bytes(&self) -> Uint8Array {
+    Uint8Array::from(self.inner_client.installation_public_key().as_slice())
+  }
+
   #[wasm_bindgen(js_name = canMessage)]
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<JsValue, JsError> {
     let results: HashMap<String, bool> = self
