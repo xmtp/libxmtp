@@ -4452,10 +4452,6 @@ mod tests {
         );
 
         // Sync all clients including Alix's new instance
-        alix_group
-            .add_members(vec![alix_client2.account_address.clone()])
-            .await
-            .unwrap();
         alix.conversations().sync().await.unwrap();
         alix.conversations().sync_all_conversations().await.unwrap();
         bo.conversations().sync_all_conversations().await.unwrap();
