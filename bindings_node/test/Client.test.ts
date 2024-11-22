@@ -73,10 +73,6 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    // await client.addSignature(
-      // SignatureRequestType.AddWallet,
-      // toBytes(signature)
-    // )
     await client.addSignature(
       SignatureRequestType.AddWallet,
       toBytes(signature2)
