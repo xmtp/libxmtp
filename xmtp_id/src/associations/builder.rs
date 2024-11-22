@@ -198,7 +198,7 @@ impl SignatureRequest {
         self.pending_actions
             .iter()
             .flat_map(|pending_action| pending_action.pending_signatures.values())
-            .filter(|pa| !self.signatures.contains_key(pa))
+            .filter(|ident| !self.signatures.contains_key(ident))
             .collect()
     }
 
