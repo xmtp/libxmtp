@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.7
+
+- Moved `verify_signed_with_public_key` out of `Client`
+
 ## 0.0.6
 
 - Added `installation_id_bytes` to `Client`
