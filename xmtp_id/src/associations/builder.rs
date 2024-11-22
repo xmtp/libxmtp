@@ -260,8 +260,10 @@ impl SignatureRequest {
         let signer_identity = &verified_signature.signer;
 
         let missing_signatures = self.missing_signatures();
-        tracing::info!("Provided Signer: {}", signer_identity);
-        tracing::info!("Missing Signatures: {:?}", missing_signatures);
+        tracing::info!(
+            signer = %signer_identity,
+            missing_signatures=?missing_signatures,
+            "adding verified signature");
 
         // Make sure the signer is someone actually in the request
         if !missing_signatures.contains(&signer_identity) {

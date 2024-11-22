@@ -189,11 +189,9 @@ where
         self.sync_with_conn(&mls_provider).await
     }
 
+    // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn sync_with_conn(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), GroupError> {
+    pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 

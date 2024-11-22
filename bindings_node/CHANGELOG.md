@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.21
+
+- Added `installation_id_bytes` to `Client`
+
 ## 0.0.20
 
 - Fixed argument types for new signing methods

@@ -17,10 +17,22 @@ impl std::fmt::Display for MemberKind {
 }
 
 /// A MemberIdentifier can be either an Address or an Installation Public Key
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub enum MemberIdentifier {
     Address(String),
     Installation(Vec<u8>),
+}
+
+impl std::fmt::Debug for MemberIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Address(addr) => f.debug_tuple("Address").field(addr).finish(),
+            Self::Installation(i) => f
+                .debug_tuple("Installation")
+                .field(&hex::encode(i))
+                .finish(),
+        }
+    }
 }
 
 impl MemberIdentifier {
