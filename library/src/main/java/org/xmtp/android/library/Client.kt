@@ -236,6 +236,24 @@ class Client() {
         return ffiClient.signWithInstallationKey(message)
     }
 
+    fun verifySignature(message: String, signature: ByteArray): Boolean {
+        return try {
+            ffiClient.verifySignedWithInstallationKey(message, signature)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun verifySignatureWithInstallationId(message: String, signature: ByteArray, installationId: String): Boolean {
+        return try {
+            ffiClient.verifySignedWithPublicKey(message, signature, installationId.hexToByteArray())
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun findGroup(groupId: String): Group? {
         return try {
             Group(this, ffiClient.conversation(groupId.hexToByteArray()))

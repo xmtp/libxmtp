@@ -342,6 +342,79 @@ class ClientTest {
     }
 
     @Test
+    fun testsSignatures() {
+        val fixtures = fixtures()
+        val signature = fixtures.alixClient.signWithInstallationKey("Testing")
+        assertEquals(fixtures.alixClient.verifySignature("Testing", signature), true)
+        assertEquals(fixtures.alixClient.verifySignature("Not Testing", signature), false)
+
+        val alixInstallationId = fixtures.alixClient.installationId
+        assertEquals(
+            fixtures.alixClient.verifySignatureWithInstallationId(
+                "Testing",
+                signature,
+                alixInstallationId
+            ),
+            true
+        )
+        assertEquals(
+            fixtures.alixClient.verifySignatureWithInstallationId(
+                "Not Testing",
+                signature,
+                alixInstallationId
+            ),
+            false
+        )
+        assertEquals(
+            fixtures.alixClient.verifySignatureWithInstallationId(
+                "Testing",
+                signature,
+                fixtures.boClient.installationId
+            ),
+            false
+        )
+        assertEquals(
+            fixtures.boClient.verifySignatureWithInstallationId(
+                "Testing",
+                signature,
+                alixInstallationId
+            ),
+            true
+        )
+        fixtures.alixClient.deleteLocalDatabase()
+
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixClient2 = runBlocking {
+            Client().create(
+                account = fixtures.alixAccount,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+
+        assertEquals(
+            alixClient2.verifySignatureWithInstallationId(
+                "Testing",
+                signature,
+                alixInstallationId
+            ),
+            true
+        )
+        assertEquals(
+            alixClient2.verifySignatureWithInstallationId(
+                "Testing2",
+                signature,
+                alixInstallationId
+            ),
+            false
+        )
+    }
+
+    @Test
     fun testAddAccounts() {
         val fixtures = fixtures()
         val alix2Wallet = PrivateKeyBuilder()
