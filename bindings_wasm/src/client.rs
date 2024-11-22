@@ -124,7 +124,7 @@ pub async fn create_client(
   host: String,
   inbox_id: String,
   account_address: String,
-  db_path: String,
+  db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
@@ -133,7 +133,10 @@ pub async fn create_client(
   xmtp_mls::storage::init_sqlite().await;
   let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
 
-  let storage_option = StorageOption::Persistent(db_path);
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
 
   let store = match encryption_key {
     Some(key) => {

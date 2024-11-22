@@ -122,7 +122,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
 pub async fn create_client(
   host: String,
   is_secure: bool,
-  db_path: String,
+  db_path: Option<String>,
   inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
@@ -134,7 +134,10 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
-  let storage_option = StorageOption::Persistent(db_path);
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
 
   let store = match encryption_key {
     Some(key) => {
