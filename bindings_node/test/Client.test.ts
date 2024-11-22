@@ -64,7 +64,6 @@ describe('Client', () => {
     const user2 = createUser()
     const client = await createRegisteredClient(user)
     const signatureText = await client.addWalletSignatureText(
-      user.account.address,
       user2.account.address
     )
     expect(signatureText).toBeDefined()
@@ -93,7 +92,6 @@ describe('Client', () => {
     const user2 = createUser()
     const client = await createRegisteredClient(user)
     const signatureText = await client.addWalletSignatureText(
-      user.account.address,
       user2.account.address
     )
     expect(signatureText).toBeDefined()
