@@ -1,3 +1,4 @@
+use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -91,6 +92,12 @@ impl From<String> for MemberIdentifier {
 impl From<Vec<u8>> for MemberIdentifier {
     fn from(installation: Vec<u8>) -> Self {
         MemberIdentifier::Installation(installation)
+    }
+}
+
+impl From<VerifyingKey> for MemberIdentifier {
+    fn from(installation: VerifyingKey) -> Self {
+        installation.as_bytes().to_vec().into()
     }
 }
 

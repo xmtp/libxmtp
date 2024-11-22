@@ -279,20 +279,15 @@ where
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
     pub async fn associate_wallet(
         &self,
-        existing_wallet_address: String,
         new_wallet_address: String,
     ) -> Result<SignatureRequest, ClientError> {
         tracing::info!("Associating new wallet with inbox_id {}", self.inbox_id());
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
-
         let installation_public_key = self.identity().installation_keys.verifying_key();
+
         let mut signature_request = builder
-            .add_association(
-                installation_public_key.as_bytes().to_vec().into(),
-                existing_wallet_address.clone().into(),
-            )
-            .add_association(new_wallet_address.into(), existing_wallet_address.into())
+            .add_association(new_wallet_address.into(), installation_public_key.into())
             .build();
 
         let signature = self
@@ -301,10 +296,7 @@ where
             .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
         signature_request
             .add_signature(
-                UnverifiedSignature::new_installation_key(
-                    signature,
-                    self.identity().installation_keys.verifying_key(),
-                ),
+                UnverifiedSignature::new_installation_key(signature, installation_public_key),
                 &self.scw_verifier,
             )
             .await?;
@@ -624,7 +616,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut add_association_request = client
-            .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+            .associate_wallet(wallet_2_address.clone())
             .await
             .unwrap();
 
@@ -679,7 +671,7 @@ pub(crate) mod tests {
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
-                .associate_wallet(wallet_address.clone(), wallet_2_address.clone())
+                .associate_wallet(wallet_2_address.clone())
                 .await
                 .unwrap();
 
@@ -761,7 +753,7 @@ pub(crate) mod tests {
                 .unwrap();
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
-                .associate_wallet(wallet.get_address(), new_wallet.get_address())
+                .associate_wallet(new_wallet.get_address())
                 .await
                 .unwrap();
 
@@ -842,7 +834,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&recovery_wallet).await;
 
         let mut add_wallet_signature_request = client
-            .associate_wallet(recovery_wallet.get_address(), second_wallet.get_address())
+            .associate_wallet(second_wallet.get_address())
             .await
             .unwrap();
 
