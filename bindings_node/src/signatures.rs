@@ -35,17 +35,11 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_wallet_signature_text(
-    &self,
-    existing_wallet_address: String,
-    new_wallet_address: String,
-  ) -> Result<String> {
+  pub async fn add_wallet_signature_text(&self, new_wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client()
-      .associate_wallet(
-        existing_wallet_address.to_lowercase(),
-        new_wallet_address.to_lowercase(),
-      )
+      .associate_wallet(new_wallet_address.to_lowercase())
+      .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
