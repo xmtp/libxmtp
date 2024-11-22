@@ -472,14 +472,18 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Adds an identity - really a wallet address - to the existing client
+    /// Adds a wallet address to the existing client
     pub async fn add_wallet(
         &self,
+        existing_wallet_address: &str,
         new_wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .associate_wallet(new_wallet_address.into())
+            .associate_wallet(
+                existing_wallet_address.to_string(),
+                new_wallet_address.into(),
+            )
             .await?;
         let scw_verifier = self.inner_client.scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
@@ -2244,7 +2248,7 @@ mod tests {
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&new_account_address)
+            .add_wallet(&ffi_inbox_owner.get_address(), &new_account_address)
             .await
             .expect("could not add wallet");
 
@@ -2312,7 +2316,7 @@ mod tests {
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&new_account_address)
+            .add_wallet(&ffi_inbox_owner.get_address(), &new_account_address)
             .await
             .expect("could not add wallet");
 
