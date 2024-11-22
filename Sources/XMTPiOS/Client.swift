@@ -292,15 +292,11 @@ public final class Client {
 		self.environment = environment
 	}
 
-	public func addAccount(recoveryAccount: SigningKey, newAccount: SigningKey)
+	public func addAccount(newAccount: SigningKey)
 		async throws
 	{
-		let signatureRequest = try await ffiClient.addWallet(
-			existingWalletAddress: recoveryAccount.address.lowercased(),
-			newWalletAddress: newAccount.address.lowercased())
+		let signatureRequest = try await ffiClient.addWallet(newWalletAddress: newAccount.address.lowercased())
 		do {
-			try await Client.handleSignature(
-				for: signatureRequest, signingKey: recoveryAccount)
 			try await Client.handleSignature(
 				for: signatureRequest, signingKey: newAccount)
 			try await ffiClient.applySignatureRequest(

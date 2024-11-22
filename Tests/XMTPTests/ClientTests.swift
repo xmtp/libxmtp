@@ -332,10 +332,8 @@ class ClientTests: XCTestCase {
 		let alix2Wallet = try PrivateKey.generate()
 		let alix3Wallet = try PrivateKey.generate()
 
-		try await fixtures.alixClient.addAccount(
-			recoveryAccount: fixtures.alix, newAccount: alix2Wallet)
-		try await fixtures.alixClient.addAccount(
-			recoveryAccount: fixtures.alix, newAccount: alix3Wallet)
+		try await fixtures.alixClient.addAccount(newAccount: alix2Wallet)
+		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		let state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
@@ -359,10 +357,8 @@ class ClientTests: XCTestCase {
 		let alix2Wallet = try PrivateKey.generate()
 		let alix3Wallet = try PrivateKey.generate()
 
-		try await fixtures.alixClient.addAccount(
-			recoveryAccount: fixtures.alix, newAccount: alix2Wallet)
-		try await fixtures.alixClient.addAccount(
-			recoveryAccount: fixtures.alix, newAccount: alix3Wallet)
+		try await fixtures.alixClient.addAccount(newAccount: alix2Wallet)
+		try await fixtures.alixClient.addAccount(newAccount: alix3Wallet)
 
 		var state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
