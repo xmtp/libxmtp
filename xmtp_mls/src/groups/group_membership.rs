@@ -41,7 +41,7 @@ impl GroupMembership {
     pub fn diff<'inbox_id>(
         &'inbox_id self,
         new_group_membership: &'inbox_id Self,
-    ) -> MembershipDiff {
+    ) -> MembershipDiff<'inbox_id> {
         let mut removed_inboxes: Vec<&String> = vec![];
         let mut updated_inboxes: Vec<&String> = vec![];
 

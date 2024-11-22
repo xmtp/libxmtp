@@ -4,7 +4,7 @@ pub mod serialization;
 pub mod sql_key_store;
 
 pub use encrypted_store::*;
-pub use errors::{DuplicateItem, StorageError};
+pub use errors::*;
 
 /// Initialize the SQLite WebAssembly Library
 #[cfg(target_arch = "wasm32")]

@@ -40,6 +40,7 @@ use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, Unv
 use xmtp_id::associations::{generate_inbox_id, AssociationError, AssociationState, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
+use xmtp_mls::groups::GroupError;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_mls::XmtpApi;
@@ -164,6 +165,8 @@ enum CliError {
     Generic(String),
     #[error(transparent)]
     Association(#[from] AssociationError),
+    #[error(transparent)]
+    Group(#[from] GroupError),
 }
 
 impl From<String> for CliError {
@@ -493,16 +496,16 @@ async fn create_client<C: XmtpApi + 'static>(
     account: IdentityStrategy,
     grpc: C,
 ) -> Result<xmtp_mls::client::Client<C>, CliError> {
-    let msg_store = get_encrypted_store(&cli.db).await.unwrap();
+    let msg_store = get_encrypted_store(&cli.db).await?;
     let mut builder = xmtp_mls::builder::ClientBuilder::<C>::new(account).store(msg_store);
 
     builder = builder.api_client(grpc);
 
-    if cli.env == Env::Local {
-        builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
-    } else {
-        builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
-    }
+    builder = match (cli.testnet, &cli.env) {
+        (false, Env::Local) => builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
+        (false, Env::Dev) => builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS),
+        _ => builder,
+    };
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
 
@@ -580,7 +583,7 @@ async fn send(group: MlsGroup, msg: String) -> Result<(), CliError> {
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await.unwrap();
+    group.send_message(buf.as_slice()).await?;
     Ok(())
 }
 

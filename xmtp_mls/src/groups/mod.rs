@@ -591,17 +591,26 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message on this users XMTP [`Client`].
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
-        self.maybe_update_installations(&provider, update_interval_ns)
+        self.send_message_with_provider(message, &provider).await
+    }
+
+    /// Send a message with the given [`XmtpOpenMlsProvider`]
+    pub async fn send_message_with_provider(
+        &self,
+        message: &[u8],
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<u8>, GroupError> {
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(provider, update_interval_ns)
             .await?;
 
         let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
             Self::into_envelope(message, now)
         });
 
-        self.sync_until_last_intent_resolved(&provider).await?;
+        self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -706,12 +715,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(messages)
     }
 
-    /**
-     * Add members to the group by account address
-     *
-     * If any existing members have new installations that have not been added or removed, the
-     * group membership will be updated to include those changes as well.
-     */
+    ///
+    /// Add members to the group by account address
+    ///
+    /// If any existing members have new installations that have not been added or removed, the
+    /// group membership will be updated to include those changes as well.
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(&self, account_addresses_to_add: &[String]) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;

@@ -35,6 +35,8 @@ wasm-bindgen-futures.workspace = true
 
 [features]
 ws = ["ethers/ws"]
+# Expose private keys in addition to public
+exposed-keys = []
 
 [dev-dependencies]
 openmls_basic_credential = { workspace = true, features = ["test-utils"] }

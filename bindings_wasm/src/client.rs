@@ -11,6 +11,7 @@ use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -203,6 +204,11 @@ impl Client {
     ed25519_public_key_to_address(self.inner_client.installation_public_key().as_slice())
   }
 
+  #[wasm_bindgen(getter, js_name = installationIdBytes)]
+  pub fn installation_id_bytes(&self) -> Uint8Array {
+    Uint8Array::from(self.inner_client.installation_public_key().as_slice())
+  }
+
   #[wasm_bindgen(js_name = canMessage)]
   pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<JsValue, JsError> {
     let results: HashMap<String, bool> = self
@@ -277,5 +283,51 @@ impl Client {
   #[wasm_bindgen]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
+  }
+
+  #[wasm_bindgen(js_name = signWithInstallationKey)]
+  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array, JsError> {
+    let result = self
+      .inner_client
+      .context()
+      .sign_with_public_context(signature_text)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(Uint8Array::from(result.as_slice()))
+  }
+
+  #[wasm_bindgen(js_name = verifySignedWithInstallationKey)]
+  pub fn verify_signed_with_installation_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Uint8Array,
+  ) -> Result<(), JsError> {
+    let public_key = self.inner_client().installation_public_key();
+    self.verify_signed_with_public_key(
+      signature_text,
+      signature_bytes,
+      Uint8Array::from(public_key.as_slice()),
+    )
+  }
+
+  #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
+  pub fn verify_signed_with_public_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Uint8Array,
+    public_key: Uint8Array,
+  ) -> Result<(), JsError> {
+    let signature_bytes = signature_bytes.to_vec();
+    let signature_bytes: [u8; 64] = signature_bytes
+      .try_into()
+      .map_err(|_| JsError::new("signature_bytes is not 64 bytes long."))?;
+
+    let public_key = public_key.to_vec();
+    let public_key: [u8; 32] = public_key
+      .try_into()
+      .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
+
+    verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))
   }
 }

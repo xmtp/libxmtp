@@ -472,15 +472,15 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Adds an identity - really a wallet address - to the existing client
+    /// Adds a wallet address to the existing client
     pub async fn add_wallet(
         &self,
-        existing_wallet_address: &str,
         new_wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())?;
+            .associate_wallet(new_wallet_address.into())
+            .await?;
         let scw_verifier = self.inner_client.scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -2172,27 +2172,28 @@ mod tests {
         assert!(result_errored, "did not error on wrong encryption key")
     }
 
-    use super::FfiSignatureRequest;
-    async fn sign_with_wallet(
-        wallet: &xmtp_cryptography::utils::LocalWallet,
-        signature_request: &FfiSignatureRequest,
-    ) {
-        let scw_verifier = signature_request.scw_verifier.clone();
-        let signature_text = signature_request.inner.lock().await.signature_text();
-        let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
+    trait SignWithWallet {
+        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet);
+    }
 
-        signature_request
-            .inner
-            .lock()
-            .await
-            .add_signature(
-                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
-                    wallet_signature,
-                )),
-                scw_verifier,
-            )
-            .await
-            .unwrap();
+    use super::FfiSignatureRequest;
+    impl SignWithWallet for FfiSignatureRequest {
+        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
+            let signature_text = self.inner.lock().await.signature_text();
+            let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
+
+            self.inner
+                .lock()
+                .await
+                .add_signature(
+                    UnverifiedSignature::RecoverableEcdsa(
+                        UnverifiedRecoverableEcdsaSignature::new(wallet_signature),
+                    ),
+                    &self.scw_verifier,
+                )
+                .await
+                .unwrap();
+        }
     }
 
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -2224,7 +2225,9 @@ mod tests {
         let signature_request = client.signature_request().unwrap().clone();
         register_client(&ffi_inbox_owner, &client).await;
 
-        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
 
         let conn = client.inner_client.store().conn().unwrap();
         let state = client
@@ -2236,18 +2239,16 @@ mod tests {
         assert_eq!(state.members().len(), 2);
 
         // Now, add the second wallet to the client
-
         let wallet_to_add = generate_local_wallet();
         let new_account_address = wallet_to_add.get_address();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&ffi_inbox_owner.get_address(), &new_account_address)
+            .add_wallet(&new_account_address)
             .await
             .expect("could not add wallet");
 
-        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
-        sign_with_wallet(&wallet_to_add, &signature_request).await;
+        signature_request.add_wallet_signature(&wallet_to_add).await;
 
         client
             .apply_signature_request(signature_request)
@@ -2290,7 +2291,9 @@ mod tests {
         let signature_request = client.signature_request().unwrap().clone();
         register_client(&ffi_inbox_owner, &client).await;
 
-        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
 
         let conn = client.inner_client.store().conn().unwrap();
         let state = client
@@ -2308,12 +2311,11 @@ mod tests {
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&ffi_inbox_owner.get_address(), &new_account_address)
+            .add_wallet(&new_account_address)
             .await
             .expect("could not add wallet");
 
-        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
-        sign_with_wallet(&wallet_to_add, &signature_request).await;
+        signature_request.add_wallet_signature(&wallet_to_add).await;
 
         client
             .apply_signature_request(signature_request.clone())
@@ -2334,7 +2336,9 @@ mod tests {
             .await
             .expect("could not revoke wallet");
 
-        sign_with_wallet(&ffi_inbox_owner.wallet, &signature_request).await;
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
 
         client
             .apply_signature_request(signature_request)
@@ -3835,7 +3839,7 @@ mod tests {
         assert_eq!(client_2_state.installations.len(), 2);
 
         let signature_request = client_1.revoke_all_other_installations().await.unwrap();
-        sign_with_wallet(&wallet, &signature_request).await;
+        signature_request.add_wallet_signature(&wallet).await;
         client_1
             .apply_signature_request(signature_request)
             .await

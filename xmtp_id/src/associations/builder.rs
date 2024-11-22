@@ -2,7 +2,7 @@
 //! resolved into an [`IdentityUpdate`]. An [`IdentityUpdate`] may be used for updating the state
 //! of an XMTP ID according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{scw_verifier::SmartContractSignatureVerifier, utils::now_ns};
 use thiserror::Error;
@@ -194,29 +194,18 @@ impl SignatureRequest {
         }
     }
 
-    pub fn missing_signatures(&self) -> Vec<MemberIdentifier> {
-        let signers: HashSet<MemberIdentifier> = self
-            .pending_actions
+    pub fn missing_signatures(&self) -> Vec<&MemberIdentifier> {
+        self.pending_actions
             .iter()
-            .flat_map(|pending_action| {
-                pending_action
-                    .pending_signatures
-                    .values()
-                    .cloned()
-                    .collect::<Vec<MemberIdentifier>>()
-            })
-            .collect();
-
-        let signatures: HashSet<MemberIdentifier> = self.signatures.keys().cloned().collect();
-
-        signers.difference(&signatures).cloned().collect()
+            .flat_map(|pending_action| pending_action.pending_signatures.values())
+            .filter(|ident| !self.signatures.contains_key(ident))
+            .collect()
     }
 
-    pub fn missing_address_signatures(&self) -> Vec<MemberIdentifier> {
+    pub fn missing_address_signatures(&self) -> Vec<&MemberIdentifier> {
         self.missing_signatures()
-            .iter()
+            .into_iter()
             .filter(|member| member.kind() == MemberKind::Address)
-            .cloned()
             .collect()
     }
 
@@ -271,11 +260,13 @@ impl SignatureRequest {
         let signer_identity = &verified_signature.signer;
 
         let missing_signatures = self.missing_signatures();
-        tracing::info!("Provided Signer: {}", signer_identity);
-        tracing::info!("Missing Signatures: {:?}", missing_signatures);
+        tracing::info!(
+            signer = %signer_identity,
+            missing_signatures=?missing_signatures,
+            "adding verified signature");
 
         // Make sure the signer is someone actually in the request
-        if !missing_signatures.contains(signer_identity) {
+        if !missing_signatures.contains(&signer_identity) {
             return Err(SignatureRequestError::UnknownSigner);
         }
 
