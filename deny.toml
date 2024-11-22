@@ -20,6 +20,8 @@ allow = [
     "CC0-1.0",
     "BSD-2-Clause",
     "Unicode-3.0",
+    "Zlib",
+    "BSL-1.0"
 ]
 confidence-threshold = 1.0
 

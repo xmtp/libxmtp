@@ -208,7 +208,7 @@ macro_rules! retryable {
 }
 
 // network errors should generally be retryable, unless there's a bug in our code
-impl RetryableError for xmtp_proto::api_client::Error {
+impl RetryableError for xmtp_proto::Error {
     fn is_retryable(&self) -> bool {
         true
     }

@@ -12,15 +12,16 @@ pub fn seeded_rng(seed: u64) -> impl CryptoRng + RngCore {
     ChaCha20Rng::seed_from_u64(seed)
 }
 
-pub fn eth_address(pubkey: &VerifyingKey) -> Result<String, String> {
+/// Construct an ethereum address from a ecdsa public key
+pub fn eth_address(pubkey: &VerifyingKey) -> [u8; 20] {
     // Get the public key bytes
     let binding = pubkey.to_encoded_point(false);
     let public_key_bytes = binding.as_bytes();
 
+    let mut out = [0u8; 20];
     let hash = keccak256(public_key_bytes);
-
-    // Return the result as hex string, take the last 20 bytes
-    Ok(format!("0x{}", hex::encode(&hash[12..])))
+    out.copy_from_slice(&hash[12..]);
+    out
 }
 
 pub fn generate_local_wallet() -> LocalWallet {

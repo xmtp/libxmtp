@@ -22,6 +22,7 @@ mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::{DuplicateItem, StorageError};
+pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;

@@ -40,6 +40,8 @@ use xmtp_cryptography::{
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_id::associations::{generate_inbox_id, AssociationError, AssociationState, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
+use xmtp_mls::groups::scoped_client::ScopedGroupClient;
+use xmtp_mls::groups::GroupError;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_mls::XmtpApi;
@@ -141,6 +143,10 @@ enum Commands {
     /// Information about the account that owns the DB
     Info {},
     Clear {},
+    GetInboxId {
+        #[arg(value_name = "Account Address")]
+        account_address: String,
+    },
     #[command(subcommand)]
     Debug(DebugCommands),
 }
@@ -159,6 +165,8 @@ enum CliError {
     Generic(String),
     #[error(transparent)]
     Association(#[from] AssociationError),
+    #[error(transparent)]
+    Group(#[from] GroupError),
 }
 
 impl From<String> for CliError {
@@ -196,7 +204,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
     let crate_name = env!("CARGO_PKG_NAME");
-    let filter = EnvFilter::builder().parse(format!("{crate_name}=INFO,xmtp_mls=INFO"))?;
+    let filter = EnvFilter::builder().parse(format!(
+        "{crate_name}=INFO,xmtp_mls=INFO,xmtp_api_grpc=INFO"
+    ))?;
     if cli.json {
         let fmt = tracing_subscriber::fmt::layer()
             .json()
@@ -225,30 +235,20 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => Box::new(
-            ClientV4::create("http://localhost:5050".into(), false)
-                .await
-                .unwrap(),
-        ),
-        (true, Env::Dev) => Box::new(
-            ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        ),
-        (false, Env::Local) => Box::new(
-            ClientV3::create("http://localhost:5556".into(), false)
-                .await
-                .unwrap(),
-        ),
-        (false, Env::Dev) => Box::new(
-            ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
-        ),
+        (true, Env::Local) => {
+            Box::new(ClientV4::create("http://localhost:5050".into(), false).await?)
+        }
+        (true, Env::Dev) => {
+            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true).await?)
+        }
+        (false, Env::Local) => {
+            Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
+        }
+        (false, Env::Dev) => {
+            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true).await?)
+        }
         (false, Env::Production) => Box::new(
-            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
+            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true).await?,
         ),
         (true, Env::Production) => todo!("not supported"),
     };
@@ -478,6 +478,14 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::Debug(debug_commands) => {
             debug::handle_debug(&client, debug_commands).await.unwrap();
         }
+        Commands::GetInboxId { account_address } => {
+            let mapping = client
+                .api()
+                .get_inbox_ids(vec![account_address.clone()])
+                .await?;
+            let inbox_id = mapping.get(account_address).unwrap();
+            info!("Inbox_id {inbox_id}");
+        }
     }
 
     Ok(())
@@ -488,16 +496,16 @@ async fn create_client<C: XmtpApi + 'static>(
     account: IdentityStrategy,
     grpc: C,
 ) -> Result<xmtp_mls::client::Client<C>, CliError> {
-    let msg_store = get_encrypted_store(&cli.db).await.unwrap();
+    let msg_store = get_encrypted_store(&cli.db).await?;
     let mut builder = xmtp_mls::builder::ClientBuilder::<C>::new(account).store(msg_store);
 
     builder = builder.api_client(grpc);
 
-    if cli.env == Env::Local {
-        builder = builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS);
-    } else {
-        builder = builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS);
-    }
+    builder = match (cli.testnet, &cli.env) {
+        (false, Env::Local) => builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
+        (false, Env::Dev) => builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS),
+        _ => builder,
+    };
 
     let client = builder.build().await.map_err(CliError::ClientBuilder)?;
 
@@ -575,7 +583,7 @@ async fn send(group: MlsGroup, msg: String) -> Result<(), CliError> {
         .unwrap()
         .encode(&mut buf)
         .unwrap();
-    group.send_message(buf.as_slice()).await.unwrap();
+    group.send_message(buf.as_slice()).await?;
     Ok(())
 }
 
