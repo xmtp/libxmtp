@@ -398,4 +398,71 @@ class ClientTests: XCTestCase {
 			))
 	}
 
+	func testSignatures() async throws {
+		let fixtures = try await fixtures()
+
+		// Signing with installation key
+		let signature = try fixtures.alixClient.signWithInstallationKey(
+			message: "Testing")
+		XCTAssertTrue(
+			try fixtures.alixClient.verifySignature(
+				message: "Testing", signature: signature))
+		XCTAssertFalse(
+			try fixtures.alixClient.verifySignature(
+				message: "Not Testing", signature: signature))
+
+		let alixInstallationId = fixtures.alixClient.installationID
+
+		XCTAssertTrue(
+			try fixtures.alixClient.verifySignatureWithInstallationId(
+				message: "Testing",
+				signature: signature,
+				installationId: alixInstallationId
+			))
+		XCTAssertFalse(
+			try fixtures.alixClient.verifySignatureWithInstallationId(
+				message: "Not Testing",
+				signature: signature,
+				installationId: alixInstallationId
+			))
+		XCTAssertFalse(
+			try fixtures.alixClient.verifySignatureWithInstallationId(
+				message: "Testing",
+				signature: signature,
+				installationId: fixtures.boClient.installationID
+			))
+		XCTAssertTrue(
+			try fixtures.boClient.verifySignatureWithInstallationId(
+				message: "Testing",
+				signature: signature,
+				installationId: alixInstallationId
+			))
+
+		try fixtures.alixClient.deleteLocalDatabase()
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let options = ClientOptions.init(
+			api: .init(env: .local, isSecure: false),
+			dbEncryptionKey: key
+		)
+
+		// Creating a new client
+		let alixClient2 = try await Client.create(
+			account: fixtures.alix,
+			options: options
+		)
+
+		XCTAssertTrue(
+			try alixClient2.verifySignatureWithInstallationId(
+				message: "Testing",
+				signature: signature,
+				installationId: alixInstallationId
+			))
+		XCTAssertFalse(
+			try alixClient2.verifySignatureWithInstallationId(
+				message: "Testing2",
+				signature: signature,
+				installationId: alixInstallationId
+			))
+	}
+
 }

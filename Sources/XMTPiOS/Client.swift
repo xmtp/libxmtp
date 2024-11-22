@@ -379,6 +379,30 @@ public final class Client {
 		return try ffiClient.signWithInstallationKey(text: message)
 	}
 
+	public func verifySignature(message: String, signature: Data) throws -> Bool
+	{
+		do {
+			try ffiClient.verifySignedWithInstallationKey(
+				signatureText: message, signatureBytes: signature)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	public func verifySignatureWithInstallationId(
+		message: String, signature: Data, installationId: String
+	) throws -> Bool {
+		do {
+			try ffiClient.verifySignedWithPublicKey(
+				signatureText: message, signatureBytes: signature,
+				publicKey: installationId.hexToData)
+			return true
+		} catch {
+			return false
+		}
+	}
+
 	public func findGroup(groupId: String) throws -> Group? {
 		do {
 			return Group(
