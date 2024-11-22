@@ -6,7 +6,6 @@ use crate::xmtp::mls::api::v1::{
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope};
-use crate::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
 use crate::v4_utils::{
     build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
@@ -34,18 +33,16 @@ mod inbox_id {
     }
 }
 
-impl TryFrom<UploadKeyPackageRequest> for PublishClientEnvelopesRequest {
+impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
     type Error = Error;
 
     fn try_from(req: UploadKeyPackageRequest) -> Result<Self, Error> {
         if let Some(key_package) = req.key_package.as_ref() {
-            Ok(PublishClientEnvelopesRequest {
-                envelopes: vec![ClientEnvelope {
-                    aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
-                        key_package,
-                    )?)),
-                    payload: Some(Payload::UploadKeyPackage(req)),
-                }],
+            Ok(ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
+                    key_package,
+                )?)),
+                payload: Some(Payload::UploadKeyPackage(req)),
             })
         } else {
             Err(Error::new(InternalError(MissingPayloadError)))
@@ -53,18 +50,16 @@ impl TryFrom<UploadKeyPackageRequest> for PublishClientEnvelopesRequest {
     }
 }
 
-impl TryFrom<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
+impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
     type Error = Error;
 
     fn try_from(req: PublishIdentityUpdateRequest) -> Result<Self, Error> {
         if let Some(identity_update) = req.identity_update {
-            Ok(PublishClientEnvelopesRequest {
-                envelopes: vec![ClientEnvelope {
-                    aad: Some(AuthenticatedData::with_topic(
-                        build_identity_topic_from_hex_encoded(&identity_update.inbox_id)?,
-                    )),
-                    payload: Some(Payload::IdentityUpdate(identity_update)),
-                }],
+            Ok(ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(
+                    build_identity_topic_from_hex_encoded(&identity_update.inbox_id)?,
+                )),
+                payload: Some(Payload::IdentityUpdate(identity_update)),
             })
         } else {
             Err(Error::new(InternalError(MissingPayloadError)))
@@ -72,18 +67,16 @@ impl TryFrom<PublishIdentityUpdateRequest> for PublishClientEnvelopesRequest {
     }
 }
 
-impl TryFrom<GroupMessageInput> for PublishClientEnvelopesRequest {
+impl TryFrom<GroupMessageInput> for ClientEnvelope {
     type Error = crate::Error;
 
     fn try_from(req: GroupMessageInput) -> Result<Self, Error> {
         if let Some(GroupMessageInputVersion::V1(ref version)) = req.version {
-            Ok(PublishClientEnvelopesRequest {
-                envelopes: vec![ClientEnvelope {
-                    aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
-                        version.data.clone(),
-                    )?)),
-                    payload: Some(Payload::GroupMessage(req)),
-                }],
+            Ok(ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
+                    version.data.clone(),
+                )?)),
+                payload: Some(Payload::GroupMessage(req)),
             })
         } else {
             Err(Error::new(InternalError(MissingPayloadError)))
@@ -91,18 +84,16 @@ impl TryFrom<GroupMessageInput> for PublishClientEnvelopesRequest {
     }
 }
 
-impl TryFrom<WelcomeMessageInput> for PublishClientEnvelopesRequest {
+impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
     type Error = crate::Error;
 
     fn try_from(req: WelcomeMessageInput) -> Result<Self, Self::Error> {
         if let Some(WelcomeMessageVersion::V1(ref version)) = req.version {
-            Ok(PublishClientEnvelopesRequest {
-                envelopes: vec![ClientEnvelope {
-                    aad: Some(AuthenticatedData::with_topic(build_welcome_message_topic(
-                        version.installation_key.as_slice(),
-                    ))),
-                    payload: Some(Payload::WelcomeMessage(req)),
-                }],
+            Ok(ClientEnvelope {
+                aad: Some(AuthenticatedData::with_topic(build_welcome_message_topic(
+                    version.installation_key.as_slice(),
+                ))),
+                payload: Some(Payload::WelcomeMessage(req)),
             })
         } else {
             Err(Error::new(InternalError(MissingPayloadError)))

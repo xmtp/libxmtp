@@ -362,14 +362,8 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        let client = &mut self.payer_client.clone();
-        let res = client
-            .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(request)?)
-            .await;
-        match res {
-            Ok(_) => Ok(PublishIdentityUpdateResponse {}),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        self.publish_envelopes_to_payer(vec![request]).await?;
+        Ok(PublishIdentityUpdateResponse {})
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -482,20 +476,30 @@ impl ClientV4 {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn publish_envelopes_to_payer<
-        T: TryInto<PublishClientEnvelopesRequest, Error = Error>,
-    >(
+    async fn publish_envelopes_to_payer<T>(
         &self,
-        items: impl IntoIterator<Item = T>,
-    ) -> Result<(), Error> {
+        messages: impl IntoIterator<Item = T>,
+    ) -> Result<(), Error>
+    where
+        T: TryInto<ClientEnvelope>,
+        <T as TryInto<ClientEnvelope>>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let client = &mut self.payer_client.clone();
-        for item in items {
-            let request = item.try_into()?;
-            let res = client.publish_client_envelopes(request).await;
-            if let Err(e) = res {
-                return Err(Error::new(ErrorKind::MlsError).with(e));
-            }
-        }
+
+        let envelopes: Vec<ClientEnvelope> = messages
+            .into_iter()
+            .map(|message| {
+                message
+                    .try_into()
+                    .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            })
+            .collect::<Result<_, _>>()?;
+
+        client
+            .publish_client_envelopes(PublishClientEnvelopesRequest { envelopes })
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
         Ok(())
     }
 }
