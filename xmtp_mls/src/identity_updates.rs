@@ -289,11 +289,14 @@ where
         let new_member_identifier: MemberIdentifier = new_wallet_address.into();
 
         let mut signature_request = builder
+            // .add_association(
+            // new_member_identifier.clone(),
+            // existing_wallet_address.into(),
+            // )
             .add_association(
                 new_member_identifier.clone(),
-                existing_wallet_address.into(),
+                installation_public_key.into(),
             )
-            .add_association(new_member_identifier, installation_public_key.into())
             .build();
 
         let signature = self

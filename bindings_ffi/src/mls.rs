@@ -480,10 +480,7 @@ impl FfiXmtpClient {
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .associate_wallet(
-                existing_wallet_address.to_string(),
-                new_wallet_address.into(),
-            )
+            .associate_wallet(existing_wallet_address.into(), new_wallet_address.into())
             .await?;
         let scw_verifier = self.inner_client.scw_verifier().clone();
         let request = Arc::new(FfiSignatureRequest {
