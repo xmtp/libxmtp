@@ -11,7 +11,6 @@ use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -125,7 +124,7 @@ pub async fn create_client(
   host: String,
   inbox_id: String,
   account_address: String,
-  db_path: String,
+  db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
@@ -134,7 +133,10 @@ pub async fn create_client(
   xmtp_mls::storage::init_sqlite().await;
   let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
 
-  let storage_option = StorageOption::Persistent(db_path);
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
 
   let store = match encryption_key {
     Some(key) => {
@@ -283,51 +285,5 @@ impl Client {
   #[wasm_bindgen]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
-  }
-
-  #[wasm_bindgen(js_name = signWithInstallationKey)]
-  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array, JsError> {
-    let result = self
-      .inner_client
-      .context()
-      .sign_with_public_context(signature_text)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(Uint8Array::from(result.as_slice()))
-  }
-
-  #[wasm_bindgen(js_name = verifySignedWithInstallationKey)]
-  pub fn verify_signed_with_installation_key(
-    &self,
-    signature_text: String,
-    signature_bytes: Uint8Array,
-  ) -> Result<(), JsError> {
-    let public_key = self.inner_client().installation_public_key();
-    self.verify_signed_with_public_key(
-      signature_text,
-      signature_bytes,
-      Uint8Array::from(public_key.as_slice()),
-    )
-  }
-
-  #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
-  pub fn verify_signed_with_public_key(
-    &self,
-    signature_text: String,
-    signature_bytes: Uint8Array,
-    public_key: Uint8Array,
-  ) -> Result<(), JsError> {
-    let signature_bytes = signature_bytes.to_vec();
-    let signature_bytes: [u8; 64] = signature_bytes
-      .try_into()
-      .map_err(|_| JsError::new("signature_bytes is not 64 bytes long."))?;
-
-    let public_key = public_key.to_vec();
-    let public_key: [u8; 32] = public_key
-      .try_into()
-      .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
-
-    verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))
   }
 }

@@ -13,7 +13,6 @@ use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -123,7 +122,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
 pub async fn create_client(
   host: String,
   is_secure: bool,
-  db_path: String,
+  db_path: Option<String>,
   inbox_id: String,
   account_address: String,
   encryption_key: Option<Uint8Array>,
@@ -135,7 +134,10 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
-  let storage_option = StorageOption::Persistent(db_path);
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
 
   let store = match encryption_key {
     Some(key) => {
@@ -294,49 +296,5 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
-  }
-
-  #[napi]
-  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
-    let result = self
-      .inner_client
-      .context()
-      .sign_with_public_context(signature_text)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(result.into())
-  }
-
-  #[napi]
-  pub fn verify_signed_with_installation_key(
-    &self,
-    signature_text: String,
-    signature_bytes: Uint8Array,
-  ) -> Result<()> {
-    let public_key = self.inner_client().installation_public_key();
-    self.verify_signed_with_public_key(signature_text, signature_bytes, public_key.into())
-  }
-
-  #[napi]
-  pub fn verify_signed_with_public_key(
-    &self,
-    signature_text: String,
-    signature_bytes: Uint8Array,
-    public_key: Uint8Array,
-  ) -> Result<()> {
-    let signature_bytes = signature_bytes.deref().to_vec();
-    let signature_bytes: [u8; 64] = signature_bytes
-      .try_into()
-      .map_err(|_| Error::from_reason("signature_bytes is not 64 bytes long."))?;
-
-    let public_key = public_key.deref().to_vec();
-    let public_key: [u8; 32] = public_key
-      .try_into()
-      .map_err(|_| Error::from_reason("public_key is not 32 bytes long."))?;
-
-    Ok(
-      verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
-        .map_err(ErrorWrapper::from)?,
-    )
   }
 }

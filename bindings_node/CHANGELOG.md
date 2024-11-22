@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.22
+
+- Moved `verify_signed_with_public_key` out of `Client`
+
 ## 0.0.21
 
 - Added `installation_id_bytes` to `Client`
