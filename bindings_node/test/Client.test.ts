@@ -69,10 +69,6 @@ describe('Client', () => {
     )
     expect(signatureText).toBeDefined()
 
-    // sign message
-    // const signature = await user.wallet.signMessage({
-      // message: signatureText,
-    // })
     const signature2 = await user2.wallet.signMessage({
       message: signatureText,
     })
@@ -107,17 +103,10 @@ describe('Client', () => {
     expect(signatureText).toBeDefined()
 
     // sign message
-    const signature = await user.wallet.signMessage({
-      message: signatureText,
-    })
     const signature2 = await user2.wallet.signMessage({
       message: signatureText,
     })
 
-    // await client.addSignature(
-      // SignatureRequestType.AddWallet,
-      // toBytes(signature)
-    // )
     await client.addSignature(
       SignatureRequestType.AddWallet,
       toBytes(signature2)

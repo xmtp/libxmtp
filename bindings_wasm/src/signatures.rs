@@ -36,15 +36,11 @@ impl Client {
   #[wasm_bindgen(js_name = addWalletSignatureText)]
   pub async fn add_wallet_signature_text(
     &self,
-    existing_wallet_address: String,
     new_wallet_address: String,
   ) -> Result<String, JsError> {
     let signature_request = self
       .inner_client()
-      .associate_wallet(
-        existing_wallet_address.to_lowercase(),
-        new_wallet_address.to_lowercase(),
-      )
+      .associate_wallet(new_wallet_address.to_lowercase())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
