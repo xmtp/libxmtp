@@ -2173,12 +2173,12 @@ mod tests {
     }
 
     trait SignWithWallet {
-        async fn sign_with_wallet(&self, wallet: &xmtp_cryptography::utils::LocalWallet);
+        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet);
     }
 
     use super::FfiSignatureRequest;
     impl SignWithWallet for FfiSignatureRequest {
-        async fn sign_with_wallet(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
+        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
             let signature_text = self.inner.lock().await.signature_text();
             let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
@@ -2226,7 +2226,7 @@ mod tests {
         register_client(&ffi_inbox_owner, &client).await;
 
         signature_request
-            .sign_with_wallet(&ffi_inbox_owner.wallet)
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
         let conn = client.inner_client.store().conn().unwrap();
@@ -2248,7 +2248,7 @@ mod tests {
             .await
             .expect("could not add wallet");
 
-        signature_request.sign_with_wallet(&wallet_to_add).await;
+        signature_request.add_wallet_signature(&wallet_to_add).await;
         // sign_with_wallet(&signature_request, &ffi_inbox_owner.wallet).await;
 
         client
@@ -2293,7 +2293,7 @@ mod tests {
         register_client(&ffi_inbox_owner, &client).await;
 
         signature_request
-            .sign_with_wallet(&ffi_inbox_owner.wallet)
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
         let conn = client.inner_client.store().conn().unwrap();
@@ -2317,9 +2317,9 @@ mod tests {
             .expect("could not add wallet");
 
         signature_request
-            .sign_with_wallet(&ffi_inbox_owner.wallet)
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
-        signature_request.sign_with_wallet(&wallet_to_add).await;
+        signature_request.add_wallet_signature(&wallet_to_add).await;
 
         client
             .apply_signature_request(signature_request.clone())
@@ -2341,7 +2341,7 @@ mod tests {
             .expect("could not revoke wallet");
 
         signature_request
-            .sign_with_wallet(&ffi_inbox_owner.wallet)
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
         client
@@ -3843,7 +3843,7 @@ mod tests {
         assert_eq!(client_2_state.installations.len(), 2);
 
         let signature_request = client_1.revoke_all_other_installations().await.unwrap();
-        signature_request.sign_with_wallet(&wallet).await;
+        signature_request.add_wallet_signature(&wallet).await;
         client_1
             .apply_signature_request(signature_request)
             .await
