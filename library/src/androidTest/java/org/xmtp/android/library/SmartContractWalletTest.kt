@@ -92,8 +92,8 @@ class SmartContractWalletTest {
         val davonEOA = PrivateKeyBuilder()
         val davonSCW2 = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_3)
 
-        runBlocking { davonSCWClient.addAccount(davonSCW, davonEOA) }
-        runBlocking { davonSCWClient.addAccount(davonSCW, davonSCW2) }
+        runBlocking { davonSCWClient.addAccount(davonEOA) }
+        runBlocking { davonSCWClient.addAccount(davonSCW2) }
 
         var state = runBlocking { davonSCWClient.inboxState(true) }
         assertEquals(state.installations.size, 1)

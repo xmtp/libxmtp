@@ -198,10 +198,9 @@ class Client() {
         ffiClient.applySignatureRequest(signatureRequest)
     }
 
-    suspend fun addAccount(recoverAccount: SigningKey, newAccount: SigningKey) {
+    suspend fun addAccount(newAccount: SigningKey) {
         val signatureRequest =
-            ffiClient.addWallet(address.lowercase(), newAccount.address.lowercase())
-        handleSignature(signatureRequest, recoverAccount)
+            ffiClient.addWallet(newAccount.address.lowercase())
         handleSignature(signatureRequest, newAccount)
         ffiClient.applySignatureRequest(signatureRequest)
     }

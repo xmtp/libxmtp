@@ -1430,9 +1430,7 @@ internal interface UniffiLib : Library {
     ): Unit
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_add_wallet(
-        `ptr`: Pointer,
-        `existingWalletAddress`: RustBuffer.ByValue,
-        `newWalletAddress`: RustBuffer.ByValue,
+        `ptr`: Pointer, `newWalletAddress`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_addresses_from_inbox_id(
@@ -2572,7 +2570,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffiv2subscriptioncallback_on_error() != 24930.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_add_wallet() != 23786.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_add_wallet() != 24482.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 29264.toShort()) {
@@ -8240,12 +8238,9 @@ public object FfiConverterTypeFfiV2SubscriptionCallback :
 public interface FfiXmtpClientInterface {
 
     /**
-     * Adds an identity - really a wallet address - to the existing client
+     * Adds a wallet address to the existing client
      */
-    suspend fun `addWallet`(
-        `existingWalletAddress`: kotlin.String,
-        `newWalletAddress`: kotlin.String,
-    ): FfiSignatureRequest
+    suspend fun `addWallet`(`newWalletAddress`: kotlin.String): FfiSignatureRequest
 
     /**
      * * Get the inbox state for each `inbox_id`.
@@ -8417,19 +8412,15 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
 
 
     /**
-     * Adds an identity - really a wallet address - to the existing client
+     * Adds a wallet address to the existing client
      */
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `addWallet`(
-        `existingWalletAddress`: kotlin.String,
-        `newWalletAddress`: kotlin.String,
-    ): FfiSignatureRequest {
+    override suspend fun `addWallet`(`newWalletAddress`: kotlin.String): FfiSignatureRequest {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_add_wallet(
                     thisPtr,
-                    FfiConverterString.lower(`existingWalletAddress`),
                     FfiConverterString.lower(`newWalletAddress`),
                 )
             },

@@ -419,8 +419,8 @@ class ClientTest {
         val fixtures = fixtures()
         val alix2Wallet = PrivateKeyBuilder()
         val alix3Wallet = PrivateKeyBuilder()
-        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix2Wallet) }
-        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix3Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(alix2Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(alix3Wallet) }
 
         val state = runBlocking { fixtures.alixClient.inboxState(true) }
         assertEquals(state.installations.size, 1)
@@ -441,8 +441,8 @@ class ClientTest {
         val fixtures = fixtures()
         val alix2Wallet = PrivateKeyBuilder()
         val alix3Wallet = PrivateKeyBuilder()
-        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix2Wallet) }
-        runBlocking { fixtures.alixClient.addAccount(fixtures.alixAccount, alix3Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(alix2Wallet) }
+        runBlocking { fixtures.alixClient.addAccount(alix3Wallet) }
 
         var state = runBlocking { fixtures.alixClient.inboxState(true) }
         assertEquals(state.addresses.size, 3)
