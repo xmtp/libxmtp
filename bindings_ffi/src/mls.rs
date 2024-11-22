@@ -2317,9 +2317,6 @@ mod tests {
             .await
             .expect("could not add wallet");
 
-        signature_request
-            .add_wallet_signature(&ffi_inbox_owner.wallet)
-            .await;
         signature_request.add_wallet_signature(&wallet_to_add).await;
 
         client

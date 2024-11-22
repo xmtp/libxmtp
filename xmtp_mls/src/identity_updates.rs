@@ -629,7 +629,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        add_wallet_signature(&mut add_association_request, &wallet).await;
         add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
         client
@@ -684,7 +683,6 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            add_wallet_signature(&mut add_association_request, &wallet).await;
             add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
             client
@@ -766,7 +764,6 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            add_wallet_signature(&mut add_association_request, &wallet).await;
             add_wallet_signature(&mut add_association_request, &new_wallet).await;
 
             client
@@ -847,7 +844,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        add_wallet_signature(&mut add_wallet_signature_request, &recovery_wallet).await;
         add_wallet_signature(&mut add_wallet_signature_request, &second_wallet).await;
 
         client
