@@ -7,81 +7,88 @@
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
     };
+    systems.url = "github:nix-systems/default";
+    # A nix-native packaging system for rust (docs: https://crane.dev/index.html)
+    crane.url = "github:ipetkov/crane";
 
-    flake-utils = { url = "github:numtide/flake-utils"; };
+    flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = { nixpkgs, flake-utils, fenix, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        inherit (pkgs.stdenv) isDarwin;
-        inherit (pkgs) androidenv;
-        inherit (androidComposition) androidsdk;
-        frameworks = if isDarwin then pkgs.darwin.apple_sdk.frameworks else null;
-        pkgs = import nixpkgs {
-          inherit system;
-          # Rust Overlay
-          overlays = [ fenix.overlays.default ];
-          config = {
-            android_sdk.accept_license = true;
-            allowUnfree = true;
+  nixConfig = {
+    extra-trusted-public-keys = "xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=";
+    extra-substituters = "https://xmtp.cachix.org";
+  };
+
+  outputs = inputs@{ flake-parts, fenix, crane, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      flake = { };
+      systems = import inputs.systems;
+      perSystem = { pkgs, lib, inputs', system, ... }:
+        let
+          fenixPkgs = inputs'.fenix.packages;
+          rust-toolchain = fenixPkgs.fromToolchainFile {
+            file = ./rust-toolchain;
+            sha256 = "sha256-yMuSb5eQPO/bHv+Bcf/US8LVMbf/G/0MSfiPwBhiPpk=";
+          };
+
+          pkgConfig = {
+            inherit system;
+            overlays = [ fenix.overlays.default ];
+            config = {
+              android_sdk.accept_license = true;
+              allowUnfree = true;
+            };
+          };
+
+          # Library to build rust crates & test them
+          # Set the rust toolchain package/versioning
+          craneLib = (crane.mkLib pkgs).overrideToolchain (p: rust-toolchain);
+
+          inherit (craneLib.fileset) commonCargoSources;
+
+          libFileSetForWorkspace = lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            (commonCargoSources ./xmtp_api_grpc)
+            (commonCargoSources ./xmtp_api_http)
+            (commonCargoSources ./xmtp_cryptography)
+            (commonCargoSources ./xmtp_id)
+            (commonCargoSources ./xmtp_mls)
+            (commonCargoSources ./xmtp_proto)
+            (commonCargoSources ./xmtp_v2)
+            (commonCargoSources ./xmtp_user_preferences)
+            ./xmtp_id/src/scw_verifier/chain_urls_default.json
+            ./xmtp_id/artifact
+            ./xmtp_mls/migrations
+          ];
+
+          binFileSetForWorkspace = lib.fileset.unions [
+            (commonCargoSources ./examples/cli)
+            (commonCargoSources ./mls_validation_service)
+            (commonCargoSources ./bindings_node)
+            (commonCargoSources ./bindings_wasm)
+            (commonCargoSources ./xtask)
+            (commonCargoSources ./bindings_ffi)
+            (commonCargoSources ./xmtp_debug)
+          ];
+
+          fileSetForWorkspace = lib.fileset.unions [ binFileSetForWorkspace libFileSetForWorkspace ];
+
+          filesets = { inherit fileSetForWorkspace binFileSetForWorkspace libFileSetForWorkspace; };
+          xdbg = pkgs.callPackage ./nix/xdbg {
+            inherit craneLib filesets;
+          };
+        in
+        {
+          _module. args. pkgs = import inputs.nixpkgs pkgConfig;
+          devShells.android = pkgs.callPackage ./nix/android.nix { inherit rust-toolchain; };
+          devShells.muslXdbg = xdbg.muslXDbg.devShell;
+          devShells.xdbg = xdbg.devShell;
+          packages = {
+            xdbg = xdbg.bin;
+            xdbgDocker = xdbg.dockerImage;
+            muslXdbg = xdbg.muslXDbg.bin;
           };
         };
-
-        android = {
-          platforms = [ "34" ];
-          platformTools = "33.0.3";
-          buildTools = [ "30.0.3" ];
-        };
-
-        sdkArgs = {
-          platformVersions = android.platforms;
-          platformToolsVersion = android.platformTools;
-          buildToolsVersions = android.buildTools;
-          includeNDK = true;
-        };
-
-        fenixPkgs = fenix.packages.${system};
-        # Pinned Rust Version
-        rust-toolchain = fenixPkgs.fromToolchainFile {
-          file = ./rust-toolchain;
-          sha256 = "sha256-yMuSb5eQPO/bHv+Bcf/US8LVMbf/G/0MSfiPwBhiPpk=";
-        };
-
-        # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
-        androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
-        androidComposition = androidenv.composeAndroidPackages sdkArgs;
-
-        # Packages available to flake while building the environment
-        nativeBuildInputs = with pkgs; [ pkg-config ];
-        # Define the packages available to the build environment
-        # https://search.nixos.org/packages
-        buildInputs = with pkgs; [
-          rust-toolchain
-          kotlin
-          androidsdk
-          jdk17
-          cargo-ndk
-
-          # System Libraries
-          sqlite
-          openssl
-        ] ++ lib.optionals isDarwin [ # optional packages if on darwin, in order to check if build passes locally
-          libiconv
-          frameworks.CoreServices
-          frameworks.Carbon
-          frameworks.ApplicationServices
-          frameworks.AppKit
-          darwin.cctools
-        ];
-      in {
-        devShells.default = pkgs.mkShell {
-            OPENSSL_DIR = "${pkgs.openssl.dev}";
-            ANDROID_HOME = androidHome;
-            ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
-            ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
-
-            inherit buildInputs nativeBuildInputs;
-          };
-      });
+    };
 }

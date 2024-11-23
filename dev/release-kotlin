@@ -35,7 +35,7 @@ fi
 LIBRARY_NAME="libxmtpv3"
 TARGET_NAME="libuniffi_xmtpv3"
 
-nix develop . --command cargo ndk -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
+nix develop .#android --command cargo ndk -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
   -t aarch64-linux-android \
   -t x86_64-linux-android \
   -t i686-linux-android \
