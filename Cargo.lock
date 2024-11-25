@@ -7209,6 +7209,7 @@ dependencies = [
  "prost",
  "rand",
  "thiserror 2.0.3",
+ "tonic",
  "xmtp_proto",
 ]
 

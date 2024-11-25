@@ -8,11 +8,8 @@ license.workspace = true
 thiserror = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
+tonic = { version = "0.12", features = ["transport"] }
 
 # XMTP/Local
 xmtp_proto = { workspace = true, features = ["convert"] }
-
-# [dev-dependencies]
-# xmtp_proto = { workspace = true, features = ["test-utils"] }
-
 
