@@ -1,11 +1,32 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
 
 use crate::client::Client;
+
+#[wasm_bindgen(js_name = verifySignedWithPublicKey)]
+pub fn verify_signed_with_public_key(
+  signature_text: String,
+  signature_bytes: Uint8Array,
+  public_key: Uint8Array,
+) -> Result<(), JsError> {
+  let signature_bytes = signature_bytes.to_vec();
+  let signature_bytes: [u8; 64] = signature_bytes
+    .try_into()
+    .map_err(|_| JsError::new("signature_bytes is not 64 bytes long."))?;
+
+  let public_key = public_key.to_vec();
+  let public_key: [u8; 32] = public_key
+    .try_into()
+    .map_err(|_| JsError::new("public_key is not 32 bytes long."))?;
+
+  verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
+    .map_err(|e| JsError::new(format!("{}", e).as_str()))
+}
 
 #[wasm_bindgen]
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -36,15 +57,12 @@ impl Client {
   #[wasm_bindgen(js_name = addWalletSignatureText)]
   pub async fn add_wallet_signature_text(
     &self,
-    existing_wallet_address: String,
     new_wallet_address: String,
   ) -> Result<String, JsError> {
     let signature_request = self
       .inner_client()
-      .associate_wallet(
-        existing_wallet_address.to_lowercase(),
-        new_wallet_address.to_lowercase(),
-      )
+      .associate_wallet(new_wallet_address.to_lowercase())
+      .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
@@ -174,5 +192,30 @@ impl Client {
     }
 
     Ok(())
+  }
+
+  #[wasm_bindgen(js_name = signWithInstallationKey)]
+  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array, JsError> {
+    let result = self
+      .inner_client()
+      .context()
+      .sign_with_public_context(signature_text)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(Uint8Array::from(result.as_slice()))
+  }
+
+  #[wasm_bindgen(js_name = verifySignedWithInstallationKey)]
+  pub fn verify_signed_with_installation_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Uint8Array,
+  ) -> Result<(), JsError> {
+    let public_key = self.inner_client().installation_public_key();
+    verify_signed_with_public_key(
+      signature_text,
+      signature_bytes,
+      Uint8Array::from(public_key.as_slice()),
+    )
   }
 }
