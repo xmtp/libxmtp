@@ -160,7 +160,7 @@ impl IdentityAction for AddAssociation {
 
         let existing_entity_id = match existing_member {
             // If there is an existing member of the XID, use that member's ID
-            Some(member) => member.identifier,
+            Some(member) => member.identifier.clone(),
             None => {
                 // Get the recovery address from the state as a MemberIdentifier
                 let recovery_identifier: MemberIdentifier =

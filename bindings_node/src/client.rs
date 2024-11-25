@@ -13,6 +13,7 @@ use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::MemberIdentifier;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -303,6 +304,19 @@ impl Client {
 
   #[napi]
   pub async fn is_address_authorized(&self, address: String) -> Result<bool> {
+    self
+      .is_member_of_association_state(&MemberIdentifier::Address(address))
+      .await
+  }
+
+  #[napi]
+  pub async fn is_installation_authorized(&self, installation: Vec<u8>) -> Result<bool> {
+    self
+      .is_member_of_association_state(&MemberIdentifier::Installation(installation))
+      .await
+  }
+
+  async fn is_member_of_association_state(&self, identifier: &MemberIdentifier) -> Result<bool> {
     let client = &self.inner_client;
     let conn = self
       .inner_client
@@ -311,8 +325,11 @@ impl Client {
       .map_err(ErrorWrapper::from)?;
     let inbox_id = self.inner_client.inbox_id();
 
-    let association_state = client.get_association_state(&conn, inbox_id, None).await;
+    let association_state = client
+      .get_association_state(&conn, inbox_id, None)
+      .await
+      .map_err(ErrorWrapper::from)?;
 
-    Ok(false)
+    Ok(association_state.is_member(identifier))
   }
 }

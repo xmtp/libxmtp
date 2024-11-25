@@ -74,8 +74,8 @@ impl AssociationState {
         new_state
     }
 
-    pub fn get(&self, identifier: &MemberIdentifier) -> Option<Member> {
-        self.members.get(identifier).cloned()
+    pub fn get(&self, identifier: &MemberIdentifier) -> Option<&Member> {
+        self.members.get(identifier)
     }
 
     pub fn add_seen_signatures(&self, signatures: Vec<Vec<u8>>) -> Self {
@@ -99,6 +99,10 @@ impl AssociationState {
 
     pub fn recovery_address(&self) -> &String {
         &self.recovery_address
+    }
+
+    pub fn is_member(&self, identifier: &MemberIdentifier) -> bool {
+        self.members.contains_key(identifier)
     }
 
     pub fn members_by_parent(&self, parent_id: &MemberIdentifier) -> Vec<Member> {
