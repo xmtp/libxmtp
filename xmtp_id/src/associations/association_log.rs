@@ -459,7 +459,7 @@ fn verify_chain_id_matches(
     member: &Member,
     signature: &VerifiedSignature,
 ) -> Result<(), AssociationError> {
-    if member.added_on_chain_id.ne(&signature.chain_id) {
+    if member.added_on_chain_id != signature.chain_id {
         return Err(AssociationError::ChainIdMismatch(
             member.added_on_chain_id.unwrap_or(0),
             signature.chain_id.unwrap_or(0),
