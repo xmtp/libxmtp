@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
 
