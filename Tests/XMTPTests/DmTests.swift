@@ -255,7 +255,7 @@ class DmTests: XCTestCase {
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
-				ConsentListEntry(
+				ConsentRecord(
 					value: dm.id, entryType: .conversation_id,
 					consentType: .denied)
 			])

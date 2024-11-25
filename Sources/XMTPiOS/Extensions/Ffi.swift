@@ -65,7 +65,7 @@ extension EntryType {
 	}
 }
 
-extension ConsentListEntry {
+extension ConsentRecord {
 	var toFFI: FfiConsent {
 		FfiConsent(
 			entityType: entryType.toFFI, state: consentType.toFFI, entity: value
@@ -74,7 +74,7 @@ extension ConsentListEntry {
 }
 
 extension FfiConsent {
-	var fromFfi: ConsentListEntry {
-		ConsentListEntry(value: self.entity, entryType: self.entityType.fromFFI, consentType: self.state.fromFFI)
+	var fromFfi: ConsentRecord {
+		ConsentRecord(value: self.entity, entryType: self.entityType.fromFFI, consentType: self.state.fromFFI)
 	}
 }

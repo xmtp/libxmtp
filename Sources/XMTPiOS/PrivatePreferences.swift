@@ -8,7 +8,7 @@ public enum EntryType: String, Codable {
 	case address, conversation_id, inbox_id
 }
 
-public struct ConsentListEntry: Codable, Hashable {
+public struct ConsentRecord: Codable, Hashable {
 	public init(value: String, entryType: EntryType, consentType: ConsentState)
 	{
 		self.value = value
@@ -17,23 +17,23 @@ public struct ConsentListEntry: Codable, Hashable {
 	}
 
 	static func address(_ address: String, type: ConsentState = .unknown)
-		-> ConsentListEntry
+		-> ConsentRecord
 	{
-		ConsentListEntry(value: address, entryType: .address, consentType: type)
+		ConsentRecord(value: address, entryType: .address, consentType: type)
 	}
 
 	static func conversationId(
 		conversationId: String, type: ConsentState = ConsentState.unknown
-	) -> ConsentListEntry {
-		ConsentListEntry(
+	) -> ConsentRecord {
+		ConsentRecord(
 			value: conversationId, entryType: .conversation_id,
 			consentType: type)
 	}
 
 	static func inboxId(_ inboxId: String, type: ConsentState = .unknown)
-		-> ConsentListEntry
+		-> ConsentRecord
 	{
-		ConsentListEntry(
+		ConsentRecord(
 			value: inboxId, entryType: .inbox_id, consentType: type)
 	}
 
@@ -56,7 +56,7 @@ public actor PrivatePreferences {
 		self.ffiClient = ffiClient
 	}
 
-	public func setConsentState(entries: [ConsentListEntry]) async throws {
+	public func setConsentState(entries: [ConsentRecord]) async throws {
 		try await ffiClient.setConsentStates(records: entries.map(\.toFFI))
 	}
 
@@ -88,7 +88,7 @@ public actor PrivatePreferences {
 	}
 
 	public func streamConsent()
-		-> AsyncThrowingStream<ConsentListEntry, Error>
+		-> AsyncThrowingStream<ConsentRecord, Error>
 	{
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()

@@ -211,7 +211,7 @@ class ConversationTests: XCTestCase {
 
 			try await alixClient2.preferences.setConsentState(
 				entries: [
-					ConsentListEntry(
+					ConsentRecord(
 						value: dm2.id,
 						entryType: .conversation_id,
 						consentType: .allowed
@@ -259,7 +259,7 @@ class ConversationTests: XCTestCase {
 		try await alixClient2.conversations.syncAllConversations()
 		let alixGroup2 = try alixClient2.findGroup(groupId: alixGroup.id)!
 
-		var consentList = [ConsentListEntry]()
+		var consentList = [ConsentRecord]()
 		let expectation = XCTestExpectation(description: "Stream Consent")
 		expectation.expectedFulfillmentCount = 3
 

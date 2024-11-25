@@ -813,7 +813,7 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
-				ConsentListEntry(
+				ConsentRecord(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
 					consentType: .allowed)
 			])
@@ -829,7 +829,7 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
-				ConsentListEntry(
+				ConsentRecord(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
 					consentType: .denied)
 			])
@@ -845,7 +845,7 @@ class GroupTests: XCTestCase {
 
 		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
-				ConsentListEntry(
+				ConsentRecord(
 					value: fixtures.alixClient.address, entryType: .address,
 					consentType: .allowed)
 			])
