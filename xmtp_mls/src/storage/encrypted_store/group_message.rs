@@ -38,6 +38,8 @@ pub struct StoredGroupMessage {
     pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
+    /// The ID of the parent message if this message is a reaction.
+    pub parent_id: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
