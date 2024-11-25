@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use prost::Message;
 
-use xmtp_proto::xmtp::mls::message_contents::{
-    ContentTypeId, EncodedContent
-};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 use xmtp_proto::xmtp::reactions::Reaction;
 
 use super::{CodecError, ContentCodec};
@@ -52,7 +50,9 @@ impl ContentCodec<Reaction> for ReactionCodec {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    
+
+    use xmtp_proto::xmtp::reactions::{ReactionAction, ReactionSchema};
+
     use crate::test_utils::rand_string;
 
     use super::*;
@@ -63,21 +63,18 @@ pub(crate) mod tests {
         let new_reaction_data = Reaction {
             reference: rand_string(),
             reference_inbox_id: rand_string(),
-            action: "added".to_string(),
+            action: ReactionAction::ActionAdded as i32,
             content: "👍".to_string(),
-            schema: "unicode".to_string(),
+            schema: ReactionSchema::SchemaUnicode as i32,
         };
 
         let encoded = ReactionCodec::encode(new_reaction_data).unwrap();
-        assert_eq!(
-            encoded.clone().r#type.unwrap().type_id,
-            "reaction"
-        );
+        assert_eq!(encoded.clone().r#type.unwrap().type_id, "reaction");
         assert!(!encoded.content.is_empty());
 
         let decoded = ReactionCodec::decode(encoded).unwrap();
-        assert_eq!(decoded.action, "added".to_string());
+        assert_eq!(decoded.action, ReactionAction::ActionAdded as i32);
         assert_eq!(decoded.content, "👍".to_string());
-        assert_eq!(decoded.schema, "unicode".to_string());
+        assert_eq!(decoded.schema, ReactionSchema::SchemaUnicode as i32);
     }
 }

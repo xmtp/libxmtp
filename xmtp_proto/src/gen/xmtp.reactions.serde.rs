@@ -13,13 +13,13 @@ impl serde::Serialize for Reaction {
         if !self.reference_inbox_id.is_empty() {
             len += 1;
         }
-        if !self.action.is_empty() {
+        if self.action != 0 {
             len += 1;
         }
         if !self.content.is_empty() {
             len += 1;
         }
-        if !self.schema.is_empty() {
+        if self.schema != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.reactions.Reaction", len)?;
@@ -29,14 +29,18 @@ impl serde::Serialize for Reaction {
         if !self.reference_inbox_id.is_empty() {
             struct_ser.serialize_field("referenceInboxId", &self.reference_inbox_id)?;
         }
-        if !self.action.is_empty() {
-            struct_ser.serialize_field("action", &self.action)?;
+        if self.action != 0 {
+            let v = ReactionAction::try_from(self.action)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.action)))?;
+            struct_ser.serialize_field("action", &v)?;
         }
         if !self.content.is_empty() {
             struct_ser.serialize_field("content", &self.content)?;
         }
-        if !self.schema.is_empty() {
-            struct_ser.serialize_field("schema", &self.schema)?;
+        if self.schema != 0 {
+            let v = ReactionSchema::try_from(self.schema)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.schema)))?;
+            struct_ser.serialize_field("schema", &v)?;
         }
         struct_ser.end()
     }
@@ -131,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for Reaction {
                             if action__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("action"));
                             }
-                            action__ = Some(map_.next_value()?);
+                            action__ = Some(map_.next_value::<ReactionAction>()? as i32);
                         }
                         GeneratedField::Content => {
                             if content__.is_some() {
@@ -143,7 +147,7 @@ impl<'de> serde::Deserialize<'de> for Reaction {
                             if schema__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("schema"));
                             }
-                            schema__ = Some(map_.next_value()?);
+                            schema__ = Some(map_.next_value::<ReactionSchema>()? as i32);
                         }
                     }
                 }
@@ -157,5 +161,156 @@ impl<'de> serde::Deserialize<'de> for Reaction {
             }
         }
         deserializer.deserialize_struct("xmtp.reactions.Reaction", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ReactionAction {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::ActionUnspecified => "ACTION_UNSPECIFIED",
+            Self::ActionAdded => "ACTION_ADDED",
+            Self::ActionRemoved => "ACTION_REMOVED",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ReactionAction {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ACTION_UNSPECIFIED",
+            "ACTION_ADDED",
+            "ACTION_REMOVED",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ReactionAction;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "ACTION_UNSPECIFIED" => Ok(ReactionAction::ActionUnspecified),
+                    "ACTION_ADDED" => Ok(ReactionAction::ActionAdded),
+                    "ACTION_REMOVED" => Ok(ReactionAction::ActionRemoved),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ReactionSchema {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::SchemaUnspecified => "SCHEMA_UNSPECIFIED",
+            Self::SchemaUnicode => "SCHEMA_UNICODE",
+            Self::SchemaShortcode => "SCHEMA_SHORTCODE",
+            Self::SchemaCustom => "SCHEMA_CUSTOM",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ReactionSchema {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "SCHEMA_UNSPECIFIED",
+            "SCHEMA_UNICODE",
+            "SCHEMA_SHORTCODE",
+            "SCHEMA_CUSTOM",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ReactionSchema;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "SCHEMA_UNSPECIFIED" => Ok(ReactionSchema::SchemaUnspecified),
+                    "SCHEMA_UNICODE" => Ok(ReactionSchema::SchemaUnicode),
+                    "SCHEMA_SHORTCODE" => Ok(ReactionSchema::SchemaShortcode),
+                    "SCHEMA_CUSTOM" => Ok(ReactionSchema::SchemaCustom),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
