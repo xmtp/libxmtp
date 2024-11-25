@@ -303,27 +303,34 @@ impl Client {
   }
 
   #[napi]
-  pub async fn is_address_authorized(&self, address: String) -> Result<bool> {
+  pub async fn is_address_authorized(&self, inbox_id: String, address: String) -> Result<bool> {
     self
-      .is_member_of_association_state(&MemberIdentifier::Address(address))
+      .is_member_of_association_state(&inbox_id, &MemberIdentifier::Address(address))
       .await
   }
 
   #[napi]
-  pub async fn is_installation_authorized(&self, installation: Vec<u8>) -> Result<bool> {
+  pub async fn is_installation_authorized(
+    &self,
+    inbox_id: String,
+    installation: Vec<u8>,
+  ) -> Result<bool> {
     self
-      .is_member_of_association_state(&MemberIdentifier::Installation(installation))
+      .is_member_of_association_state(&inbox_id, &MemberIdentifier::Installation(installation))
       .await
   }
 
-  async fn is_member_of_association_state(&self, identifier: &MemberIdentifier) -> Result<bool> {
+  async fn is_member_of_association_state(
+    &self,
+    inbox_id: &str,
+    identifier: &MemberIdentifier,
+  ) -> Result<bool> {
     let client = &self.inner_client;
     let conn = self
       .inner_client
       .store()
       .conn()
       .map_err(ErrorWrapper::from)?;
-    let inbox_id = self.inner_client.inbox_id();
 
     let association_state = client
       .get_association_state(&conn, inbox_id, None)
