@@ -292,21 +292,27 @@ impl Client {
   ) -> Result<Vec<InboxState>> {
     let state = self
       .inner_client
-      .inbox_addresses(refresh_from_network, inbox_ids)
+      .inbox_addresses(
+        refresh_from_network,
+        inbox_ids.iter().map(String::as_str).collect(),
+      )
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
   }
 
   #[napi]
-  pub async fn is_address_authorized(&self, address: String ) -> Result<bool> {
+  pub async fn is_address_authorized(&self, address: String) -> Result<bool> {
     let client = &self.inner_client;
-    let conn = self.inner_client.store().conn().map_err(ErrorWrapper::from)?;
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(ErrorWrapper::from)?;
     let inbox_id = self.inner_client.inbox_id();
 
+    let association_state = client.get_association_state(&conn, inbox_id, None).await;
 
-    let association_state = client.get_association_state(&conn, inbox_id, None).await
+    Ok(false)
   }
-
-
 }
