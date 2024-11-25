@@ -1493,9 +1493,9 @@ async fn validate_initial_group_membership(
 
     let futures: Vec<_> = membership
         .members
-        .into_iter()
+        .iter()
         .map(|(inbox_id, sequence_id)| {
-            client.get_association_state(conn, inbox_id, Some(sequence_id as i64))
+            client.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
         })
         .collect();
 

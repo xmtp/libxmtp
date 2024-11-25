@@ -297,4 +297,16 @@ impl Client {
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
   }
+
+  #[napi]
+  pub async fn is_address_authorized(&self, address: String ) -> Result<bool> {
+    let client = &self.inner_client;
+    let conn = self.inner_client.store().conn().map_err(ErrorWrapper::from)?;
+    let inbox_id = self.inner_client.inbox_id();
+
+
+    let association_state = client.get_association_state(&conn, inbox_id, None).await
+  }
+
+
 }

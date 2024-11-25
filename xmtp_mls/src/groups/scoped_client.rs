@@ -62,17 +62,17 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -126,17 +126,17 @@ pub trait ScopedGroupClient: Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -201,10 +201,10 @@ where
         .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         crate::Client::<ApiClient, Verifier>::get_association_state(
@@ -216,10 +216,10 @@ where
         .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         crate::Client::<ApiClient, Verifier>::batch_get_association_state(self, conn, identifiers)
             .await
@@ -298,10 +298,10 @@ where
             .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         (**self)
@@ -309,10 +309,10 @@ where
             .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)
@@ -392,10 +392,10 @@ where
             .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         (**self)
@@ -403,10 +403,10 @@ where
             .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)

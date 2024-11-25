@@ -330,7 +330,10 @@ impl FfiXmtpClient {
     ) -> Result<Vec<FfiInboxState>, GenericError> {
         let state = self
             .inner_client
-            .inbox_addresses(refresh_from_network, inbox_ids)
+            .inbox_addresses(
+                refresh_from_network,
+                inbox_ids.iter().map(String::as_str).collect(),
+            )
             .await?;
         Ok(state.into_iter().map(Into::into).collect())
     }

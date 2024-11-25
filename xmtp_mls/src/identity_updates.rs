@@ -93,10 +93,10 @@ where
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
     /// from Identity Updates in the network.
-    pub async fn batch_get_association_state<InboxId: AsRef<str>>(
+    pub async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxId, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         let association_states = try_join_all(
             identifiers
@@ -112,10 +112,10 @@ where
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
-    pub async fn get_latest_association_state<InboxId: AsRef<str>>(
+    pub async fn get_latest_association_state(
         &self,
         conn: &DbConnection,
-        inbox_id: InboxId,
+        inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
         load_identity_updates(&self.api_client, conn, &[inbox_id.as_ref()]).await?;
 
@@ -124,13 +124,12 @@ where
 
     /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
     /// If no `to_sequence_id` is provided, use the latest value in the database
-    pub async fn get_association_state<InboxId: AsRef<str>>(
+    pub async fn get_association_state(
         &self,
         conn: &DbConnection,
-        inbox_id: InboxId,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        let inbox_id = inbox_id.as_ref();
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
         let last_sequence_id = updates
             .last()
@@ -168,35 +167,35 @@ where
 
     /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the
     /// provided `inbox_id`
-    pub(crate) async fn get_association_state_diff<InboxId: AsRef<str>>(
+    pub(crate) async fn get_association_state_diff(
         &self,
         conn: &DbConnection,
-        inbox_id: InboxId,
+        inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
         tracing::debug!(
             "Computing diff for {:?} from {:?} to {:?}",
-            inbox_id.as_ref(),
+            inbox_id,
             starting_sequence_id,
             ending_sequence_id
         );
         // If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
         if starting_sequence_id.is_none() {
             return Ok(self
-                .get_association_state(conn, inbox_id.as_ref(), ending_sequence_id)
+                .get_association_state(conn, inbox_id, ending_sequence_id)
                 .await?
                 .as_diff());
         }
 
         // Get the initial state to compare against
         let initial_state = self
-            .get_association_state(conn, inbox_id.as_ref(), starting_sequence_id)
+            .get_association_state(conn, inbox_id, starting_sequence_id)
             .await?;
 
         // Get any identity updates that need to be applied
         let incremental_updates =
-            conn.get_identity_updates(inbox_id.as_ref(), starting_sequence_id, ending_sequence_id)?;
+            conn.get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?;
 
         let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
         if ending_sequence_id.is_some()
@@ -228,7 +227,7 @@ where
         if let Some(last_sequence_id) = last_sequence_id {
             StoredAssociationState::write_to_cache(
                 conn,
-                inbox_id.as_ref().to_string(),
+                inbox_id.to_string(),
                 last_sequence_id,
                 final_state.clone(),
             )?;
@@ -445,7 +444,7 @@ where
             let state_diff = self
                 .get_association_state_diff(
                     conn,
-                    inbox_id,
+                    inbox_id.as_str(),
                     starting_sequence_id,
                     new_group_membership.get(inbox_id).map(|i| *i as i64),
                 )
@@ -555,14 +554,14 @@ pub(crate) mod tests {
 
     async fn get_association_state<ApiClient, Verifier>(
         client: &Client<ApiClient, Verifier>,
-        inbox_id: String,
+        inbox_id: &str,
     ) -> AssociationState
     where
         ApiClient: XmtpApi,
         Verifier: SmartContractSignatureVerifier,
     {
         let conn = client.store().conn().unwrap();
-        load_identity_updates(&client.api_client, &conn, &[inbox_id.as_str()])
+        load_identity_updates(&client.api_client, &conn, &[inbox_id.as_ref()])
             .await
             .unwrap();
 
@@ -600,7 +599,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, inbox_id.to_string()).await;
+        let association_state = get_association_state(&client, &inbox_id).await;
 
         assert_eq!(association_state.members().len(), 2);
         assert_eq!(association_state.recovery_address(), &wallet_address);
@@ -628,7 +627,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state = get_association_state(&client, client.inbox_id().to_string()).await;
+        let association_state = get_association_state(&client, client.inbox_id()).await;
 
         let members =
             association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
@@ -654,12 +653,12 @@ pub(crate) mod tests {
             let client = ClientBuilder::new_test_client(&wallet).await;
             let inbox_id = client.inbox_id();
 
-            get_association_state(&client, inbox_id.to_string()).await;
+            get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 0);
             assert_logged!("Wrote association", 1);
 
-            let association_state = get_association_state(&client, inbox_id.to_string()).await;
+            let association_state = get_association_state(&client, inbox_id).await;
 
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(association_state.recovery_address(), &wallet_address);
@@ -682,12 +681,12 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
-            get_association_state(&client, inbox_id.to_string()).await;
+            get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 2);
 
-            let association_state = get_association_state(&client, inbox_id.to_string()).await;
+            let association_state = get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 2);
             assert_logged!("Wrote association", 2);
@@ -843,8 +842,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let association_state_after_add =
-            get_association_state(&client, client.inbox_id().to_string()).await;
+        let association_state_after_add = get_association_state(&client, client.inbox_id()).await;
         assert_eq!(association_state_after_add.account_addresses().len(), 2);
 
         // Make sure the inbox ID is correctly registered
@@ -870,7 +868,7 @@ pub(crate) mod tests {
 
         // Make sure that the association state has removed the second wallet
         let association_state_after_revoke =
-            get_association_state(&client, client.inbox_id().to_string()).await;
+            get_association_state(&client, client.inbox_id()).await;
         assert_eq!(association_state_after_revoke.account_addresses().len(), 1);
 
         // Make sure the inbox ID is correctly unregistered
@@ -889,8 +887,7 @@ pub(crate) mod tests {
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
         let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
 
-        let association_state =
-            get_association_state(&client1, client1.inbox_id().to_string()).await;
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
         // Ensure there are two installations on the inbox
         assert_eq!(association_state.installation_ids().len(), 2);
 
@@ -906,8 +903,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Make sure there is only one installation on the inbox
-        let association_state =
-            get_association_state(&client1, client1.inbox_id().to_string()).await;
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 }

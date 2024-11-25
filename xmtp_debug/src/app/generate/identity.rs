@@ -47,7 +47,7 @@ impl GenerateIdentity {
             let first = identities.next().ok_or(eyre::eyre!("Does not exist"))??;
 
             let state = client
-                .get_latest_association_state(&connection, hex::encode(first.inbox_id))
+                .get_latest_association_state(&connection, &hex::encode(first.inbox_id))
                 .await?;
             info!("Found generated identities, checking for registration on backend...",);
             // we assume that if the first identity is registered, they all are
@@ -114,7 +114,7 @@ impl GenerateIdentity {
         let future = |inbox_id: [u8; 32]| async move {
             let id = hex::encode(inbox_id);
             trace!(inbox_id = id, "getting association state");
-            let state = tmp.get_latest_association_state(&conn, id).await?;
+            let state = tmp.get_latest_association_state(&conn, &id).await?;
             bar_ref.inc(1);
             Ok(state)
         };
