@@ -303,11 +303,7 @@ impl ValidatedCommit {
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
             let inbox_state = client
-                .get_association_state(
-                    conn,
-                    participant.inbox_id.clone(),
-                    Some(*to_sequence_id as i64),
-                )
+                .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
                 .await
                 .map_err(InstallationDiffError::from)?;
 
