@@ -8,7 +8,6 @@
 , cargo-ndk
 , sqlite
 , openssl
-, libiconv
 , lib
 , rust-toolchain
 }:
@@ -55,7 +54,6 @@ mkShell {
     openssl
   ] ++ lib.optionals stdenv.isDarwin [
     # optional packages if on darwin, in order to check if build passes locally
-    libiconv
     frameworks.CoreServices
     frameworks.Carbon
     frameworks.ApplicationServices

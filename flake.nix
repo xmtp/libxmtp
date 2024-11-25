@@ -1,7 +1,7 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     fenix = {
       url = "github:nix-community/fenix";
@@ -21,7 +21,6 @@
 
   outputs = inputs@{ flake-parts, fenix, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      flake = { };
       systems = import inputs.systems;
       perSystem = { pkgs, lib, inputs', system, ... }:
         let
@@ -61,7 +60,6 @@
             ./xmtp_id/artifact
             ./xmtp_mls/migrations
           ];
-
           binFileSetForWorkspace = lib.fileset.unions [
             (commonCargoSources ./examples/cli)
             (commonCargoSources ./mls_validation_service)
@@ -71,23 +69,36 @@
             (commonCargoSources ./bindings_ffi)
             (commonCargoSources ./xmtp_debug)
           ];
-
-          fileSetForWorkspace = lib.fileset.unions [ binFileSetForWorkspace libFileSetForWorkspace ];
-
-          filesets = { inherit fileSetForWorkspace binFileSetForWorkspace libFileSetForWorkspace; };
-          xdbg = pkgs.callPackage ./nix/xdbg {
-            inherit craneLib filesets;
+          fileSetForCrate = crate: lib.fileset.unions [
+            libFileSetForWorkspace
+            crate
+          ];
+          fileSetForWorkspace = lib.fileset.unions [
+            binFileSetForWorkspace
+            libFileSetForWorkspace
+          ];
+          filesets = {
+            inherit
+              fileSetForWorkspace
+              binFileSetForWorkspace
+              libFileSetForWorkspace
+              fileSetForCrate;
+          };
+          xdbg = import ./nix/xdbg {
+            inherit pkgs craneLib filesets;
+          };
+          validationService = import ./nix/mls_validation_service {
+            inherit pkgs craneLib filesets;
           };
         in
         {
-          _module. args. pkgs = import inputs.nixpkgs pkgConfig;
+          _module.args.pkgs = import inputs.nixpkgs pkgConfig;
           devShells.android = pkgs.callPackage ./nix/android.nix { inherit rust-toolchain; };
-          devShells.muslXdbg = xdbg.muslXDbg.devShell;
-          devShells.xdbg = xdbg.devShell;
           packages = {
             xdbg = xdbg.bin;
             xdbgDocker = xdbg.dockerImage;
-            muslXdbg = xdbg.muslXDbg.bin;
+            validationService = validationService.bin;
+            validationServiceDocker = validationService.dockerImage;
           };
         };
     };

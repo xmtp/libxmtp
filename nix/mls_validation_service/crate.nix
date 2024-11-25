@@ -76,10 +76,10 @@ let
   bin = craneLib.buildPackage ({
     inherit cargoArtifacts;
     inherit (craneLib.crateNameFromCargoToml {
-      cargoToml = ./../../xmtp_debug/Cargo.toml;
+      cargoToml = ./../../mls_validation_service/Cargo.toml;
     }) version pname;
-    cargoExtraArgs = "--package xdbg";
-    src = filesetForCrate ./../../xmtp_debug;
+    cargoExtraArgs = "--package mls_validation_service";
+    src = filesetForCrate ./../../mls_validation_service;
     doCheck = false;
 
     RUST_BACKTRACE = 1;
