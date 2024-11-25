@@ -1,16 +1,21 @@
-{ pkgs, craneLib, filesets }:
+{
+  pkgs,
+  craneLib,
+  filesets,
+}:
 let
   mls_validation_service = pkgs.callPackage ./crate.nix { inherit craneLib filesets; };
   muslService = pkgs.pkgsCross.musl64.callPackage ./crate.nix {
-    inherit craneLib filesets; rustTarget = "x86_64-unknown-linux-musl";
+    inherit craneLib filesets;
+    rustTarget = "x86_64-unknown-linux-musl";
   };
 
-  dockerImage = pkgs.dockerTools.buildImage {
-    name = "mls_validation_service";
+  dockerImage = pkgs.dockerTools.streamLayeredImage {
+    name = "xmtp/mls_validation_service";
     tag = "latest";
-    copyToRoot = [ muslService.bin ];
+    contents = [ muslService.bin ];
     config = {
-      Cmd = [ "${muslService.bin}/bin/xdbg --help" ];
+      Cmd = [ "${muslService.bin}/bin/mls_validation_service" ];
     };
   };
 in
@@ -20,4 +25,3 @@ in
   inherit muslService;
   inherit dockerImage;
 }
-

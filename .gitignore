@@ -167,3 +167,4 @@ ecies_bindings_wasm/
 
 chain_urls.json
 result/**
+result
