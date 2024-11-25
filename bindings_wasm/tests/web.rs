@@ -26,7 +26,7 @@ pub async fn test_create_client() {
     host.clone(),
     inbox_id.unwrap(),
     account_address.clone(),
-    "test".to_string(),
+    None,
     None,
     None,
     Some(LogOptions {

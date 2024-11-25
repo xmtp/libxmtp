@@ -2032,6 +2032,15 @@ impl serde::Serialize for FrameAction {
         if !self.action_body.is_empty() {
             len += 1;
         }
+        if !self.installation_signature.is_empty() {
+            len += 1;
+        }
+        if !self.installation_id.is_empty() {
+            len += 1;
+        }
+        if !self.inbox_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.FrameAction", len)?;
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -2043,6 +2052,19 @@ impl serde::Serialize for FrameAction {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("actionBody", pbjson::private::base64::encode(&self.action_body).as_str())?;
+        }
+        if !self.installation_signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationSignature", pbjson::private::base64::encode(&self.installation_signature).as_str())?;
+        }
+        if !self.installation_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
+        }
+        if !self.inbox_id.is_empty() {
+            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -2059,6 +2081,12 @@ impl<'de> serde::Deserialize<'de> for FrameAction {
             "signedPublicKeyBundle",
             "action_body",
             "actionBody",
+            "installation_signature",
+            "installationSignature",
+            "installation_id",
+            "installationId",
+            "inbox_id",
+            "inboxId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2066,6 +2094,9 @@ impl<'de> serde::Deserialize<'de> for FrameAction {
             Signature,
             SignedPublicKeyBundle,
             ActionBody,
+            InstallationSignature,
+            InstallationId,
+            InboxId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2090,6 +2121,9 @@ impl<'de> serde::Deserialize<'de> for FrameAction {
                             "signature" => Ok(GeneratedField::Signature),
                             "signedPublicKeyBundle" | "signed_public_key_bundle" => Ok(GeneratedField::SignedPublicKeyBundle),
                             "actionBody" | "action_body" => Ok(GeneratedField::ActionBody),
+                            "installationSignature" | "installation_signature" => Ok(GeneratedField::InstallationSignature),
+                            "installationId" | "installation_id" => Ok(GeneratedField::InstallationId),
+                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2112,6 +2146,9 @@ impl<'de> serde::Deserialize<'de> for FrameAction {
                 let mut signature__ = None;
                 let mut signed_public_key_bundle__ = None;
                 let mut action_body__ = None;
+                let mut installation_signature__ = None;
+                let mut installation_id__ = None;
+                let mut inbox_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Signature => {
@@ -2134,12 +2171,37 @@ impl<'de> serde::Deserialize<'de> for FrameAction {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::InstallationSignature => {
+                            if installation_signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationSignature"));
+                            }
+                            installation_signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::InstallationId => {
+                            if installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationId"));
+                            }
+                            installation_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::InboxId => {
+                            if inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                            }
+                            inbox_id__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(FrameAction {
                     signature: signature__,
                     signed_public_key_bundle: signed_public_key_bundle__,
                     action_body: action_body__.unwrap_or_default(),
+                    installation_signature: installation_signature__.unwrap_or_default(),
+                    installation_id: installation_id__.unwrap_or_default(),
+                    inbox_id: inbox_id__.unwrap_or_default(),
                 })
             }
         }

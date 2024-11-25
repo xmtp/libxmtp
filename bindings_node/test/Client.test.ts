@@ -2,7 +2,12 @@ import { v4 } from 'uuid'
 import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 import { createClient, createRegisteredClient, createUser } from '@test/helpers'
-import { ConsentEntityType, ConsentState, SignatureRequestType } from '../dist'
+import {
+  ConsentEntityType,
+  ConsentState,
+  SignatureRequestType,
+  verifySignedWithPublicKey,
+} from '../dist'
 
 describe('Client', () => {
   it('should not be registered at first', async () => {
@@ -224,5 +229,24 @@ describe('Client', () => {
       user2.account.address.toLowerCase(),
     ])
   })
-  it('should create client with structured logging', async () => {})
+
+  it('should sign and verify with installation key', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    const text = 'gm!'
+    const signature = client.signWithInstallationKey(text)
+    expect(signature).toBeDefined()
+    expect(() =>
+      client.verifySignedWithInstallationKey(text, signature)
+    ).not.toThrow()
+    expect(() =>
+      client.verifySignedWithInstallationKey(text, new Uint8Array())
+    ).toThrow()
+    expect(() =>
+      verifySignedWithPublicKey(text, signature, client.installationIdBytes())
+    ).not.toThrow()
+    expect(() =>
+      verifySignedWithPublicKey(text, signature, new Uint8Array())
+    ).toThrow()
+  })
 })
