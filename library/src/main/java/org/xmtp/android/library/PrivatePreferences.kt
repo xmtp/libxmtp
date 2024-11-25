@@ -1,8 +1,15 @@
 package org.xmtp.android.library
 
+import android.util.Log
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import uniffi.xmtpv3.FfiConsent
+import uniffi.xmtpv3.FfiConsentCallback
 import uniffi.xmtpv3.FfiConsentEntityType
 import uniffi.xmtpv3.FfiConsentState
+import uniffi.xmtpv3.FfiDeviceSyncKind
+import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiXmtpClient
 
 enum class ConsentState {
@@ -85,10 +92,32 @@ data class ConsentListEntry(
         get() = "${entryType.name}-$value"
 }
 
-class ConsentList(
-    val client: Client,
+data class PrivatePreferences(
+    var client: Client,
     private val ffiClient: FfiXmtpClient,
 ) {
+    suspend fun syncConsent() {
+        ffiClient.sendSyncRequest(FfiDeviceSyncKind.CONSENT)
+    }
+
+    suspend fun streamConsent(): Flow<ConsentListEntry> = callbackFlow {
+        val consentCallback = object : FfiConsentCallback {
+            override fun onConsentUpdate(consent: List<FfiConsent>) {
+                consent.iterator().forEach {
+                    trySend(it.fromFfiConsent())
+                }
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP consent stream", error.message.toString())
+            }
+        }
+
+        val stream = ffiClient.conversations().streamConsent(consentCallback)
+
+        awaitClose { stream.end() }
+    }
+
     suspend fun setConsentState(entries: List<ConsentListEntry>) {
         ffiClient.setConsentStates(entries.map { it.toFfiConsent() })
     }
@@ -98,6 +127,14 @@ class ConsentList(
             EntryType.toFfiConsentEntityType(entryType),
             ConsentState.toFfiConsentState(consentType),
             value
+        )
+    }
+
+    private fun FfiConsent.fromFfiConsent(): ConsentListEntry {
+        return ConsentListEntry(
+            entity,
+            EntryType.fromFfiConsentEntityType(entityType),
+            ConsentState.fromFfiConsentState(state),
         )
     }
 
@@ -128,9 +165,3 @@ class ConsentList(
         )
     }
 }
-
-data class PrivatePreferences(
-    var client: Client,
-    private val ffiClient: FfiXmtpClient,
-    var consentList: ConsentList = ConsentList(client, ffiClient),
-)

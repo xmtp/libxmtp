@@ -141,7 +141,7 @@ class DmTest {
             dm.send("gm")
             dm.sync()
             assertEquals(
-                boClient.preferences.consentList.conversationState(dm.id),
+                boClient.preferences.conversationState(dm.id),
                 ConsentState.ALLOWED
             )
             assertEquals(dm.consentState(), ConsentState.ALLOWED)
@@ -330,13 +330,13 @@ class DmTest {
             val dm =
                 boClient.conversations.findOrCreateDm(alix.walletAddress)
             assertEquals(
-                boClient.preferences.consentList.conversationState(dm.id),
+                boClient.preferences.conversationState(dm.id),
                 ConsentState.ALLOWED
             )
 
             assertEquals(dm.consentState(), ConsentState.ALLOWED)
 
-            boClient.preferences.consentList.setConsentState(
+            boClient.preferences.setConsentState(
                 listOf(
                     ConsentListEntry(
                         dm.id,
@@ -346,12 +346,12 @@ class DmTest {
                 )
             )
             assertEquals(
-                boClient.preferences.consentList.conversationState(dm.id),
+                boClient.preferences.conversationState(dm.id),
                 ConsentState.DENIED
             )
             assertEquals(dm.consentState(), ConsentState.DENIED)
 
-            boClient.preferences.consentList.setConsentState(
+            boClient.preferences.setConsentState(
                 listOf(
                     ConsentListEntry(
                         dm.id,
@@ -361,7 +361,7 @@ class DmTest {
                 )
             )
             assertEquals(
-                boClient.preferences.consentList.conversationState(dm.id),
+                boClient.preferences.conversationState(dm.id),
                 ConsentState.ALLOWED
             )
             assertEquals(dm.consentState(), ConsentState.ALLOWED)

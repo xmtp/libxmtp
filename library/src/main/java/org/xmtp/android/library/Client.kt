@@ -340,10 +340,6 @@ class Client() {
         ffiClient.sendSyncRequest(FfiDeviceSyncKind.MESSAGES)
     }
 
-    suspend fun syncConsent() {
-        ffiClient.sendSyncRequest(FfiDeviceSyncKind.CONSENT)
-    }
-
     suspend fun inboxStatesForInboxIds(
         refreshFromNetwork: Boolean,
         inboxIds: List<String>,

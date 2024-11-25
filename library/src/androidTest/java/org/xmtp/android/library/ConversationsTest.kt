@@ -211,14 +211,14 @@ class ConversationsTest {
             boDm?.sync()
             alixClient.conversations.sync()
             alixClient2.conversations.sync()
-            alixClient2.syncConsent()
+            alixClient2.preferences.syncConsent()
             alixClient.conversations.syncAllConversations()
             Thread.sleep(2000)
             alixClient2.conversations.syncAllConversations()
             Thread.sleep(2000)
             val dm2 = alixClient2.findConversation(dm.id)!!
             assertEquals(ConsentState.DENIED, dm2.consentState())
-            alixClient2.preferences.consentList.setConsentState(
+            alixClient2.preferences.setConsentState(
                 listOf(
                     ConsentListEntry(
                         dm2.id,
@@ -228,10 +228,76 @@ class ConversationsTest {
                 )
             )
             assertEquals(
-                alixClient2.preferences.consentList.conversationState(dm2.id),
+                alixClient2.preferences.conversationState(dm2.id),
                 ConsentState.ALLOWED
             )
             assertEquals(dm2.consentState(), ConsentState.ALLOWED)
         }
+    }
+
+    @Test
+    fun testStreamConsent() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+
+        val alixClient = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(bo.walletAddress)) }
+
+        val alixClient2 = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key,
+                    dbDirectory = context.filesDir.absolutePath.toString()
+                )
+            )
+        }
+
+        runBlocking {
+            alixGroup.send("Hello")
+            alixClient2.conversations.sync()
+            alixClient.conversations.syncAllConversations()
+            alixClient2.conversations.syncAllConversations()
+        }
+        val alix2Group = alixClient2.findGroup(alixGroup.id)!!
+        val consent = mutableListOf<ConsentListEntry>()
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.preferences.streamConsent()
+                    .collect { entry ->
+                        consent.add(entry)
+                    }
+            } catch (e: Exception) {
+            }
+        }
+
+        Thread.sleep(1000)
+
+        runBlocking {
+            alix2Group.updateConsentState(ConsentState.DENIED)
+            val dm3 = alixClient2.conversations.newConversation(caro.walletAddress)
+            dm3.updateConsentState(ConsentState.DENIED)
+            alixClient.conversations.sync()
+            alixClient2.conversations.sync()
+            alixClient.conversations.syncAllConversations()
+            alixClient2.conversations.syncAllConversations()
+        }
+
+        Thread.sleep(2000)
+        assertEquals(3, consent.size)
+        assertEquals(alixGroup.consentState(), ConsentState.DENIED)
+        job.cancel()
     }
 }
