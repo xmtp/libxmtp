@@ -330,6 +330,6 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(association_state.is_member(identifier))
+    Ok(association_state.get(identifier).is_some())
   }
 }

@@ -101,10 +101,6 @@ impl AssociationState {
         &self.recovery_address
     }
 
-    pub fn is_member(&self, identifier: &MemberIdentifier) -> bool {
-        self.members.contains_key(identifier)
-    }
-
     pub fn members_by_parent(&self, parent_id: &MemberIdentifier) -> Vec<Member> {
         self.members
             .values()
