@@ -338,7 +338,7 @@ class DmTest {
 
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         dm.id,
                         EntryType.CONVERSATION_ID,
                         ConsentState.DENIED
@@ -353,7 +353,7 @@ class DmTest {
 
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         dm.id,
                         EntryType.CONVERSATION_ID,
                         ConsentState.ALLOWED

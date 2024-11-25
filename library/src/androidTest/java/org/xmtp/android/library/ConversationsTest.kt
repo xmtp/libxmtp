@@ -220,7 +220,7 @@ class ConversationsTest {
             assertEquals(ConsentState.DENIED, dm2.consentState())
             alixClient2.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         dm2.id,
                         EntryType.CONVERSATION_ID,
                         ConsentState.ALLOWED
@@ -272,7 +272,7 @@ class ConversationsTest {
             alixClient2.conversations.syncAllConversations()
         }
         val alix2Group = alixClient2.findGroup(alixGroup.id)!!
-        val consent = mutableListOf<ConsentListEntry>()
+        val consent = mutableListOf<ConsentRecord>()
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
                 alixClient.preferences.streamConsent()

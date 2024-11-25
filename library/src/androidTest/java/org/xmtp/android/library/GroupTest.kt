@@ -738,7 +738,7 @@ class GroupTest {
 
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         group.id,
                         EntryType.CONVERSATION_ID,
                         ConsentState.DENIED
@@ -770,7 +770,7 @@ class GroupTest {
             )
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         alixClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.ALLOWED
@@ -787,7 +787,7 @@ class GroupTest {
 
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         alixClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.DENIED
@@ -804,7 +804,7 @@ class GroupTest {
 
             boClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         alixClient.address,
                         EntryType.ADDRESS,
                         ConsentState.ALLOWED

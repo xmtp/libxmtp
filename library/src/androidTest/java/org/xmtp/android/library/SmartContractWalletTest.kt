@@ -219,7 +219,7 @@ class SmartContractWalletTest {
 
             davonSCWClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         davonGroup.id,
                         EntryType.CONVERSATION_ID,
                         ConsentState.DENIED
@@ -258,7 +258,7 @@ class SmartContractWalletTest {
             )
             davonSCWClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         boEOAClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.ALLOWED
@@ -275,7 +275,7 @@ class SmartContractWalletTest {
 
             davonSCWClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         boEOAClient.inboxId,
                         EntryType.INBOX_ID,
                         ConsentState.DENIED
@@ -292,7 +292,7 @@ class SmartContractWalletTest {
 
             davonSCWClient.preferences.setConsentState(
                 listOf(
-                    ConsentListEntry(
+                    ConsentRecord(
                         eriSCWClient.address,
                         EntryType.ADDRESS,
                         ConsentState.ALLOWED
