@@ -689,6 +689,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
+            parent_id: None,
         };
         group_message.store(conn)?;
 
