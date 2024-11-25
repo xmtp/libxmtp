@@ -66,7 +66,7 @@ where
                     {
                         return None;
                     }
-                    Some((id.clone(), Some(*sequence)))
+                    Some((id.as_str(), Some(*sequence)))
                 })
                 .collect();
 

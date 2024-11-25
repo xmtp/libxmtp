@@ -365,19 +365,14 @@ where
     }
 
     /// Get the [`AssociationState`] for each `inbox_id`
-    pub async fn inbox_addresses<InboxId: AsRef<str>>(
+    pub async fn inbox_addresses<'a>(
         &self,
         refresh_from_network: bool,
-        inbox_ids: Vec<InboxId>,
+        inbox_ids: Vec<InboxIdRef<'a>>,
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.store().conn()?;
         if refresh_from_network {
-            load_identity_updates(
-                &self.api_client,
-                &conn,
-                &inbox_ids.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
-            )
-            .await?;
+            load_identity_updates(&self.api_client, &conn, &inbox_ids).await?;
         }
         let state = self
             .batch_get_association_state(

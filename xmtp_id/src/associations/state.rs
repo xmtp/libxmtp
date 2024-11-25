@@ -74,8 +74,8 @@ impl AssociationState {
         new_state
     }
 
-    pub fn get(&self, identifier: &MemberIdentifier) -> Option<Member> {
-        self.members.get(identifier).cloned()
+    pub fn get(&self, identifier: &MemberIdentifier) -> Option<&Member> {
+        self.members.get(identifier)
     }
 
     pub fn add_seen_signatures(&self, signatures: Vec<Vec<u8>>) -> Self {
