@@ -474,10 +474,6 @@ public final class Client {
 		try await ffiClient.sendSyncRequest(kind: .messages)
 	}
 
-	public func syncConsent() async throws {
-		try await ffiClient.sendSyncRequest(kind: .consent)
-	}
-
 	public func inboxState(refreshFromNetwork: Bool) async throws -> InboxState
 	{
 		return InboxState(

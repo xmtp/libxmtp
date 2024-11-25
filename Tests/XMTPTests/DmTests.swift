@@ -82,7 +82,7 @@ class DmTests: XCTestCase {
 		_ = try await dm.send(content: "gm")
 		try await dm.sync()
 
-		let dmState = try await fixtures.boClient.preferences.consentList
+		let dmState = try await fixtures.boClient.preferences
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(dmState, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
@@ -248,24 +248,24 @@ class DmTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.alix.walletAddress)
 
-		let isDm = try await fixtures.boClient.preferences.consentList
+		let isDm = try await fixtures.boClient.preferences
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(isDm, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
 
-		try await fixtures.boClient.preferences.consentList.setConsentState(
+		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentListEntry(
 					value: dm.id, entryType: .conversation_id,
 					consentType: .denied)
 			])
-		let isDenied = try await fixtures.boClient.preferences.consentList
+		let isDenied = try await fixtures.boClient.preferences
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(isDenied, .denied)
 		XCTAssertEqual(try dm.consentState(), .denied)
 
 		try await dm.updateConsentState(state: .allowed)
-		let isAllowed = try await fixtures.boClient.preferences.consentList
+		let isAllowed = try await fixtures.boClient.preferences
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(isAllowed, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)

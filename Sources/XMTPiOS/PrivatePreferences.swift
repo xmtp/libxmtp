@@ -9,12 +9,13 @@ public enum EntryType: String, Codable {
 }
 
 public struct ConsentListEntry: Codable, Hashable {
-	public init(value: String, entryType: EntryType, consentType: ConsentState) {
+	public init(value: String, entryType: EntryType, consentType: ConsentState)
+	{
 		self.value = value
 		self.entryType = entryType
 		self.consentType = consentType
 	}
-	
+
 	static func address(_ address: String, type: ConsentState = .unknown)
 		-> ConsentListEntry
 	{
@@ -25,7 +26,8 @@ public struct ConsentListEntry: Codable, Hashable {
 		conversationId: String, type: ConsentState = ConsentState.unknown
 	) -> ConsentListEntry {
 		ConsentListEntry(
-			value: conversationId, entryType: .conversation_id, consentType: type)
+			value: conversationId, entryType: .conversation_id,
+			consentType: type)
 	}
 
 	static func inboxId(_ inboxId: String, type: ConsentState = .unknown)
@@ -44,25 +46,8 @@ public struct ConsentListEntry: Codable, Hashable {
 	}
 }
 
-public enum ContactError: Error {
-	case invalidIdentifier
-}
-
-public actor EntriesManager {
-	public var map: [String: ConsentListEntry] = [:]
-
-	func set(_ key: String, _ object: ConsentListEntry) {
-		map[key] = object
-	}
-
-	func get(_ key: String) -> ConsentListEntry? {
-		map[key]
-	}
-}
-
-public class ConsentList {
-	public let entriesManager = EntriesManager()
-	var lastFetched: Date?
+/// Provides access to contact bundles.
+public actor PrivatePreferences {
 	var client: Client
 	var ffiClient: FfiXmtpClient
 
@@ -82,7 +67,9 @@ public class ConsentList {
 		).fromFFI
 	}
 
-	public func conversationState(conversationId: String) async throws -> ConsentState {
+	public func conversationState(conversationId: String) async throws
+		-> ConsentState
+	{
 		return try await ffiClient.getConsentState(
 			entityType: .conversationId,
 			entity: conversationId
@@ -95,17 +82,61 @@ public class ConsentList {
 			entity: inboxId
 		).fromFFI
 	}
+
+	public func syncConsent() async throws {
+		try await ffiClient.sendSyncRequest(kind: .consent)
+	}
+
+	public func streamConsent()
+		-> AsyncThrowingStream<ConsentListEntry, Error>
+	{
+		AsyncThrowingStream { continuation in
+			let ffiStreamActor = FfiStreamActor()
+
+			let consentCallback = ConsentCallback(client: self.client) {
+				records in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				for consent in records {
+					continuation.yield(consent.fromFfi)
+				}
+			}
+
+			let task = Task {
+				let stream = await ffiClient.conversations().streamConsent(
+					callback: consentCallback)
+				await ffiStreamActor.setFfiStream(stream)
+			}
+
+			continuation.onTermination = { _ in
+				task.cancel()
+				Task {
+					await ffiStreamActor.endStream()
+				}
+			}
+		}
+	}
 }
 
-/// Provides access to contact bundles.
-public actor PrivatePreferences {
-	var client: Client
-	var ffiClient: FfiXmtpClient
-	public var consentList: ConsentList
+final class ConsentCallback: FfiConsentCallback {
+	let client: Client
+	let callback: ([FfiConsent]) -> Void
 
-	init(client: Client, ffiClient: FfiXmtpClient) {
+	init(client: Client, _ callback: @escaping ([FfiConsent]) -> Void) {
 		self.client = client
-		self.ffiClient = ffiClient
-		consentList = ConsentList(client: client, ffiClient: ffiClient)
+		self.callback = callback
+	}
+
+	func onConsentUpdate(consent: [FfiConsent]) {
+		callback(consent)
+	}
+
+	func onError(error: FfiSubscribeError) {
+		print("Error ConsentCallback \(error)")
 	}
 }

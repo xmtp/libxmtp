@@ -99,7 +99,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(boConsentResult, ConsentState.allowed)
 
 		let alixConsentResult = try await fixtures.alixClient.preferences
-			.consentList.conversationState(conversationId: alixGroup.id)
+			.conversationState(conversationId: alixGroup.id)
 		XCTAssertEqual(alixConsentResult, ConsentState.unknown)
 
 		try await boGroup.addMembers(addresses: [fixtures.caro.address])
@@ -793,7 +793,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(try group.consentState(), .allowed)
 
 		try await group.updateConsentState(state: .denied)
-		let isDenied = try await fixtures.boClient.preferences.consentList
+		let isDenied = try await fixtures.boClient.preferences
 			.conversationState(conversationId: group.id)
 		XCTAssertEqual(isDenied, .denied)
 		XCTAssertEqual(try group.consentState(), .denied)
@@ -806,12 +806,12 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
 			with: [fixtures.alix.address])
-		let inboxState = try await fixtures.boClient.preferences.consentList
+		let inboxState = try await fixtures.boClient.preferences
 			.inboxIdState(
 				inboxId: fixtures.alixClient.inboxID)
 		XCTAssertEqual(inboxState, .unknown)
 
-		try await fixtures.boClient.preferences.consentList.setConsentState(
+		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentListEntry(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
@@ -822,12 +822,12 @@ class GroupTests: XCTestCase {
 		})
 		XCTAssertEqual(alixMember?.consentState, .allowed)
 
-		let inboxState2 = try await fixtures.boClient.preferences.consentList
+		let inboxState2 = try await fixtures.boClient.preferences
 			.inboxIdState(
 				inboxId: fixtures.alixClient.inboxID)
 		XCTAssertEqual(inboxState2, .allowed)
 
-		try await fixtures.boClient.preferences.consentList.setConsentState(
+		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentListEntry(
 					value: fixtures.alixClient.inboxID, entryType: .inbox_id,
@@ -838,22 +838,22 @@ class GroupTests: XCTestCase {
 		})
 		XCTAssertEqual(alixMember?.consentState, .denied)
 
-		let inboxState3 = try await fixtures.boClient.preferences.consentList
+		let inboxState3 = try await fixtures.boClient.preferences
 			.inboxIdState(
 				inboxId: fixtures.alixClient.inboxID)
 		XCTAssertEqual(inboxState3, .denied)
 
-		try await fixtures.boClient.preferences.consentList.setConsentState(
+		try await fixtures.boClient.preferences.setConsentState(
 			entries: [
 				ConsentListEntry(
 					value: fixtures.alixClient.address, entryType: .address,
 					consentType: .allowed)
 			])
-		let inboxState4 = try await fixtures.boClient.preferences.consentList
+		let inboxState4 = try await fixtures.boClient.preferences
 			.inboxIdState(
 				inboxId: fixtures.alixClient.inboxID)
 		XCTAssertEqual(inboxState4, .allowed)
-		let addressState = try await fixtures.boClient.preferences.consentList
+		let addressState = try await fixtures.boClient.preferences
 			.addressState(address: fixtures.alixClient.address)
 		XCTAssertEqual(addressState, .allowed)
 	}
@@ -892,12 +892,12 @@ class GroupTests: XCTestCase {
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try fixtures.alixClient.findGroup(groupId: boGroup.id)!
 		let isGroupAllowed = try await fixtures.alixClient.preferences
-			.consentList.conversationState(conversationId: boGroup.id)
+			.conversationState(conversationId: boGroup.id)
 		XCTAssertEqual(isGroupAllowed, .unknown)
 		let preparedMessageId = try await alixGroup.prepareMessage(
 			content: "Test text")
 		let isGroupAllowed2 = try await fixtures.alixClient.preferences
-			.consentList.conversationState(conversationId: boGroup.id)
+			.conversationState(conversationId: boGroup.id)
 		XCTAssertEqual(isGroupAllowed2, .allowed)
 		let messageCount = try await alixGroup.messages().count
 		XCTAssertEqual(messageCount, 1)
