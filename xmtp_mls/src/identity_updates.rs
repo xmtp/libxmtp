@@ -117,7 +117,7 @@ where
         conn: &DbConnection,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(&self.api_client, conn, &[inbox_id.as_ref()]).await?;
+        load_identity_updates(&self.api_client, conn, &[inbox_id]).await?;
 
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -313,7 +313,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                self.get_association_state(&self.store().conn()?, inbox_id, None)
                     .await
             })
         )?;
@@ -339,7 +339,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, &inbox_id, None)
+                self.get_association_state(&self.store().conn()?, inbox_id, None)
                     .await
             })
         )?;
@@ -561,7 +561,7 @@ pub(crate) mod tests {
         Verifier: SmartContractSignatureVerifier,
     {
         let conn = client.store().conn().unwrap();
-        load_identity_updates(&client.api_client, &conn, &[inbox_id.as_ref()])
+        load_identity_updates(&client.api_client, &conn, &[inbox_id])
             .await
             .unwrap();
 

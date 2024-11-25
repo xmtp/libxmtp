@@ -372,12 +372,7 @@ where
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.store().conn()?;
         if refresh_from_network {
-            load_identity_updates(
-                &self.api_client,
-                &conn,
-                &inbox_ids.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
-            )
-            .await?;
+            load_identity_updates(&self.api_client, &conn, &inbox_ids).await?;
         }
         let state = self
             .batch_get_association_state(
