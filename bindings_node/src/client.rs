@@ -313,10 +313,13 @@ impl Client {
   pub async fn is_installation_authorized(
     &self,
     inbox_id: String,
-    installation: Vec<u8>,
+    installation_id: Uint8Array,
   ) -> Result<bool> {
     self
-      .is_member_of_association_state(&inbox_id, &MemberIdentifier::Installation(installation))
+      .is_member_of_association_state(
+        &inbox_id,
+        &MemberIdentifier::Installation(installation_id.to_vec()),
+      )
       .await
   }
 
