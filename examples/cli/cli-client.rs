@@ -535,7 +535,7 @@ where
     let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
     let client = create_client(
         cli,
-        IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
+        IdentityStrategy::new(inbox_id, w.get_address(), nonce, None),
         client,
     )
     .await?;

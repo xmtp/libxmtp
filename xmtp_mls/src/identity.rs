@@ -74,7 +74,7 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    pub fn inbox_id<'a>(&'a self) -> Option<InboxIdRef<'a>> {
+    pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
         use IdentityStrategy::*;
         match self {
             CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
@@ -82,7 +82,7 @@ impl IdentityStrategy {
         }
     }
 
-    /// Create a new Identity Strategy.
+    /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
     /// If an Identity is not found in the local store, creates a new one.
     pub fn new(
         inbox_id: InboxId,

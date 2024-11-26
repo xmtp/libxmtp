@@ -112,7 +112,7 @@ pub async fn create_client(
         None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
     };
     log::info!("Creating XMTP client");
-    let identity_strategy = IdentityStrategy::CreateIfNotFound(
+    let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
         account_address.clone(),
         nonce,
