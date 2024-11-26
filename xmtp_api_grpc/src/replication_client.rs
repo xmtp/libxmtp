@@ -72,7 +72,11 @@ pub struct ClientV4 {
 }
 
 impl ClientV4 {
-    pub async fn create(grpc_url: String, payer_url: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(
+        grpc_url: String,
+        payer_url: String,
+        is_secure: bool,
+    ) -> Result<Self, Error> {
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
         let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
@@ -95,7 +99,6 @@ impl ClientV4 {
                 .await
                 .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
         };
-
 
         // GroupMessageInputTODO(mkysel) for now we assume both payer and replication are on the same host
         let client = ReplicationApiClient::new(grpc_channel.clone());
