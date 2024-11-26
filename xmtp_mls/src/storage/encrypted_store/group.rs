@@ -375,7 +375,7 @@ impl DbConnection {
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            let now = crate::utils::time::now_ns();
+            let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::rotated_at_ns.eq(now))
                 .execute(conn)
@@ -403,7 +403,7 @@ impl DbConnection {
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            let now = crate::utils::time::now_ns();
+            let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
@@ -535,18 +535,17 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        assert_ok,
         storage::{
             consent_record::{ConsentType, StoredConsentRecord},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
-        utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };
+    use xmtp_common::{assert_ok, rand_vec, time::now_ns};
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
-        let id = rand_vec();
+        let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::new(
@@ -573,7 +572,7 @@ pub(crate) mod tests {
 
     /// Generate a test dm group
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
-        let id = rand_vec();
+        let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         let dm_inbox_id = Some("placeholder_inbox_id".to_string());
@@ -761,7 +760,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_new_sync_group() {
         with_connection(|conn| {
-            let id = rand_vec();
+            let id = rand_vec::<24>();
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 

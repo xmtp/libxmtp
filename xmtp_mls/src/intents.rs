@@ -10,12 +10,12 @@
 
 use crate::{
     client::XmtpMlsLocalContext,
-    retry::RetryableError,
     storage::{refresh_state::EntityKind, EncryptedMessageStore},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use std::{future::Future, sync::Arc};
 use thiserror::Error;
+use xmtp_common::RetryableError;
 
 #[derive(Debug, Error)]
 pub enum ProcessIntentError {

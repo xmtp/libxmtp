@@ -5,6 +5,7 @@ use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::retry::Retry;
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -37,7 +38,6 @@ use xmtp_mls::{
         GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
-    retry::Retry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::GroupQueryArgs,
@@ -1808,9 +1808,7 @@ mod tests {
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
-    use rand::distributions::{Alphanumeric, DistString};
     use std::{
-        env,
         sync::{
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
@@ -1818,6 +1816,7 @@ mod tests {
         time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use xmtp_common::tmp_path;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -1940,15 +1939,6 @@ mod tests {
         fn on_error(&self, error: FfiSubscribeError) {
             log::error!("{}", error)
         }
-    }
-
-    pub fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
-    }
-
-    pub fn tmp_path() -> String {
-        let db_name = rand_string();
-        format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
     }
 
     fn static_enc_key() -> EncryptionKey {

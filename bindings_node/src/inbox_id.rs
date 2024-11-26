@@ -2,9 +2,9 @@ use crate::ErrorWrapper;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::retry::Retry;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_mls::api::ApiClientWrapper;
-use xmtp_mls::retry::Retry;
 
 #[napi]
 pub async fn get_inbox_id_for_address(

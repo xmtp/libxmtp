@@ -38,8 +38,6 @@ use crate::{
     identity_updates::{load_identity_updates, IdentityUpdateError},
     intents::Intents,
     mutex_registry::MutexRegistry,
-    retry::Retry,
-    retry_async, retryable,
     storage::wallet_addresses::WalletEntry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -54,6 +52,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
 };
+use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -109,7 +108,7 @@ impl From<GroupError> for ClientError {
     }
 }
 
-impl crate::retry::RetryableError for ClientError {
+impl xmtp_common::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
             ClientError::Group(group_error) => retryable!(group_error),

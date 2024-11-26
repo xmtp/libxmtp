@@ -284,11 +284,10 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        assert_err, assert_ok,
         storage::encrypted_store::{group::tests::generate_group, tests::with_connection},
-        utils::test::{rand_time, rand_vec},
         Store,
     };
+    use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 
     fn generate_message(
         kind: Option<GroupMessageKind>,
@@ -296,11 +295,11 @@ pub(crate) mod tests {
         sent_at_ns: Option<i64>,
     ) -> StoredGroupMessage {
         StoredGroupMessage {
-            id: rand_vec(),
-            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec()),
-            decrypted_message_bytes: rand_vec(),
+            id: rand_vec::<24>(),
+            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
+            decrypted_message_bytes: rand_vec::<24>(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
-            sender_installation_id: rand_vec(),
+            sender_installation_id: rand_vec::<24>(),
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,

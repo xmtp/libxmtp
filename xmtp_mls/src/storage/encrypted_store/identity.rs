@@ -71,7 +71,8 @@ pub(crate) mod tests {
         super::{EncryptedMessageStore, StorageOption},
         StoredIdentity,
     };
-    use crate::{utils::test::rand_vec, Store};
+    use crate::Store;
+    use xmtp_common::rand_vec;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -84,12 +85,12 @@ pub(crate) mod tests {
         .unwrap();
         let conn = &store.conn().unwrap();
 
-        StoredIdentity::new("".to_string(), rand_vec(), rand_vec())
+        StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)
             .unwrap();
 
         let duplicate_insertion =
-            StoredIdentity::new("".to_string(), rand_vec(), rand_vec()).store(conn);
+            StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>()).store(conn);
         assert!(duplicate_insertion.is_err());
     }
 }

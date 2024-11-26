@@ -12,8 +12,6 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{mls_sync::GroupMessageProcessingError, subscriptions, GroupError, MlsGroup},
-    retry::{Retry, RetryableError},
-    retry_async, retryable,
     storage::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
@@ -23,6 +21,7 @@ use crate::{
     Client, XmtpApi,
 };
 use thiserror::Error;
+use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 
 #[derive(Debug, Error)]
 pub enum LocalEventError {
@@ -106,7 +105,7 @@ where
 {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {
-            crate::optify!(event, "Missed message due to event queue lag")
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::sync_filter)
                 .map(Result::Ok)
         })
@@ -116,7 +115,7 @@ where
         self,
     ) -> impl Stream<Item = Result<Vec<StoredConsentRecord>, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {
-            crate::optify!(event, "Missed message due to event queue lag")
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::consent_filter)
                 .map(Result::Ok)
         })
@@ -274,7 +273,7 @@ where
             self.local_events.subscribe(),
         )
         .filter_map(|event| async {
-            crate::optify!(event, "Missed messages due to event queue lag")
+            xmtp_common::optify!(event, "Missed messages due to event queue lag")
                 .and_then(LocalEvents::group_filter)
                 .map(Result::Ok)
         });
@@ -508,10 +507,10 @@ pub(crate) mod tests {
         atomic::{AtomicU64, Ordering},
         Arc,
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -546,12 +545,9 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_messages() {
+        xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -559,7 +555,6 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // let mut bob_stream = bob.stream_conversations().await.unwrap()warning: unused implementer of `futures::Future` that must be used;
         alice_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
@@ -570,10 +565,10 @@ pub(crate) mod tests {
             .unwrap();
         let bob_group = bob_group.first().unwrap();
 
-        let notify = Delivery::new(None);
-        let notify_ptr = notify.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::spawn(None, async move {
+        // let notify = Delivery::new(None);
+        // let notify_ptr = notify.clone();
+        // let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        /*crate::spawn(None, async move {
             let stream = alice_group.stream().await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -581,26 +576,25 @@ pub(crate) mod tests {
                 notify_ptr.notify_one();
             }
         });
-        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-
+        */
+        // let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let stream = alice_group.stream().await.unwrap();
+        futures::pin_mut!(stream);
         bob_group.send_message(b"hello").await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
+        tracing::debug!("Bob Sent Message!, waiting for delivery");
+        // notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
+        // notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
 
         // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -621,7 +615,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
-        crate::sleep(core::time::Duration::from_millis(100)).await;
+        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
@@ -657,11 +651,7 @@ pub(crate) mod tests {
         assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -749,18 +739,14 @@ pub(crate) mod tests {
             .send_message("should not show up".as_bytes())
             .await
             .unwrap();
-        crate::sleep(core::time::Duration::from_millis(100)).await;
+        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
         assert_eq!(messages.len(), 5);
     }
 
     #[ignore]
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -793,7 +779,7 @@ pub(crate) mod tests {
         crate::spawn(None, async move {
             for _ in 0..50 {
                 alix_group_pointer.send_message(b"spam").await.unwrap();
-                crate::sleep(core::time::Duration::from_micros(200)).await;
+                xmtp_common::time::sleep(core::time::Duration::from_micros(200)).await;
             }
         });
 
@@ -825,8 +811,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -887,8 +872,7 @@ pub(crate) mod tests {
         closer.end();
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -1021,8 +1005,7 @@ pub(crate) mod tests {
         closer.end();
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     async fn test_dm_stream_all_messages() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

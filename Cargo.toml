@@ -14,8 +14,8 @@ members = [
   "bindings_node",
   "bindings_ffi",
   "xtask",
-  "xmtp_debug"
-]
+  "xmtp_debug",
+  "common"]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
@@ -29,8 +29,8 @@ license = "MIT"
 anyhow = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.77"
+web-time = "1.1"
 chrono = "0.4.38"
-wasm-timer = "0.2"
 ctor = "0.2"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
@@ -96,6 +96,7 @@ xmtp_api_grpc = { path = "xmtp_api_grpc" }
 xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
+xmtp_common = { path = "common" }
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,

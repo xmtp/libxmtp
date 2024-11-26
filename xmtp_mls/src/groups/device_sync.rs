@@ -1,11 +1,9 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
-use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
-use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
     client::ClientError,
@@ -15,23 +13,20 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    Client,
+    Client, Store,
 };
-use crate::{retry_async, Store};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
 use futures::{pin_mut, Stream, StreamExt};
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
+use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use thiserror::Error;
 use tracing::warn;
+use xmtp_common::time::{now_ns, Duration};
+use xmtp_common::{retry_async, RetryBuilder, RetryableError};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -736,14 +731,11 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
 }
 
 pub(super) fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
+    xmtp_common::rand_string::<ENC_KEY_SIZE>()
 }
 
 pub(super) fn generate_nonce() -> [u8; NONCE_SIZE] {
-    let mut nonce = [0u8; NONCE_SIZE];
-    let mut rng = crypto_utils::rng();
-    rng.fill_bytes(&mut nonce);
-    nonce
+    xmtp_common::rand_array::<NONCE_SIZE>()
 }
 
 pub(super) fn new_pin() -> String {

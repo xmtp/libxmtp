@@ -441,6 +441,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -465,6 +466,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "xmtp_api_http",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -3170,7 +3172,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -3461,6 +3463,7 @@ dependencies = [
  "tracing-subscriber",
  "vergen",
  "warp",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -4453,7 +4456,7 @@ checksum = "0c1318b19085f08681016926435853bbf7858f9c082d0999b80550ff5d9abe15"
 dependencies = [
  "bytes",
  "heck",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -4473,7 +4476,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9552f850d5f0964a4e4d0bf306459ac29323ddfbae05e35a7c0d35cb0803cc5"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.87",
@@ -6733,21 +6736,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-timer"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
-dependencies = [
- "futures",
- "js-sys",
- "parking_lot 0.11.2",
- "pin-utils",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "web-sys"
 version = "0.3.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6813,7 +6801,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7196,10 +7184,31 @@ dependencies = [
  "valuable",
  "valuable-serde",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_common"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures",
+ "getrandom",
+ "gloo-timers 0.3.0",
+ "parking_lot 0.12.3",
+ "rand",
+ "thiserror 2.0.3",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-wasm",
+ "wasm-bindgen-test",
+ "web-time",
+ "xmtp_cryptography",
 ]
 
 [[package]]
@@ -7256,7 +7265,8 @@ dependencies = [
  "tracing",
  "url",
  "wasm-bindgen-test",
- "wasm-timer",
+ "web-time",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_proto",
  "xmtp_v2",
@@ -7314,10 +7324,11 @@ dependencies = [
  "trait-variant",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
- "wasm-timer",
  "web-sys",
+ "web-time",
  "xmtp_api_grpc",
  "xmtp_api_http",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -7339,6 +7350,7 @@ dependencies = [
  "serde",
  "tonic",
  "wasm-bindgen-test",
+ "xmtp_common",
 ]
 
 [[package]]
@@ -7384,6 +7396,7 @@ dependencies = [
  "uniffi",
  "uuid 1.11.0",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",

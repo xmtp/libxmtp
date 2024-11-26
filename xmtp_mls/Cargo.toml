@@ -35,6 +35,7 @@ test-utils = [
     "xmtp_proto/test-utils",
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
+    "xmtp_common/test-utils"
 ]
 update-schema = ["toml"]
 
@@ -61,8 +62,9 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 ] }
 tracing.workspace = true
 trait-variant.workspace = true
-wasm-timer.workspace = true
+web-time.workspace = true
 zeroize.workspace = true
+xmtp_common.workspace = true
 
 # XMTP/Local
 xmtp_cryptography = { workspace = true }
@@ -132,6 +134,8 @@ mockall = "0.13.1"
 openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"]}
+wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -156,8 +160,6 @@ diesel-wasm-sqlite = { workspace = true, features = [
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-tracing-wasm = { version = "0.2" }
-wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 
 [[bin]]

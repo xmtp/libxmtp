@@ -42,21 +42,25 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
-    use crate::{assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions};
-    use std::time::{Duration, Instant};
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use xmtp_common::{
+        assert_ok,
+        time::{Duration, Instant},
+    };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_message_history_sync() {
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 
@@ -142,7 +146,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -159,7 +163,7 @@ pub(crate) mod tests {
         assert_eq!(result.len(), 2);
     }
 
-    #[tokio::test]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_externals_cant_join_sync_group() {
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
         let wallet = generate_local_wallet();
@@ -201,20 +205,20 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_pin() {
         let pin = new_pin();
         assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_request_id() {
         let request_id = new_request_id();
         assert_eq!(request_id.len(), ENC_KEY_SIZE);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_key() {
         let sig_key = DeviceSyncKeyType::new_aes_256_gcm_key();
         let enc_key = DeviceSyncKeyType::new_aes_256_gcm_key();
@@ -224,7 +228,7 @@ pub(crate) mod tests {
         assert_ne!(sig_key, enc_key);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_nonce() {
         let nonce_1 = generate_nonce();
         let nonce_2 = generate_nonce();
