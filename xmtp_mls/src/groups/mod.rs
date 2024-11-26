@@ -34,6 +34,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use xmtp_content_types::{reaction::ReactionCodec, ContentCodec};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -66,8 +67,7 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage,
     },
     message_contents::{
-        plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
+        plaintext_envelope::{Content, V1}, EncodedContent, PlaintextEnvelope
     },
 };
 
@@ -679,6 +679,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
+
+        // Check if the message has a parent_id
+        let encoded_content = EncodedContent::decode(message).unwrap();
+        let encoded_content_clone = encoded_content.clone();
+        let parent_id = match encoded_content.r#type {
+            Some(content_type) => {
+                if content_type.type_id == ReactionCodec::TYPE_ID {
+                    let reaction = ReactionCodec::decode(encoded_content_clone).unwrap();
+                    Some(reaction.reference.into_bytes())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
@@ -690,7 +705,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
-            parent_id: None,
+            parent_id,
         };
         group_message.store(conn)?;
 
