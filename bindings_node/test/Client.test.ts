@@ -6,6 +6,7 @@ import {
   createRegisteredClient,
   createUser,
   encodeTextMessage,
+  sleep,
 } from '@test/helpers'
 import {
   ConsentEntityType,
@@ -257,7 +258,7 @@ describe('Client', () => {
 })
 
 describe('Streams', () => {
-  it.only('should stream all messages', async () => {
+  it('should stream all messages', async () => {
     const user = createUser()
     const client1 = await createRegisteredClient(user)
 
@@ -272,6 +273,7 @@ describe('Streams', () => {
     const group2 = client2.conversations().findGroupById(group.id())
 
     let messages = new Array()
+    client2.conversations().syncAllConversations()
     let stream = client2.conversations().streamAllMessages((msg) => {
       console.log('Message', msg)
       messages.push(msg)
@@ -281,6 +283,7 @@ describe('Streams', () => {
     group.send(encodeTextMessage('Test2'))
     group.send(encodeTextMessage('Test3'))
     group.send(encodeTextMessage('Test4'))
+    await sleep(1000)
     await stream.endAndWait()
     expect(messages.length).toBe(4)
   })

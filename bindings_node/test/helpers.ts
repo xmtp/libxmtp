@@ -80,3 +80,9 @@ export const encodeTextMessage = (text: string) => {
     content: new TextEncoder().encode(text),
   }
 }
+
+export function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
