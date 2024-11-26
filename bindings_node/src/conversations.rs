@@ -250,15 +250,29 @@ impl Conversations {
 
   #[napi]
   pub async fn sync_all_conversations(&self) -> Result<usize> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(ErrorWrapper::from)?;
+
+    self
+      .inner_client
+      .sync_welcomes(&conn)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
     let groups = self
       .inner_client
-      .find_groups(GroupQueryArgs::default())
+      .find_groups(GroupQueryArgs::default().include_sync_groups())
       .map_err(ErrorWrapper::from)?;
+
     let num_groups_synced = self
       .inner_client
       .sync_all_groups(groups)
       .await
       .map_err(ErrorWrapper::from)?;
+
     Ok(num_groups_synced)
   }
 

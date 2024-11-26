@@ -944,7 +944,6 @@ impl FfiConversations {
         Ok(num_groups_synced)
     }
 
-
     pub async fn list(
         &self,
         opts: FfiListConversationsOptions,
