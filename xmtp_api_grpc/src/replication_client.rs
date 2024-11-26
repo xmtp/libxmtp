@@ -72,16 +72,28 @@ pub struct ClientV4 {
 }
 
 impl ClientV4 {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
-        let host = host.to_string();
+    pub async fn create(
+        grpc_url: String,
+        payer_url: String,
+        is_secure: bool,
+    ) -> Result<Self, Error> {
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
         let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
 
-        let channel = match is_secure {
-            true => create_tls_channel(host).await?,
-            false => Channel::from_shared(host)
+        let grpc_channel = match is_secure {
+            true => create_tls_channel(grpc_url).await?,
+            false => Channel::from_shared(grpc_url)
+                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+                .connect()
+                .await
+                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+        };
+
+        let payer_channel = match is_secure {
+            true => create_tls_channel(payer_url).await?,
+            false => Channel::from_shared(payer_url)
                 .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
                 .connect()
                 .await
@@ -89,8 +101,8 @@ impl ClientV4 {
         };
 
         // GroupMessageInputTODO(mkysel) for now we assume both payer and replication are on the same host
-        let client = ReplicationApiClient::new(channel.clone());
-        let payer_client = PayerApiClient::new(channel.clone());
+        let client = ReplicationApiClient::new(grpc_channel.clone());
+        let payer_client = PayerApiClient::new(payer_channel.clone());
 
         Ok(Self {
             client,
