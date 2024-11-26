@@ -186,7 +186,11 @@ where
     let store = store
         .take()
         .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-    debug!("Initializing identity");
+
+    debug!(
+        inbox_id = identity_strategy.inbox_id(),
+        "Initializing identity"
+    );
 
     let identity = identity_strategy
         .initialize_identity(&api_client_wrapper, &store, &scw_verifier)

@@ -60,12 +60,43 @@ use xmtp_proto::xmtp::identity::MlsCredential;
 #[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
-    CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)
+    CreateIfNotFound {
+        inbox_id: InboxId,
+        address: String,
+        nonce: u64,
+        legacy_signed_private_key: Option<Vec<u8>>,
+    },
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
     #[cfg(test)]
     ExternalIdentity(Identity),
+}
+
+impl IdentityStrategy {
+    pub fn inbox_id<'a>(&'a self) -> Option<InboxIdRef<'a>> {
+        use IdentityStrategy::*;
+        match self {
+            CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
+            _ => None,
+        }
+    }
+
+    /// Create a new Identity Strategy.
+    /// If an Identity is not found in the local store, creates a new one.
+    pub fn new(
+        inbox_id: InboxId,
+        address: String,
+        nonce: u64,
+        legacy_signed_private_key: Option<Vec<u8>>,
+    ) -> Self {
+        Self::CreateIfNotFound {
+            inbox_id,
+            address,
+            nonce,
+            legacy_signed_private_key,
+        }
+    }
 }
 
 impl IdentityStrategy {
@@ -83,6 +114,8 @@ impl IdentityStrategy {
         store: &EncryptedMessageStore,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
+        use IdentityStrategy::*;
+
         info!("Initializing identity");
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -94,15 +127,13 @@ impl IdentityStrategy {
 
         debug!("identity in store: {:?}", stored_identity);
         match self {
-            IdentityStrategy::CachedOnly => {
-                stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)
-            }
-            IdentityStrategy::CreateIfNotFound(
+            CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
+            CreateIfNotFound {
                 inbox_id,
                 address,
                 nonce,
                 legacy_signed_private_key,
-            ) => {
+            } => {
                 if let Some(stored_identity) = stored_identity {
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
@@ -126,7 +157,7 @@ impl IdentityStrategy {
                 }
             }
             #[cfg(test)]
-            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+            ExternalIdentity(identity) => Ok(identity),
         }
     }
 }

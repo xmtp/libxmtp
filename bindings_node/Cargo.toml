@@ -23,6 +23,7 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+futures.workspace = true
 
 [build-dependencies]
 napi-build = "2.0.1"
