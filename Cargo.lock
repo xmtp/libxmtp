@@ -7390,6 +7390,7 @@ dependencies = [
  "futures",
  "log",
  "parking_lot 0.12.3",
+ "prost",
  "rand",
  "thiserror 2.0.3",
  "thread-id",

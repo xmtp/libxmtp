@@ -11,6 +11,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 futures.workspace = true
 log = { version = "0.4", features = ["std"] }
 parking_lot.workspace = true
+prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 thread-id = "5.0.0"
 tokio = { workspace = true, features = ["macros"] }

@@ -16,6 +16,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use prost::Message;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
@@ -47,6 +48,7 @@ use xmtp_mls::{
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+use xmtp_proto::xmtp::reactions::Reaction;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 /// It returns a new client of the specified `inbox_id`.
@@ -1229,6 +1231,16 @@ impl FfiConversation {
         Ok(message_id)
     }
 
+    pub async fn send_reaction(
+        &self,
+        reaction: FfiReaction,
+    ) -> Result<Vec<u8>, GenericError> {
+        let reaction_proto: Reaction = reaction.into();
+        let mut buf = Vec::new();
+        reaction_proto.encode(&mut buf).unwrap();
+        self.send(buf).await
+    }
+
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let id = self
@@ -1635,6 +1647,63 @@ impl From<StoredGroupMessage> for FfiMessage {
     }
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReaction {
+    pub reference: String,
+    pub reference_inbox_id: String,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
+impl From<FfiReaction> for Reaction {
+    fn from(reaction: FfiReaction) -> Self {
+        Reaction {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: reaction.action.into(),
+            content: reaction.content,
+            schema: reaction.schema.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default)]
+pub enum FfiReactionAction {
+    Unknown,
+    #[default] Added,
+    Removed,
+}
+
+impl From<FfiReactionAction> for i32 {
+    fn from(action: FfiReactionAction) -> Self {
+        match action {
+            FfiReactionAction::Unknown => 0,
+            FfiReactionAction::Added => 1,
+            FfiReactionAction::Removed => 2,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default)]
+pub enum FfiReactionSchema {
+    Unknown,
+    #[default] Unicode,
+    Shortcode,
+    Custom,
+}
+
+impl From<FfiReactionSchema> for i32 {
+    fn from(schema: FfiReactionSchema) -> Self {
+        match schema {
+            FfiReactionSchema::Unknown => 0,
+            FfiReactionSchema::Unicode => 1,
+            FfiReactionSchema::Shortcode => 2,
+            FfiReactionSchema::Custom => 3,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
@@ -1801,14 +1870,12 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema, FfiSubscribeError
     };
     use ethers::utils::hex;
+    use prost::Message;
     use rand::distributions::{Alphanumeric, DistString};
+    use xmtp_proto::xmtp::reactions::{Reaction, ReactionAction, ReactionSchema};
     use std::{
         env,
         sync::{
@@ -4373,5 +4440,70 @@ mod tests {
             String::from_utf8_lossy(&bo_group_messages[0].content),
             "Hello in group"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_and_receive_reaction() {
+        // Create two test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create a conversation between them
+        let alix_conversation = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Send initial message to react to
+        alix_conversation
+            .send("Hello world".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Have Bo sync to get the conversation and message
+        bo.conversations().sync().await.unwrap();
+        let bo_conversation = bo.conversation(alix_conversation.id()).unwrap();
+        bo_conversation.sync().await.unwrap();
+
+        // Get the message to react to
+        let messages = bo_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let message_to_react_to = &messages[0];
+
+        // Create and send reaction
+        let reaction = FfiReaction {
+            reference: hex::encode(message_to_react_to.id.clone()),
+            reference_inbox_id: alix.inbox_id(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+
+        bo_conversation.send_reaction(reaction).await.unwrap();
+
+        // Have Alix sync to get the reaction
+        alix_conversation.sync().await.unwrap();
+
+        // Get reactions for the original message
+        let messages = alix_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Verify reaction details
+        assert_eq!(messages.len(), 2);
+        let received_reaction = &messages[1];
+        let message_content = received_reaction.content.clone();
+        let slice: &[u8] = message_content.as_slice();
+        let reaction = Reaction::decode(slice).unwrap();
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(reaction.reference, hex::encode(message_to_react_to.id.clone()));
+        assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
     }
 }
