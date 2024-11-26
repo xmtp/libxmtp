@@ -291,20 +291,9 @@ impl Conversations {
       .conn()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    self
-      .inner_client
-      .sync_welcomes(&conn)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    let groups = self
-      .inner_client
-      .find_groups(GroupQueryArgs::default().include_sync_groups())
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
     let num_groups_synced = self
       .inner_client
-      .sync_all_groups(groups)
+      .sync_all_welcomes_and_groups(&conn)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

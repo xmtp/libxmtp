@@ -842,6 +842,19 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
+    /// Sync all unread welcome messages and then sync all groups.
+    /// Returns the total number of active groups synced.
+    pub async fn sync_all_welcomes_and_groups(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<usize, ClientError> {
+        self.sync_welcomes(conn).await?;
+        let groups = self.find_groups(GroupQueryArgs::default().include_sync_groups())?;
+        let active_groups_count = self.sync_all_groups(groups).await?;
+        
+        Ok(active_groups_count)
+    }
+
     /**
      * Validates a credential against the given installation public key
      *

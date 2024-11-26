@@ -918,23 +918,8 @@ impl FfiConversations {
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = inner.store().conn()?;
-        let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
-        log::info!(
-            "Groups for client inbox ID {:?}: {:?}",
-            self.inner_client.inbox_id(),
-            groups.len()
-        );
-
-        // Call sync operations in parallel
-        let (welcome_result, group_result) = tokio::join!(
-            self.inner_client.sync_welcomes(&conn),
-            inner.sync_all_groups(groups)
-        );
-
-        // Handle potential errors from join!
-        welcome_result?;
-        let num_groups_synced: usize = group_result?;
+        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(&conn).await?;
 
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
