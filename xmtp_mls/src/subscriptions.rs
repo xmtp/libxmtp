@@ -235,6 +235,7 @@ where
             match result {
                 Ok(Some(group)) => {
                     tracing::info!(
+                        inbox_id = self.inbox_id(),
                         group_id = hex::encode(&group.id),
                         welcome_id = ?group.welcome_id,
                         "Loading existing group for welcome_id: {:?}",
@@ -261,6 +262,7 @@ where
         Ok(welcome)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -298,7 +300,7 @@ where
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
-        tracing::info!("Setting up conversation stream");
+        tracing::info!(inbox_id = self.inbox_id(), "Setting up conversation stream");
         let subscription = self
             .api_client
             .subscribe_welcome_messages(installation_key, Some(id_cursor))
@@ -306,7 +308,10 @@ where
 
         let stream = subscription
             .map(|welcome| async {
-                tracing::info!("Received conversation streaming payload");
+                tracing::info!(
+                    inbox_id = self.inbox_id(),
+                    "Received conversation streaming payload"
+                );
                 self.process_streamed_welcome(welcome?).await
             })
             .filter_map(|v| async { Some(v.await) });
@@ -340,11 +345,18 @@ where
         })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
     {
+        tracing::debug!(
+            inbox_id = self.inbox_id(),
+            conversation_type = ?conversation_type,
+            "stream all messages"
+        );
+
         let conn = self.store().conn()?;
         self.sync_welcomes(&conn).await?;
 
@@ -364,7 +376,6 @@ where
             .await?;
             futures::pin_mut!(messages_stream);
 
-            tracing::info!("Setting up conversation stream in stream_all_messages");
             let convo_stream = self.stream_conversations(conversation_type).await?;
 
             futures::pin_mut!(convo_stream);

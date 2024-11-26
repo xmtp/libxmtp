@@ -345,12 +345,22 @@ impl Conversations {
     callback: JsFunction,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
+    tracing::trace!(
+      inbox_id = self.inner_client.inbox_id(),
+      conversation_type = ?conversation_type,
+    );
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
       move |message| {
+        tracing::trace!(
+            inbox_id,
+            conversation_type = ?conversation_type,
+            "[received] calling tsfn callback"
+        );
         tsfn.call(
           message
             .map(Into::into)

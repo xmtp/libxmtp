@@ -180,6 +180,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 }
 
 /// Stream messages from groups in `group_id_to_info`
+#[tracing::instrument(level = "debug", skip_all)]
 pub(crate) async fn stream_messages<ScopedClient>(
     client: &ScopedClient,
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
@@ -200,9 +201,12 @@ where
             let group_id_to_info = group_id_to_info.clone();
             async move {
                 let envelope = res.map_err(GroupError::from)?;
-                tracing::info!("Received message streaming payload");
                 let group_id = extract_group_id(&envelope)?;
-                tracing::info!("Extracted group id {}", hex::encode(&group_id));
+                tracing::info!(
+                    inbox_id = client.inbox_id(),
+                    group_id = hex::encode(&group_id),
+                    "Received message streaming payload"
+                );
                 let stream_info =
                     group_id_to_info
                         .get(&group_id)

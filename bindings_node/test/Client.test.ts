@@ -1,7 +1,13 @@
 import { v4 } from 'uuid'
 import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { createClient, createRegisteredClient, createUser } from '@test/helpers'
+import {
+  createClient,
+  createRegisteredClient,
+  createUser,
+  encodeTextMessage,
+  sleep,
+} from '@test/helpers'
 import {
   ConsentEntityType,
   ConsentState,
@@ -248,5 +254,37 @@ describe('Client', () => {
     expect(() =>
       verifySignedWithPublicKey(text, signature, new Uint8Array())
     ).toThrow()
+  })
+})
+
+describe('Streams', () => {
+  it('should stream all messages', async () => {
+    const user = createUser()
+    const client1 = await createRegisteredClient(user)
+
+    const user2 = createUser()
+    const client2 = await createRegisteredClient(user2)
+
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+
+    await client2.conversations().sync()
+    const group2 = client2.conversations().findGroupById(group.id())
+
+    let messages = new Array()
+    client2.conversations().syncAllConversations()
+    let stream = client2.conversations().streamAllMessages((msg) => {
+      console.log('Message', msg)
+      messages.push(msg)
+    })
+    await stream.waitForReady()
+    group.send(encodeTextMessage('Test1'))
+    group.send(encodeTextMessage('Test2'))
+    group.send(encodeTextMessage('Test3'))
+    group.send(encodeTextMessage('Test4'))
+    await sleep(1000)
+    await stream.endAndWait()
+    expect(messages.length).toBe(4)
   })
 })

@@ -86,6 +86,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
         }
+        tracing::debug!(inbox_id = self.client.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
         Ok(intent)
     }

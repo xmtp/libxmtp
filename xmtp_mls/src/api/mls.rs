@@ -70,6 +70,12 @@ where
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
     ) -> Result<Vec<GroupMessage>, ApiError> {
+        tracing::debug!(
+            group_id = hex::encode(&group_id),
+            id_cursor,
+            inbox_id = self.inbox_id,
+            "query group messages"
+        );
         let mut out: Vec<GroupMessage> = vec![];
         let page_size = 100;
         let mut id_cursor = id_cursor;
@@ -114,6 +120,12 @@ where
         installation_id: Vec<u8>,
         id_cursor: Option<u64>,
     ) -> Result<Vec<WelcomeMessage>, ApiError> {
+        tracing::debug!(
+            installation_id = hex::encode(&installation_id),
+            cursor = id_cursor,
+            inbox_id = self.inbox_id,
+            "query welcomes"
+        );
         let mut out: Vec<WelcomeMessage> = vec![];
         let page_size = 100;
         let mut id_cursor = id_cursor;
@@ -162,6 +174,7 @@ where
         key_package: Vec<u8>,
         is_inbox_id_credential: bool,
     ) -> Result<(), ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "upload key packages");
         retry_async!(
             self.retry_strategy,
             (async {
@@ -184,6 +197,7 @@ where
         &self,
         installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "fetch key packages");
         let res = retry_async!(
             self.retry_strategy,
             (async {
@@ -220,6 +234,7 @@ where
         &self,
         messages: &[WelcomeMessageInput],
     ) -> Result<(), ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
             self.retry_strategy,
             (async {
@@ -236,6 +251,11 @@ where
 
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
+        tracing::debug!(
+            inbox_id = self.inbox_id,
+            "sending [{}] group messages",
+            group_messages.len()
+        );
         let to_send: Vec<GroupMessageInput> = group_messages
             .iter()
             .map(|msg| GroupMessageInput {
@@ -267,6 +287,7 @@ where
     where
         ApiClient: XmtpMlsStreams,
     {
+        tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
@@ -282,6 +303,7 @@ where
     where
         ApiClient: XmtpMlsStreams,
     {
+        tracing::debug!(inbox_id = self.inbox_id, "subscribing to welcome messages");
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {

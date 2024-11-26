@@ -63,6 +63,14 @@ impl StreamCloser {
     }
   }
 
+  #[napi]
+  pub async fn wait_for_ready(&self) -> Result<(), Error> {
+    let mut stream_handle = self.handle.lock().await;
+    futures::future::OptionFuture::from((*stream_handle).as_mut().map(|s| s.wait_for_ready()))
+      .await;
+    Ok(())
+  }
+
   /// Checks if this stream is closed
   #[napi]
   pub fn is_closed(&self) -> bool {

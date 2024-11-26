@@ -175,7 +175,7 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let client = Client::<A>::builder(IdentityStrategy::CreateIfNotFound(
+    let client = Client::<A>::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_address(),
         nonce,
@@ -208,7 +208,7 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let mut builder = Client::<A, V>::builder(IdentityStrategy::CreateIfNotFound(
+    let mut builder = Client::<A, V>::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_address(),
         nonce,

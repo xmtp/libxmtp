@@ -218,7 +218,7 @@ where
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
     pub fn new(
-        api_client: ApiClientWrapper<ApiClient>,
+        mut api_client: ApiClientWrapper<ApiClient>,
         identity: Identity,
         store: EncryptedMessageStore,
         scw_verifier: V,
@@ -227,6 +227,7 @@ where
     where
         V: SmartContractSignatureVerifier,
     {
+        api_client.attach_inbox_id(Some(identity.inbox_id().to_string()));
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
@@ -723,6 +724,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_welcomes(
         &self,
         conn: &DbConnection,

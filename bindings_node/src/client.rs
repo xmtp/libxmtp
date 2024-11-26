@@ -155,7 +155,7 @@ pub async fn create_client(
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
-  let identity_strategy = IdentityStrategy::CreateIfNotFound(
+  let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     account_address.clone().to_lowercase(),
     // this is a temporary solution

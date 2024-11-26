@@ -492,6 +492,7 @@ pub enum ConversationType {
     Dm = 2,
     Sync = 3,
 }
+
 impl ToSql<Integer, Sqlite> for ConversationType
 where
     i32: ToSql<Integer, Sqlite>,
@@ -512,6 +513,17 @@ where
             2 => Ok(ConversationType::Dm),
             3 => Ok(ConversationType::Sync),
             x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+impl std::fmt::Display for ConversationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ConversationType::*;
+        match self {
+            Group => write!(f, "group"),
+            Dm => write!(f, "dm"),
+            Sync => write!(f, "sync"),
         }
     }
 }

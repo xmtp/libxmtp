@@ -72,7 +72,7 @@ async fn new_client_inner(
         dir.join(db_name)
     };
 
-    let client = crate::DbgClient::builder(IdentityStrategy::CreateIfNotFound(
+    let client = crate::DbgClient::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_address(),
         nonce,
