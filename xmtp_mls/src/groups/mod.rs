@@ -686,7 +686,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let parent_id = match encoded_content.r#type {
             Some(content_type) => {
                 if content_type.type_id == ReactionCodec::TYPE_ID {
-                    let reaction = ReactionCodec::decode(encoded_content_clone).unwrap();
+                    let reaction
+                     = ReactionCodec::decode(encoded_content_clone).unwrap();
                     Some(reaction.reference.into_bytes())
                 } else {
                     None
