@@ -236,10 +236,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
 
     let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
         (true, Env::Local) => {
-            Box::new(ClientV4::create("http://localhost:5050".into(), false).await?)
+            Box::new(ClientV4::create("http://localhost:5050".into(), "http://localhost:5050".into(), false).await?)
         }
         (true, Env::Dev) => {
-            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true).await?)
+            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), "https://payer.testnet.xmtp.network:443".into(), true).await?)
         }
         (false, Env::Local) => {
             Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
