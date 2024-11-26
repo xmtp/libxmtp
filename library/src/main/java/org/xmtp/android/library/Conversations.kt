@@ -127,7 +127,7 @@ data class Conversations(
         ffiConversations.sync()
     }
 
-    // Sync all existing local conversation data from the network (Note: call syncConversations() first to get the latest list of conversations)
+    // Sync all new and existing conversations data from the network
     suspend fun syncAllConversations(): UInt {
         return ffiConversations.syncAllConversations()
     }

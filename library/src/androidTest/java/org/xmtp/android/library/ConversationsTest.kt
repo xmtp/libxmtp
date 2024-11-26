@@ -209,8 +209,6 @@ class ConversationsTest {
         runBlocking {
             boClient.conversations.sync()
             boDm?.sync()
-            alixClient.conversations.sync()
-            alixClient2.conversations.sync()
             alixClient2.preferences.syncConsent()
             alixClient.conversations.syncAllConversations()
             Thread.sleep(2000)
@@ -267,7 +265,6 @@ class ConversationsTest {
 
         runBlocking {
             alixGroup.send("Hello")
-            alixClient2.conversations.sync()
             alixClient.conversations.syncAllConversations()
             alixClient2.conversations.syncAllConversations()
         }
@@ -289,8 +286,6 @@ class ConversationsTest {
             alix2Group.updateConsentState(ConsentState.DENIED)
             val dm3 = alixClient2.conversations.newConversation(caro.walletAddress)
             dm3.updateConsentState(ConsentState.DENIED)
-            alixClient.conversations.sync()
-            alixClient2.conversations.sync()
             alixClient.conversations.syncAllConversations()
             alixClient2.conversations.syncAllConversations()
         }
