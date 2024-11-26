@@ -917,21 +917,33 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
+        let conn = inner.store().conn()?;
         let groups = inner.find_groups(GroupQueryArgs::default().include_sync_groups())?;
 
         log::info!(
-            "groups for client inbox id {:?}: {:?}",
+            "Groups for client inbox ID {:?}: {:?}",
             self.inner_client.inbox_id(),
             groups.len()
         );
 
-        let num_groups_synced: usize = inner.sync_all_groups(groups).await?;
-        // Uniffi does not work with usize, so we need to convert to u32
+        // Call sync operations in parallel
+        let (welcome_result, group_result) = tokio::join!(
+            self.inner_client.sync_welcomes(&conn),
+            inner.sync_all_groups(groups)
+        );
+
+        // Handle potential errors from join!
+        welcome_result?;
+        let num_groups_synced: usize = group_result?;
+
+        // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
             .try_into()
             .map_err(|_| GenericError::FailedToConvertToU32)?;
+
         Ok(num_groups_synced)
     }
+
 
     pub async fn list(
         &self,
@@ -2569,7 +2581,7 @@ mod tests {
                 .unwrap();
         }
 
-        bo.conversations().sync().await.unwrap();
+        bo.conversations().sync_all_conversations().await.unwrap();
         let alix_groups = alix
             .conversations()
             .list(FfiListConversationsOptions::default())
