@@ -851,7 +851,7 @@ where
         self.sync_welcomes(conn).await?;
         let groups = self.find_groups(GroupQueryArgs::default().include_sync_groups())?;
         let active_groups_count = self.sync_all_groups(groups).await?;
-        
+
         Ok(active_groups_count)
     }
 
