@@ -306,6 +306,7 @@ pub(crate) mod tests {
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
+            parent_id: None,
         }
     }
 
