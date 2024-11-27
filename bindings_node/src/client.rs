@@ -347,6 +347,7 @@ impl Client {
   }
 }
 
+#[napi]
 pub async fn is_installation_authorized(
   host: String,
   inbox_id: String,
@@ -360,6 +361,7 @@ pub async fn is_installation_authorized(
   .await
 }
 
+#[napi]
 pub async fn is_address_authorized(
   host: String,
   inbox_id: String,
