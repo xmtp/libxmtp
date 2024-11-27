@@ -96,6 +96,7 @@ use crate::{
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
+    MLS_COMMIT_LOCK
 };
 
 #[derive(Debug, Error)]
@@ -810,6 +811,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[InboxIdRef<'_>],
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.store().conn()?.into();
 
         let intent_data = self
