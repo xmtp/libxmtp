@@ -58,7 +58,9 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, reaction::ReactionCodec, CodecError, ContentCodec};
+use xmtp_content_types::{
+    group_updated::GroupUpdatedCodec, reaction::ReactionCodec, CodecError, ContentCodec,
+};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -69,7 +71,8 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage, WelcomeMessageInput,
     },
     message_contents::{
-        plaintext_envelope::{v2::MessageType, Content, V1, V2}, EncodedContent, GroupUpdated, PlaintextEnvelope
+        plaintext_envelope::{v2::MessageType, Content, V1, V2},
+        EncodedContent, GroupUpdated, PlaintextEnvelope,
     },
 };
 

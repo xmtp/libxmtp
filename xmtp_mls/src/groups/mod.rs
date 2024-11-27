@@ -67,7 +67,8 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage,
     },
     message_contents::{
-        plaintext_envelope::{Content, V1}, EncodedContent, PlaintextEnvelope
+        plaintext_envelope::{Content, V1},
+        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -679,7 +680,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
-
         // Check if the message has a parent_id
         // let encoded_content = EncodedContent::decode(message).unwrap();
         let encoded_content = match EncodedContent::decode(message) {
@@ -687,18 +687,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 // Use the encoded_content struct
                 println!("Decoded successfully");
                 Some(encoded_content)
-            },
+            }
             Err(e) => {
                 println!("Failed to decode: {}", e);
                 None
             }
-        }.unwrap();
+        }
+        .unwrap();
         let encoded_content_clone = encoded_content.clone();
         let parent_id = match encoded_content.r#type {
             Some(content_type) => {
                 if content_type.type_id == ReactionCodec::TYPE_ID {
-                    let reaction
-                     = ReactionCodec::decode(encoded_content_clone).unwrap();
+                    let reaction = ReactionCodec::decode(encoded_content_clone).unwrap();
                     Some(reaction.reference.into_bytes())
                 } else {
                     None
