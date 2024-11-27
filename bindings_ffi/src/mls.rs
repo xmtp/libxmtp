@@ -1875,7 +1875,8 @@ mod tests {
     use ethers::utils::hex;
     use prost::Message;
     use rand::distributions::{Alphanumeric, DistString};
-    use xmtp_proto::xmtp::reactions::{Reaction, ReactionAction, ReactionSchema};
+    use xmtp_content_types::{reaction::ReactionCodec, text::TextCodec, ContentCodec};
+    use xmtp_proto::xmtp::{mls::message_contents::EncodedContent, reactions::{Reaction, ReactionAction, ReactionSchema}};
     use std::{
         env,
         sync::{
@@ -4457,10 +4458,14 @@ mod tests {
             )
             .await
             .unwrap();
-
         // Send initial message to react to
+        let mut buf = Vec::new();
+        TextCodec::encode("Hello world".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
         alix_conversation
-            .send("Hello world".as_bytes().to_vec())
+            .send(buf)
             .await
             .unwrap();
 
@@ -4476,7 +4481,7 @@ mod tests {
         let message_to_react_to = &messages[0];
 
         // Create and send reaction
-        let reaction = FfiReaction {
+        let ffi_reaction = FfiReaction {
             reference: hex::encode(message_to_react_to.id.clone()),
             reference_inbox_id: alix.inbox_id(),
             action: FfiReactionAction::Added,
@@ -4484,7 +4489,13 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
 
-        bo_conversation.send_reaction(reaction).await.unwrap();
+
+        let reaction_sent: Reaction = ffi_reaction.into();
+        let mut buf = Vec::new();
+        ReactionCodec::encode(reaction_sent).unwrap().encode(&mut buf).unwrap();
+
+        bo_conversation.send(buf).await.unwrap();
+
 
         // Have Alix sync to get the reaction
         alix_conversation.sync().await.unwrap();
@@ -4495,11 +4506,13 @@ mod tests {
             .unwrap();
 
         // Verify reaction details
-        assert_eq!(messages.len(), 2);
-        let received_reaction = &messages[1];
+        assert_eq!(messages.len(), 3);
+        let received_reaction = &messages[2];
         let message_content = received_reaction.content.clone();
         let slice: &[u8] = message_content.as_slice();
-        let reaction = Reaction::decode(slice).unwrap();
+        let encoded_content = EncodedContent::decode(slice).unwrap();
+        let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
+        println!("Encoded content: {:?}", encoded_content);
         assert_eq!(reaction.content, "👍");
         assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
