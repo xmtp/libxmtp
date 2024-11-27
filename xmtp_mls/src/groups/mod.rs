@@ -293,6 +293,12 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
+/// Fields extracted from content of a message that should be stored in the DB
+pub struct QueryableContentFields {
+    pub parent_id: Option<Vec<u8>>,
+    pub is_readable: Option<bool>,
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -680,32 +686,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
-        // Check if the message has a parent_id
-        // let encoded_content = EncodedContent::decode(message).unwrap();
-        let encoded_content = match EncodedContent::decode(message) {
-            Ok(encoded_content) => {
-                // Use the encoded_content struct
-                println!("Decoded successfully");
-                Some(encoded_content)
-            }
-            Err(e) => {
-                println!("Failed to decode: {}", e);
-                None
-            }
-        }
-        .unwrap();
-        let encoded_content_clone = encoded_content.clone();
-        let parent_id = match encoded_content.r#type {
-            Some(content_type) => {
-                if content_type.type_id == ReactionCodec::TYPE_ID {
-                    let reaction = ReactionCodec::decode(encoded_content_clone).unwrap();
-                    Some(reaction.reference.into_bytes())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
+        // Check if the message queryable content fields
+        let queryable_content_fields = Self::extract_queryable_content_fields(message);
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
@@ -717,11 +699,47 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
-            parent_id,
+            parent_id: queryable_content_fields.parent_id,
         };
         group_message.store(conn)?;
 
         Ok(message_id)
+    }
+
+    /// Helper function to extract queryable content fields from a message
+    fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
+        // Attempt to decode the message as EncodedContent
+        let encoded_content = match EncodedContent::decode(message) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::debug!("Failed to decode message as EncodedContent: {}", e);
+                return QueryableContentFields {
+                    parent_id: None,
+                    is_readable: None,
+                };
+            }
+        };
+        let encoded_content_clone = encoded_content.clone();
+
+        // Check if it's a reaction message
+        let parent_id = match encoded_content.r#type {
+            Some(content_type) if content_type.type_id == ReactionCodec::TYPE_ID => {
+                // Attempt to decode as reaction
+                match ReactionCodec::decode(encoded_content_clone) {
+                    Ok(reaction) => Some(reaction.reference.into_bytes()),
+                    Err(e) => {
+                        tracing::debug!("Failed to decode reaction: {}", e);
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
+        QueryableContentFields {
+            parent_id,
+            is_readable: None,
+        }
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {

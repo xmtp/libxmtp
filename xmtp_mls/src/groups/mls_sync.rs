@@ -58,9 +58,7 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_content_types::{
-    group_updated::GroupUpdatedCodec, reaction::ReactionCodec, CodecError, ContentCodec,
-};
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -72,7 +70,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::{
         plaintext_envelope::{v2::MessageType, Content, V1, V2},
-        EncodedContent, GroupUpdated, PlaintextEnvelope,
+        GroupUpdated, PlaintextEnvelope,
     },
 };
 
@@ -534,19 +532,8 @@ where
                     })) => {
                         let message_id =
                             calculate_message_id(&self.group_id, &content, &idempotency_key);
-                        let encoded_content = EncodedContent::decode(content.as_slice())?;
-                        let encoded_content_clone = encoded_content.clone();
-                        let parent_id = match encoded_content.r#type {
-                            Some(content_type) => {
-                                if content_type.type_id == ReactionCodec::TYPE_ID {
-                                    let reaction = ReactionCodec::decode(encoded_content_clone)?;
-                                    Some(reaction.reference.into_bytes())
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        };
+                        let queryable_content_fields =
+                            Self::extract_queryable_content_fields(&content);
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -556,7 +543,7 @@ where
                             sender_installation_id,
                             sender_inbox_id,
                             delivery_status: DeliveryStatus::Published,
-                            parent_id,
+                            parent_id: queryable_content_fields.parent_id,
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
