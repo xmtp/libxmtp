@@ -638,11 +638,12 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // The installation, wallet1 address, and wallet2 address
+        // The installation, wallet1 address, and the newly associated wallet2 address
         assert_eq!(state.members().len(), 3);
 
         let api_client = &client.api_client;
 
+        // Check that the second wallet is associated with our new static helper
         let is_member = is_member_of_association_state(
             api_client,
             client.inbox_id(),
