@@ -79,6 +79,14 @@ impl StorageOption {
             Ephemeral => SqliteConnection::establish(":memory:"),
         }
     }
+
+    pub(super) fn path(&self) -> Option<&String> {
+        use StorageOption::*;
+        match self {
+            Persistent(path) => Some(path),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
