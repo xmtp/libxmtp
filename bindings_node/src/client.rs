@@ -380,7 +380,7 @@ async fn is_member_of_association_state(
   let api_client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
 
   let is_member =
-    xmtp_mls::identity_updates::is_member_of_association_state(api_client, inbox_id, identifier)
+    xmtp_mls::identity_updates::is_member_of_association_state(&api_client, inbox_id, identifier)
       .await
       .map_err(ErrorWrapper::from)?;
 

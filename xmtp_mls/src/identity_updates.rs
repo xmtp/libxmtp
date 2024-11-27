@@ -563,12 +563,6 @@ where
         "Unable to create association state".to_string(),
     ))?;
 
-    tracing::info!(
-        "Association state: (len: {}) {:?}",
-        association_state.members().len(),
-        association_state
-    );
-
     Ok(association_state.get(identifier).is_some())
 }
 
@@ -588,7 +582,7 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::{group_membership::GroupMembership, scoped_client::LocalScopedGroupClient},
+        groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
         utils::test::{rand_vec, FullXmtpClient},
         Client, XmtpApi,
@@ -644,6 +638,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
+        // The installation, wallet1 address, and wallet2 address
         assert_eq!(state.members().len(), 3);
 
         let api_client = &client.api_client;
