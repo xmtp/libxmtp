@@ -285,7 +285,7 @@ where
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let new_member_identifier: MemberIdentifier = new_wallet_address.into();
+        let new_member_identifier = MemberIdentifier::Address(new_wallet_address);
 
         let mut signature_request = builder
             .add_association(new_member_identifier, installation_public_key.into())
@@ -531,7 +531,7 @@ async fn verify_updates(
 
 /// A static lookup method to verify if an identity is a member of an inbox
 pub async fn is_member_of_association_state<Client>(
-    api_client: ApiClientWrapper<Client>,
+    api_client: &ApiClientWrapper<Client>,
     inbox_id: &str,
     identifier: &MemberIdentifier,
 ) -> Result<bool, ClientError>
@@ -563,6 +563,12 @@ where
         "Unable to create association state".to_string(),
     ))?;
 
+    tracing::info!(
+        "Association state: (len: {}) {:?}",
+        association_state.members().len(),
+        association_state
+    );
+
     Ok(association_state.get(identifier).is_some())
 }
 
@@ -582,13 +588,13 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::group_membership::GroupMembership,
+        groups::{group_membership::GroupMembership, scoped_client::LocalScopedGroupClient},
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
         utils::test::{rand_vec, FullXmtpClient},
         Client, XmtpApi,
     };
 
-    use super::load_identity_updates;
+    use super::{is_member_of_association_state, load_identity_updates};
 
     async fn get_association_state<ApiClient, Verifier>(
         client: &Client<ApiClient, Verifier>,
@@ -615,6 +621,42 @@ pub(crate) mod tests {
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_is_member_of_association_state() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let wallet2 = generate_local_wallet();
+
+        let mut request = client
+            .associate_wallet(wallet2.get_address())
+            .await
+            .unwrap();
+        add_wallet_signature(&mut request, &wallet2).await;
+        client.apply_signature_request(request).await.unwrap();
+
+        let conn = client.store().conn().unwrap();
+        let state = client
+            .get_latest_association_state(&conn, client.inbox_id())
+            .await
+            .unwrap();
+
+        assert_eq!(state.members().len(), 3);
+
+        let api_client = &client.api_client;
+
+        let is_member = is_member_of_association_state(
+            api_client,
+            client.inbox_id(),
+            &MemberIdentifier::Address(wallet2.get_address()),
+        )
+        .await
+        .unwrap();
+
+        assert!(is_member);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
