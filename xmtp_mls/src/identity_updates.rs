@@ -19,7 +19,10 @@ use xmtp_id::{
         AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
         InstallationKeyContext, MemberIdentifier, SignatureError,
     },
-    scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier},
+    scw_verifier::{
+        MultiSmartContractSignatureVerifier, RemoteSignatureVerifier,
+        SmartContractSignatureVerifier,
+    },
     InboxIdRef,
 };
 use xmtp_proto::api_client::{
@@ -531,8 +534,9 @@ async fn verify_updates(
     .await
 }
 
+/// A static lookup method to verify if an identity is a member of an inbox
 pub async fn is_member_of_association_state<Client>(
-    client: ApiClientWrapper<Client>,
+    api_client: ApiClientWrapper<Client>,
     inbox_id: &str,
     identifier: &MemberIdentifier,
 ) -> Result<bool, ClientError>
@@ -543,7 +547,7 @@ where
         inbox_id: inbox_id.to_string(),
         sequence_id: None,
     }];
-    let mut updates = client.get_identity_updates_v2(filters).await?;
+    let mut updates = api_client.get_identity_updates_v2(filters).await?;
 
     let Some(updates) = updates.remove(inbox_id) else {
         return Err(ClientError::Generic(
@@ -552,9 +556,8 @@ where
     };
     let updates: Vec<_> = updates.into_iter().map(|u| u.update).collect();
 
-    let scw_verifier = MultiSmartContractSignatureVerifier::new_from_env()?;
-
     let mut association_state = None;
+    let scw_verifier = RemoteSignatureVerifier::new(api_client.api_client.clone());
 
     for update in updates {
         let update = update.to_verified(&scw_verifier).await?;

@@ -373,13 +373,13 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(host, true)
     .await
     .map_err(ErrorWrapper::from)?;
-  let client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+  let api_client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
 
   let is_member =
-    xmtp_mls::identity_updates::is_member_of_association_state(client, inbox_id, identifier)
+    xmtp_mls::identity_updates::is_member_of_association_state(api_client, inbox_id, identifier)
       .await
       .map_err(ErrorWrapper::from)?;
 
