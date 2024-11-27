@@ -1,11 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::association_state::StoredAssociationState,
 };
 use futures::future::try_join_all;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_cryptography::CredentialSign;
 use xmtp_id::{
@@ -534,6 +533,7 @@ pub async fn is_member_of_association_state<Client>(
     api_client: &ApiClientWrapper<Client>,
     inbox_id: &str,
     identifier: &MemberIdentifier,
+    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
     Client: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
@@ -552,7 +552,11 @@ where
     let updates: Vec<_> = updates.into_iter().map(|u| u.update).collect();
 
     let mut association_state = None;
-    let scw_verifier = RemoteSignatureVerifier::new(api_client.api_client.clone());
+
+    let scw_verifier = scw_verifier.unwrap_or_else(|| {
+        Box::new(RemoteSignatureVerifier::new(api_client.api_client.clone()))
+            as Box<dyn SmartContractSignatureVerifier>
+    });
 
     let updates: Vec<_> = updates
         .iter()
@@ -653,6 +657,7 @@ pub(crate) mod tests {
             api_client,
             client.inbox_id(),
             &MemberIdentifier::Address(wallet2.get_address()),
+            None,
         )
         .await
         .unwrap();
