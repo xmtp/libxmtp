@@ -754,6 +754,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[S],
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
