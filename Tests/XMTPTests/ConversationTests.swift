@@ -198,8 +198,6 @@ class ConversationTests: XCTestCase {
 
 		try await fixtures.boClient.conversations.sync()
 		try await boDm?.sync()
-		try await alixClient.conversations.sync()
-		try await alixClient2.conversations.sync()
 		try await alixClient2.preferences.syncConsent()
 		try await alixClient.conversations.syncAllConversations()
 		sleep(2)
@@ -253,8 +251,6 @@ class ConversationTests: XCTestCase {
 		)
 		
 		try await alixGroup.send(content: "Hello")
-		try await alixClient.conversations.sync()
-		try await alixClient2.conversations.sync()
 		try await alixClient.conversations.syncAllConversations()
 		try await alixClient2.conversations.syncAllConversations()
 		let alixGroup2 = try alixClient2.findGroup(groupId: alixGroup.id)!
