@@ -16,7 +16,6 @@ use xmtp_id::{
     },
     InboxId,
 };
-use prost::Message;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
@@ -1231,16 +1230,6 @@ impl FfiConversation {
         Ok(message_id)
     }
 
-    pub async fn send_reaction(
-        &self,
-        reaction: FfiReaction,
-    ) -> Result<Vec<u8>, GenericError> {
-        let reaction_proto: Reaction = reaction.into();
-        let mut buf = Vec::new();
-        reaction_proto.encode(&mut buf).unwrap();
-        self.send(buf).await
-    }
-
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let id = self
@@ -1671,7 +1660,8 @@ impl From<FfiReaction> for Reaction {
 #[derive(uniffi::Enum, Clone, Default)]
 pub enum FfiReactionAction {
     Unknown,
-    #[default] Added,
+    #[default]
+    Added,
     Removed,
 }
 
@@ -1688,7 +1678,8 @@ impl From<FfiReactionAction> for i32 {
 #[derive(uniffi::Enum, Clone, Default)]
 pub enum FfiReactionSchema {
     Unknown,
-    #[default] Unicode,
+    #[default]
+    Unicode,
     Shortcode,
     Custom,
 }
@@ -1870,13 +1861,16 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema, FfiSubscribeError
+        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
+        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
+        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
     use rand::distributions::{Alphanumeric, DistString};
-    use xmtp_content_types::{reaction::ReactionCodec, text::TextCodec, ContentCodec};
-    use xmtp_proto::xmtp::{mls::message_contents::EncodedContent, reactions::{Reaction, ReactionAction, ReactionSchema}};
     use std::{
         env,
         sync::{
@@ -1886,6 +1880,7 @@ mod tests {
         time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use xmtp_content_types::{reaction::ReactionCodec, text::TextCodec, ContentCodec};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -1895,6 +1890,10 @@ mod tests {
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
+    };
+    use xmtp_proto::xmtp::{
+        mls::message_contents::EncodedContent,
+        reactions::{Reaction, ReactionAction, ReactionSchema},
     };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
@@ -4464,10 +4463,7 @@ mod tests {
             .unwrap()
             .encode(&mut buf)
             .unwrap();
-        alix_conversation
-            .send(buf)
-            .await
-            .unwrap();
+        alix_conversation.send(buf).await.unwrap();
 
         // Have Bo sync to get the conversation and message
         bo.conversations().sync().await.unwrap();
@@ -4489,13 +4485,14 @@ mod tests {
             schema: FfiReactionSchema::Unicode,
         };
 
-
         let reaction_sent: Reaction = ffi_reaction.into();
         let mut buf = Vec::new();
-        ReactionCodec::encode(reaction_sent).unwrap().encode(&mut buf).unwrap();
+        ReactionCodec::encode(reaction_sent)
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
 
         bo_conversation.send(buf).await.unwrap();
-
 
         // Have Alix sync to get the reaction
         alix_conversation.sync().await.unwrap();
@@ -4516,7 +4513,10 @@ mod tests {
         assert_eq!(reaction.content, "👍");
         assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
-        assert_eq!(reaction.reference, hex::encode(message_to_react_to.id.clone()));
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
         assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
     }
 }
