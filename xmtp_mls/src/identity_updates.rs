@@ -1,11 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::association_state::StoredAssociationState,
 };
 use futures::future::try_join_all;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_cryptography::CredentialSign;
 use xmtp_id::{
@@ -16,12 +15,13 @@ use xmtp_id::{
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
-        AssociationError, AssociationState, AssociationStateDiff, IdentityUpdate,
+        AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
         InstallationKeyContext, MemberIdentifier, SignatureError,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxIdRef,
 };
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
@@ -284,7 +284,7 @@ where
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let new_member_identifier: MemberIdentifier = new_wallet_address.into();
+        let new_member_identifier = MemberIdentifier::Address(new_wallet_address);
 
         let mut signature_request = builder
             .add_association(new_member_identifier, installation_public_key.into())
@@ -528,6 +528,53 @@ async fn verify_updates(
     .await
 }
 
+/// A static lookup method to verify if an identity is a member of an inbox
+pub async fn is_member_of_association_state<Client>(
+    api_client: &ApiClientWrapper<Client>,
+    inbox_id: &str,
+    identifier: &MemberIdentifier,
+    scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+) -> Result<bool, ClientError>
+where
+    Client: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
+{
+    let filters = vec![GetIdentityUpdatesV2Filter {
+        inbox_id: inbox_id.to_string(),
+        sequence_id: None,
+    }];
+    let mut updates = api_client.get_identity_updates_v2(filters).await?;
+
+    let Some(updates) = updates.remove(inbox_id) else {
+        return Err(ClientError::Generic(
+            "Unable to find provided inbox_id".to_string(),
+        ));
+    };
+    let updates: Vec<_> = updates.into_iter().map(|u| u.update).collect();
+
+    let mut association_state = None;
+
+    let scw_verifier = scw_verifier.unwrap_or_else(|| {
+        Box::new(RemoteSignatureVerifier::new(api_client.api_client.clone()))
+            as Box<dyn SmartContractSignatureVerifier>
+    });
+
+    let updates: Vec<_> = updates
+        .iter()
+        .map(|u| u.to_verified(&scw_verifier))
+        .collect();
+    let updates = try_join_all(updates).await?;
+
+    for update in updates {
+        association_state =
+            Some(update.update_state(association_state, update.client_timestamp_ns)?);
+    }
+    let association_state = association_state.ok_or(ClientError::Generic(
+        "Unable to create association state".to_string(),
+    ))?;
+
+    Ok(association_state.get(identifier).is_some())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -550,7 +597,7 @@ pub(crate) mod tests {
         Client, XmtpApi,
     };
 
-    use super::load_identity_updates;
+    use super::{is_member_of_association_state, load_identity_updates};
 
     async fn get_association_state<ApiClient, Verifier>(
         client: &Client<ApiClient, Verifier>,
@@ -577,6 +624,45 @@ pub(crate) mod tests {
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_is_member_of_association_state() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+
+        let wallet2 = generate_local_wallet();
+
+        let mut request = client
+            .associate_wallet(wallet2.get_address())
+            .await
+            .unwrap();
+        add_wallet_signature(&mut request, &wallet2).await;
+        client.apply_signature_request(request).await.unwrap();
+
+        let conn = client.store().conn().unwrap();
+        let state = client
+            .get_latest_association_state(&conn, client.inbox_id())
+            .await
+            .unwrap();
+
+        // The installation, wallet1 address, and the newly associated wallet2 address
+        assert_eq!(state.members().len(), 3);
+
+        let api_client = &client.api_client;
+
+        // Check that the second wallet is associated with our new static helper
+        let is_member = is_member_of_association_state(
+            api_client,
+            client.inbox_id(),
+            &MemberIdentifier::Address(wallet2.get_address()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(is_member);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

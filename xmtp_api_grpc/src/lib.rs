@@ -16,13 +16,13 @@ mod utils {
         #[async_trait::async_trait]
         impl XmtpTestClient for crate::Client {
             async fn create_local() -> Self {
-                crate::Client::create("http://localhost:5556".into(), false)
+                crate::Client::create("http://localhost:5556", false)
                     .await
                     .unwrap()
             }
 
             async fn create_dev() -> Self {
-                crate::Client::create("https://grpc.dev.xmtp.network:443".into(), false)
+                crate::Client::create("https://grpc.dev.xmtp.network:443", false)
                     .await
                     .unwrap()
             }
