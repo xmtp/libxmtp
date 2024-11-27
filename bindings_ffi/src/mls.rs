@@ -2073,6 +2073,94 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_client_performance() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let dev_address = xmtp_api_grpc::DEV_ADDRESS.to_string();
+        let address = ffi_inbox_owner.get_address();
+
+        let start = Instant::now();
+        let mut inbox_id = get_inbox_id_for_address(Box::new(MockLogger {}), dev_address.clone(), true, address.clone()).await.unwrap();
+        let duration = start.elapsed();
+        println!(
+            "Got inbox id for new inbox in {}ms",
+            duration.as_millis()
+        );
+        let start = Instant::now();
+        if inbox_id.is_none() {
+            inbox_id = Some(generate_inbox_id(&address, &nonce).expect("Failed to generate inbox ID"));
+        }
+        let duration = start.elapsed();
+        println!(
+            "Created inbox id for new inbox in {}ms",
+            duration.as_millis()
+        );
+        
+        let path = tmp_path();
+
+        let start = Instant::now();
+        let client_a = create_client(
+            Box::new(MockLogger {}),
+            dev_address.clone(),
+            true,
+            Some(path.clone()),
+            None,
+            inbox_id.as_ref().expect("inbox_id must not be None"),
+            ffi_inbox_owner.get_address(),
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        register_client(&ffi_inbox_owner, &client_a).await;
+        let duration = start.elapsed();
+        println!(
+            "Created and registered a new inbox in {}ms",
+            duration.as_millis()
+        );
+
+        let start = Instant::now();
+        let mut inbox_id = get_inbox_id_for_address(Box::new(MockLogger {}), dev_address.clone(), true, address.clone()).await.unwrap();
+        let duration = start.elapsed();
+        println!(
+            "Got inbox id for an existing inbox in {}ms",
+            duration.as_millis()
+        );
+        let start = Instant::now();
+        if inbox_id.is_none() {
+            inbox_id = Some(generate_inbox_id(&address, &nonce).expect("Failed to generate inbox ID"));
+        }
+        let duration = start.elapsed();
+        println!(
+            "Created inbox id for an existing inbox in {}ms",
+            duration.as_millis()
+        );
+
+        let start = Instant::now();
+        let client_a2 = create_client(
+            Box::new(MockLogger {}),
+            dev_address.clone(),
+            true,
+            Some(path),
+            None,
+            inbox_id.as_ref().expect("inbox_id must not be None"),
+            ffi_inbox_owner.get_address(),
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let duration = start.elapsed();
+        println!(
+            "Created an existing inbox in {}ms",
+            duration.as_millis()
+        );
+
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
