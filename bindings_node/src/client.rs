@@ -373,43 +373,15 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let api_client = TonicApiClient::create(host, true)
+  let client = TonicApiClient::create(host, true)
     .await
     .map_err(ErrorWrapper::from)?;
-  let wrapper = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+  let client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
 
-  let filters = vec![GetIdentityUpdatesV2Filter {
-    inbox_id: inbox_id.to_string(),
-    sequence_id: None,
-  }];
-  let mut updates = wrapper
-    .get_identity_updates_v2(filters)
-    .await
-    .map_err(ErrorWrapper::from)?;
-
-  let Some(updates) = updates.remove(inbox_id) else {
-    return Err(Error::from_reason("Unable to find provided inbox_id"));
-  };
-  let updates: Vec<_> = updates.into_iter().map(|u| u.update).collect();
-
-  let scw_verifier =
-    MultiSmartContractSignatureVerifier::new_from_env().map_err(ErrorWrapper::from)?;
-
-  let mut association_state = None;
-
-  for update in updates {
-    let update = update
-      .to_verified(&scw_verifier)
+  let is_member =
+    xmtp_mls::identity_updates::is_member_of_association_state(client, inbox_id, identifier)
       .await
       .map_err(ErrorWrapper::from)?;
-    association_state = Some(
-      update
-        .update_state(association_state, update.client_timestamp_ns)
-        .map_err(ErrorWrapper::from)?,
-    );
-  }
-  let association_state =
-    association_state.ok_or(Error::from_reason("Unable to create association state"))?;
 
-  Ok(association_state.get(identifier).is_some())
+  Ok(is_member)
 }

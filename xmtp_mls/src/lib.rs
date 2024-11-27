@@ -9,7 +9,7 @@ pub mod configuration;
 pub mod groups;
 mod hpke;
 pub mod identity;
-mod identity_updates;
+pub mod identity_updates;
 mod intents;
 mod mutex_registry;
 pub mod retry;

@@ -16,11 +16,14 @@ use xmtp_id::{
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
-        AssociationError, AssociationState, AssociationStateDiff, IdentityUpdate,
+        AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
         InstallationKeyContext, MemberIdentifier, SignatureError,
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier},
     InboxIdRef,
+};
+use xmtp_proto::api_client::{
+    ClientWithMetadata, XmtpApiClient, XmtpIdentityClient, XmtpMlsClient,
 };
 
 use crate::{
@@ -526,6 +529,43 @@ async fn verify_updates(
             .map(|update| update.to_verified(&scw_verifier)),
     )
     .await
+}
+
+pub async fn is_member_of_association_state<Client>(
+    client: ApiClientWrapper<Client>,
+    inbox_id: &str,
+    identifier: &MemberIdentifier,
+) -> Result<bool, ClientError>
+where
+    Client: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
+{
+    let filters = vec![GetIdentityUpdatesV2Filter {
+        inbox_id: inbox_id.to_string(),
+        sequence_id: None,
+    }];
+    let mut updates = client.get_identity_updates_v2(filters).await?;
+
+    let Some(updates) = updates.remove(inbox_id) else {
+        return Err(ClientError::Generic(
+            "Unable to find provided inbox_id".to_string(),
+        ));
+    };
+    let updates: Vec<_> = updates.into_iter().map(|u| u.update).collect();
+
+    let scw_verifier = MultiSmartContractSignatureVerifier::new_from_env()?;
+
+    let mut association_state = None;
+
+    for update in updates {
+        let update = update.to_verified(&scw_verifier).await?;
+        association_state =
+            Some(update.update_state(association_state, update.client_timestamp_ns)?);
+    }
+    let association_state = association_state.ok_or(ClientError::Generic(
+        "Unable to create association state".to_string(),
+    ))?;
+
+    Ok(association_state.get(identifier).is_some())
 }
 
 #[cfg(test)]
