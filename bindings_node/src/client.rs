@@ -13,14 +13,13 @@ use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::{AssociationState, IdentityAction, MemberIdentifier};
-use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
-use xmtp_mls::api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
+use xmtp_id::associations::MemberIdentifier;
+use xmtp_mls::api::ApiClientWrapper;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::retry::Retry;
-use xmtp_mls::storage::{association_state, EncryptedMessageStore, EncryptionKey, StorageOption};
+use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 

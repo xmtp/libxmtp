@@ -19,15 +19,10 @@ use xmtp_id::{
         AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
         InstallationKeyContext, MemberIdentifier, SignatureError,
     },
-    scw_verifier::{
-        MultiSmartContractSignatureVerifier, RemoteSignatureVerifier,
-        SmartContractSignatureVerifier,
-    },
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxIdRef,
 };
-use xmtp_proto::api_client::{
-    ClientWithMetadata, XmtpApiClient, XmtpIdentityClient, XmtpMlsClient,
-};
+use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
