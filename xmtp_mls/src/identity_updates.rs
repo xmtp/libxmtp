@@ -554,8 +554,13 @@ where
     let mut association_state = None;
     let scw_verifier = RemoteSignatureVerifier::new(api_client.api_client.clone());
 
+    let updates: Vec<_> = updates
+        .iter()
+        .map(|u| u.to_verified(&scw_verifier))
+        .collect();
+    let updates = try_join_all(updates).await?;
+
     for update in updates {
-        let update = update.to_verified(&scw_verifier).await?;
         association_state =
             Some(update.update_state(association_state, update.client_timestamp_ns)?);
     }
