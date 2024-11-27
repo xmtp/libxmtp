@@ -127,11 +127,11 @@ pub(crate) mod tests {
         use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
         let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::TRACE.into())
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
             .from_env_lossy();
 
         tracing_subscriber::registry()
-            .with(fmt::layer())
+            .with(fmt::layer().pretty())
             .with(filter)
             .init();
     }
