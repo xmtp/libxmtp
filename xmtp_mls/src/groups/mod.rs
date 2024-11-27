@@ -681,7 +681,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
 
         // Check if the message has a parent_id
-        let encoded_content = EncodedContent::decode(message).unwrap();
+        // let encoded_content = EncodedContent::decode(message).unwrap();
+        let encoded_content = match EncodedContent::decode(message) {
+            Ok(encoded_content) => {
+                // Use the encoded_content struct
+                println!("Decoded successfully");
+                Some(encoded_content)
+            },
+            Err(e) => {
+                println!("Failed to decode: {}", e);
+                None
+            }
+        }.unwrap();
         let encoded_content_clone = encoded_content.clone();
         let parent_id = match encoded_content.r#type {
             Some(content_type) => {
