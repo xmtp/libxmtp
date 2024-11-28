@@ -20,6 +20,7 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
+use xmtp_mls::storage::group_message::StoredGroupMessageWithReactions;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -1281,6 +1282,35 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub async fn find_messages_with_reactions(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type()? {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Sync => None,
+        };
+
+        let messages: Vec<FfiMessageWithReactions> = self
+            .inner
+            .find_messages_with_reactions(
+                &MsgQueryArgs::default()
+                    .maybe_sent_before_ns(opts.sent_before_ns)
+                    .maybe_sent_after_ns(opts.sent_after_ns)
+                    .maybe_kind(kind)
+                    .maybe_delivery_status(delivery_status)
+                    .maybe_limit(opts.limit)
+                    .maybe_direction(direction),
+            )?
+            .into_iter()
+            .map(|msg| msg.into())
+            .collect();
+        Ok(messages)
+    }
+
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -1622,6 +1652,12 @@ pub struct FfiMessage {
     pub delivery_status: FfiDeliveryStatus,
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiMessageWithReactions {
+    pub message: FfiMessage,
+    pub reactions: Vec<FfiMessage>,
+}
+
 impl From<StoredGroupMessage> for FfiMessage {
     fn from(msg: StoredGroupMessage) -> Self {
         Self {
@@ -1632,6 +1668,19 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+        }
+    }
+}
+
+impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
+    fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
+        Self {
+            message: msg_with_reactions.message.into(),
+            reactions: msg_with_reactions
+                .reactions
+                .into_iter()
+                .map(|reaction| reaction.into())
+                .collect(),
         }
     }
 }
@@ -1864,9 +1913,10 @@ mod tests {
         get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
         FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
         FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
-        FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
+        FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
+        FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -4509,7 +4559,27 @@ mod tests {
         let slice: &[u8] = message_content.as_slice();
         let encoded_content = EncodedContent::decode(slice).unwrap();
         let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
-        println!("Encoded content: {:?}", encoded_content);
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
+        assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
+
+        // Test find_messages_with_reactions query
+        let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
+            .find_messages_with_reactions(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages_with_reactions.len(), 2);
+        let message_with_reactions = &messages_with_reactions[1];
+        assert_eq!(message_with_reactions.reactions.len(), 1);
+        let message_content = message_with_reactions.reactions[0].content.clone();
+        let slice: &[u8] = message_content.as_slice();
+        let encoded_content = EncodedContent::decode(slice).unwrap();
+        let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
         assert_eq!(reaction.content, "👍");
         assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
