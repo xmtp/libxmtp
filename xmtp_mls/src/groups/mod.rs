@@ -90,7 +90,10 @@ use crate::{
         db_connection::DbConnection,
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        group_message::{
+            DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage,
+            StoredGroupMessageWithReactions,
+        },
         sql_key_store,
     },
     subscriptions::{LocalEventError, LocalEvents},
@@ -726,7 +729,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             Some(content_type) if content_type.type_id == ReactionCodec::TYPE_ID => {
                 // Attempt to decode as reaction
                 match ReactionCodec::decode(encoded_content_clone) {
-                    Ok(reaction) => Some(reaction.reference.into_bytes()),
+                    Ok(reaction) => {
+                        // Decode hex string into bytes
+                        match hex::decode(&reaction.reference) {
+                            Ok(bytes) => Some(bytes),
+                            Err(e) => {
+                                tracing::debug!(
+                                    "Failed to decode reaction reference as hex: {}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    }
                     Err(e) => {
                         tracing::debug!("Failed to decode reaction: {}", e);
                         None
@@ -759,6 +774,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
+    pub fn find_messages_with_reactions(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
+        let conn = self.context().store().conn()?;
+        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
 

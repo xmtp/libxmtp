@@ -15,6 +15,12 @@ use super::{
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
+pub struct StoredGroupMessageWithReactions {
+    pub message: StoredGroupMessage,
+    // Messages who's parent_id matches this message's id
+    pub reactions: Vec<StoredGroupMessage>,
+}
+
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
 )]
@@ -116,7 +122,7 @@ impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MsgQueryArgs {
     sent_after_ns: Option<i64>,
     sent_before_ns: Option<i64>,
@@ -124,6 +130,7 @@ pub struct MsgQueryArgs {
     delivery_status: Option<DeliveryStatus>,
     limit: Option<i64>,
     direction: Option<SortDirection>,
+    include_reactions: Option<bool>,
 }
 
 impl MsgQueryArgs {
@@ -194,6 +201,10 @@ impl DbConnection {
         let mut query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
             .into_boxed();
+        // Add filter for reactions based on include_reactions flag
+        if args.include_reactions == Some(false) {
+            query = query.filter(dsl::parent_id.is_null());
+        }
 
         if let Some(sent_after) = args.sent_after_ns {
             query = query.filter(dsl::sent_at_ns.gt(sent_after));
@@ -221,6 +232,66 @@ impl DbConnection {
         }
 
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
+    }
+
+    /// Query for group messages with their reactions
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_group_messages_with_reactions(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, StorageError> {
+        // First get all the main messages
+        let mut modified_args = args.clone();
+        modified_args.include_reactions = Some(false); // Force include_reactions to false for main query
+        let messages = self.get_group_messages(group_id, &modified_args)?;
+
+        // Then get all reactions for these messages in a single query
+        let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
+
+        let mut reactions_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::parent_id.is_not_null())
+            .filter(dsl::parent_id.eq_any(message_ids))
+            .into_boxed();
+
+        // Apply the same sorting as the main messages
+        reactions_query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
+            SortDirection::Ascending => reactions_query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => reactions_query.order(dsl::sent_at_ns.desc()),
+        };
+
+        let reactions: Vec<StoredGroupMessage> =
+            self.raw_query(|conn| reactions_query.load(conn))?;
+
+        // Group reactions by parent message id
+        let mut reactions_by_parent: std::collections::HashMap<Vec<u8>, Vec<StoredGroupMessage>> =
+            std::collections::HashMap::new();
+
+        for reaction in reactions {
+            if let Some(parent_id) = &reaction.parent_id {
+                reactions_by_parent
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .push(reaction);
+            }
+        }
+
+        // Combine messages with their reactions
+        let messages_with_reactions: Vec<StoredGroupMessageWithReactions> = messages
+            .into_iter()
+            .map(|message| {
+                let message_clone = message.clone();
+                StoredGroupMessageWithReactions {
+                    message,
+                    reactions: reactions_by_parent
+                        .remove(&message_clone.id)
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        Ok(messages_with_reactions)
     }
 
     /// Get a particular group message
