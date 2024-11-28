@@ -74,7 +74,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
+    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;

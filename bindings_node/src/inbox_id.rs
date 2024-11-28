@@ -14,7 +14,7 @@ pub async fn get_inbox_id_for_address(
 ) -> Result<Option<String>> {
   let account_address = account_address.to_lowercase();
   let api_client = ApiClientWrapper::new(
-    TonicApiClient::create(host.clone(), is_secure)
+    TonicApiClient::create(host, is_secure)
       .await
       .map_err(ErrorWrapper::from)?
       .into(),

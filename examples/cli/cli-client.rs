@@ -251,15 +251,13 @@ async fn main() -> color_eyre::eyre::Result<()> {
             )
             .await?,
         ),
-        (false, Env::Local) => {
-            Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
-        }
+        (false, Env::Local) => Box::new(ClientV3::create("http://localhost:5556", false).await?),
         (false, Env::Dev) => {
-            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true).await?)
+            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
         }
-        (false, Env::Production) => Box::new(
-            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true).await?,
-        ),
+        (false, Env::Production) => {
+            Box::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
+        }
         (true, Env::Production) => todo!("not supported"),
     };
 
