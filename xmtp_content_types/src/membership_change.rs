@@ -52,18 +52,16 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
-
-    use crate::test_utils::{rand_string, rand_vec};
-
     use super::*;
+    use xmtp_common::{rand_string, rand_vec};
+    use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encode_decode() {
         let new_member = MembershipChange {
-            installation_ids: vec![rand_vec()],
-            account_address: rand_string(),
+            installation_ids: vec![rand_vec::<24>()],
+            account_address: rand_string::<24>(),
             initiated_by_account_address: "".to_string(),
         };
         let data = GroupMembershipChanges {

@@ -1,7 +1,5 @@
 pub mod group_updated;
 pub mod membership_change;
-#[cfg(test)]
-mod test_utils;
 pub mod text;
 
 use thiserror::Error;

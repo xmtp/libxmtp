@@ -16,6 +16,7 @@ members = [
   "xtask",
   "xmtp_debug",
   "xmtp_content_types",
+ "common"
 ]
 
 # Make the feature resolver explicit.
@@ -104,6 +105,7 @@ xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 xmtp_content_types = { path = "xmtp_content_types" }
+xmtp_common = { path = "common" }
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,

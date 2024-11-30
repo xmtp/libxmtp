@@ -581,21 +581,19 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::{
-        hashes::generate_inbox_id,
-        test_utils::{rand_string, rand_u64, rand_vec},
-    };
+    use crate::associations::hashes::generate_inbox_id;
+    use xmtp_common::{rand_hexstring, rand_u64, rand_vec};
 
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip_unverified() {
-        let account_address = rand_string();
+        let account_address = rand_hexstring();
         let nonce = rand_u64();
         let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let client_timestamp_ns = rand_u64();
-        let signature_bytes = rand_vec();
+        let signature_bytes = rand_vec::<32>();
 
         let identity_update = UnverifiedIdentityUpdate::new(
             inbox_id,
@@ -616,7 +614,7 @@ pub(crate) mod tests {
                         4, 5, 6,
                     ]),
                     unsigned_action: UnsignedAddAssociation {
-                        new_member_identifier: rand_string().into(),
+                        new_member_identifier: rand_hexstring().into(),
                     },
                 }),
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
@@ -624,7 +622,7 @@ pub(crate) mod tests {
                         7, 8, 9,
                     ]),
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_address: rand_string(),
+                        new_recovery_address: rand_hexstring(),
                     },
                 }),
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
@@ -632,7 +630,7 @@ pub(crate) mod tests {
                         10, 11, 12,
                     ]),
                     unsigned_action: UnsignedRevokeAssociation {
-                        revoked_member: rand_string().into(),
+                        revoked_member: rand_hexstring().into(),
                     },
                 }),
             ],
