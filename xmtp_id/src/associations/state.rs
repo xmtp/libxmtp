@@ -204,14 +204,14 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::test_utils::rand_string;
+    use xmtp_common::rand_hexstring;
 
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
-        let starting_state = AssociationState::new(rand_string(), 0, None).unwrap();
+        let starting_state = AssociationState::new(rand_hexstring(), 0, None).unwrap();
         let new_entity = Member::default();
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
@@ -221,7 +221,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
-        let starting_state = AssociationState::new(rand_string(), 0, None).unwrap();
+        let starting_state = AssociationState::new(rand_hexstring(), 0, None).unwrap();
         let entity_1 = Member::default();
         let entity_2 = Member::default();
         let entity_3 = Member::default();

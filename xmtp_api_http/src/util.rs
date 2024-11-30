@@ -83,7 +83,7 @@ pub fn create_grpc_stream_inner<
                 .send()
                 .await
                 .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-
+        tracing::debug!("Got Request, getting byte stream");
         let mut remaining = vec![];
         for await bytes in request.bytes_stream() {
             let bytes = bytes
@@ -92,6 +92,7 @@ pub fn create_grpc_stream_inner<
             let de = Deserializer::from_slice(bytes);
             let mut stream = de.into_iter::<GrpcResponse<R>>();
             'messages: loop {
+                tracing::debug!("Waiting on next response ...");
                 let response = stream.next();
                 let res = match response {
                     Some(Ok(GrpcResponse::Ok(response))) => Ok(response),

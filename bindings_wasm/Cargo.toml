@@ -19,6 +19,7 @@ xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls", features = ["test-utils", "http-api"] }
+xmtp_common.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 tracing-web = "0.1"
 tracing.workspace = true

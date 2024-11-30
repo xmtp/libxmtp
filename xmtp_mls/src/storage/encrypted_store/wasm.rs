@@ -50,13 +50,11 @@ impl XmtpDb for WasmDb {
         Ok(())
     }
 
-    #[allow(unreachable_code)]
     fn release_connection(&self) -> Result<(), StorageError> {
-        unimplemented!();
+        Ok(())
     }
 
-    #[allow(unreachable_code)]
     fn reconnect(&self) -> Result<(), StorageError> {
-        unimplemented!();
+        Ok(())
     }
 }

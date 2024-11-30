@@ -1,7 +1,5 @@
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
-    retry::RetryableError,
-    retryable,
     storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
@@ -17,6 +15,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::{storage::StorageProvider, types::HpkeCiphertext};
 use thiserror::Error;
+use xmtp_common::{retryable, RetryableError};
 
 #[derive(Debug, Error)]
 pub enum HpkeError {

@@ -18,9 +18,11 @@
 
 use rand::Rng;
 
+pub struct NotSpecialized;
+
 /// Specifies which errors are retryable.
 /// All Errors are not retryable by-default.
-pub trait RetryableError: std::error::Error {
+pub trait RetryableError<SP = NotSpecialized>: std::error::Error {
     fn is_retryable(&self) -> bool;
 }
 
@@ -76,7 +78,7 @@ pub struct RetryBuilder {
 ///
 /// # Example
 /// ```
-/// use xmtp_mls::retry::RetryBuilder;
+/// use xmtp_common::retry::RetryBuilder;
 ///
 /// RetryBuilder::default()
 ///     .retries(5)
@@ -121,7 +123,7 @@ impl Retry {
 
 /// Retry but for an async context
 /// ```
-/// use xmtp_mls::{retry_async, retry::{RetryableError, Retry}};
+/// use xmtp_common::{retry_async, retry::{RetryableError, Retry}};
 /// use thiserror::Error;
 /// use tokio::sync::mpsc;
 ///
@@ -183,7 +185,7 @@ macro_rules! retry_async {
                             e.to_string()
                         );
                         attempts += 1;
-                        $crate::sleep($retry.duration(attempts)).await;
+                        $crate::time::sleep($retry.duration(attempts)).await;
                     } else {
                         tracing::info!("error is not retryable. {:?}:{}", e, e);
                         break Err(e);
@@ -205,13 +207,6 @@ macro_rules! retryable {
         use $crate::retry::RetryableError;
         $error.is_retryable()
     }};
-}
-
-// network errors should generally be retryable, unless there's a bug in our code
-impl RetryableError for xmtp_proto::Error {
-    fn is_retryable(&self) -> bool {
-        true
-    }
 }
 
 #[cfg(test)]
@@ -313,7 +308,7 @@ pub(crate) mod tests {
                 return Ok(());
             }
             // do some work
-            crate::sleep(core::time::Duration::from_nanos(100)).await;
+            crate::time::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 
@@ -339,7 +334,7 @@ pub(crate) mod tests {
             }
             *data += 1;
             // do some work
-            crate::sleep(core::time::Duration::from_nanos(100)).await;
+            crate::time::sleep(core::time::Duration::from_nanos(100)).await;
             Err(SomeError::ARetryableError)
         }
 

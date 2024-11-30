@@ -304,9 +304,10 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::{storage::EncryptedMessageStore, utils::test::tmp_path};
+    use crate::storage::EncryptedMessageStore;
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
+    use xmtp_common::tmp_path;
 
     use super::*;
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";

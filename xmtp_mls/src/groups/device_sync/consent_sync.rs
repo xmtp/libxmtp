@@ -52,25 +52,31 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::time::{Duration, Instant};
+    use xmtp_common::{
+        assert_ok,
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use crate::{
-        assert_ok,
         builder::ClientBuilder,
-        groups::scoped_client::LocalScopedGroupClient,
+        groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
         utils::test::wait_for_min_intents,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_consent_sync() {
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
 

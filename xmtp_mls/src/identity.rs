@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
-use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
@@ -11,9 +10,8 @@ use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    XmtpApi,
+    Fetch, Store, XmtpApi,
 };
-use crate::{retryable, Fetch, Store};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
@@ -31,6 +29,7 @@ use prost::Message;
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
+use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
