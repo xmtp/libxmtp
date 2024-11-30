@@ -42,24 +42,28 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
+
     use crate::{
-        api::test_utils::wait_for_some,
-        assert_ok,
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
     };
-    use std::time::{Duration, Instant};
+    use xmtp_common::{
+        assert_ok,
+        time::{Duration, Instant},
+        wait_for_some,
+    };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_message_history_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -151,7 +155,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_sync_continues_during_db_disconnect() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -213,7 +217,7 @@ pub(crate) mod tests {
         assert_ne!(old_group_id, new_group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn disconnect_does_not_effect_init() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -226,7 +230,7 @@ pub(crate) mod tests {
         amal_a.release_db_connection().unwrap();
 
         let sync_group = amal_a.get_sync_group(amal_a_conn);
-        crate::assert_err!(sync_group, GroupError::GroupNotFound);
+        xmtp_common::assert_err!(sync_group, GroupError::GroupNotFound);
 
         amal_a.reconnect_db().unwrap();
 
@@ -241,7 +245,7 @@ pub(crate) mod tests {
         assert!(sync_group.is_ok());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -258,7 +262,7 @@ pub(crate) mod tests {
         assert_eq!(result.len(), 2);
     }
 
-    #[tokio::test]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -295,20 +299,20 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_pin() {
         let pin = new_pin();
         assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_request_id() {
         let request_id = new_request_id();
         assert_eq!(request_id.len(), ENC_KEY_SIZE);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_key() {
         let sig_key = DeviceSyncKeyType::new_aes_256_gcm_key();
         let enc_key = DeviceSyncKeyType::new_aes_256_gcm_key();
@@ -318,7 +322,7 @@ pub(crate) mod tests {
         assert_ne!(sig_key, enc_key);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_nonce() {
         let nonce_1 = generate_nonce();
         let nonce_2 = generate_nonce();

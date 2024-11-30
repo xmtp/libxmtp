@@ -1,19 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use crate::storage::DbConnection;
-use crate::{
-    builder::ClientBuilder,
-    identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, StorageOption},
-    types::Address,
-    Client, InboxOwner, XmtpApi,
-};
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
 use std::sync::Arc;
-use tokio::{sync::Notify, time::error::Elapsed};
+use tokio::sync::Notify;
 use xmtp_id::{
     associations::{
         generate_inbox_id,
@@ -24,10 +12,13 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::XmtpTestClient;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod traced_test;
-#[cfg(not(target_arch = "wasm32"))]
-pub use traced_test::traced_test;
+use crate::{
+    builder::ClientBuilder,
+    identity::IdentityStrategy,
+    storage::{DbConnection, EncryptedMessageStore, StorageOption},
+    Client, InboxOwner, XmtpApi,
+};
+use xmtp_common::time::Duration;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -45,40 +36,9 @@ use xmtp_api_http::XmtpHttpApiClient;
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
 
-pub fn rand_string() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
-}
-
-pub fn rand_account_address() -> Address {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), 42)
-}
-
-pub fn rand_vec() -> Vec<u8> {
-    rand::thread_rng().gen::<[u8; 24]>().to_vec()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn tmp_path() -> String {
-    let db_name = rand_string();
-    format!("{}/{}.db3", std::env::temp_dir().to_str().unwrap(), db_name)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn tmp_path() -> String {
-    let db_name = rand_string();
-    format!("{}/{}.db3", "test_db", db_name)
-}
-
-pub fn rand_time() -> i64 {
-    let mut rng = rand::thread_rng();
-    rng.gen_range(0..1_000_000_000)
-}
-
 impl EncryptedMessageStore {
     pub fn generate_enc_key() -> [u8; 32] {
-        let mut key = [0u8; 32];
-        xmtp_cryptography::utils::rng().fill_bytes(&mut key[..]);
-        key
+        xmtp_common::rand_array::<32>()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -97,8 +57,7 @@ impl EncryptedMessageStore {
 
 impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {
-        let tmpdb = tmp_path();
-        tracing::info!("Opening Database at [{}]", tmpdb);
+        let tmpdb = xmtp_common::tmp_path();
         self.store(
             EncryptedMessageStore::new(
                 StorageOption::Persistent(tmpdb),
@@ -254,8 +213,8 @@ impl Delivery {
         }
     }
 
-    pub async fn wait_for_delivery(&self) -> Result<(), Elapsed> {
-        tokio::time::timeout(self.timeout, async { self.notify.notified().await }).await
+    pub async fn wait_for_delivery(&self) -> Result<(), xmtp_common::time::Expired> {
+        xmtp_common::time::timeout(self.timeout, async { self.notify.notified().await }).await
     }
 
     pub fn notify_one(&self) {
@@ -314,7 +273,7 @@ pub async fn wait_for_all_intents_published(conn: &DbConnection) {
 
     tracing::info!("{} intents left", intents.len());
     if intents.is_empty() {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        xmtp_common::time::sleep(Duration::from_secs(1)).await;
         Box::pin(wait_for_all_intents_published(conn)).await
     }
 }
@@ -338,7 +297,7 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
 
     tracing::info!("{} intents left", intents.len());
     if intents.len() < n {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        xmtp_common::time::sleep(Duration::from_millis(200)).await;
         Box::pin(wait_for_min_intents(conn, n - intents.len())).await
     }
 }

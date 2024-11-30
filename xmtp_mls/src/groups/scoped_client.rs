@@ -17,7 +17,7 @@ use xmtp_id::{
 };
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send ))]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send))]
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused)]
 pub trait LocalScopedGroupClient: Send + Sync + Sized {
