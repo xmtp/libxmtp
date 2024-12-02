@@ -2419,7 +2419,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Add bola to the group
         amal_group
@@ -2441,7 +2441,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2510,7 +2510,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2549,7 +2549,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2590,7 +2590,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Add bola to the group
         amal_group
@@ -2611,7 +2611,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group

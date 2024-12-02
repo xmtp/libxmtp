@@ -33,7 +33,7 @@ impl super::DeriveKey<IdentityKey> for Identity {
     }
 }
 
-impl<'a> super::DeriveKey<IdentityKey> for &'a Identity {
+impl super::DeriveKey<IdentityKey> for &Identity {
     fn key(&self, network: u64) -> IdentityKey {
         IdentityKey {
             network,
