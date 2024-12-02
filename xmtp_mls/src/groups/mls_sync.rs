@@ -1353,10 +1353,10 @@ fn extract_message_sender(
     }
 
     let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
-    return Err(GroupMessageProcessingError::InvalidSender {
+    Err(GroupMessageProcessingError::InvalidSender {
         message_time_ns: message_created_ns,
         credential: basic_credential.identity().to_vec(),
-    });
+    })
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group

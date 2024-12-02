@@ -78,11 +78,14 @@ impl<C: speedy::Context, const N: usize> Writable<C> for NetworkKey<N> {
 }
 
 impl<const N: usize> redb::Value for NetworkKey<N> {
-    type SelfType<'a> = NetworkKey<N>
+    type SelfType<'a>
+        = NetworkKey<N>
     where
         Self: 'a;
 
-    type AsBytes<'a> = Vec<u8> // TODO: It _has_ be possible to make this a const [u8; N] somehow.
+    type AsBytes<'a>
+        = Vec<u8>
+    // TODO: It _has_ be possible to make this a const [u8; N] somehow.
     // We're not allowed to use `size_of::<NetworkKey<N>>()` yet, even though size_of and N are
     // both constant
     where
@@ -197,7 +200,7 @@ pub struct KeyValueStore<'db, Storage> {
     store: Storage,
 }
 
-impl<'db, Storage> KeyValueStore<'db, Storage> {
+impl<Storage> KeyValueStore<'_, Storage> {
     fn apply_write(&self, op: impl FnOnce(&WriteTransaction) -> Result<()>) -> Result<()> {
         use DatabaseOrTransaction::*;
         match self.db {
@@ -376,11 +379,13 @@ pub struct Metadata {
 }
 
 impl redb::Value for Metadata {
-    type SelfType<'a> = Metadata
+    type SelfType<'a>
+        = Metadata
     where
         Self: 'a;
 
-    type AsBytes<'a> = [u8; size_of::<Metadata>()]
+    type AsBytes<'a>
+        = [u8; size_of::<Metadata>()]
     where
         Self: 'a;
 
