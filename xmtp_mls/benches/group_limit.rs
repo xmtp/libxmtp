@@ -9,17 +9,11 @@ use tracing::{trace_span, Instrument};
 use xmtp_mls::{
     builder::ClientBuilder,
     groups::GroupMetadataOptions,
-    utils::{
-        bench::{
-            bench_async_setup, create_identities_if_dont_exist, init_logging, Identity,
-            BENCH_ROOT_SPAN,
-        },
-        test::TestClient,
+    utils::bench::{
+        bench_async_setup, create_identities_if_dont_exist, init_logging, BenchClient, Identity,
+        BENCH_ROOT_SPAN,
     },
-    Client,
 };
-
-pub type BenchClient = Client<TestClient>;
 
 pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
 pub const MAX_IDENTITIES: usize = 1_000;

@@ -31,7 +31,7 @@ use rand::{
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{instrument, warn};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -118,6 +118,7 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
+    #[instrument(level = "trace", skip_all)]
     pub async fn start_sync_worker(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -231,6 +232,7 @@ where
      * Ideally called when the client is registered.
      * Will auto-send a sync request if sync group is created.
      */
+    #[instrument(level = "trace", skip_all)]
     pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
         tracing::info!(
             "Initializing device sync... url: {:?}",
@@ -249,6 +251,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn ensure_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -265,6 +268,7 @@ where
         Ok(sync_group)
     }
 
+    #[instrument(level = "trace", skip_all)]
     pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -585,6 +589,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
         let conn = self.store().conn()?;
         let sync_group_id = conn

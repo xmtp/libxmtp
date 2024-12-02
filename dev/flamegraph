@@ -7,9 +7,9 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
 fi
 
 if [[ -z "${1-}" ]]; then
-  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench
+  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench -p xmtp_mls
 else
-  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench -- "$1"
+  XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench -p xmtp_mls -- "$1"
 fi
 
 cat xmtp_mls/tracing.foldeed | inferno-flamegraph > tracing-flamegraph.svg
