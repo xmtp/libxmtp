@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { createRegisteredClient, createUser, TEST_API_URL } from '@test/helpers'
-import { generateInboxId, getInboxIdForAddress } from '../dist/index'
+import {
+  generateInboxId,
+  getInboxIdForAddress,
+  isAddressAuthorized,
+  isInstallationAuthorized,
+} from '../dist/index'
 
 describe('generateInboxId', () => {
   it('should generate an inbox id', () => {
@@ -30,5 +35,31 @@ describe('getInboxIdForAddress', () => {
       user.account.address
     )
     expect(inboxId).toBe(client.inboxId())
+  })
+})
+
+describe('isInstallationAuthorized', () => {
+  it('should return true if installation is authorized', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    const isAuthorized = await isInstallationAuthorized(
+      TEST_API_URL,
+      client.inboxId(),
+      client.installationIdBytes()
+    )
+    expect(isAuthorized).toBe(true)
+  })
+})
+
+describe('isAddressAuthorized', () => {
+  it('should return true if address is authorized', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    const isAuthorized = await isAddressAuthorized(
+      TEST_API_URL,
+      client.inboxId(),
+      user.account.address
+    )
+    expect(isAuthorized).toBe(true)
   })
 })

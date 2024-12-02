@@ -1,5 +1,10 @@
 # @xmtp/node-bindings
 
+## 0.0.28
+
+- Removed `is_installation_authorized` and `is_address_authorized` from `Client`
+- Lowercased `address` passed to `is_address_authorized`
+
 ## 0.0.27
 
 - Switched to Ubuntu 22.04 for builds
