@@ -31,6 +31,12 @@ pub use traced_test::traced_test;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
+// TODO: Dev-Versions of URL
+const HISTORY_SERVER_HOST: &str = "localhost";
+const HISTORY_SERVER_PORT: u16 = 5558;
+pub const HISTORY_SYNC_URL: &str =
+    const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
+
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
@@ -92,6 +98,7 @@ impl EncryptedMessageStore {
 impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {
         let tmpdb = tmp_path();
+        tracing::info!("Opening Database at [{}]", tmpdb);
         self.store(
             EncryptedMessageStore::new(
                 StorageOption::Persistent(tmpdb),

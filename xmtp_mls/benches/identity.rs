@@ -1,24 +1,15 @@
 use crate::tracing::Instrument;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use ethers::signers::LocalWallet;
 use tokio::runtime::{Builder, Runtime};
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
-        generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
     InboxOwner,
 };
-use xmtp_mls::utils::{bench::init_logging, test::TestClient as TestApiClient};
-use xmtp_mls::{
-    client::Client,
-    identity::IdentityStrategy,
-    utils::bench::{bench_async_setup, BENCH_ROOT_SPAN},
-};
-use xmtp_proto::api_client::XmtpTestClient;
-
-type BenchClient = Client<TestApiClient>;
+use xmtp_mls::utils::bench::{bench_async_setup, BenchClient, BENCH_ROOT_SPAN};
+use xmtp_mls::utils::bench::{clients, init_logging};
 
 #[macro_use]
 extern crate tracing;
@@ -30,40 +21,6 @@ fn setup() -> Runtime {
         .thread_name("xmtp-bencher")
         .build()
         .unwrap()
-}
-
-async fn new_client() -> (BenchClient, LocalWallet) {
-    let nonce = 1;
-    let wallet = xmtp_cryptography::utils::generate_local_wallet();
-    let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
-
-    let dev = std::env::var("DEV_GRPC");
-    let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
-
-    let api_client = if is_dev_network {
-        tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev().await
-    } else {
-        tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local().await
-    };
-
-    let client = BenchClient::builder(IdentityStrategy::new(
-        inbox_id,
-        wallet.get_address(),
-        nonce,
-        None,
-    ));
-
-    let client = client
-        .temp_store()
-        .await
-        .api_client(api_client)
-        .build()
-        .await
-        .unwrap();
-
-    (client, wallet)
 }
 
 async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
@@ -92,7 +49,7 @@ fn register_identity_eoa(c: &mut Criterion) {
         b.to_async(&runtime).iter_batched(
             || {
                 bench_async_setup(|| async {
-                    let (client, wallet) = new_client().await;
+                    let (client, wallet) = clients::new_unregistered_client(false).await;
                     let signature_request = ecdsa_signature(&client, wallet).await;
 
                     (client, signature_request, span.clone())
