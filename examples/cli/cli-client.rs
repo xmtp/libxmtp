@@ -453,7 +453,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::ListHistorySyncMessages {} => {
             let conn = client.store().conn()?;
             client.sync_welcomes(&conn).await?;
-            let group = client.get_sync_group()?;
+            let group = client.get_sync_group(conn)?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group

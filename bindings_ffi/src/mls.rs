@@ -911,7 +911,8 @@ impl FfiConversations {
 
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.get_sync_group()?;
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
         Ok(sync_group.into())
     }
 

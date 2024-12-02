@@ -238,7 +238,7 @@ where
             "Initializing device sync... url: {:?}",
             self.history_sync_url
         );
-        if self.get_sync_group().is_err() {
+        if self.get_sync_group(provider.conn_ref()).is_err() {
             self.ensure_sync_group(provider).await?;
 
             self.send_sync_request(provider, DeviceSyncKind::Consent)
@@ -256,9 +256,9 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group = match self.get_sync_group() {
+        let sync_group = match self.get_sync_group(provider.conn_ref()) {
             Ok(group) => group,
-            Err(_) => self.create_sync_group()?,
+            Err(_) => self.create_sync_group(provider)?,
         };
         sync_group
             .maybe_update_installations(provider, None)
@@ -278,7 +278,7 @@ where
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -342,7 +342,7 @@ where
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
         // find the sync group
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -383,7 +383,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group
@@ -416,7 +416,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group
@@ -590,13 +590,12 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
+    pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group_id = conn
             .latest_sync_group()?
             .ok_or(GroupError::GroupNotFound)?
             .id;
-        let sync_group = self.group(sync_group_id.clone())?;
+        let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
 
         Ok(sync_group)
     }
