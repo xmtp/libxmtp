@@ -117,11 +117,11 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn query_welcome_messages(
         &self,
-        installation_id: Vec<u8>,
+        installation_id: &[u8],
         id_cursor: Option<u64>,
     ) -> Result<Vec<WelcomeMessage>, ApiError> {
         tracing::debug!(
-            installation_id = hex::encode(&installation_id),
+            installation_id = hex::encode(installation_id),
             cursor = id_cursor,
             inbox_id = self.inbox_id,
             "query welcomes"
@@ -135,7 +135,7 @@ where
                 (async {
                     self.api_client
                         .query_welcome_messages(QueryWelcomeMessagesRequest {
-                            installation_key: installation_id.clone(),
+                            installation_key: installation_id.to_vec(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
                                 limit: page_size,

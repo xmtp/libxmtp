@@ -546,10 +546,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
         let creator_inbox_id = context.inbox_id();
-        let provider = client.mls_provider()?;
 
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;
@@ -687,7 +687,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context().installation_public_key(),
+            sender_installation_id: self.context().installation_public_key().into(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
         };
@@ -1668,7 +1668,7 @@ pub(crate) mod tests {
         let serialized_welcome = welcome.tls_serialize_detached().unwrap();
         let send_welcomes_action = SendWelcomesAction::new(
             vec![Installation {
-                installation_key: new_member_client.installation_public_key(),
+                installation_key: new_member_client.installation_public_key().into(),
                 hpke_public_key: hpke_init_key,
             }],
             serialized_welcome,

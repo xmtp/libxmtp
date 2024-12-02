@@ -172,8 +172,8 @@ pub struct XmtpMlsLocalContext {
 
 impl XmtpMlsLocalContext {
     /// The installation public key is the primary identifier for an installation
-    pub fn installation_public_key(&self) -> Vec<u8> {
-        self.identity.installation_keys.public_slice().to_vec()
+    pub fn installation_public_key(&self) -> &[u8; 32] {
+        self.identity.installation_keys.public_bytes()
     }
 
     /// Get the account address of the blockchain account associated with this client
@@ -259,7 +259,7 @@ where
     V: SmartContractSignatureVerifier,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
-    pub fn installation_public_key(&self) -> Vec<u8> {
+    pub fn installation_public_key(&self) -> &[u8; 32] {
         self.context.installation_public_key()
     }
     /// Retrieves the client's inbox ID
@@ -560,20 +560,25 @@ where
         Ok(group)
     }
 
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<Self>, ClientError> {
+    pub(crate) fn create_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
 
         Ok(sync_group)
     }
 
-    /**
-     * Look up a group by its ID
-     *
-     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
-     */
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn group_with_conn(
+        &self,
+        conn: &DbConnection,
+        group_id: Vec<u8>,
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns)),
@@ -582,6 +587,15 @@ where
                 hex::encode(group_id)
             )))),
         }
+    }
+
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        self.group_with_conn(conn, group_id)
     }
 
     /**
@@ -697,7 +711,7 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<WelcomeMessage>, ClientError> {
         let installation_id = self.installation_public_key();
-        let id_cursor = conn.get_last_cursor_for_id(&installation_id, EntityKind::Welcome)?;
+        let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
 
         let welcomes = self
             .api_client
@@ -747,7 +761,7 @@ where
                     (async {
                         let welcome_v1 = &welcome_v1;
                         self.intents.process_for_id(
-                            &id,
+                            id,
                             EntityKind::Welcome,
                             welcome_v1.id,
                             |provider| async move {
@@ -1021,7 +1035,7 @@ pub(crate) mod tests {
 
         // Get original KeyPackage.
         let kp1 = client
-            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
             .await
             .unwrap();
         assert_eq!(kp1.len(), 1);
@@ -1031,7 +1045,7 @@ pub(crate) mod tests {
         client.rotate_key_package().await.unwrap();
 
         let kp2 = client
-            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
             .await
             .unwrap();
         assert_eq!(kp2.len(), 1);
@@ -1299,9 +1313,9 @@ pub(crate) mod tests {
         let bo_store = bo.store();
 
         let alix_original_init_key =
-            get_key_package_init_key(&alix, &alix.installation_public_key()).await;
+            get_key_package_init_key(&alix, alix.installation_public_key()).await;
         let bo_original_init_key =
-            get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+            get_key_package_init_key(&bo, bo.installation_public_key()).await;
 
         // Bo's original key should be deleted
         let bo_original_from_db = bo_store
@@ -1320,19 +1334,19 @@ pub(crate) mod tests {
 
         bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
 
-        let bo_new_key = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key()).await;
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
         bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
-        let bo_new_key_2 = get_key_package_init_key(&bo, &bo.installation_public_key()).await;
+        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key()).await;
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
         alix.sync_welcomes(&alix.store().conn().unwrap())
             .await
             .unwrap();
-        let alix_key_2 = get_key_package_init_key(&alix, &alix.installation_public_key()).await;
+        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key()).await;
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 

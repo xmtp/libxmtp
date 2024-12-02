@@ -305,7 +305,7 @@ where
         tracing::info!(inbox_id = self.inbox_id(), "Setting up conversation stream");
         let subscription = self
             .api_client
-            .subscribe_welcome_messages(installation_key, Some(id_cursor))
+            .subscribe_welcome_messages(installation_key.into(), Some(id_cursor))
             .await?;
 
         let stream = subscription

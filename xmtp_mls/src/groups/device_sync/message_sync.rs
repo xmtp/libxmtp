@@ -50,7 +50,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions,
-        utils::test::HISTORY_SYNC_URL,
+        utils::test::wait_for_min_intents, utils::test::HISTORY_SYNC_URL,
     };
     use std::time::{Duration, Instant};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -92,13 +92,21 @@ pub(crate) mod tests {
         let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
         assert_eq!(groups_b.len(), 0);
 
-        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
+        // make sure amal's worker has time to sync
+        // 3 Intents:
+        //  1.) UpdateGroupMembership Intent for new sync group
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        wait_for_min_intents(amal_b_conn, 3).await;
+        tracing::info!("Waiting for intents published");
+
+        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(amal_a_conn)
             .await
             .expect("sync_welcomes");
-        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
@@ -109,7 +117,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
+        let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
         // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)

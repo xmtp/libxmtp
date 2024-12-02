@@ -812,8 +812,8 @@ pub(crate) mod tests {
         let client_2 = ClientBuilder::new_test_client(&wallet_2).await;
         let client_3 = ClientBuilder::new_test_client(&wallet_3).await;
 
-        let client_2_installation_key = client_2.installation_public_key();
-        let client_3_installation_key = client_3.installation_public_key();
+        let client_2_installation_key = client_2.installation_public_key().to_vec();
+        let client_3_installation_key = client_3.installation_public_key().to_vec();
 
         let mut inbox_ids: Vec<String> = vec![];
 
@@ -902,11 +902,11 @@ pub(crate) mod tests {
         assert_eq!(installation_diff.added_installations.len(), 1);
         assert!(installation_diff
             .added_installations
-            .contains(&client_3_installation_key),);
+            .contains(&client_3_installation_key.to_vec()),);
         assert_eq!(installation_diff.removed_installations.len(), 1);
         assert!(installation_diff
             .removed_installations
-            .contains(&client_2_installation_key));
+            .contains(&client_2_installation_key.to_vec()));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -979,7 +979,7 @@ pub(crate) mod tests {
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
-            .revoke_installations(vec![client2.installation_public_key()])
+            .revoke_installations(vec![client2.installation_public_key().to_vec()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_installation_request, &wallet).await;

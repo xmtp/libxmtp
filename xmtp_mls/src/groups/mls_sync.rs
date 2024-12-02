@@ -58,7 +58,6 @@ use std::{
     mem::{discriminant, Discriminant},
 };
 use thiserror::Error;
-use tracing::debug;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -364,6 +363,7 @@ where
         let group_epoch = openmls_group.epoch();
         debug!(
             inbox_id = self.client.inbox_id(),
+            installation_id = hex::encode(self.client.installation_id()),
             group_id = hex::encode(&self.group_id),
             current_epoch = openmls_group.epoch().as_u64(),
             msg_id,
@@ -973,9 +973,10 @@ where
                         openmls_group.epoch().as_u64() as i64,
                     )?;
                     tracing::debug!(
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = hex::encode(self.client.installation_id()),
                         intent.id,
                         intent.kind = %intent.kind,
-                        inbox_id = self.client.inbox_id(),
                         group_id = hex::encode(&self.group_id),
                         "client [{}] set stored intent [{}] to state `published`",
                         self.client.inbox_id(),
@@ -991,6 +992,7 @@ where
                         intent.id,
                         intent.kind = %intent.kind,
                         inbox_id = self.client.inbox_id(),
+                        installation_id = hex::encode(self.client.installation_id()),
                         group_id = hex::encode(&self.group_id),
                         "[{}] published intent [{}] of type [{}]",
                         self.client.inbox_id(),
@@ -1003,7 +1005,11 @@ where
                     }
                 }
                 Ok(None) => {
-                    tracing::info!("Skipping intent because no publish data returned");
+                    tracing::info!(
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = hex::encode(self.client.installation_id()),
+                        "Skipping intent because no publish data returned"
+                    );
                     let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
                     deleter.delete(intent.id)?;
                 }
@@ -1140,7 +1146,12 @@ where
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
-                tracing::debug!(intent.id, intent.kind = %intent.kind, "taking post commit action");
+                tracing::debug!(
+                    inbox_id = self.client.inbox_id(),
+                    installation_id = hex::encode(self.client.installation_id()),
+                    intent.id,
+                    intent.kind = %intent.kind, "taking post commit action"
+                );
 
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
@@ -1203,7 +1214,12 @@ where
             return Ok(());
         }
 
-        debug!("Adding missing installations {:?}", intent_data);
+        debug!(
+            inbox_id = self.client.inbox_id(),
+            installation_id = hex::encode(self.client.installation_id()),
+            "Adding missing installations {:?}",
+            intent_data
+        );
 
         let intent = self.queue_intent_with_conn(
             provider.conn_ref(),
@@ -1392,7 +1408,7 @@ async fn apply_update_group_membership_intent(
     let mut new_key_packages: Vec<KeyPackage> = vec![];
 
     if !installation_diff.added_installations.is_empty() {
-        let my_installation_id = &client.context().installation_public_key();
+        let my_installation_id = &client.context().installation_public_key().to_vec();
         // Go to the network and load the key packages for any new installation
         let key_packages = client
             .get_key_packages_for_installation_ids(
