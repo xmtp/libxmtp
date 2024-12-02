@@ -11,7 +11,12 @@ use logger::FfiLogger;
 pub use mls::*;
 use std::error::Error;
 
-uniffi::include_scaffolding!("xmtpv3");
+pub use ffi::*;
+#[allow(clippy::all)]
+mod ffi {
+    use super::*;
+    uniffi::include_scaffolding!("xmtpv3");
+}
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]
