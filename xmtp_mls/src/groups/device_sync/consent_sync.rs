@@ -110,17 +110,17 @@ pub(crate) mod tests {
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
-        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes(amal_a_conn).await.unwrap();
-        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
         let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
+        let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
         // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
@@ -148,7 +148,7 @@ pub(crate) mod tests {
         }
 
         // Test consent streaming
-        let amal_b_sync_group = amal_b.get_sync_group().unwrap();
+        let amal_b_sync_group = amal_b.get_sync_group(amal_b_conn).unwrap();
         let bo_wallet = generate_local_wallet();
 
         // Ensure bo is not consented with amal_b

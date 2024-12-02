@@ -560,20 +560,25 @@ where
         Ok(group)
     }
 
-    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<Self>, ClientError> {
+    pub(crate) fn create_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), &provider)?;
 
         Ok(sync_group)
     }
 
-    /**
-     * Look up a group by its ID
-     *
-     * Returns a [`MlsGroup`] if the group exists, or an error if it does not
-     */
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn group_with_conn(
+        &self,
+        conn: &DbConnection,
+        group_id: Vec<u8>,
+    ) -> Result<MlsGroup<Self>, ClientError> {
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns)),
@@ -582,6 +587,15 @@ where
                 hex::encode(group_id)
             )))),
         }
+    }
+
+    /// Look up a group by its ID
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        self.group_with_conn(&conn, group_id)
     }
 
     /**

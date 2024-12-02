@@ -234,8 +234,7 @@ where
     register_client(&client, owner).await;
 
     if client.history_sync_url.is_some() {
-        let provider = client.mls_provider().unwrap();
-        client.start_sync_worker(&provider).await.unwrap();
+        client.start_sync_worker().await.unwrap();
     }
 
     client

@@ -546,10 +546,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
         let creator_inbox_id = context.inbox_id();
-        let provider = client.mls_provider()?;
 
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;

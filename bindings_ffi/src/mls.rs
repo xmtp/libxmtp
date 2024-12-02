@@ -454,10 +454,6 @@ impl FfiXmtpClient {
             return Ok(());
         }
 
-        let provider = self
-            .inner_client
-            .mls_provider()
-            .map_err(GenericError::from_error)?;
         self.inner_client
             .start_sync_worker(&provider)
             .await
@@ -911,7 +907,8 @@ impl FfiConversations {
 
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.get_sync_group()?;
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
         Ok(sync_group.into())
     }
 
