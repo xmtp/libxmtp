@@ -1,17 +1,21 @@
 # @xmtp/node-bindings
 
+## 0.0.27
+
+- Switched to Ubuntu 22.04 for builds
+
 ## 0.0.25
 
-    - Fixed streaming by adding `napi4` feature to napi-rs
+- Fixed streaming by adding `napi4` feature to napi-rs
 
 ## 0.0.24
 
-    - Fixed using `Vec` instead rust `Uint8Array` type in `is_installation_authorized`
+- Fixed using `Vec` instead rust `Uint8Array` type in `is_installation_authorized`
 
 ## 0.0.23
 
-    - Added `is_installation_authorized` to `Client`
-    - Added `is_address_authorized` to `Client`
+- Added `is_installation_authorized` to `Client`
+- Added `is_address_authorized` to `Client`
 
 ## 0.0.22
 
