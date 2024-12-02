@@ -38,6 +38,7 @@ test-utils = [
     "xmtp_proto/test-utils",
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
+    "dep:const_format"
 ]
 update-schema = ["toml"]
 

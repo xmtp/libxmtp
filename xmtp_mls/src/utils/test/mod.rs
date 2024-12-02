@@ -31,6 +31,7 @@ pub use traced_test::traced_test;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
+// TODO: Dev-Versions of URL
 const HISTORY_SERVER_HOST: &str = "localhost";
 const HISTORY_SERVER_PORT: u16 = 5558;
 pub const HISTORY_SYNC_URL: &str =

@@ -85,7 +85,7 @@ pub(crate) mod tests {
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &HISTORY_SYNC_URL).await;
+        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
 
@@ -160,14 +160,14 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client_with_history(&wallet, &HISTORY_SYNC_URL).await;
+        let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
         amal.sync_welcomes(&amal.store().conn().unwrap())
             .await
             .expect("sync welcomes");
 
         let external_wallet = generate_local_wallet();
         let external_client =
-            ClientBuilder::new_test_client_with_history(&external_wallet, &HISTORY_SYNC_URL).await;
+            ClientBuilder::new_test_client_with_history(&external_wallet, HISTORY_SYNC_URL).await;
 
         external_client
             .sync_welcomes(&external_client.store().conn().unwrap())
