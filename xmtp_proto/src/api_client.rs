@@ -311,11 +311,13 @@ impl<T> XmtpMlsStreams for Box<T>
 where
     T: XmtpMlsStreams + Sync + ?Sized,
 {
-    type GroupMessageStream<'a> = <T as XmtpMlsStreams>::GroupMessageStream<'a>
+    type GroupMessageStream<'a>
+        = <T as XmtpMlsStreams>::GroupMessageStream<'a>
     where
         Self: 'a;
 
-    type WelcomeMessageStream<'a> = <T as XmtpMlsStreams>::WelcomeMessageStream<'a>
+    type WelcomeMessageStream<'a>
+        = <T as XmtpMlsStreams>::WelcomeMessageStream<'a>
     where
         Self: 'a;
 
