@@ -22,7 +22,7 @@ mod utils {
             }
 
             async fn create_dev() -> Self {
-                crate::Client::create("https://grpc.dev.xmtp.network:443", false)
+                crate::Client::create("https://grpc.dev.xmtp.network:443", true)
                     .await
                     .unwrap()
             }

@@ -7340,6 +7340,7 @@ dependencies = [
  "prost",
  "serde",
  "tonic",
+ "tracing",
  "wasm-bindgen-test",
 ]
 

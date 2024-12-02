@@ -65,6 +65,18 @@ pub fn init_logging() {
     })
 }
 
+/// criterion `batch_iter` surrounds the closure in a `Runtime.block_on` despite being a sync
+/// function, even in the async 'to_async` setup. Therefore we do this (only _slightly_) hacky
+/// workaround to allow us to async setup some groups.
+pub fn bench_async_setup<F, T, Fut>(fun: F) -> T
+where
+    F: Fn() -> Fut,
+    Fut: futures::future::Future<Output = T>,
+{
+    use tokio::runtime::Handle;
+    tokio::task::block_in_place(move || Handle::current().block_on(async move { fun().await }))
+}
+
 /// Filters for only spans where the root span name is "bench"
 pub struct BenchFilter;
 

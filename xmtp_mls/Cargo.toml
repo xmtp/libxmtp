@@ -175,3 +175,9 @@ required-features = ["bench"]
 harness = false
 name = "crypto"
 required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "identity"
+required-features = ["bench"]
+
