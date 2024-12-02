@@ -96,6 +96,7 @@ use crate::{
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
+    MLS_COMMIT_LOCK
 };
 
 #[derive(Debug, Error)]
@@ -640,6 +641,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
@@ -753,6 +756,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[S],
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
@@ -810,6 +815,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[InboxIdRef<'_>],
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.store().conn()?.into();
 
         let intent_data = self
@@ -828,6 +835,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -846,6 +855,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -887,6 +898,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -916,6 +929,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -949,6 +964,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1026,6 +1043,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
+        let _permit = MLS_COMMIT_LOCK.acquire().await.unwrap();
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);

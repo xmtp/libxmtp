@@ -21,12 +21,17 @@ pub mod utils;
 pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
+use std::sync::LazyLock;
 pub use client::{Client, Network};
 use storage::{DuplicateItem, StorageError};
 pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
+
+
+// Synchronizes access to MLS commit operations, ensuring only one task proceeds at a time.
+pub static MLS_COMMIT_LOCK: LazyLock<tokio::sync::Semaphore> = LazyLock::new(|| tokio::sync::Semaphore::new(1));
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
