@@ -204,13 +204,17 @@ where
     )
     .await?;
 
-    Ok(Client::new(
+    let client = Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
-    ))
+    );
+
+    client.start_sync_worker().await?;
+
+    Ok(client)
 }
 
 #[cfg(test)]

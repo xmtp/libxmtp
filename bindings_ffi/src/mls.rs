@@ -443,22 +443,6 @@ impl FfiXmtpClient {
             .register_identity(signature_request.clone())
             .await?;
 
-        self.maybe_start_sync_worker().await?;
-
-        Ok(())
-    }
-
-    /// Starts the sync worker if the history sync url is present.
-    async fn maybe_start_sync_worker(&self) -> Result<(), GenericError> {
-        if self.inner_client.history_sync_url().is_none() {
-            return Ok(());
-        }
-
-        self.inner_client
-            .start_sync_worker()
-            .await
-            .map_err(GenericError::from_error)?;
-
         Ok(())
     }
 

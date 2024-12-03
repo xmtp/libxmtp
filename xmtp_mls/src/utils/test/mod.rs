@@ -235,10 +235,6 @@ where
 
     register_client(&client, owner).await;
 
-    if client.history_sync_url.is_some() {
-        client.start_sync_worker().await.unwrap();
-    }
-
     client
 }
 
@@ -342,7 +338,7 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
 
     tracing::info!("{} intents left", intents.len());
     if intents.len() < n {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         Box::pin(wait_for_min_intents(conn, n - intents.len())).await
     }
 }
