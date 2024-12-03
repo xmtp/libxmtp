@@ -2,9 +2,12 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::{FfiSubscribeError, GenericError};
+use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -48,6 +51,7 @@ use xmtp_mls::{
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 use xmtp_proto::xmtp::reactions::Reaction;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -1706,6 +1710,57 @@ impl From<FfiReaction> for Reaction {
     }
 }
 
+impl From<Reaction> for FfiReaction {
+    fn from(reaction: Reaction) -> Self {
+        FfiReaction {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: match reaction.action {
+                1 => FfiReactionAction::Added,
+                2 => FfiReactionAction::Removed,
+                _ => FfiReactionAction::Unknown,
+            },
+            content: reaction.content,
+            schema: match reaction.schema {
+                1 => FfiReactionSchema::Unicode,
+                2 => FfiReactionSchema::Shortcode,
+                3 => FfiReactionSchema::Custom,
+                _ => FfiReactionSchema::Unknown,
+            },
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
+    // Convert FfiReaction to Reaction
+    let reaction: Reaction = reaction.into();
+
+    // Use ReactionCodec to encode the reaction
+    let encoded = ReactionCodec::encode(reaction)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Encode the EncodedContent to bytes
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
+    // Decode bytes into EncodedContent
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Use ReactionCodec to decode into Reaction and convert to FfiReaction
+    ReactionCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
 #[derive(uniffi::Enum, Clone, Default)]
 pub enum FfiReactionAction {
     Unknown,
@@ -1910,13 +1965,13 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
-        FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
-        FfiSubscribeError,
+        decode_reaction, encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError,
+        logger::FfiLogger, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -4588,5 +4643,38 @@ mod tests {
             hex::encode(message_to_react_to.id.clone())
         );
         assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
+    }
+
+    #[tokio::test]
+    async fn test_reaction_encode_decode() {
+        // Create a test reaction
+        let original_reaction = FfiReaction {
+            reference: "123abc".to_string(),
+            reference_inbox_id: "test_inbox_id".to_string(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+
+        // Encode the reaction
+        let encoded_bytes = encode_reaction(original_reaction.clone())
+            .expect("Should encode reaction successfully");
+
+        // Decode the reaction
+        let decoded_reaction =
+            decode_reaction(encoded_bytes).expect("Should decode reaction successfully");
+
+        // Verify the decoded reaction matches the original
+        assert_eq!(decoded_reaction.reference, original_reaction.reference);
+        assert_eq!(
+            decoded_reaction.reference_inbox_id,
+            original_reaction.reference_inbox_id
+        );
+        assert!(matches!(decoded_reaction.action, FfiReactionAction::Added));
+        assert_eq!(decoded_reaction.content, original_reaction.content);
+        assert!(matches!(
+            decoded_reaction.schema,
+            FfiReactionSchema::Unicode
+        ));
     }
 }
