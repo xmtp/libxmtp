@@ -2599,7 +2599,8 @@ mod tests {
         }
         bo.conversations().sync().await.unwrap();
         let num_groups_synced_1: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_1 == 30);
+        // 31 because there is a sync group as well
+        assert_eq!(num_groups_synced_1, 31);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -2616,11 +2617,13 @@ mod tests {
 
         // First sync after removal needs to process all groups and set them to inactive
         let num_groups_synced_2: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_2 == 30);
+        // 31 because there is a sync group as well
+        assert_eq!(num_groups_synced_2, 31);
 
         // Second sync after removal will not process inactive groups
         let num_groups_synced_3: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_3 == 0);
+        // 1 because there is a sync group as well
+        assert_eq!(num_groups_synced_3, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
