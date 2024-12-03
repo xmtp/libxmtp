@@ -132,6 +132,11 @@ where
             let sync_stream = receiver.stream_sync_messages();
 
             async move {
+                // Wait for the identity to be ready before doing anything
+                while !client.identity().is_ready() {
+                    crate::sleep(Duration::from_millis(200)).await;
+                }
+
                 pin_mut!(sync_stream);
                 let inbox_id = client.inbox_id();
                 let installation_id = hex::encode(client.installation_public_key());
