@@ -52,7 +52,7 @@ pub(crate) mod tests {
 
     use xmtp_proto::xmtp::mls::message_contents::{group_updated::Inbox, GroupUpdated};
 
-    use crate::utils::test::rand_string;
+    use crate::test_utils::rand_string;
 
     use super::*;
 

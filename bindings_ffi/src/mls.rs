@@ -2,9 +2,12 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::{FfiSubscribeError, GenericError};
+use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -20,6 +23,7 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
+use xmtp_mls::storage::group_message::StoredGroupMessageWithReactions;
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
@@ -47,6 +51,8 @@ use xmtp_mls::{
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+use xmtp_proto::xmtp::reactions::Reaction;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 /// It returns a new client of the specified `inbox_id`.
@@ -1280,6 +1286,35 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub async fn find_messages_with_reactions(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type()? {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Sync => None,
+        };
+
+        let messages: Vec<FfiMessageWithReactions> = self
+            .inner
+            .find_messages_with_reactions(
+                &MsgQueryArgs::default()
+                    .maybe_sent_before_ns(opts.sent_before_ns)
+                    .maybe_sent_after_ns(opts.sent_after_ns)
+                    .maybe_kind(kind)
+                    .maybe_delivery_status(delivery_status)
+                    .maybe_limit(opts.limit)
+                    .maybe_direction(direction),
+            )?
+            .into_iter()
+            .map(|msg| msg.into())
+            .collect();
+        Ok(messages)
+    }
+
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -1621,6 +1656,12 @@ pub struct FfiMessage {
     pub delivery_status: FfiDeliveryStatus,
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiMessageWithReactions {
+    pub message: FfiMessage,
+    pub reactions: Vec<FfiMessage>,
+}
+
 impl From<StoredGroupMessage> for FfiMessage {
     fn from(msg: StoredGroupMessage) -> Self {
         Self {
@@ -1631,6 +1672,129 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+        }
+    }
+}
+
+impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
+    fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
+        Self {
+            message: msg_with_reactions.message.into(),
+            reactions: msg_with_reactions
+                .reactions
+                .into_iter()
+                .map(|reaction| reaction.into())
+                .collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReaction {
+    pub reference: String,
+    pub reference_inbox_id: String,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
+impl From<FfiReaction> for Reaction {
+    fn from(reaction: FfiReaction) -> Self {
+        Reaction {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: reaction.action.into(),
+            content: reaction.content,
+            schema: reaction.schema.into(),
+        }
+    }
+}
+
+impl From<Reaction> for FfiReaction {
+    fn from(reaction: Reaction) -> Self {
+        FfiReaction {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: match reaction.action {
+                1 => FfiReactionAction::Added,
+                2 => FfiReactionAction::Removed,
+                _ => FfiReactionAction::Unknown,
+            },
+            content: reaction.content,
+            schema: match reaction.schema {
+                1 => FfiReactionSchema::Unicode,
+                2 => FfiReactionSchema::Shortcode,
+                3 => FfiReactionSchema::Custom,
+                _ => FfiReactionSchema::Unknown,
+            },
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
+    // Convert FfiReaction to Reaction
+    let reaction: Reaction = reaction.into();
+
+    // Use ReactionCodec to encode the reaction
+    let encoded = ReactionCodec::encode(reaction)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Encode the EncodedContent to bytes
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
+    // Decode bytes into EncodedContent
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Use ReactionCodec to decode into Reaction and convert to FfiReaction
+    ReactionCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionAction {
+    Unknown,
+    #[default]
+    Added,
+    Removed,
+}
+
+impl From<FfiReactionAction> for i32 {
+    fn from(action: FfiReactionAction) -> Self {
+        match action {
+            FfiReactionAction::Unknown => 0,
+            FfiReactionAction::Added => 1,
+            FfiReactionAction::Removed => 2,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionSchema {
+    Unknown,
+    #[default]
+    Unicode,
+    Shortcode,
+    Custom,
+}
+
+impl From<FfiReactionSchema> for i32 {
+    fn from(schema: FfiReactionSchema) -> Self {
+        match schema {
+            FfiReactionSchema::Unknown => 0,
+            FfiReactionSchema::Unicode => 1,
+            FfiReactionSchema::Shortcode => 2,
+            FfiReactionSchema::Custom => 3,
         }
     }
 }
@@ -1801,13 +1965,16 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
+        decode_reaction, encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError,
+        logger::FfiLogger, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiSubscribeError,
     };
     use ethers::utils::hex;
+    use prost::Message;
     use rand::distributions::{Alphanumeric, DistString};
     use std::{
         env,
@@ -1818,6 +1985,7 @@ mod tests {
         time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use xmtp_content_types::{reaction::ReactionCodec, text::TextCodec, ContentCodec};
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -1827,6 +1995,10 @@ mod tests {
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
+    };
+    use xmtp_proto::xmtp::{
+        mls::message_contents::EncodedContent,
+        reactions::{Reaction, ReactionAction, ReactionSchema},
     };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
@@ -4373,5 +4545,127 @@ mod tests {
             String::from_utf8_lossy(&bo_group_messages[0].content),
             "Hello in group"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_and_receive_reaction() {
+        // Create two test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create a conversation between them
+        let alix_conversation = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        // Send initial message to react to
+        let mut buf = Vec::new();
+        TextCodec::encode("Hello world".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
+        alix_conversation.send(buf).await.unwrap();
+
+        // Have Bo sync to get the conversation and message
+        bo.conversations().sync().await.unwrap();
+        let bo_conversation = bo.conversation(alix_conversation.id()).unwrap();
+        bo_conversation.sync().await.unwrap();
+
+        // Get the message to react to
+        let messages = bo_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let message_to_react_to = &messages[0];
+
+        // Create and send reaction
+        let ffi_reaction = FfiReaction {
+            reference: hex::encode(message_to_react_to.id.clone()),
+            reference_inbox_id: alix.inbox_id(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+        let bytes_to_send = encode_reaction(ffi_reaction).unwrap();
+        bo_conversation.send(bytes_to_send).await.unwrap();
+
+        // Have Alix sync to get the reaction
+        alix_conversation.sync().await.unwrap();
+
+        // Get reactions for the original message
+        let messages = alix_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+
+        // Verify reaction details
+        assert_eq!(messages.len(), 3);
+        let received_reaction = &messages[2];
+        let message_content = received_reaction.content.clone();
+        let reaction = decode_reaction(message_content).unwrap();
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, FfiReactionAction::Added);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
+        assert_eq!(reaction.schema, FfiReactionSchema::Unicode);
+
+        // Test find_messages_with_reactions query
+        let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
+            .find_messages_with_reactions(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages_with_reactions.len(), 2);
+        let message_with_reactions = &messages_with_reactions[1];
+        assert_eq!(message_with_reactions.reactions.len(), 1);
+        let message_content = message_with_reactions.reactions[0].content.clone();
+        let slice: &[u8] = message_content.as_slice();
+        let encoded_content = EncodedContent::decode(slice).unwrap();
+        let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
+        assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
+    }
+
+    #[tokio::test]
+    async fn test_reaction_encode_decode() {
+        // Create a test reaction
+        let original_reaction = FfiReaction {
+            reference: "123abc".to_string(),
+            reference_inbox_id: "test_inbox_id".to_string(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+
+        // Encode the reaction
+        let encoded_bytes = encode_reaction(original_reaction.clone())
+            .expect("Should encode reaction successfully");
+
+        // Decode the reaction
+        let decoded_reaction =
+            decode_reaction(encoded_bytes).expect("Should decode reaction successfully");
+
+        // Verify the decoded reaction matches the original
+        assert_eq!(decoded_reaction.reference, original_reaction.reference);
+        assert_eq!(
+            decoded_reaction.reference_inbox_id,
+            original_reaction.reference_inbox_id
+        );
+        assert!(matches!(decoded_reaction.action, FfiReactionAction::Added));
+        assert_eq!(decoded_reaction.content, original_reaction.content);
+        assert!(matches!(
+            decoded_reaction.schema,
+            FfiReactionSchema::Unicode
+        ));
     }
 }

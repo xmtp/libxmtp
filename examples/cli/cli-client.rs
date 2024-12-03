@@ -32,6 +32,7 @@ use tracing_subscriber::{
 use valuable::Valuable;
 use xmtp_api_grpc::grpc_api_helper::Client as ClientV3;
 use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
@@ -47,7 +48,6 @@ use xmtp_mls::XmtpApi;
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
-    codecs::{text::TextCodec, ContentCodec},
     groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
     identity::IdentityStrategy,
     storage::{

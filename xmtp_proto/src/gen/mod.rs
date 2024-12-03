@@ -72,6 +72,12 @@ pub mod xmtp {
             // @@protoc_insertion_point(xmtp.mls_validation.v1)
         }
     }
+    #[cfg(feature = "xmtp-reactions")]
+    // @@protoc_insertion_point(attribute:xmtp.reactions)
+    pub mod reactions {
+        include!("xmtp.reactions.rs");
+        // @@protoc_insertion_point(xmtp.reactions)
+    }
     pub mod xmtpv4 {
         #[cfg(feature = "xmtp-xmtpv4-envelopes")]
         // @@protoc_insertion_point(attribute:xmtp.xmtpv4.envelopes)

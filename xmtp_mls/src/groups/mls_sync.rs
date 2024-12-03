@@ -9,7 +9,6 @@ use super::{
     GroupError, IntentError, MlsGroup, ScopedGroupClient,
 };
 use crate::{
-    codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
@@ -59,6 +58,7 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -116,7 +116,7 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Intent(#[from] IntentError),
     #[error(transparent)]
-    Codec(#[from] crate::codecs::CodecError),
+    Codec(#[from] CodecError),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]
@@ -532,6 +532,8 @@ where
                     })) => {
                         let message_id =
                             calculate_message_id(&self.group_id, &content, &idempotency_key);
+                        let queryable_content_fields =
+                            Self::extract_queryable_content_fields(&content);
                         StoredGroupMessage {
                             id: message_id,
                             group_id: self.group_id.clone(),
@@ -541,6 +543,7 @@ where
                             sender_installation_id,
                             sender_inbox_id,
                             delivery_status: DeliveryStatus::Published,
+                            parent_id: queryable_content_fields.parent_id,
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
@@ -569,6 +572,7 @@ where
                                     sender_installation_id,
                                     sender_inbox_id: sender_inbox_id.clone(),
                                     delivery_status: DeliveryStatus::Published,
+                                    parent_id: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -598,6 +602,7 @@ where
                                     sender_installation_id,
                                     sender_inbox_id,
                                     delivery_status: DeliveryStatus::Published,
+                                    parent_id: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -908,6 +913,7 @@ where
             sender_installation_id,
             sender_inbox_id,
             delivery_status: DeliveryStatus::Published,
+            parent_id: None,
         };
 
         msg.store_or_ignore(conn)?;

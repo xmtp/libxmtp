@@ -34,6 +34,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use xmtp_content_types::{reaction::ReactionCodec, ContentCodec};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -67,7 +68,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::{
         plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
+        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -89,7 +90,10 @@ use crate::{
         db_connection::DbConnection,
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        group_message::{
+            DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage,
+            StoredGroupMessageWithReactions,
+        },
         sql_key_store,
     },
     subscriptions::{LocalEventError, LocalEvents},
@@ -290,6 +294,12 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
+}
+
+/// Fields extracted from content of a message that should be stored in the DB
+pub struct QueryableContentFields {
+    pub parent_id: Option<Vec<u8>>,
+    pub is_readable: Option<bool>,
 }
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
@@ -679,6 +689,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
 
+        // Check if the message queryable content fields
+        let queryable_content_fields = Self::extract_queryable_content_fields(message);
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let group_message = StoredGroupMessage {
@@ -690,10 +702,59 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
+            parent_id: queryable_content_fields.parent_id,
         };
         group_message.store(conn)?;
 
         Ok(message_id)
+    }
+
+    /// Helper function to extract queryable content fields from a message
+    fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
+        // Attempt to decode the message as EncodedContent
+        let encoded_content = match EncodedContent::decode(message) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::debug!("Failed to decode message as EncodedContent: {}", e);
+                return QueryableContentFields {
+                    parent_id: None,
+                    is_readable: None,
+                };
+            }
+        };
+        let encoded_content_clone = encoded_content.clone();
+
+        // Check if it's a reaction message
+        let parent_id = match encoded_content.r#type {
+            Some(content_type) if content_type.type_id == ReactionCodec::TYPE_ID => {
+                // Attempt to decode as reaction
+                match ReactionCodec::decode(encoded_content_clone) {
+                    Ok(reaction) => {
+                        // Decode hex string into bytes
+                        match hex::decode(&reaction.reference) {
+                            Ok(bytes) => Some(bytes),
+                            Err(e) => {
+                                tracing::debug!(
+                                    "Failed to decode reaction reference as hex: {}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to decode reaction: {}", e);
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
+        QueryableContentFields {
+            parent_id,
+            is_readable: None,
+        }
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: i64) -> PlaintextEnvelope {
@@ -713,6 +774,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
+    pub fn find_messages_with_reactions(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
+        let conn = self.context().store().conn()?;
+        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
 
@@ -1585,19 +1657,9 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use diesel::connection::SimpleConnection;
-    use futures::future::join_all;
-    use openmls::prelude::Member;
-    use prost::Message;
-    use std::sync::Arc;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
-    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
             build_protected_metadata_extension,
@@ -1619,6 +1681,15 @@ pub(crate) mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner, StreamHandle as _,
     };
+    use diesel::connection::SimpleConnection;
+    use futures::future::join_all;
+    use openmls::prelude::Member;
+    use prost::Message;
+    use std::sync::Arc;
+    use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use super::{group_permissions::PolicySet, MlsGroup};
 

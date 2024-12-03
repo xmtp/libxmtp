@@ -4,7 +4,6 @@
 pub mod api;
 pub mod builder;
 pub mod client;
-pub mod codecs;
 pub mod configuration;
 pub mod groups;
 mod hpke;

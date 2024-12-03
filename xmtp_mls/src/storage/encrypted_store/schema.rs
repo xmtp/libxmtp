@@ -41,6 +41,7 @@ diesel::table! {
         sender_installation_id -> Binary,
         sender_inbox_id -> Text,
         delivery_status -> Integer,
+        parent_id -> Nullable<Binary>,
     }
 }
 

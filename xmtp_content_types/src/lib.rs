@@ -1,6 +1,19 @@
 pub mod group_updated;
 pub mod membership_change;
+pub mod reaction;
+#[cfg(test)]
+mod test_utils;
 pub mod text;
+pub enum ContentType {
+    GroupMembershipChange,
+    GroupUpdated,
+    Reaction,
+    ReadReceipt,
+    RemoteAttachment,
+    Reply,
+    Text,
+    TransactionReference,
+}
 
 use thiserror::Error;
 

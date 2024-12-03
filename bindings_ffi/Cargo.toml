@@ -11,6 +11,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 futures.workspace = true
 log = { version = "0.4", features = ["std"] }
 parking_lot.workspace = true
+prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 thread-id = "5.0.0"
 tokio = { workspace = true, features = ["macros"] }
@@ -20,6 +21,7 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 

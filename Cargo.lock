@@ -7198,9 +7198,21 @@ dependencies = [
  "valuable",
  "valuable-serde",
  "xmtp_api_grpc",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
+ "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_content_types"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "rand",
+ "thiserror 2.0.3",
+ "tonic",
  "xmtp_proto",
 ]
 
@@ -7322,6 +7334,7 @@ dependencies = [
  "web-sys",
  "xmtp_api_grpc",
  "xmtp_api_http",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
@@ -7382,6 +7395,7 @@ dependencies = [
  "futures",
  "log",
  "parking_lot 0.12.3",
+ "prost",
  "rand",
  "thiserror 2.0.3",
  "thread-id",
@@ -7389,6 +7403,7 @@ dependencies = [
  "uniffi",
  "uuid 1.11.0",
  "xmtp_api_grpc",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
