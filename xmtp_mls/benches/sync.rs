@@ -29,14 +29,13 @@ fn start_sync_worker(c: &mut Criterion) {
             || {
                 bench_async_setup(|| async {
                     let client = clients::new_client(true).await;
-                    let provider = client.mls_provider().unwrap();
                     // set history sync URL
-                    (client, provider, span.clone())
+                    (client, span.clone())
                 })
             },
-            |(client, provider, span)| async move {
+            |(client, span)| async move {
                 client
-                    .start_sync_worker(&provider)
+                    .start_sync_worker()
                     .instrument(span)
                     .await
                     .unwrap()

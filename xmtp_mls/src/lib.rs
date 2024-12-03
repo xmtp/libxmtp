@@ -28,6 +28,9 @@ pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
 
+#[macro_use]
+extern crate tracing;
+
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
 pub trait Wasm {}
@@ -119,15 +122,45 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]
     fn _setup() {
-        use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+        use tracing_subscriber::{
+            fmt::{self, format},
+            layer::SubscriberExt,
+            util::SubscriberInitExt,
+            EnvFilter, Layer,
+        };
 
-        let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-            .from_env_lossy();
+        let structured = std::env::var("STRUCTURED");
+        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
+
+        let filter = || {
+            EnvFilter::builder()
+                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+                .from_env_lossy()
+        };
 
         tracing_subscriber::registry()
-            .with(fmt::layer().pretty())
-            .with(filter)
+            // structured JSON logger
+            .with(is_structured.then(|| {
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .flatten_event(true)
+                    .with_level(true)
+                    .with_filter(filter())
+            }))
+            // default logger
+            .with((!is_structured).then(|| {
+                fmt::layer()
+                    .compact()
+                    .fmt_fields({
+                        format::debug_fn(move |writer, field, value| {
+                            if field.name() == "message" {
+                                write!(writer, "{:?}", value)?;
+                            }
+                            Ok(())
+                        })
+                    })
+                    .with_filter(filter())
+            }))
             .init();
     }
 

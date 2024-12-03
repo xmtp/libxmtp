@@ -95,6 +95,8 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
+    "registry"
 ], optional = true }
 
 
@@ -151,6 +153,7 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -163,7 +166,7 @@ diesel-wasm-sqlite = { workspace = true, features = [
 ] }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }

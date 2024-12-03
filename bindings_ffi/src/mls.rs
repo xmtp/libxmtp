@@ -285,7 +285,7 @@ impl FfiXmtpClient {
     }
 
     pub fn installation_id(&self) -> Vec<u8> {
-        self.inner_client.installation_public_key()
+        self.inner_client.installation_public_key().to_vec()
     }
 
     pub fn release_db_connection(&self) -> Result<(), GenericError> {
@@ -380,7 +380,7 @@ impl FfiXmtpClient {
         signature_bytes: Vec<u8>,
     ) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        let public_key = inner.installation_public_key();
+        let public_key = inner.installation_public_key().to_vec();
 
         self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
     }
@@ -454,12 +454,8 @@ impl FfiXmtpClient {
             return Ok(());
         }
 
-        let provider = self
-            .inner_client
-            .mls_provider()
-            .map_err(GenericError::from_error)?;
         self.inner_client
-            .start_sync_worker(&provider)
+            .start_sync_worker()
             .await
             .map_err(GenericError::from_error)?;
 
@@ -537,7 +533,7 @@ impl FfiXmtpClient {
         let other_installation_ids = inbox_state
             .installation_ids()
             .into_iter()
-            .filter(|id| id != &installation_id)
+            .filter(|id| id != installation_id)
             .collect();
 
         let signature_request = self
@@ -911,7 +907,8 @@ impl FfiConversations {
 
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.get_sync_group()?;
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
         Ok(sync_group.into())
     }
 
@@ -2096,7 +2093,7 @@ mod tests {
         .unwrap();
         register_client(&ffi_inbox_owner, &client_a).await;
 
-        let installation_pub_key = client_a.inner_client.installation_public_key();
+        let installation_pub_key = client_a.inner_client.installation_public_key().to_vec();
         drop(client_a);
 
         let client_b = create_client(
@@ -2114,7 +2111,7 @@ mod tests {
         .await
         .unwrap();
 
-        let other_installation_pub_key = client_b.inner_client.installation_public_key();
+        let other_installation_pub_key = client_b.inner_client.installation_public_key().to_vec();
         drop(client_b);
 
         assert!(

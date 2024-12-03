@@ -52,7 +52,7 @@ impl Intents {
     /// apply the update after the provided `ProcessingFn` has completed successfully.
     pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue, ErrorType>(
         &self,
-        entity_id: &Vec<u8>,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: u64,
         process_envelope: ProcessingFn,

@@ -101,7 +101,7 @@ impl Client {
     let other_installation_ids = inbox_state
       .installation_ids()
       .into_iter()
-      .filter(|id| id != &installation_id)
+      .filter(|id| id != installation_id)
       .collect();
     let signature_request = self
       .inner_client()

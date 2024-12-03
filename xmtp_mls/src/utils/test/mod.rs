@@ -1,5 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
+use crate::storage::DbConnection;
+use crate::{
+    builder::ClientBuilder,
+    identity::IdentityStrategy,
+    storage::{EncryptedMessageStore, StorageOption},
+    types::Address,
+    Client, InboxOwner, XmtpApi,
+};
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -15,14 +23,6 @@ use xmtp_id::{
     scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_proto::api_client::XmtpTestClient;
-
-use crate::{
-    builder::ClientBuilder,
-    identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, StorageOption},
-    types::Address,
-    Client, InboxOwner, XmtpApi,
-};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod traced_test;
@@ -109,6 +109,7 @@ impl<A, V> ClientBuilder<A, V> {
         )
     }
 }
+
 impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
         let api_client = <TestClient as XmtpTestClient>::create_local().await;
@@ -235,8 +236,7 @@ where
     register_client(&client, owner).await;
 
     if client.history_sync_url.is_some() {
-        let provider = client.mls_provider().unwrap();
-        client.start_sync_worker(&provider).await.unwrap();
+        client.start_sync_worker().await.unwrap();
     }
 
     client
@@ -297,4 +297,52 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
         .unwrap();
 
     client.register_identity(signature_request).await.unwrap();
+}
+
+/// waits for all intents to finish
+/// TODO: Should wrap with a timeout
+pub async fn wait_for_all_intents_published(conn: &DbConnection) {
+    use crate::storage::group_intent::IntentState;
+    use crate::storage::group_intent::StoredGroupIntent;
+    use crate::storage::schema::group_intents::dsl;
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+
+    let mut query = dsl::group_intents.into_boxed();
+    let states = vec![IntentState::ToPublish];
+    query = query.filter(dsl::state.eq_any(states));
+    query = query.order(dsl::id.asc());
+
+    let intents = conn
+        .raw_query(|conn| query.load::<StoredGroupIntent>(conn))
+        .unwrap();
+
+    tracing::info!("{} intents left", intents.len());
+    if intents.is_empty() {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        Box::pin(wait_for_all_intents_published(conn)).await
+    }
+}
+
+/// wait for a minimum amount of intent
+/// TODO: Should wrap with a timeout
+pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
+    use crate::storage::group_intent::IntentState;
+    use crate::storage::group_intent::StoredGroupIntent;
+    use crate::storage::schema::group_intents::dsl;
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+
+    let mut query = dsl::group_intents.into_boxed();
+    let states = vec![IntentState::Published];
+    query = query.filter(dsl::state.eq_any(states));
+    query = query.order(dsl::id.asc());
+
+    let intents = conn
+        .raw_query(|conn| query.load::<StoredGroupIntent>(conn))
+        .unwrap();
+
+    tracing::info!("{} intents left", intents.len());
+    if intents.len() < n {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        Box::pin(wait_for_min_intents(conn, n - intents.len())).await
+    }
 }

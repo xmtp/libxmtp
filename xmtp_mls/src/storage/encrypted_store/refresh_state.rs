@@ -92,7 +92,7 @@ impl DbConnection {
 
     pub fn update_cursor(
         &self,
-        entity_id: &Vec<u8>,
+        entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: i64,
     ) -> Result<bool, StorageError> {

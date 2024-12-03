@@ -18,7 +18,12 @@ where
         provider: &XmtpOpenMlsProvider,
         record: &StoredConsentRecord,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Streaming consent update. {:?}", record);
+        tracing::info!(
+            inbox_id = self.inbox_id(),
+            installation_id = hex::encode(self.installation_public_key()),
+            "Streaming consent update. {:?}",
+            record
+        );
         let conn = provider.conn_ref();
 
         let consent_update_proto = ConsentUpdateProto {
@@ -75,6 +80,7 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         groups::scoped_client::LocalScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
+        utils::test::wait_for_min_intents,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
@@ -106,21 +112,30 @@ pub(crate) mod tests {
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
-
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
-        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
+        // make sure amal's worker has time to sync
+        // 3 Intents:
+        //  1.) UpdateGroupMembership Intent for new sync group
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        wait_for_min_intents(amal_b_conn, 3).await;
+        tracing::info!("Waiting for intents published");
+
+        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        tracing::info!("Old Group Id: {}", hex::encode(&old_group_id));
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a.sync_welcomes(amal_a_conn).await.unwrap();
-        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        tracing::info!("New Group Id: {}", hex::encode(&new_group_id));
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
         let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
+        let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
         // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
@@ -148,7 +163,7 @@ pub(crate) mod tests {
         }
 
         // Test consent streaming
-        let amal_b_sync_group = amal_b.get_sync_group().unwrap();
+        let amal_b_sync_group = amal_b.get_sync_group(amal_b_conn).unwrap();
         let bo_wallet = generate_local_wallet();
 
         // Ensure bo is not consented with amal_b
