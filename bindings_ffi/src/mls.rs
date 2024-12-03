@@ -1761,7 +1761,7 @@ pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
-#[derive(uniffi::Enum, Clone, Default)]
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
 pub enum FfiReactionAction {
     Unknown,
     #[default]
@@ -1779,7 +1779,7 @@ impl From<FfiReactionAction> for i32 {
     }
 }
 
-#[derive(uniffi::Enum, Clone, Default)]
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
 pub enum FfiReactionSchema {
     Unknown,
     #[default]
@@ -4589,15 +4589,8 @@ mod tests {
             content: "👍".to_string(),
             schema: FfiReactionSchema::Unicode,
         };
-
-        let reaction_sent: Reaction = ffi_reaction.into();
-        let mut buf = Vec::new();
-        ReactionCodec::encode(reaction_sent)
-            .unwrap()
-            .encode(&mut buf)
-            .unwrap();
-
-        bo_conversation.send(buf).await.unwrap();
+        let bytes_to_send = encode_reaction(ffi_reaction).unwrap();
+        bo_conversation.send(bytes_to_send).await.unwrap();
 
         // Have Alix sync to get the reaction
         alix_conversation.sync().await.unwrap();
@@ -4611,17 +4604,15 @@ mod tests {
         assert_eq!(messages.len(), 3);
         let received_reaction = &messages[2];
         let message_content = received_reaction.content.clone();
-        let slice: &[u8] = message_content.as_slice();
-        let encoded_content = EncodedContent::decode(slice).unwrap();
-        let reaction = Reaction::decode(encoded_content.content.as_slice()).unwrap();
+        let reaction = decode_reaction(message_content).unwrap();
         assert_eq!(reaction.content, "👍");
-        assert_eq!(reaction.action, ReactionAction::ActionAdded as i32);
+        assert_eq!(reaction.action, FfiReactionAction::Added);
         assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
         assert_eq!(
             reaction.reference,
             hex::encode(message_to_react_to.id.clone())
         );
-        assert_eq!(reaction.schema, ReactionSchema::SchemaUnicode as i32);
+        assert_eq!(reaction.schema, FfiReactionSchema::Unicode);
 
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
