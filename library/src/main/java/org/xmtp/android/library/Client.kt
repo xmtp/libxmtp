@@ -101,13 +101,14 @@ class Client() {
         address: String,
         clientOptions: ClientOptions,
         signingKey: SigningKey? = null,
+        inboxId: String? = null
     ): Client {
         val accountAddress = address.lowercase()
-        val inboxId = getOrCreateInboxId(clientOptions.api, accountAddress)
+        val recoveredInboxId = inboxId ?: getOrCreateInboxId(clientOptions.api, accountAddress)
 
         val (ffiClient, dbPath) = createFfiClient(
             accountAddress,
-            inboxId,
+            recoveredInboxId,
             clientOptions,
             signingKey,
             clientOptions.appContext,
@@ -139,9 +140,10 @@ class Client() {
     suspend fun build(
         address: String,
         options: ClientOptions,
+        inboxId: String? = null
     ): Client {
         return try {
-            initializeV3Client(address, options)
+            initializeV3Client(address, options, inboxId = inboxId)
         } catch (e: Exception) {
             throw XMTPException("Error creating V3 client: ${e.message}", e)
         }
@@ -188,7 +190,6 @@ class Client() {
                 ?: throw XMTPException("No signer passed but signer was required.")
             ffiClient.registerIdentity(signatureRequest)
         }
-
         return Pair(ffiClient, dbPath)
     }
 

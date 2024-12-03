@@ -71,12 +71,14 @@ class PrivateKeyBuilder : SigningKey {
             )
         val signatureKey = KeyUtil.getSignatureBytes(signatureData)
 
-        return SignatureOuterClass.Signature.newBuilder().also {
+        val sign = SignatureOuterClass.Signature.newBuilder().also {
             it.ecdsaCompact = it.ecdsaCompact.toBuilder().also { builder ->
                 builder.bytes = signatureKey.take(64).toByteArray().toByteString()
                 builder.recovery = signatureKey[64].toInt()
             }.build()
         }.build()
+
+        return sign
     }
 
     override suspend fun sign(message: String): SignatureOuterClass.Signature {
