@@ -212,7 +212,9 @@ where
         history_sync_url.clone(),
     );
 
-    client.start_sync_worker().await?;
+    if history_sync_url.is_some() {
+        client.start_sync_worker().await?;
+    }
 
     Ok(client)
 }
