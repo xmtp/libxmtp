@@ -149,7 +149,9 @@ public final class Client {
 		)
 	}
 
-	public static func build(address: String, options: ClientOptions, inboxId: String? = nil)
+	public static func build(
+		address: String, options: ClientOptions, inboxId: String? = nil
+	)
 		async throws -> Client
 	{
 		let accountAddress = address.lowercased()
@@ -157,9 +159,10 @@ public final class Client {
 		if let existingInboxId = inboxId {
 			resolvedInboxId = existingInboxId
 		} else {
-			resolvedInboxId = try await getOrCreateInboxId(api: options.api, address: accountAddress)
+			resolvedInboxId = try await getOrCreateInboxId(
+				api: options.api, address: accountAddress)
 		}
-		
+
 		return try await initializeClient(
 			accountAddress: accountAddress,
 			options: options,
@@ -284,6 +287,40 @@ public final class Client {
 		return inboxId
 	}
 
+	public static func canMessage(
+		accountAddresses: [String],
+		api: ClientOptions.Api
+	) async throws -> [String: Bool] {
+		let address = "0x0000000000000000000000000000000000000000"
+		let inboxId = try await getOrCreateInboxId(api: api, address: address)
+
+		var directoryURL: URL = URL.documentsDirectory
+		let alias = "xmtp-\(api.env.rawValue)-\(inboxId).db3"
+		let dbURL = directoryURL.appendingPathComponent(alias).path
+
+		let ffiClient = try await LibXMTP.createClient(
+			logger: XMTPLogger(),
+			host: api.env.url,
+			isSecure: api.env.isSecure == true,
+			db: dbURL,
+			encryptionKey: nil,
+			inboxId: inboxId,
+			accountAddress: address,
+			nonce: 0,
+			legacySignedPrivateKeyProto: nil,
+			historySyncUrl: nil
+		)
+
+		let result = try await ffiClient.canMessage(
+			accountAddresses: accountAddresses)
+
+		try ffiClient.releaseDbConnection()
+		let fm = FileManager.default
+		try fm.removeItem(atPath: dbURL)
+
+		return result
+	}
+
 	init(
 		address: String, ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
 		installationID: String, inboxID: String, environment: XMTPEnvironment
@@ -299,7 +336,8 @@ public final class Client {
 	public func addAccount(newAccount: SigningKey)
 		async throws
 	{
-		let signatureRequest = try await ffiClient.addWallet(newWalletAddress: newAccount.address.lowercased())
+		let signatureRequest = try await ffiClient.addWallet(
+			newWalletAddress: newAccount.address.lowercased())
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest, signingKey: newAccount)
