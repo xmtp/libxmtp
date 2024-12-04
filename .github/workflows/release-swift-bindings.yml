@@ -31,6 +31,7 @@ jobs:
       - name: Build target
         env:
           CROSS_NO_WARNINGS: "0"
+          IPHONEOS_DEPLOYMENT_TARGET: 10
         run: |
           cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
       - name: Upload binary
