@@ -110,8 +110,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
