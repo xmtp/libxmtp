@@ -76,6 +76,39 @@ class Client() {
         fun register(codec: ContentCodec<*>) {
             codecRegistry.register(codec = codec)
         }
+
+        suspend fun canMessage(
+            accountAddresses: List<String>,
+            appContext: Context,
+            api: ClientOptions.Api,
+        ): Map<String, Boolean> {
+            val accountAddress = "0x0000000000000000000000000000000000000000"
+            val inboxId = getOrCreateInboxId(api, accountAddress)
+            val alias = "xmtp-${api.env}-$inboxId"
+
+            val directoryFile = File(appContext.filesDir.absolutePath, "xmtp_db")
+            directoryFile.mkdir()
+            val dbPath = directoryFile.absolutePath + "/$alias.db3"
+
+            val ffiClient = createClient(
+                logger = XMTPLogger(),
+                host = api.env.getUrl(),
+                isSecure = api.isSecure,
+                db = dbPath,
+                encryptionKey = null,
+                accountAddress = accountAddress.lowercase(),
+                inboxId = inboxId,
+                nonce = 0.toULong(),
+                legacySignedPrivateKeyProto = null,
+                historySyncUrl = null
+            )
+
+            val result = ffiClient.canMessage(accountAddresses)
+            ffiClient.releaseDbConnection()
+            File(dbPath).delete()
+
+            return result
+        }
     }
 
     constructor(
@@ -101,7 +134,7 @@ class Client() {
         address: String,
         clientOptions: ClientOptions,
         signingKey: SigningKey? = null,
-        inboxId: String? = null
+        inboxId: String? = null,
     ): Client {
         val accountAddress = address.lowercase()
         val recoveredInboxId = inboxId ?: getOrCreateInboxId(clientOptions.api, accountAddress)
@@ -140,7 +173,7 @@ class Client() {
     suspend fun build(
         address: String,
         options: ClientOptions,
-        inboxId: String? = null
+        inboxId: String? = null,
     ): Client {
         return try {
             initializeV3Client(address, options, inboxId = inboxId)
@@ -245,7 +278,11 @@ class Client() {
         }
     }
 
-    fun verifySignatureWithInstallationId(message: String, signature: ByteArray, installationId: String): Boolean {
+    fun verifySignatureWithInstallationId(
+        message: String,
+        signature: ByteArray,
+        installationId: String,
+    ): Boolean {
         return try {
             ffiClient.verifySignedWithPublicKey(message, signature, installationId.hexToByteArray())
             true

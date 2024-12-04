@@ -73,6 +73,35 @@ class ClientTest {
     }
 
     @Test
+    fun testStaticCanMessage() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fixtures = fixtures()
+        val notOnNetwork = PrivateKeyBuilder()
+
+        val canMessageList = runBlocking {
+            Client.canMessage(
+                listOf(
+                    fixtures.alix.walletAddress,
+                    notOnNetwork.address,
+                    fixtures.bo.walletAddress
+                ),
+                context,
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false)
+            )
+        }
+
+        val expectedResults = mapOf(
+            fixtures.alix.walletAddress.lowercase() to true,
+            notOnNetwork.address.lowercase() to false,
+            fixtures.bo.walletAddress.lowercase() to true
+        )
+
+        expectedResults.forEach { (address, expected) ->
+            assertEquals(expected, canMessageList[address.lowercase()])
+        }
+    }
+
+    @Test
     fun testCanDeleteDatabase() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
