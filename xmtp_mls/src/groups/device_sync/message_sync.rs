@@ -186,7 +186,8 @@ pub(crate) mod tests {
             .expect("sync welcomes");
 
         let amal_sync_group =
-            wait_for_some(|| amal.store().conn().unwrap().latest_sync_group().unwrap()).await;
+            wait_for_some(|| async { amal.store().conn().unwrap().latest_sync_group().unwrap() })
+                .await;
 
         assert!(amal_sync_group.is_some());
 

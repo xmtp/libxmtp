@@ -7320,6 +7320,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-timer",
  "web-sys",
+ "web-time",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_cryptography",

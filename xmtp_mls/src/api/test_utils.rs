@@ -1,7 +1,5 @@
-use std::{
-    future::Future,
-    time::{Duration, Instant},
-};
+use std::{future::Future, time::Duration};
+use web_time::Instant;
 
 use mockall::mock;
 use xmtp_proto::{
@@ -182,13 +180,14 @@ mod wasm {
     }
 }
 
-pub async fn wait_for_some<F, T>(f: F) -> Option<T>
+pub async fn wait_for_some<F, Fut, T>(f: F) -> Option<T>
 where
-    F: Fn() -> Option<T>,
+    F: Fn() -> Fut,
+    Fut: Future<Output = Option<T>>,
 {
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        let result = f();
+        let result = f().await;
         if result.is_some() {
             return result;
         }
@@ -197,18 +196,19 @@ where
     None
 }
 
-pub async fn wait_for_ok<Fut, T, E>(f: Fut) -> Result<T, E>
+pub async fn wait_for_ok<F, Fut, T, E>(f: F) -> Result<T, E>
 where
+    F: Fn() -> Fut,
     Fut: Future<Output = Result<T, E>> + Clone,
 {
     let start = Instant::now();
-    let mut result = f.clone().await;
+    let mut result = f().await;
     while start.elapsed() < Duration::from_secs(3) {
         if result.is_ok() {
             return result;
         }
         crate::sleep(Duration::from_millis(20)).await;
-        result = f.clone().await;
+        result = f().await;
     }
     result
 }
