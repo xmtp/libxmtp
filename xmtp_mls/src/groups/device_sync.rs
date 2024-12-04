@@ -132,8 +132,8 @@ where
 #[cfg(target_arch = "wasm32")]
 impl<ApiClient, V> Client<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     // TODO: Should we ensure that only one sync worker is running at a time?
     #[cfg_attr(target_arch = "wasm32", instrument(level = "trace", skip_all))]
