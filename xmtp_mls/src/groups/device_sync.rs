@@ -113,58 +113,79 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     // TODO: Should we ensure that only one sync worker is running at a time?
-    #[instrument(level = "trace", skip_all)]
+    #[cfg_attr(not(target_arch = "wasm32"), instrument(level = "trace", skip_all))]
     pub async fn start_sync_worker(&self) -> Result<(), DeviceSyncError> {
-        crate::spawn(None, {
-            let client = self.clone();
-            tracing::debug!(
-                inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.installation_public_key()),
-                "starting sync worker"
-            );
-            let receiver = client.local_events.subscribe();
-            let sync_stream = receiver.stream_sync_messages();
-
-            async move {
-                // Wait for the identity to be ready before doing anything
-                while !client.identity().is_ready() {
-                    crate::sleep(Duration::from_millis(200)).await;
-                }
-
-                pin_mut!(sync_stream);
-                let inbox_id = client.inbox_id();
-                let installation_id = hex::encode(client.installation_public_key());
-                // scope ensures the provider is dropped once init is finished, and not
-                // held for entirety of sync.
-                let res = async {
-                    let provider = client.mls_provider()?;
-                    client.sync_init(&provider).await?;
-                    Ok::<_, DeviceSyncError>(())
-                };
-
-                if let Err(e) = res.await {
-                    tracing::error!(
-                        inbox_id,
-                        installation_id,
-                        "sync worker failed to init error = {e}"
-                    );
-                }
-
-                while let Err(err) = client.sync_worker(&mut sync_stream).await {
-                    tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
-                }
-                Ok::<_, DeviceSyncError>(())
-            }
-        });
+        let client = self.clone();
+        crate::spawn(None, async move { start_sync_worker_inner(client).await });
 
         Ok(())
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    // TODO: Should we ensure that only one sync worker is running at a time?
+    #[cfg_attr(target_arch = "wasm32", instrument(level = "trace", skip_all))]
+    pub async fn start_sync_worker(&self) -> Result<(), DeviceSyncError> {
+        let client = self.clone();
+        crate::spawn(None, async move { start_sync_worker_inner(client).await });
+
+        Ok(())
+    }
+}
+
+async fn start_sync_worker_inner<A, V>(client: Client<A, V>) -> Result<(), DeviceSyncError>
+where
+    A: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    tracing::debug!(
+        inbox_id = client.inbox_id(),
+        installation_id = hex::encode(client.installation_public_key()),
+        "starting sync worker"
+    );
+    let receiver = client.local_events.subscribe();
+    let sync_stream = receiver.stream_sync_messages();
+
+    // Wait for the identity to be ready before doing anything
+    while !client.identity().is_ready() {
+        crate::sleep(Duration::from_millis(200)).await;
+    }
+
+    pin_mut!(sync_stream);
+    let inbox_id = client.inbox_id();
+    let installation_id = hex::encode(client.installation_public_key());
+    // scope ensures the provider is dropped once init is finished, and not
+    // held for entirety of sync.
+    let res = async {
+        let provider = client.mls_provider()?;
+        client.sync_init(&provider).await?;
+        Ok::<_, DeviceSyncError>(())
+    };
+
+    if let Err(e) = res.await {
+        tracing::error!(
+            inbox_id,
+            installation_id,
+            "sync worker failed to init error = {e}"
+        );
+    }
+
+    while let Err(err) = client.sync_worker(&mut sync_stream).await {
+        tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
+    }
+    Ok::<_, DeviceSyncError>(())
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
