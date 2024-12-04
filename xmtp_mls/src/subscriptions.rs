@@ -653,6 +653,7 @@ pub(crate) mod tests {
         let alice_group = alice
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
+        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
         alice_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
