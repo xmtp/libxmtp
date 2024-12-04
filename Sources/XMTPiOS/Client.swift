@@ -149,18 +149,22 @@ public final class Client {
 		)
 	}
 
-	public static func build(address: String, options: ClientOptions)
+	public static func build(address: String, options: ClientOptions, inboxId: String? = nil)
 		async throws -> Client
 	{
 		let accountAddress = address.lowercased()
-		let inboxId = try await getOrCreateInboxId(
-			api: options.api, address: accountAddress)
-
+		let resolvedInboxId: String
+		if let existingInboxId = inboxId {
+			resolvedInboxId = existingInboxId
+		} else {
+			resolvedInboxId = try await getOrCreateInboxId(api: options.api, address: accountAddress)
+		}
+		
 		return try await initializeClient(
 			accountAddress: accountAddress,
 			options: options,
 			signingKey: nil,
-			inboxId: inboxId
+			inboxId: resolvedInboxId
 		)
 	}
 
