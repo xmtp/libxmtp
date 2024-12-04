@@ -122,7 +122,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
