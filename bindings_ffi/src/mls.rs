@@ -440,23 +440,16 @@ impl FfiXmtpClient {
             .register_identity(signature_request.clone())
             .await?;
 
-        self.maybe_start_sync_worker().await?;
+        self.maybe_start_sync_worker();
 
         Ok(())
     }
 
     /// Starts the sync worker if the history sync url is present.
-    async fn maybe_start_sync_worker(&self) -> Result<(), GenericError> {
-        if self.inner_client.history_sync_url().is_none() {
-            return Ok(());
+    fn maybe_start_sync_worker(&self) {
+        if self.inner_client.history_sync_url().is_some() {
+            self.inner_client.start_sync_worker();
         }
-
-        self.inner_client
-            .start_sync_worker()
-            .await
-            .map_err(GenericError::from_error)?;
-
-        Ok(())
     }
 
     pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {

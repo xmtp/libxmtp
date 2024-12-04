@@ -443,7 +443,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.start_sync_worker().await.unwrap();
+            client.start_sync_worker();
             client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
