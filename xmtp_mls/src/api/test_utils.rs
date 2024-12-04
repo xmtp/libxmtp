@@ -212,3 +212,22 @@ where
     }
     result
 }
+
+pub async fn wait_for_eq<F, Fut, T>(f: F, expected: T)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = T>,
+    T: std::fmt::Debug + PartialEq,
+{
+    let start = Instant::now();
+    let mut result = f().await;
+    while start.elapsed() < Duration::from_secs(3) {
+        if result == expected {
+            break;
+        }
+        crate::sleep(Duration::from_millis(100)).await;
+        result = f().await;
+    }
+
+    assert_eq!(expected, result);
+}

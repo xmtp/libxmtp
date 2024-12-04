@@ -1802,7 +1802,7 @@ mod tests {
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
-        api::test_utils::wait_for_ok,
+        api::test_utils::{wait_for_eq, wait_for_ok},
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
@@ -4053,23 +4053,58 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_a_conn = alix_a.inner_client.store().conn().unwrap();
+        // wait for alix_a's sync worker to create a sync group
+        let _ = wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_conn) }).await;
+
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true).await;
+
         let bo = new_test_client_with_history().await;
 
-        std::thread::sleep(Duration::from_secs(1));
-
-        // have alix_a pull down the new sync group created by alix_b
-        assert!(alix_a.conversations().sync().await.is_ok());
-        assert!(alix_b.conversations().sync().await.is_ok());
+        // wait for the first installation to get invited to the new sync group
+        wait_for_eq(
+            || async {
+                assert!(alix_a.conversations().sync().await.is_ok());
+                alix_a
+                    .inner_client
+                    .store()
+                    .conn()
+                    .unwrap()
+                    .all_sync_groups()
+                    .unwrap()
+                    .len()
+            },
+            2,
+        )
+        .await;
 
         // check that they have the same sync group
-        std::thread::sleep(Duration::from_secs(1));
         let sync_group_a = wait_for_ok(|| async { alix_a.conversations().get_sync_group() })
             .await
             .unwrap();
         let sync_group_b = wait_for_ok(|| async { alix_b.conversations().get_sync_group() })
             .await
             .unwrap();
+
+        // have alix_a pull down the new sync group created by alix_b
+
+        let sync_groups_a = alix_a
+            .inner_client
+            .store()
+            .conn()
+            .unwrap()
+            .all_sync_groups()
+            .unwrap();
+
+        tracing::info!(
+            "Groups a: {:?}",
+            sync_groups_a
+                .into_iter()
+                .map(|g| g.welcome_id)
+                .collect::<Vec<_>>()
+        );
+
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
         // create a stream from both installations

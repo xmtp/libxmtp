@@ -292,6 +292,9 @@ where
             "Initializing device sync... url: {:?}",
             self.history_sync_url
         );
+
+        self.sync_welcomes(provider.conn_ref()).await.unwrap();
+
         if self.get_sync_group(provider.conn_ref()).is_err() {
             self.ensure_sync_group(provider).await?;
 
