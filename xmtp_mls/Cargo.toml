@@ -39,6 +39,7 @@ test-utils = [
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
     "dep:const_format",
+    "mockall",
 ]
 update-schema = ["toml"]
 
@@ -90,6 +91,7 @@ criterion = { version = "0.5", features = [
     "async_tokio",
 ], optional = true }
 indicatif = { version = "0.17", optional = true }
+mockall = { version = "0.13.1", optional = true }
 once_cell = { version = "1.19", optional = true }
 tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [

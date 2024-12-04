@@ -1805,6 +1805,7 @@ mod tests {
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
+        api::test_utils::wait_for_ok,
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
@@ -4078,12 +4079,20 @@ mod tests {
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         let bo = new_test_client_with_history().await;
 
+        std::thread::sleep(Duration::from_secs(1));
+
         // have alix_a pull down the new sync group created by alix_b
         assert!(alix_a.conversations().sync().await.is_ok());
+        assert!(alix_b.conversations().sync().await.is_ok());
 
         // check that they have the same sync group
-        let sync_group_a = alix_a.conversations().get_sync_group().unwrap();
-        let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        let sync_group_a = wait_for_ok(|| async { alix_a.conversations().get_sync_group() })
+            .await
+            .unwrap();
+        let sync_group_b = wait_for_ok(|| async { alix_b.conversations().get_sync_group() })
+            .await
+            .unwrap();
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
         // create a stream from both installations

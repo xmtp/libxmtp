@@ -191,7 +191,7 @@ where
         if result.is_some() {
             return result;
         }
-        crate::sleep(Duration::from_millis(20)).await;
+        crate::sleep(Duration::from_millis(100)).await;
     }
     None
 }
@@ -199,7 +199,7 @@ where
 pub async fn wait_for_ok<F, Fut, T, E>(f: F) -> Result<T, E>
 where
     F: Fn() -> Fut,
-    Fut: Future<Output = Result<T, E>> + Clone,
+    Fut: Future<Output = Result<T, E>>,
 {
     let start = Instant::now();
     let mut result = f().await;
@@ -207,7 +207,7 @@ where
         if result.is_ok() {
             return result;
         }
-        crate::sleep(Duration::from_millis(20)).await;
+        crate::sleep(Duration::from_millis(100)).await;
         result = f().await;
     }
     result
