@@ -7,9 +7,10 @@ pub mod v2;
 
 pub use crate::inbox_owner::SigningError;
 use inbox_owner::FfiInboxOwner;
-use logger::FfiLogger;
 pub use mls::*;
 use std::error::Error;
+
+extern crate tracing as log;
 
 pub use ffi::*;
 #[allow(clippy::all)]
