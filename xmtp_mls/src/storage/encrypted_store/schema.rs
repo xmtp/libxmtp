@@ -59,6 +59,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    hmac_key_records (group_id, hmac_key) {
+        group_id -> Binary,
+        dm_id -> Nullable<Text>,
+        hmac_key -> Binary,
+        thirty_day_periods_since_epoch -> Integer,
+    }
+}
+
+diesel::table! {
     identity (rowid) {
         inbox_id -> Text,
         installation_keys -> Binary,
@@ -123,6 +132,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_intents,
     group_messages,
     groups,
+    hmac_key_records,
     identity,
     identity_updates,
     key_package_history,
