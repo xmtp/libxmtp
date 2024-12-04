@@ -1,11 +1,13 @@
 #![warn(clippy::unwrap_used)]
 
 pub mod constants;
+mod http_stream;
 mod util;
 
 use futures::stream;
+use http_stream::create_grpc_stream;
 use reqwest::header;
-use util::{create_grpc_stream, handle_error};
+use util::handle_error;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
