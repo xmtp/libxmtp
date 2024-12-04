@@ -1,6 +1,5 @@
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use crate::logger::FfiLogger;
 use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
@@ -71,7 +70,6 @@ pub type RustXmtpClient = MlsClient<TonicApiClient>;
 #[allow(clippy::too_many_arguments)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
-    logger: Box<dyn FfiLogger>,
     host: String,
     is_secure: bool,
     db: Option<String>,
@@ -82,7 +80,7 @@ pub async fn create_client(
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    init_logger(logger);
+    init_logger();
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -142,7 +140,6 @@ pub async fn create_client(
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn get_inbox_id_for_address(
-    logger: Box<dyn FfiLogger>,
     host: String,
     is_secure: bool,
     account_address: String,
@@ -1782,11 +1779,11 @@ impl FfiGroupPermissions {
 mod tests {
     use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
     use crate::{
-        get_inbox_id_for_address, inbox_owner::SigningError, logger::FfiLogger, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageKind, FfiCreateGroupOptions, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField,
-        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
+        get_inbox_id_for_address, inbox_owner::SigningError, FfiConsent, FfiConsentEntityType,
+        FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
+        FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -1841,14 +1838,6 @@ mod tests {
             match recoverable_signature {
                 RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
             }
-        }
-    }
-
-    pub struct MockLogger {}
-
-    impl FfiLogger for MockLogger {
-        fn log(&self, _level: u32, level_label: String, message: String) {
-            println!("[{}]{}", level_label, message)
         }
     }
 
@@ -1973,7 +1962,6 @@ mod tests {
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
 
         let client = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -2016,7 +2004,6 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             client.account_address.clone(),
@@ -2037,7 +2024,6 @@ mod tests {
         let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
 
         let client = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
@@ -2063,7 +2049,6 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2082,7 +2067,6 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -2116,7 +2100,6 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2136,7 +2119,6 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
@@ -2189,7 +2171,6 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2255,7 +2236,6 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2343,7 +2323,6 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2371,7 +2350,6 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
@@ -2398,7 +2376,6 @@ mod tests {
         );
 
         let client_bola = create_client(
-            Box::new(MockLogger {}),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
