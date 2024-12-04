@@ -41,12 +41,21 @@
           includeNDK = true;
         };
 
-        fenixPkgs = fenix.packages.${system};
+        androidTargets = [
+          "aarch64-linux-android"
+          "armv7-linux-androideabi"
+          "x86_64-linux-android"
+          "i686-linux-android"
+        ];
+
         # Pinned Rust Version
-        rust-toolchain = fenixPkgs.fromToolchainFile {
-          file = ./rust-toolchain;
-          sha256 = "sha256-yMuSb5eQPO/bHv+Bcf/US8LVMbf/G/0MSfiPwBhiPpk=";
-        };
+        rust-toolchain = with fenix.packages.${system}; combine [
+          stable.cargo
+          stable.rustc
+          (pkgs.lib.forEach
+            androidTargets
+            (target: targets."${target}".stable.rust-std))
+        ];
 
         # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
         androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
@@ -66,7 +75,8 @@
           # System Libraries
           sqlite
           openssl
-        ] ++ lib.optionals isDarwin [ # optional packages if on darwin, in order to check if build passes locally
+        ] ++ lib.optionals isDarwin [
+          # optional packages if on darwin, in order to check if build passes locally
           libiconv
           frameworks.CoreServices
           frameworks.Carbon
@@ -74,14 +84,15 @@
           frameworks.AppKit
           darwin.cctools
         ];
-      in {
+      in
+      {
         devShells.default = pkgs.mkShell {
-            OPENSSL_DIR = "${pkgs.openssl.dev}";
-            ANDROID_HOME = androidHome;
-            ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
-            ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          ANDROID_HOME = androidHome;
+          ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
+          ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
 
-            inherit buildInputs nativeBuildInputs;
-          };
+          inherit buildInputs nativeBuildInputs;
+        };
       });
 }

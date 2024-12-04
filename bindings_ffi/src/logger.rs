@@ -1,43 +1,96 @@
-use log::{LevelFilter, Metadata, Record};
+use log::Subscriber;
 use std::sync::Once;
+use tracing_subscriber::{
+    layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, Layer,
+};
 
-pub trait FfiLogger: Send + Sync {
-    fn log(&self, level: u32, level_label: String, message: String);
+#[cfg(target_os = "android")]
+pub use android::*;
+#[cfg(target_os = "android")]
+mod android {
+    use super::*;
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        paranoid_android::layer(env!("CARGO_PKG_NAME")).with_thread_names(true)
+    }
 }
 
-struct RustLogger {
-    logger: parking_lot::Mutex<Box<dyn FfiLogger>>,
+#[cfg(target_os = "ios")]
+pub use ios::*;
+#[cfg(target_os = "ios")]
+mod ios {
+    use super::*;
+    // use tracing_subscriber::Layer;
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        use tracing_oslog::OsLogger;
+        let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
+        OsLogger::new(subsystem, "default")
+    }
 }
 
-impl log::Log for RustLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
-    }
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub use other::*;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+mod other {
+    use super::*;
 
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            // TODO handle errors
-            self.logger.lock().log(
-                record.level() as u32,
-                record.level().to_string(),
-                format!("[libxmtp][t:{}] {}", thread_id::get(), record.args()),
-            );
-        }
-    }
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        use tracing_subscriber::{
+            fmt::{self, format},
+            EnvFilter, Layer,
+        };
+        let structured = std::env::var("STRUCTURED");
+        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
 
-    fn flush(&self) {}
+        let filter = || {
+            EnvFilter::builder()
+                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+                .from_env_lossy()
+        };
+
+        vec![
+            // structured JSON logger
+            is_structured
+                .then(|| {
+                    tracing_subscriber::fmt::layer()
+                        .json()
+                        .flatten_event(true)
+                        .with_level(true)
+                        .with_filter(filter())
+                })
+                .boxed(),
+            // default logger
+            (!is_structured)
+                .then(|| {
+                    fmt::layer()
+                        .compact()
+                        .fmt_fields({
+                            format::debug_fn(move |writer, field, value| {
+                                if field.name() == "message" {
+                                    write!(writer, "{:?}", value)?;
+                                }
+                                Ok(())
+                            })
+                        })
+                        .with_filter(filter())
+                })
+                .boxed(),
+        ]
+    }
 }
 
 static LOGGER_INIT: Once = Once::new();
-pub fn init_logger(logger: Box<dyn FfiLogger>) {
-    // TODO handle errors
+pub fn init_logger() {
     LOGGER_INIT.call_once(|| {
-        let logger = RustLogger {
-            logger: parking_lot::Mutex::new(logger),
-        };
-        log::set_boxed_logger(Box::new(logger))
-            .map(|()| log::set_max_level(LevelFilter::Info))
-            .expect("Failed to initialize logger");
-        log::info!("Logger initialized");
+        let native_layer = native_layer();
+        tracing_subscriber::registry().with(native_layer).init()
     });
 }
