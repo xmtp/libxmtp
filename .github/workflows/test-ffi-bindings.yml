@@ -50,4 +50,4 @@ jobs:
       - name: Run cargo nextest on FFI bindings
         run: |
           export CLASSPATH="${{ env.CLASSPATH }}"
-          cargo nextest run --manifest-path bindings_ffi/Cargo.toml --test-threads 2
+          cargo nextest --config-file ".cargo/nextest.toml" run --manifest-path bindings_ffi/Cargo.toml --test-threads 2

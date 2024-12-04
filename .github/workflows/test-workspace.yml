@@ -43,6 +43,6 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: build tests
-        run: cargo nextest run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+        run: cargo nextest --config-file ".cargo/nextest.toml" run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
       - name: cargo test
-        run: cargo nextest run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+        run: cargo nextest --config-file ".cargo/nextest.toml" run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
