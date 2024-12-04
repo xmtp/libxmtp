@@ -147,8 +147,8 @@ where
 
 async fn start_sync_worker_inner<A, V>(client: Client<A, V>) -> Result<(), DeviceSyncError>
 where
-    A: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    A: XmtpApi + 'static + Sync + Send,
+    V: SmartContractSignatureVerifier + 'static + Sync + Send,
 {
     tracing::debug!(
         inbox_id = client.inbox_id(),
