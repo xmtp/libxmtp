@@ -42,6 +42,8 @@ pub struct StoredGroup {
     pub dm_inbox_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
+    /// The dm_id of the dm to stitch together
+    pub dm_id: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -58,6 +60,10 @@ impl StoredGroup {
         conversation_type: ConversationType,
         dm_inbox_id: Option<String>,
     ) -> Self {
+        // Construct the dm_id string if dm_inbox_id is provided
+        let dm_id = dm_inbox_id
+            .as_ref()
+            .map(|inbox_id| format!("dm:{}", inbox_id).to_lowercase());
         Self {
             id,
             created_at_ns,
@@ -68,6 +74,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_inbox_id,
+            dm_id,
         }
     }
 
@@ -79,6 +86,10 @@ impl StoredGroup {
         added_by_inbox_id: String,
         dm_inbox_id: Option<String>,
     ) -> Self {
+        // Construct the dm_id string if dm_inbox_id is provided
+        let dm_id = dm_inbox_id
+            .as_ref()
+            .map(|inbox_id| format!("dm:{}", inbox_id).to_lowercase());
         Self {
             id,
             created_at_ns,
@@ -92,6 +103,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_inbox_id,
+            dm_id,
         }
     }
 
@@ -112,6 +124,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_inbox_id: None,
+            dm_id: None,
         }
     }
 }

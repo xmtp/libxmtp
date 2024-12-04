@@ -1,5 +1,5 @@
 ALTER TABLE groups
-ADD COLUMN dm_id BLOB;
+ADD COLUMN dm_id TEXT;
 
 UPDATE groups
 SET dm_id = LOWER(CONCAT('dm:', dm_inbox_id))
