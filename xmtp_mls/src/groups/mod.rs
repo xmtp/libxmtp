@@ -1090,10 +1090,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
-            self.client
+            let _ = self
+                .client
                 .local_events()
-                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]))
-                .map_err(|e| GroupError::Generic(e.to_string()))?;
+                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]));
         }
 
         Ok(())
