@@ -1,3 +1,8 @@
+use std::{
+    future::Future,
+    time::{Duration, Instant},
+};
+
 use mockall::mock;
 use xmtp_proto::{
     api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
@@ -175,4 +180,35 @@ mod wasm {
             async fn create_dev() -> Self { ApiClient }
         }
     }
+}
+
+pub async fn wait_for_some<F, T>(f: F) -> Option<T>
+where
+    F: Fn() -> Option<T>,
+{
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        let result = f();
+        if result.is_some() {
+            return result;
+        }
+        crate::sleep(Duration::from_millis(20)).await;
+    }
+    None
+}
+
+pub async fn wait_for_ok<Fut, T, E>(f: Fut) -> Result<T, E>
+where
+    Fut: Future<Output = Result<T, E>> + Clone,
+{
+    let start = Instant::now();
+    let mut result = f.clone().await;
+    while start.elapsed() < Duration::from_secs(3) {
+        if result.is_ok() {
+            return result;
+        }
+        crate::sleep(Duration::from_millis(20)).await;
+        result = f.clone().await;
+    }
+    result
 }
