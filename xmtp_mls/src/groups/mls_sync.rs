@@ -606,16 +606,9 @@ where
                                     SyncMessage::Reply { message_id },
                                 ));
                             }
-                            Some(MessageType::ConsentUpdate(update)) => {
-                                tracing::info!(
-                                    "Incoming streamed consent update: {:?} {} updated to {:?}.",
-                                    update.entity_type(),
-                                    update.entity,
-                                    update.state()
-                                );
-
+                            Some(MessageType::UserPreferenceUpdate(update)) => {
                                 let _ = self.client.local_events().send(
-                                    LocalEvents::IncomingConsentUpdates(vec![update.try_into()?]),
+                                    LocalEvents::IncomingPreferenceUpdate(vec![update.try_into()?]),
                                 );
                             }
                             _ => {

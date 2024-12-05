@@ -8,11 +8,18 @@ use tokio::{
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::{
+    api_client::XmtpMlsStreams,
+    xmtp::mls::{
+        api::v1::WelcomeMessage,
+        message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
+    },
+};
 
 use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{mls_sync::GroupMessageProcessingError, subscriptions, GroupError, MlsGroup},
+    preferences::UserPreferenceUpdate,
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{
@@ -52,8 +59,8 @@ pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
-    OutgoingConsentUpdates(Vec<StoredConsentRecord>),
-    IncomingConsentUpdates(Vec<StoredConsentRecord>),
+    OutgoingConsentUpdates(Vec<UserPreferenceUpdate>),
+    IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
 }
 
 #[derive(Clone)]
@@ -78,7 +85,7 @@ impl<C> LocalEvents<C> {
         match &self {
             SyncMessage(_) => Some(self),
             OutgoingConsentUpdates(_) => Some(self),
-            IncomingConsentUpdates(_) => Some(self),
+            IncomingPreferenceUpdate(_) => Some(self),
             _ => None,
         }
     }
@@ -87,8 +94,26 @@ impl<C> LocalEvents<C> {
         use LocalEvents::*;
 
         match self {
-            OutgoingConsentUpdates(cr) => Some(cr),
-            IncomingConsentUpdates(cr) => Some(cr),
+            OutgoingConsentUpdates(updates) => {
+                let updates = updates
+                    .into_iter()
+                    .filter_map(|pu| match pu {
+                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
+                        _ => None,
+                    })
+                    .collect();
+                Some(updates)
+            }
+            IncomingPreferenceUpdate(updates) => {
+                let updates = updates
+                    .into_iter()
+                    .filter_map(|pu| match pu {
+                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
+                        _ => None,
+                    })
+                    .collect();
+                Some(updates)
+            }
             _ => None,
         }
     }

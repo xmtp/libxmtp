@@ -15,10 +15,6 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::DeserializationError;
-use xmtp_proto::xmtp::mls::message_contents::{
-    ConsentEntityType, ConsentState as ConsentStateProto, ConsentUpdate as ConsentUpdateProto,
-};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -179,29 +175,6 @@ where
             2 => Ok(ConsentState::Denied),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
-    }
-}
-
-impl TryFrom<ConsentUpdateProto> for StoredConsentRecord {
-    type Error = DeserializationError;
-
-    fn try_from(update: ConsentUpdateProto) -> Result<Self, Self::Error> {
-        Ok(Self {
-            entity_type: match update.entity_type() {
-                ConsentEntityType::Address => ConsentType::Address,
-                ConsentEntityType::ConversationId => ConsentType::ConversationId,
-                ConsentEntityType::InboxId => ConsentType::InboxId,
-                ConsentEntityType::Unspecified => {
-                    return Err(DeserializationError::Unspecified("entity_type"))
-                }
-            },
-            state: match update.state() {
-                ConsentStateProto::Unspecified => ConsentState::Unknown,
-                ConsentStateProto::Allowed => ConsentState::Allowed,
-                ConsentStateProto::Denied => ConsentState::Denied,
-            },
-            entity: update.entity,
-        })
     }
 }
 
