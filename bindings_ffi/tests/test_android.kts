@@ -17,20 +17,15 @@ class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
     }
 }
 
-class MockLogger : FfiLogger {
-    override fun log(level: UInt, levelLabel: String, message: String) {}
-}
-
 val privateKey: ByteArray = SecureRandom().generateSeed(32)
 val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
 val inboxOwner = Web3jInboxOwner(credentials)
-var logger = MockLogger()
 
 // TODO Tests sometimes hang and never complete
 // runBlocking {
 //     val apiUrl: String = System.getenv("XMTP_API_URL") ?: "http://localhost:5556"
 //     try {
-//         val client = uniffi.xmtpv3.createClient(logger, inboxOwner, apiUrl, false)
+//         val client = uniffi.xmtpv3.createClient(inboxOwner, apiUrl, false)
 //         assert(client.walletAddress() != null) {
 //             "Should be able to get wallet address"
 //         }
@@ -43,7 +38,7 @@ var logger = MockLogger()
 
 // runBlocking {
 //     try {
-//         val client = uniffi.xmtpv3.createClient(logger, inboxOwner, "http://malformed:5556", false);
+//         val client = uniffi.xmtpv3.createClient(inboxOwner, "http://malformed:5556", false);
 //         assert(false) {
 //             "Should throw error with malformed network address"
 //         }

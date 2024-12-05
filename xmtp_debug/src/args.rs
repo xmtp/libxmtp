@@ -27,9 +27,23 @@ pub enum Commands {
     Generate(Generate),
     Modify(Modify),
     Inspect(Inspect),
+    Send(Send),
     Query(Query),
     Info(InfoOpts),
     Export(ExportOpts),
+}
+
+/// Send Data on the network
+#[derive(Args, Debug)]
+pub struct Send {
+    pub action: ActionKind,
+    pub data: String,
+    pub group_id: GroupId,
+}
+
+#[derive(ValueEnum, Debug, Clone)]
+pub enum ActionKind {
+    Message,
 }
 
 /// Generate Groups/Messages/Users

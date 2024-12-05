@@ -546,10 +546,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         let context = client.context();
         let creator_inbox_id = context.inbox_id();
-        let provider = client.mls_provider()?;
 
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;
@@ -687,7 +687,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context().installation_public_key(),
+            sender_installation_id: self.context().installation_public_key().into(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
         };
@@ -1090,10 +1090,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
-            self.client
+            let _ = self
+                .client
                 .local_events()
-                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]))
-                .map_err(|e| GroupError::Generic(e.to_string()))?;
+                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]));
         }
 
         Ok(())
@@ -1668,7 +1668,7 @@ pub(crate) mod tests {
         let serialized_welcome = welcome.tls_serialize_detached().unwrap();
         let send_welcomes_action = SendWelcomesAction::new(
             vec![Installation {
-                installation_key: new_member_client.installation_public_key(),
+                installation_key: new_member_client.installation_public_key().into(),
                 hpke_public_key: hpke_init_key,
             }],
             serialized_welcome,
@@ -2419,7 +2419,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Add bola to the group
         amal_group
@@ -2441,7 +2441,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2510,7 +2510,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2549,7 +2549,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group
@@ -2590,7 +2590,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Add bola to the group
         amal_group
@@ -2611,7 +2611,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupName.to_string())
             .unwrap()
-            .eq(""));
+            .is_empty());
 
         // Update group name
         amal_group

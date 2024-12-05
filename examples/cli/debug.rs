@@ -71,7 +71,7 @@ pub async fn debug_welcome_messages(
 ) -> Result<(), String> {
     let api_client = client.api();
     let envelopes = api_client
-        .query_welcome_messages(installation_id, None)
+        .query_welcome_messages(&installation_id, None)
         .await
         .unwrap();
     for envelope in envelopes {

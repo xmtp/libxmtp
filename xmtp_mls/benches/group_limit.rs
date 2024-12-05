@@ -4,19 +4,16 @@
 //! may be used to generate a flamegraph of execution from tracing logs.
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::{collections::HashMap, sync::Arc};
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::{Builder, Runtime};
 use tracing::{trace_span, Instrument};
 use xmtp_mls::{
     builder::ClientBuilder,
     groups::GroupMetadataOptions,
-    utils::{
-        bench::{create_identities_if_dont_exist, init_logging, Identity, BENCH_ROOT_SPAN},
-        test::TestClient,
+    utils::bench::{
+        bench_async_setup, create_identities_if_dont_exist, init_logging, BenchClient, Identity,
+        BENCH_ROOT_SPAN,
     },
-    Client,
 };
-
-pub type BenchClient = Client<TestClient>;
 
 pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
 pub const MAX_IDENTITIES: usize = 1_000;
@@ -50,17 +47,6 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
     });
 
     (client, identities, runtime)
-}
-
-/// criterion `batch_iter` surrounds the closure in a `Runtime.block_on` despite being a sync
-/// function, even in the async 'to_async` setup. Therefore we do this (only _slightly_) hacky
-/// workaround to allow us to async setup some groups.
-fn bench_async_setup<F, T, Fut>(fun: F) -> T
-where
-    F: Fn() -> Fut,
-    Fut: futures::future::Future<Output = T>,
-{
-    tokio::task::block_in_place(move || Handle::current().block_on(async move { fun().await }))
 }
 
 fn add_to_empty_group(c: &mut Criterion) {

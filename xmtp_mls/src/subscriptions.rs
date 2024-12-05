@@ -6,6 +6,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::BroadcastStream;
+use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
@@ -104,6 +105,7 @@ impl<C> StreamMessages<C> for broadcast::Receiver<LocalEvents<C>>
 where
     C: Clone + Send + Sync + 'static,
 {
+    #[instrument(level = "trace", skip_all)]
     fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {
             crate::optify!(event, "Missed message due to event queue lag")
@@ -303,7 +305,7 @@ where
         tracing::info!(inbox_id = self.inbox_id(), "Setting up conversation stream");
         let subscription = self
             .api_client
-            .subscribe_welcome_messages(installation_key, Some(id_cursor))
+            .subscribe_welcome_messages(installation_key.into(), Some(id_cursor))
             .await?;
 
         let stream = subscription

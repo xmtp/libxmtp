@@ -235,21 +235,29 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => {
-            Box::new(ClientV4::create("http://localhost:5050".into(), false).await?)
-        }
-        (true, Env::Dev) => {
-            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true).await?)
-        }
-        (false, Env::Local) => {
-            Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
-        }
-        (false, Env::Dev) => {
-            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true).await?)
-        }
-        (false, Env::Production) => Box::new(
-            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true).await?,
+        (true, Env::Local) => Box::new(
+            ClientV4::create(
+                "http://localhost:5050".into(),
+                "http://localhost:5050".into(),
+                false,
+            )
+            .await?,
         ),
+        (true, Env::Dev) => Box::new(
+            ClientV4::create(
+                "https://grpc.testnet.xmtp.network:443".into(),
+                "https://payer.testnet.xmtp.network:443".into(),
+                true,
+            )
+            .await?,
+        ),
+        (false, Env::Local) => Box::new(ClientV3::create("http://localhost:5556", false).await?),
+        (false, Env::Dev) => {
+            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
+        }
+        (false, Env::Production) => {
+            Box::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
+        }
         (true, Env::Production) => todo!("not supported"),
     };
 
@@ -435,7 +443,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&conn).await.unwrap();
-            client.start_sync_worker(&provider).await.unwrap();
+            client.start_sync_worker();
             client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
@@ -445,7 +453,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::ListHistorySyncMessages {} => {
             let conn = client.store().conn()?;
             client.sync_welcomes(&conn).await?;
-            let group = client.get_sync_group()?;
+            let group = client.get_sync_group(&conn)?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group

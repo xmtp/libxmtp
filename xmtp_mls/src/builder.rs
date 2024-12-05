@@ -709,7 +709,7 @@ pub(crate) mod tests {
         register_client(&client_a, wallet).await;
         assert!(client_a.identity().is_ready());
 
-        let keybytes_a = client_a.installation_public_key();
+        let keybytes_a = client_a.installation_public_key().to_vec();
         drop(client_a);
 
         // Reload the existing store and wallet
@@ -729,7 +729,7 @@ pub(crate) mod tests {
         .build_with_verifier()
         .await
         .unwrap();
-        let keybytes_b = client_b.installation_public_key();
+        let keybytes_b = client_b.installation_public_key().to_vec();
         drop(client_b);
 
         // Ensure the persistence was used to store the generated keys
@@ -762,7 +762,7 @@ pub(crate) mod tests {
             .build_with_verifier()
             .await
             .unwrap();
-        assert_eq!(client_d.installation_public_key(), keybytes_a);
+        assert_eq!(client_d.installation_public_key().to_vec(), keybytes_a);
     }
 
     /// anvil cannot be used in WebAssembly

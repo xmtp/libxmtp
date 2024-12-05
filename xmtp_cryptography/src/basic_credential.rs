@@ -159,7 +159,7 @@ impl Signer for XmtpInstallationCredential {
 }
 
 // The signer here must maintain compatability with `SignatureKeyPair`
-impl<'a> Signer for &'a XmtpInstallationCredential {
+impl Signer for &XmtpInstallationCredential {
     fn sign(&self, payload: &[u8]) -> Result<Vec<u8>, signatures::SignerError> {
         SignatureKeyPair::from(*self).sign(payload)
     }

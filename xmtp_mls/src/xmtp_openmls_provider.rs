@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<'a, C> OpenMlsProvider for &'a XmtpOpenMlsProviderPrivate<C>
+impl<C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<C>
 where
     C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
 {

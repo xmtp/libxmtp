@@ -220,12 +220,12 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
         let admin_list = value
             .admin_list
-            .ok_or_else(|| GroupMutableMetadataError::MissingMetadataField)?
+            .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
 
         let super_admin_list = value
             .super_admin_list
-            .ok_or_else(|| GroupMutableMetadataError::MissingMetadataField)?
+            .ok_or(GroupMutableMetadataError::MissingMetadataField)?
             .inbox_ids;
 
         Ok(Self::new(

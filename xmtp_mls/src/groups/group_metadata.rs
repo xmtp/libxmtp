@@ -106,7 +106,6 @@ impl TryFrom<&Extensions> for GroupMetadata {
  * *DM*: A conversation between 2 members with simplified permissions
  * *Sync*: A conversation between all the devices of a single member with simplified permissions
  */
-
 impl From<ConversationType> for ConversationTypeProto {
     fn from(value: ConversationType) -> Self {
         match value {

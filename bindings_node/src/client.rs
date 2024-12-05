@@ -13,7 +13,6 @@ use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::MemberIdentifier;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
@@ -131,7 +130,7 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(host.clone(), is_secure)
+  let api_client = TonicApiClient::create(&host, is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
@@ -300,46 +299,5 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
-  }
-
-  #[napi]
-  pub async fn is_address_authorized(&self, inbox_id: String, address: String) -> Result<bool> {
-    self
-      .is_member_of_association_state(&inbox_id, &MemberIdentifier::Address(address))
-      .await
-  }
-
-  #[napi]
-  pub async fn is_installation_authorized(
-    &self,
-    inbox_id: String,
-    installation_id: Uint8Array,
-  ) -> Result<bool> {
-    self
-      .is_member_of_association_state(
-        &inbox_id,
-        &MemberIdentifier::Installation(installation_id.to_vec()),
-      )
-      .await
-  }
-
-  async fn is_member_of_association_state(
-    &self,
-    inbox_id: &str,
-    identifier: &MemberIdentifier,
-  ) -> Result<bool> {
-    let client = &self.inner_client;
-    let conn = self
-      .inner_client
-      .store()
-      .conn()
-      .map_err(ErrorWrapper::from)?;
-
-    let association_state = client
-      .get_association_state(&conn, inbox_id, None)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(association_state.get(identifier).is_some())
   }
 }

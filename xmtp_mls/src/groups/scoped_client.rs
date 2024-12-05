@@ -37,6 +37,10 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().inbox_id()
     }
 
+    fn installation_id(&self) -> &[u8] {
+        self.context_ref().installation_public_key()
+    }
+
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
         self.context_ref().mls_provider()
     }
@@ -99,6 +103,10 @@ pub trait ScopedGroupClient: Sized {
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
+    }
+
+    fn installation_id(&self) -> &[u8] {
+        self.context_ref().installation_public_key()
     }
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {

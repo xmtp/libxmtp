@@ -23,6 +23,9 @@ bench = [
     "once_cell",
     "dep:xmtp_api_grpc",
     "criterion",
+    "dep:fdlimit",
+    "dep:ethers",
+    "dep:const_format"
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -35,6 +38,7 @@ test-utils = [
     "xmtp_proto/test-utils",
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
+    "dep:const_format"
 ]
 update-schema = ["toml"]
 
@@ -74,6 +78,9 @@ console_error_panic_hook = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
 tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
+fdlimit = { workspace = true, optional = true }
+ethers = { workspace = true, features = ["openssl"], optional = true }
+const_format = { workspace = true, optional = true }
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
@@ -88,6 +95,8 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
+    "registry"
 ], optional = true }
 
 
@@ -132,6 +141,7 @@ mockall = "0.13.1"
 openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+const_format.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -143,6 +153,7 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -155,7 +166,7 @@ diesel-wasm-sqlite = { workspace = true, features = [
 ] }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -175,3 +186,14 @@ required-features = ["bench"]
 harness = false
 name = "crypto"
 required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "identity"
+required-features = ["bench"]
+
+#[[bench]]
+#harness = false
+#name = "sync"
+#required-features = ["bench"]
+

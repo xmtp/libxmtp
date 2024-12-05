@@ -9,9 +9,9 @@ use sha3::Keccak256;
 /// diffie_hellman - compute the shared secret between a secret key and a public key
 /// NOTE: This is a custom implementation of the diffie_hellman operation
 /// because RustCrypto hides the `y` coordinate from visibility when constructing a SharedSecret.
-
+///
 /// [Read more](https://github.com/RustCrypto/traits/blob/d57b54b9fcf5b28745547cb9fef313ab09780918/elliptic-curve/src/ecdh.rs#L60)
-
+///
 /// XMTP uses the entire point in uncompressed format as secret material
 fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<u8>, String> {
     // Get the public projective point from the public key
@@ -20,7 +20,7 @@ fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<
     let shared_secret_point = (public_point * secret_key.to_nonzero_scalar().as_ref()).to_affine();
     // Encode the entire point in uncompressed format
     let shared_secret_encoded = shared_secret_point.to_encoded_point(false);
-    return Ok(shared_secret_encoded.as_bytes().to_vec());
+    Ok(shared_secret_encoded.as_bytes().to_vec())
 }
 
 /// diffie_hellman_byte_params - compute the shared secret between a secret key and a public key

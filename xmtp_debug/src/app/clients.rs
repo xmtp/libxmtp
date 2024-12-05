@@ -1,4 +1,5 @@
 //! Different ways to create a [`crate::DbgClient`]
+
 use super::*;
 use crate::app::types::*;
 
