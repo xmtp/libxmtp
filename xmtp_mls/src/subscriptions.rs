@@ -8,13 +8,7 @@ use tokio::{
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::{
-    api_client::XmtpMlsStreams,
-    xmtp::mls::{
-        api::v1::WelcomeMessage,
-        message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
-    },
-};
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
     client::{extract_welcome_message, ClientError},

@@ -607,9 +607,16 @@ where
                                 ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
-                                let _ = self.client.local_events().send(
-                                    LocalEvents::IncomingPreferenceUpdate(vec![update.try_into()?]),
-                                );
+                                // Ignore errors since this may come from a newer version of the lib
+                                // that has new update types.
+                                if let Ok(update) = update.try_into() {
+                                    let _ = self
+                                        .client
+                                        .local_events()
+                                        .send(LocalEvents::IncomingPreferenceUpdate(vec![update]));
+                                } else {
+                                    tracing::warn!("Failed to deserialize preference update. Is this libxmtp version old?");
+                                }
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
