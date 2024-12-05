@@ -25,7 +25,7 @@ bench = [
     "criterion",
     "dep:fdlimit",
     "dep:ethers",
-    "dep:const_format"
+    "dep:const_format",
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -38,7 +38,8 @@ test-utils = [
     "xmtp_proto/test-utils",
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
-    "dep:const_format"
+    "dep:const_format",
+    "mockall",
 ]
 update-schema = ["toml"]
 
@@ -66,6 +67,7 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 tracing.workspace = true
 trait-variant.workspace = true
 wasm-timer.workspace = true
+web-time.workspace = true
 zeroize.workspace = true
 
 # XMTP/Local
@@ -75,12 +77,12 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 console_error_panic_hook = { workspace = true, optional = true }
+const_format = { workspace = true, optional = true }
+ethers = { workspace = true, features = ["openssl"], optional = true }
+fdlimit = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
 tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
-fdlimit = { workspace = true, optional = true }
-ethers = { workspace = true, features = ["openssl"], optional = true }
-const_format = { workspace = true, optional = true }
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
@@ -89,6 +91,7 @@ criterion = { version = "0.5", features = [
     "async_tokio",
 ], optional = true }
 indicatif = { version = "0.17", optional = true }
+mockall = { version = "0.13.1", optional = true }
 once_cell = { version = "1.19", optional = true }
 tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [
@@ -96,7 +99,7 @@ tracing-subscriber = { workspace = true, features = [
     "fmt",
     "ansi",
     "json",
-    "registry"
+    "registry",
 ], optional = true }
 
 
@@ -137,11 +140,11 @@ web-sys.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+const_format.workspace = true
 mockall = "0.13.1"
 openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
-const_format.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -192,8 +195,8 @@ harness = false
 name = "identity"
 required-features = ["bench"]
 
+
 #[[bench]]
 #harness = false
 #name = "sync"
 #required-features = ["bench"]
-

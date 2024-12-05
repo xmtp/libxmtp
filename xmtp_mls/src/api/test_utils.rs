@@ -1,3 +1,6 @@
+use std::{future::Future, time::Duration};
+use web_time::Instant;
+
 use mockall::mock;
 use xmtp_proto::{
     api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
@@ -175,4 +178,56 @@ mod wasm {
             async fn create_dev() -> Self { ApiClient }
         }
     }
+}
+
+pub async fn wait_for_some<F, Fut, T>(f: F) -> Option<T>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Option<T>>,
+{
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        let result = f().await;
+        if result.is_some() {
+            return result;
+        }
+        crate::sleep(Duration::from_millis(100)).await;
+    }
+    None
+}
+
+pub async fn wait_for_ok<F, Fut, T, E>(f: F) -> Result<T, E>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let start = Instant::now();
+    let mut result = f().await;
+    while start.elapsed() < Duration::from_secs(3) {
+        if result.is_ok() {
+            return result;
+        }
+        crate::sleep(Duration::from_millis(100)).await;
+        result = f().await;
+    }
+    result
+}
+
+pub async fn wait_for_eq<F, Fut, T>(f: F, expected: T)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = T>,
+    T: std::fmt::Debug + PartialEq,
+{
+    let start = Instant::now();
+    let mut result = f().await;
+    while start.elapsed() < Duration::from_secs(3) {
+        if result == expected {
+            break;
+        }
+        crate::sleep(Duration::from_millis(100)).await;
+        result = f().await;
+    }
+
+    assert_eq!(expected, result);
 }

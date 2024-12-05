@@ -285,6 +285,14 @@ impl DbConnection {
         Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
+    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::conversation_type.eq(ConversationType::Sync));
+
+        Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())

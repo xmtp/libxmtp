@@ -440,16 +440,7 @@ impl FfiXmtpClient {
             .register_identity(signature_request.clone())
             .await?;
 
-        self.maybe_start_sync_worker();
-
         Ok(())
-    }
-
-    /// Starts the sync worker if the history sync url is present.
-    fn maybe_start_sync_worker(&self) {
-        if self.inner_client.history_sync_url().is_some() {
-            self.inner_client.start_sync_worker();
-        }
     }
 
     pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
@@ -1811,6 +1802,7 @@ mod tests {
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
+        api::test_utils::{wait_for_eq, wait_for_ok},
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
@@ -2585,7 +2577,7 @@ mod tests {
         }
         bo.conversations().sync().await.unwrap();
         let num_groups_synced_1: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_1 == 30);
+        assert_eq!(num_groups_synced_1, 30);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -2602,11 +2594,11 @@ mod tests {
 
         // First sync after removal needs to process all groups and set them to inactive
         let num_groups_synced_2: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_2 == 30);
+        assert_eq!(num_groups_synced_2, 30);
 
         // Second sync after removal will not process inactive groups
         let num_groups_synced_3: u32 = bo.conversations().sync_all_conversations().await.unwrap();
-        assert!(num_groups_synced_3 == 0);
+        assert_eq!(num_groups_synced_3, 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -4061,15 +4053,40 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_a_conn = alix_a.inner_client.store().conn().unwrap();
+        // wait for alix_a's sync worker to create a sync group
+        let _ = wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_conn) }).await;
+
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true).await;
+
         let bo = new_test_client_with_history().await;
 
-        // have alix_a pull down the new sync group created by alix_b
-        assert!(alix_a.conversations().sync().await.is_ok());
+        // wait for the first installation to get invited to the new sync group
+        wait_for_eq(
+            || async {
+                assert!(alix_a.conversations().sync().await.is_ok());
+                alix_a
+                    .inner_client
+                    .store()
+                    .conn()
+                    .unwrap()
+                    .all_sync_groups()
+                    .unwrap()
+                    .len()
+            },
+            2,
+        )
+        .await;
 
         // check that they have the same sync group
-        let sync_group_a = alix_a.conversations().get_sync_group().unwrap();
-        let sync_group_b = alix_b.conversations().get_sync_group().unwrap();
+        let sync_group_a = wait_for_ok(|| async { alix_a.conversations().get_sync_group() })
+            .await
+            .unwrap();
+        let sync_group_b = wait_for_ok(|| async { alix_b.conversations().get_sync_group() })
+            .await
+            .unwrap();
+
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
         // create a stream from both installations

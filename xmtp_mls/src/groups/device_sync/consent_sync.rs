@@ -120,8 +120,8 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_b_conn, 3).await;
         tracing::info!("Waiting for intents published");
+        wait_for_min_intents(amal_b_conn, 3).await;
 
         let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Old Group Id: {}", hex::encode(&old_group_id));

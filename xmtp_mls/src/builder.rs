@@ -110,8 +110,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
@@ -122,7 +122,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
@@ -163,8 +163,8 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    C: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     let ClientBuilder {
         mut store,
@@ -204,13 +204,19 @@ where
     )
     .await?;
 
-    Ok(Client::new(
+    let client = Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
-    ))
+    );
+
+    if history_sync_url.is_some() {
+        client.start_sync_worker();
+    }
+
+    Ok(client)
 }
 
 #[cfg(test)]

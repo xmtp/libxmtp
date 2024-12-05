@@ -120,7 +120,6 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
-    // TODO: Should we ensure that only one sync worker is running at a time?
     #[instrument(level = "trace", skip_all)]
     pub fn start_sync_worker(&self) {
         let client = self.clone();
@@ -151,6 +150,10 @@ where
     V: SmartContractSignatureVerifier + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
+        // Wait for the identity to be ready before doing anything
+        while !self.client.identity().is_ready() {
+            crate::sleep(Duration::from_millis(200)).await;
+        }
         self.sync_init().await?;
 
         while let Some(event) = self.stream.next().await {

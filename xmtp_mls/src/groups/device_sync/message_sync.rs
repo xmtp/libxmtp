@@ -49,8 +49,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        assert_ok, builder::ClientBuilder, groups::GroupMetadataOptions,
-        utils::test::wait_for_min_intents, utils::test::HISTORY_SYNC_URL,
+        api::test_utils::wait_for_some,
+        assert_ok,
+        builder::ClientBuilder,
+        groups::GroupMetadataOptions,
+        utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
     };
     use std::time::{Duration, Instant};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -263,35 +266,31 @@ pub(crate) mod tests {
             .await
             .expect("sync welcomes");
 
-        let external_wallet = generate_local_wallet();
-        let external_client =
-            ClientBuilder::new_test_client_with_history(&external_wallet, HISTORY_SYNC_URL).await;
+        let bo_wallet = generate_local_wallet();
+        let bo_client =
+            ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
 
-        external_client
-            .sync_welcomes(&external_client.store().conn().unwrap())
+        bo_client
+            .sync_welcomes(&bo_client.store().conn().unwrap())
             .await
             .expect("sync welcomes");
 
-        let amal_sync_group = amal
-            .store()
-            .conn()
-            .unwrap()
-            .latest_sync_group()
-            .expect("find sync group");
+        let amal_sync_group =
+            wait_for_some(|| async { amal.store().conn().unwrap().latest_sync_group().unwrap() })
+                .await;
+
         assert!(amal_sync_group.is_some());
+
         let amal_sync_group = amal_sync_group.unwrap();
 
         // try to join amal's sync group
         let sync_group_id = amal_sync_group.id.clone();
         let created_at_ns = amal_sync_group.created_at_ns;
 
-        let external_client_group = MlsGroup::new(
-            external_client.clone(),
-            sync_group_id.clone(),
-            created_at_ns,
-        );
+        let external_client_group =
+            MlsGroup::new(bo_client.clone(), sync_group_id.clone(), created_at_ns);
         let result = external_client_group
-            .add_members(&[external_wallet.get_address()])
+            .add_members(&[bo_wallet.get_address()])
             .await;
         assert!(result.is_err());
     }
