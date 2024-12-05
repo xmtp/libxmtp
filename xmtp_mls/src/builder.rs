@@ -213,7 +213,7 @@ where
     );
 
     if history_sync_url.is_some() {
-        client.start_sync_worker().await?;
+        client.start_sync_worker();
     }
 
     Ok(client)

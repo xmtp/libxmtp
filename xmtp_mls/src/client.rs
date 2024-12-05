@@ -40,13 +40,13 @@ use crate::{
     mutex_registry::MutexRegistry,
     retry::Retry,
     retry_async, retryable,
-    storage::wallet_addresses::WalletEntry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
+        wallet_addresses::WalletEntry,
         EncryptedMessageStore, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
@@ -250,6 +250,25 @@ where
 
     pub fn scw_verifier(&self) -> &V {
         &self.scw_verifier
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    /// Reconnect to the client's database if it has previously been released
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        self.context.store.reconnect()?;
+        // restart all the workers
+        // TODO: The only worker we have right now are the
+        // sync workers. if we have other workers we
+        // should create a better way to track them.
+        if self.history_sync_url.is_some() {
+            self.start_sync_worker();
+        }
+        Ok(())
     }
 }
 
@@ -467,11 +486,6 @@ where
         Ok(())
     }
 
-    /// Reconnect to the client's database if it has previously been released
-    pub fn reconnect_db(&self) -> Result<(), ClientError> {
-        self.context.store.reconnect()?;
-        Ok(())
-    }
     /// Get a reference to the client's identity struct
     pub fn identity(&self) -> &Identity {
         &self.context.identity

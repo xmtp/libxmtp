@@ -32,8 +32,6 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
-    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
-    pub conversation_type: ConversationType,
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
@@ -42,6 +40,8 @@ pub struct StoredGroup {
     pub dm_inbox_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
+    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
+    pub conversation_type: ConversationType,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
