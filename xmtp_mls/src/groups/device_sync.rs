@@ -153,7 +153,7 @@ where
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready before doing anything
         while !self.client.identity().is_ready() {
-            tokio::task::yield_now().await;
+            crate::sleep(Duration::from_millis(200)).await;
         }
         self.sync_init().await?;
 

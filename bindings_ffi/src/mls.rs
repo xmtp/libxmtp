@@ -4087,24 +4087,6 @@ mod tests {
             .await
             .unwrap();
 
-        // have alix_a pull down the new sync group created by alix_b
-
-        let sync_groups_a = alix_a
-            .inner_client
-            .store()
-            .conn()
-            .unwrap()
-            .all_sync_groups()
-            .unwrap();
-
-        tracing::info!(
-            "Groups a: {:?}",
-            sync_groups_a
-                .into_iter()
-                .map(|g| g.welcome_id)
-                .collect::<Vec<_>>()
-        );
-
         assert_eq!(sync_group_a.id(), sync_group_b.id());
 
         // create a stream from both installations
