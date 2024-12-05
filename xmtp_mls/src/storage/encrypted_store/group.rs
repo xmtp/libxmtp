@@ -19,9 +19,10 @@ use serde::{Deserialize, Serialize};
 
 pub type ID = Vec<u8>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable, Selectable, QueryableByName)]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
+#[diesel(check_for_backend(crate::storage::encrypted_store::Sqlite))]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
