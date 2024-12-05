@@ -8,7 +8,6 @@ use crate::{
 use color_eyre::eyre::{self, eyre, Result};
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 use std::sync::Arc;
-use xmtp_mls::XmtpOpenMlsProvider;
 
 mod content_type;
 
@@ -118,10 +117,9 @@ impl GenerateMessages {
                 hex::encode(inbox_id)
             ))?;
             let client = app::client_from_identity(&identity, &network).await?;
-            let conn = client.store().conn()?;
-            client.sync_welcomes(&conn).await?;
+            let provider = client.mls_provider()?;
+            client.sync_welcomes(&provider).await?;
             let group = client.group(group.id.into())?;
-            let provider: XmtpOpenMlsProvider = conn.into();
             group.maybe_update_installations(&provider, None).await?;
             group.sync_with_conn(&provider).await?;
             let words = rng.gen_range(0..*max_message_size);

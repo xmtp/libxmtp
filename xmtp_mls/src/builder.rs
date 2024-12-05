@@ -187,14 +187,15 @@ where
         .take()
         .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
 
-    debug!(
-        inbox_id = identity_strategy.inbox_id(),
-        "Initializing identity"
-    );
-
     let identity = identity_strategy
         .initialize_identity(&api_client_wrapper, &store, &scw_verifier)
         .await?;
+
+    debug!(
+        inbox_id = identity.inbox_id(),
+        installation_id = hex::encode(identity.installation_keys.public_bytes()),
+        "Initialized identity"
+    );
 
     // get sequence_id from identity updates and loaded into the DB
     load_identity_updates(

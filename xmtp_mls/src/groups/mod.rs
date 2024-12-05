@@ -90,7 +90,7 @@ use crate::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        sql_key_store,
+        sql_key_store, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
@@ -262,6 +262,7 @@ pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     pub client: Arc<C>,
+    // provider: XmtpOpenMlsProvider,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -318,8 +319,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
-    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, GroupError> {
-        Ok(self.context().mls_provider()?)
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
+        self.context().mls_provider()
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
@@ -607,9 +608,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.maybe_update_installations(provider, update_interval_ns)
             .await?;
 
-        let message_id = self.prepare_message(message, provider.conn_ref(), |now| {
-            Self::into_envelope(message, now)
-        });
+        let message_id =
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
 
         self.sync_until_last_intent_resolved(provider).await?;
 
@@ -647,9 +647,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        let conn = self.context().store().conn()?;
+        let provider = self.mls_provider()?;
         let message_id =
-            self.prepare_message(message, &conn, |now| Self::into_envelope(message, now))?;
+            self.prepare_message(message, &provider, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
@@ -663,7 +663,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     fn prepare_message<F>(
         &self,
         message: &[u8],
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         envelope: F,
     ) -> Result<Vec<u8>, GroupError>
     where
@@ -677,7 +677,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        self.queue_intent_with_conn(conn, IntentKind::SendMessage, intent_data)?;
+        self.queue_intent(provider, IntentKind::SendMessage, intent_data)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -691,7 +691,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
         };
-        group_message.store(conn)?;
+        group_message.store(provider.conn_ref())?;
 
         Ok(message_id)
     }
@@ -767,8 +767,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Ok(());
         }
 
-        let intent = self.queue_intent_with_conn(
-            provider.conn_ref(),
+        let intent = self.queue_intent(
+            &provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
         )?;
@@ -816,8 +816,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .get_membership_update_intent(&provider, &[], inbox_ids)
             .await?;
 
-        let intent = self.queue_intent_with_conn(
-            provider.conn_ref(),
+        let intent = self.queue_intent(
+            &provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
         )?;
@@ -834,7 +834,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -863,7 +863,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )
         .into();
 
-        let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::UpdatePermission, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -893,7 +893,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -923,7 +923,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -955,7 +955,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1038,7 +1038,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::UpdateAdminList, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1101,9 +1101,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![])?;
-        self.sync_until_intent_resolved(&self.client.mls_provider()?, intent.id)
-            .await
+        let provider = self.client.mls_provider()?;
+        let intent = self.queue_intent(&provider, IntentKind::KeyUpdate, vec![])?;
+        self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
     /// Checks if the the current user is active in the group.
@@ -1624,7 +1624,7 @@ pub(crate) mod tests {
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
-            .sync_welcomes(&client.store().conn().unwrap())
+            .sync_welcomes(&client.mls_provider().unwrap())
             .await
             .unwrap();
         let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1772,7 +1772,7 @@ pub(crate) mod tests {
 
         // Get bola's version of the same group
         let bola_groups = bola
-            .sync_welcomes(&bola.store().conn().unwrap())
+            .sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_group = bola_groups.first().unwrap();
@@ -1831,7 +1831,7 @@ pub(crate) mod tests {
 
         // Get bola's version of the same group
         let bola_groups = bola
-            .sync_welcomes(&bola.store().conn().unwrap())
+            .sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_group = bola_groups.first().unwrap();
@@ -1941,7 +1941,7 @@ pub(crate) mod tests {
             force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
             // Bo should not be able to actually read this group
-            bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+            bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
             let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
             assert_eq!(groups.len(), 0);
             assert_logged!("failed to create group from welcome", 1);
@@ -2069,7 +2069,7 @@ pub(crate) mod tests {
         group.send_message(b"hello").await.expect("send message");
 
         bola_client
-            .sync_welcomes(&bola_client.store().conn().unwrap())
+            .sync_welcomes(&bola_client.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola_client.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2426,7 +2426,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -2597,7 +2597,7 @@ pub(crate) mod tests {
             .add_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2679,7 +2679,7 @@ pub(crate) mod tests {
             .add_members(&[bola_wallet.get_address()])
             .await
             .unwrap();
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2697,7 +2697,7 @@ pub(crate) mod tests {
         assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
 
         // Verify that bola can not add caro because they are not an admin
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2766,7 +2766,7 @@ pub(crate) mod tests {
             .contains(&bola.inbox_id().to_string()));
 
         // Verify that bola can not add charlie because they are not an admin
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2797,7 +2797,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2815,7 +2815,7 @@ pub(crate) mod tests {
         assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
 
         // Verify that bola can not add caro as an admin because they are not a super admin
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3009,7 +3009,7 @@ pub(crate) mod tests {
         // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
         // and then store that value on the group and insert into the database
         let bola_groups = bola
-            .sync_welcomes(&bola.store().conn().unwrap())
+            .sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -3078,7 +3078,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Step 3: Verify that Bola can update the group name, and amal sees the update
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3146,7 +3146,7 @@ pub(crate) mod tests {
 
         // Step 3: Bola attemps to add Caro, but fails because group is admin only
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3309,7 +3309,7 @@ pub(crate) mod tests {
         assert_eq!(members.len(), 2);
 
         // Bola can message amal
-        let _ = bola.sync_welcomes(&bola.store().conn().unwrap()).await;
+        let _ = bola.sync_welcomes(&bola.mls_provider().unwrap()).await;
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
         let bola_dm: &MlsGroup<_> = bola_groups.first().unwrap();
@@ -3425,7 +3425,7 @@ pub(crate) mod tests {
         let alix_message = vec![1];
         alix_group.send_message(&alix_message).await.unwrap();
         bo_client
-            .sync_welcomes(&bo_client.store().conn().unwrap())
+            .sync_welcomes(&bo_client.mls_provider().unwrap())
             .await
             .unwrap();
         let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3549,7 +3549,11 @@ pub(crate) mod tests {
         }
 
         group
-            .queue_intent(IntentKind::UpdateGroupMembership, intent_data.into())
+            .queue_intent(
+                provider,
+                IntentKind::UpdateGroupMembership,
+                intent_data.into(),
+            )
             .unwrap();
     }
 
@@ -3708,7 +3712,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3729,7 +3733,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        caro.sync_welcomes(&caro.store().conn().unwrap())
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
             .await
             .unwrap();
         let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3762,7 +3766,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
 

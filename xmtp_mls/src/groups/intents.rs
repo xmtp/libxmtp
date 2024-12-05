@@ -33,6 +33,7 @@ use crate::{
     },
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    XmtpOpenMlsProvider,
 };
 
 use super::{
@@ -58,16 +59,18 @@ pub enum IntentError {
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn queue_intent(
         &self,
+        provider: &XmtpOpenMlsProvider,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        self.context().store().transaction(|provider| {
+        self.context().store().transaction(provider, |provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
         })
     }
 
-    pub fn queue_intent_with_conn(
+    /// NOTE: Dangerous to use without a transaction
+    fn queue_intent_with_conn(
         &self,
         conn: &DbConnection,
         intent_kind: IntentKind,
@@ -800,7 +803,7 @@ pub(crate) mod tests {
 
         // Client B sends a message to Client A
         let groups_b = client_b
-            .sync_welcomes(&client_b.store().conn().unwrap())
+            .sync_welcomes(&client_b.mls_provider().unwrap())
             .await
             .unwrap();
         assert_eq!(groups_b.len(), 1);

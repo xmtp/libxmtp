@@ -52,6 +52,7 @@ impl Intents {
     /// apply the update after the provided `ProcessingFn` has completed successfully.
     pub(crate) async fn process_for_id<Fut, ProcessingFn, ReturnValue, ErrorType>(
         &self,
+        provider: &XmtpOpenMlsProvider,
         entity_id: &[u8],
         entity_kind: EntityKind,
         cursor: u64,
@@ -66,7 +67,7 @@ impl Intents {
             + std::fmt::Display,
     {
         self.store()
-            .transaction_async(|provider| async move {
+            .transaction_async(provider, |provider| async move {
                 let is_updated =
                     provider
                         .conn_ref()

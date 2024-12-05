@@ -235,14 +235,13 @@ impl Conversations {
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
-    let conn = self
+    let provider = self
       .inner_client
-      .store()
-      .conn()
+      .mls_provider()
       .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .sync_welcomes(&conn)
+      .sync_welcomes(&provider)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
@@ -250,15 +249,14 @@ impl Conversations {
 
   #[napi]
   pub async fn sync_all_conversations(&self) -> Result<usize> {
-    let conn = self
+    let provider = self
       .inner_client
-      .store()
-      .conn()
+      .mls_provider()
       .map_err(ErrorWrapper::from)?;
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&conn)
+      .sync_all_welcomes_and_groups(&provider)
       .await
       .map_err(ErrorWrapper::from)?;
 

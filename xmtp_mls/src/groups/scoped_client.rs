@@ -4,8 +4,9 @@ use crate::{
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
     intents::Intents,
-    storage::{DbConnection, EncryptedMessageStore},
+    storage::{DbConnection, EncryptedMessageStore, StorageError},
     subscriptions::LocalEvents,
+    types::InstallationId,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -37,11 +38,11 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().inbox_id()
     }
 
-    fn installation_id(&self) -> &[u8] {
+    fn installation_id(&self) -> InstallationId {
         self.context_ref().installation_public_key()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         self.context_ref().mls_provider()
     }
 
@@ -109,7 +110,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().installation_public_key()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         self.context_ref().mls_provider()
     }
 
@@ -276,7 +277,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 
@@ -370,7 +371,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 

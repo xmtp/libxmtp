@@ -12,7 +12,6 @@ use openmls::{
     messages::Welcome,
     prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
-use openmls_traits::OpenMlsProvider;
 use thiserror::Error;
 use tokio::sync::broadcast;
 
@@ -50,6 +49,7 @@ use crate::{
         EncryptedMessageStore, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
+    types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
@@ -172,8 +172,8 @@ pub struct XmtpMlsLocalContext {
 
 impl XmtpMlsLocalContext {
     /// The installation public key is the primary identifier for an installation
-    pub fn installation_public_key(&self) -> &[u8; 32] {
-        self.identity.installation_keys.public_bytes()
+    pub fn installation_public_key(&self) -> InstallationId {
+        (*self.identity.installation_keys.public_bytes()).into()
     }
 
     /// Get the account address of the blockchain account associated with this client
@@ -191,7 +191,7 @@ impl XmtpMlsLocalContext {
     }
 
     /// Pulls a new database connection and creates a new provider
-    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         Ok(self.store.conn()?.into())
     }
 
@@ -278,7 +278,7 @@ where
     V: SmartContractSignatureVerifier,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
-    pub fn installation_public_key(&self) -> &[u8; 32] {
+    pub fn installation_public_key(&self) -> InstallationId {
         self.context.installation_public_key()
     }
     /// Retrieves the client's inbox ID
@@ -291,7 +291,7 @@ where
     }
 
     /// Pulls a connection and creates a new MLS Provider
-    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         self.context.mls_provider()
     }
 
@@ -689,9 +689,12 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
+    pub async fn rotate_key_package(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), ClientError> {
         self.store()
-            .transaction_async(|provider| async move {
+            .transaction_async(provider, |provider| async move {
                 self.identity()
                     .rotate_key_package(&provider, &self.api_client)
                     .await
@@ -729,7 +732,7 @@ where
 
         let welcomes = self
             .api_client
-            .query_welcome_messages(installation_id, Some(id_cursor as u64))
+            .query_welcome_messages(installation_id.as_ref(), Some(id_cursor as u64))
             .await?;
 
         Ok(welcomes)
@@ -743,10 +746,10 @@ where
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
         let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
-        let mls_provider = self.mls_provider()?;
+        let crypto_provider = XmtpOpenMlsProvider::new_crypto();
         Ok(key_package_results
             .values()
-            .map(|bytes| VerifiedKeyPackageV2::from_bytes(mls_provider.crypto(), bytes.as_slice()))
+            .map(|bytes| VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
 
@@ -755,9 +758,9 @@ where
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_welcomes(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
-        let envelopes = self.query_welcome_messages(conn).await?;
+        let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
         let id = self.installation_public_key();
 
@@ -775,7 +778,8 @@ where
                     (async {
                         let welcome_v1 = &welcome_v1;
                         self.intents.process_for_id(
-                            id,
+                            provider,
+                            id.as_ref(),
                             EntityKind::Welcome,
                             welcome_v1.id,
                             |provider| async move {
@@ -816,7 +820,7 @@ where
 
         // If any welcomes were found, rotate your key package
         if num_envelopes > 0 {
-            self.rotate_key_package().await?;
+            self.rotate_key_package(provider).await?;
         }
 
         Ok(groups)
@@ -876,9 +880,9 @@ where
     /// Returns the total number of active groups synced.
     pub async fn sync_all_welcomes_and_groups(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<usize, ClientError> {
-        self.sync_welcomes(conn).await?;
+        self.sync_welcomes(provider).await?;
         let groups = self.find_groups(GroupQueryArgs::default().include_sync_groups())?;
         let active_groups_count = self.sync_all_groups(groups).await?;
 
@@ -1056,7 +1060,10 @@ pub(crate) mod tests {
         let init1 = kp1[0].inner.hpke_init_key();
 
         // Rotate and fetch again.
-        client.rotate_key_package().await.unwrap();
+        client
+            .rotate_key_package(&client.mls_provider().unwrap())
+            .await
+            .unwrap();
 
         let kp2 = client
             .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
@@ -1117,7 +1124,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let bob_received_groups = bob
-            .sync_welcomes(&bob.store().conn().unwrap())
+            .sync_welcomes(&bob.mls_provider().unwrap())
             .await
             .unwrap();
         assert_eq!(bob_received_groups.len(), 1);
@@ -1127,7 +1134,7 @@ pub(crate) mod tests {
         );
 
         let duplicate_received_groups = bob
-            .sync_welcomes(&bob.store().conn().unwrap())
+            .sync_welcomes(&bob.mls_provider().unwrap())
             .await
             .unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
@@ -1157,7 +1164,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let bob_received_groups = bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+        let bob_received_groups = bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1233,7 +1240,7 @@ pub(crate) mod tests {
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
         tracing::info!("Syncing bolas welcomes");
         // See if Bola can see that they were added to the group
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_groups = bola.find_groups(Default::default()).unwrap();
@@ -1254,7 +1261,7 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
-        bola.sync_welcomes(&bola.store().conn().unwrap())
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -1304,12 +1311,13 @@ pub(crate) mod tests {
     async fn get_key_package_init_key<
         ApiClient: XmtpApi,
         Verifier: SmartContractSignatureVerifier,
+        Id: AsRef<[u8]>,
     >(
         client: &Client<ApiClient, Verifier>,
-        installation_id: &[u8],
+        installation_id: Id,
     ) -> Vec<u8> {
         let kps = client
-            .get_key_packages_for_installation_ids(vec![installation_id.to_vec()])
+            .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
             .unwrap();
         let kp = kps.first().unwrap();
@@ -1346,18 +1354,18 @@ pub(crate) mod tests {
         .await
         .unwrap();
 
-        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key()).await;
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
-        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
         let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key()).await;
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
-        alix.sync_welcomes(&alix.store().conn().unwrap())
+        alix.sync_welcomes(&alix.mls_provider().unwrap())
             .await
             .unwrap();
         let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key()).await;
@@ -1371,7 +1379,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        bo.sync_welcomes(&bo.store().conn().unwrap()).await.unwrap();
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
 
         // Bo should have two groups now
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();

@@ -14,6 +14,7 @@ use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
 use crate::subscriptions::SubscribeError;
+use crate::XmtpOpenMlsProvider;
 use crate::{retry::Retry, retry_async};
 use prost::Message;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
@@ -22,6 +23,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Internal stream processing function
     pub(crate) async fn process_stream_entry(
         &self,
+        provider: &XmtpOpenMlsProvider,
         envelope: GroupMessage,
     ) -> Result<StoredGroupMessage, SubscribeError> {
         let msgv1 = extract_message_v1(envelope)?;
@@ -45,7 +47,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     let msgv1 = &msgv1;
                     self.context()
                         .store()
-                        .transaction_async(|provider| async move {
+                        .transaction_async(provider, |provider| async move {
                             let mut openmls_group = self.load_mls_group(&provider)?;
 
                             // Attempt processing immediately, but fail if the message is not an Application Message
@@ -78,7 +80,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 );
                 // Swallow errors here, since another process may have successfully saved the message
                 // to the DB
-                if let Err(err) = self.sync_with_conn(&self.client.mls_provider()?).await {
+                if let Err(err) = self.sync_with_conn(provider).await {
                     tracing::warn!(
                         inbox_id = self.client.inbox_id(),
                         group_id = hex::encode(&self.group_id),
@@ -108,10 +110,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
-        let new_message = self
-            .context()
-            .store()
-            .conn()?
+        let new_message = provider
+            .conn_ref()
             .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?
             .ok_or(SubscribeError::GroupMessageNotFound)?;
 
@@ -133,20 +133,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
     pub async fn process_streamed_group_message(
         &self,
+        provider: &XmtpOpenMlsProvider,
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage, SubscribeError> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        self.process_stream_entry(envelope).await
+        self.process_stream_entry(provider, envelope).await
     }
 
-    pub async fn stream(
-        &self,
+    pub async fn stream<'a>(
+        &'a self,
+        provider: Option<&'a XmtpOpenMlsProvider>,
     ) -> Result<
-        impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + use<'_, ScopedClient>,
+        impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + use<'a, ScopedClient>,
         ClientError,
     >
     where
-        <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
+        <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
     {
         let group_list = HashMap::from([(
             self.group_id.clone(),
@@ -155,7 +157,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 cursor: 0,
             },
         )]);
-        stream_messages(&*self.client, Arc::new(group_list)).await
+        stream_messages(provider, &*self.client, Arc::new(group_list)).await
     }
 
     pub fn stream_with_callback(
@@ -180,14 +182,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 }
 
 /// Stream messages from groups in `group_id_to_info`
+// TODO: Note when to use a None provider
 #[tracing::instrument(level = "debug", skip_all)]
-pub(crate) async fn stream_messages<ScopedClient>(
-    client: &ScopedClient,
+pub(crate) async fn stream_messages<'a, ScopedClient>(
+    provider: Option<&'a XmtpOpenMlsProvider>,
+    client: &'a ScopedClient,
     group_id_to_info: Arc<HashMap<Vec<u8>, MessagesStreamInfo>>,
-) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
+) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + 'a, ClientError>
 where
     ScopedClient: ScopedGroupClient,
-    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'static,
+    <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
     let filters: Vec<GroupFilter> = group_id_to_info
         .iter()
@@ -214,7 +218,13 @@ where
                             "Received message for a non-subscribed group".to_string(),
                         ))?;
                 let mls_group = MlsGroup::new(client, group_id, stream_info.convo_created_at_ns);
-                mls_group.process_stream_entry(envelope).await
+
+                if let Some(p) = provider {
+                    mls_group.process_stream_entry(p, envelope).await
+                } else {
+                    let provider = mls_group.mls_provider()?;
+                    mls_group.process_stream_entry(&provider, envelope).await
+                }
             }
         })
         .inspect(|e| {
@@ -243,7 +253,7 @@ where
     let (tx, rx) = oneshot::channel();
 
     crate::spawn(Some(rx), async move {
-        let stream = stream_messages(&client, Arc::new(group_id_to_info)).await?;
+        let stream = stream_messages(None, &client, Arc::new(group_id_to_info)).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {
@@ -296,8 +306,9 @@ pub(crate) mod tests {
         let message = messages.first().unwrap();
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
+        let provider = amal.mls_provider().unwrap();
         let message_again = amal_group
-            .process_streamed_group_message(message_bytes)
+            .process_streamed_group_message(&provider, message_bytes)
             .await;
 
         if let Ok(message) = message_again {
@@ -327,7 +338,7 @@ pub(crate) mod tests {
 
         // Get bola's version of the same group
         let bola_groups = bola
-            .sync_welcomes(&bola.store().conn().unwrap())
+            .sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
         let bola_group = Arc::new(bola_groups.first().unwrap().clone());
@@ -338,7 +349,7 @@ pub(crate) mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         crate::spawn(None, async move {
-            let stream = bola_group_ptr.stream().await.unwrap();
+            let stream = bola_group_ptr.stream(None).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -380,7 +391,7 @@ pub(crate) mod tests {
         let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
         let group_ptr = group.clone();
         crate::spawn(None, async move {
-            let stream = group_ptr.stream().await.unwrap();
+            let stream = group_ptr.stream(None).await.unwrap();
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
                 let _ = tx.send(item);
@@ -427,7 +438,7 @@ pub(crate) mod tests {
         let (start_tx, start_rx) = tokio::sync::oneshot::channel();
         let mut stream = UnboundedReceiverStream::new(rx);
         crate::spawn(None, async move {
-            let stream = amal_group_ptr.stream().await.unwrap();
+            let stream = amal_group_ptr.stream(None).await.unwrap();
             let _ = start_tx.send(());
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {

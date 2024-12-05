@@ -385,7 +385,7 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider.conn_ref(), {
+        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
             move |_time_ns| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
@@ -429,7 +429,6 @@ where
         provider: &XmtpOpenMlsProvider,
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
         // find the sync group
         let sync_group = self.get_sync_group(provider.conn_ref())?;
 
@@ -441,7 +440,7 @@ where
             .await?;
 
         // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
+        self.ensure_member_of_all_groups(provider.conn_ref(), &msg.sender_inbox_id)
             .await?;
 
         // the reply message
@@ -455,7 +454,7 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
@@ -549,7 +548,7 @@ where
         self.insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
             .await?;
 
-        self.sync_welcomes(provider.conn_ref()).await?;
+        self.sync_welcomes(provider).await?;
 
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
