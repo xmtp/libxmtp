@@ -115,7 +115,6 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
