@@ -726,17 +726,6 @@ internal interface UniffiCallbackInterfaceFfiInboxOwnerMethod1 : com.sun.jna.Cal
     )
 }
 
-internal interface UniffiCallbackInterfaceFfiLoggerMethod0 : com.sun.jna.Callback {
-    fun callback(
-        `uniffiHandle`: Long,
-        `level`: Int,
-        `levelLabel`: RustBuffer.ByValue,
-        `message`: RustBuffer.ByValue,
-        `uniffiOutReturn`: Pointer,
-        uniffiCallStatus: UniffiRustCallStatus,
-    )
-}
-
 internal interface UniffiCallbackInterfaceFfiConsentCallbackMethod0 : com.sun.jna.Callback {
     fun callback(
         `uniffiHandle`: Long,
@@ -825,23 +814,6 @@ internal open class UniffiVTableCallbackInterfaceFfiInboxOwner(
     internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFfiInboxOwner) {
         `getAddress` = other.`getAddress`
         `sign` = other.`sign`
-        `uniffiFree` = other.`uniffiFree`
-    }
-
-}
-
-@Structure.FieldOrder("log", "uniffiFree")
-internal open class UniffiVTableCallbackInterfaceFfiLogger(
-    @JvmField internal var `log`: UniffiCallbackInterfaceFfiLoggerMethod0? = null,
-    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-) : Structure() {
-    class UniffiByValue(
-        `log`: UniffiCallbackInterfaceFfiLoggerMethod0? = null,
-        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ) : UniffiVTableCallbackInterfaceFfiLogger(`log`, `uniffiFree`), Structure.ByValue
-
-    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFfiLogger) {
-        `log` = other.`log`
         `uniffiFree` = other.`uniffiFree`
     }
 
@@ -956,7 +928,6 @@ internal interface UniffiLib : Library {
                     uniffiCallbackInterfaceFfiMessageCallback.register(lib)
                     uniffiCallbackInterfaceFfiV2SubscriptionCallback.register(lib)
                     uniffiCallbackInterfaceFfiInboxOwner.register(lib)
-                    uniffiCallbackInterfaceFfiLogger.register(lib)
                 }
         }
 
@@ -1486,8 +1457,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_maybe_start_sync_worker(
-        `ptr`: Pointer,
-    ): Long
+        `ptr`: Pointer, uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
 
     fun uniffi_xmtpv3_fn_method_ffixmtpclient_message(
         `ptr`: Pointer, `messageId`: RustBuffer.ByValue, uniffi_out_err: UniffiRustCallStatus,
@@ -1544,12 +1515,7 @@ internal interface UniffiLib : Library {
         `vtable`: UniffiVTableCallbackInterfaceFfiInboxOwner,
     ): Unit
 
-    fun uniffi_xmtpv3_fn_init_callback_vtable_ffilogger(
-        `vtable`: UniffiVTableCallbackInterfaceFfiLogger,
-    ): Unit
-
     fun uniffi_xmtpv3_fn_func_create_client(
-        `logger`: Long,
         `host`: RustBuffer.ByValue,
         `isSecure`: Byte,
         `db`: RustBuffer.ByValue,
@@ -1580,10 +1546,7 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
 
     fun uniffi_xmtpv3_fn_func_get_inbox_id_for_address(
-        `logger`: Long,
-        `host`: RustBuffer.ByValue,
-        `isSecure`: Byte,
-        `accountAddress`: RustBuffer.ByValue,
+        `host`: RustBuffer.ByValue, `isSecure`: Byte, `accountAddress`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_func_get_version_info(
@@ -2250,9 +2213,6 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_checksum_method_ffiinboxowner_sign(
     ): Short
 
-    fun uniffi_xmtpv3_checksum_method_ffilogger_log(
-    ): Short
-
     fun ffi_xmtpv3_uniffi_contract_version(
     ): Int
 
@@ -2270,7 +2230,7 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_xmtpv3_checksum_func_create_client() != 6255.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_create_client() != 50509.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_create_v2_client() != 48060.toShort()) {
@@ -2285,7 +2245,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_generate_private_preferences_topic_identifier() != 59124.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_get_inbox_id_for_address() != 36898.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_get_inbox_id_for_address() != 35414.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_get_version_info() != 29277.toShort()) {
@@ -2612,7 +2572,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 37173.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_maybe_start_sync_worker() != 27018.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_maybe_start_sync_worker() != 56811.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 26932.toShort()) {
@@ -2652,9 +2612,6 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffiinboxowner_sign() != 30268.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_xmtpv3_checksum_method_ffilogger_log() != 56011.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -8289,7 +8246,7 @@ public interface FfiXmtpClientInterface {
     /**
      * Starts the sync worker if the history sync url is present.
      */
-    suspend fun `maybeStartSyncWorker`()
+    fun `maybeStartSyncWorker`()
 
     fun `message`(`messageId`: kotlin.ByteArray): FfiMessage
 
@@ -8792,37 +8749,14 @@ open class FfiXmtpClient : Disposable, AutoCloseable, FfiXmtpClientInterface {
     /**
      * Starts the sync worker if the history sync url is present.
      */
-    @Throws(GenericException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `maybeStartSyncWorker`() {
-        return uniffiRustCallAsync(
-            callWithPointer { thisPtr ->
+    override fun `maybeStartSyncWorker`() =
+        callWithPointer {
+            uniffiRustCall() { _status ->
                 UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_maybe_start_sync_worker(
-                    thisPtr,
-
-                    )
-            },
-            { future, callback, continuation ->
-                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(
-                    future,
-                    callback,
-                    continuation
+                    it, _status
                 )
-            },
-            { future, continuation ->
-                UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(
-                    future,
-                    continuation
-                )
-            },
-            { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
-            // lift function
-            { Unit },
-
-            // Error FFI converter
-            GenericException.ErrorHandler,
-        )
-    }
+            }
+        }
 
 
     @Throws(GenericException::class)
@@ -10478,64 +10412,6 @@ internal object uniffiCallbackInterfaceFfiInboxOwner {
 public object FfiConverterTypeFfiInboxOwner : FfiConverterCallbackInterface<FfiInboxOwner>()
 
 
-public interface FfiLogger {
-
-    fun `log`(`level`: kotlin.UInt, `levelLabel`: kotlin.String, `message`: kotlin.String)
-
-    companion object
-}
-
-
-// Put the implementation in an object so we don't pollute the top-level namespace
-internal object uniffiCallbackInterfaceFfiLogger {
-    internal object `log` : UniffiCallbackInterfaceFfiLoggerMethod0 {
-        override fun callback(
-            `uniffiHandle`: Long,
-            `level`: Int,
-            `levelLabel`: RustBuffer.ByValue,
-            `message`: RustBuffer.ByValue,
-            `uniffiOutReturn`: Pointer,
-            uniffiCallStatus: UniffiRustCallStatus,
-        ) {
-            val uniffiObj = FfiConverterTypeFfiLogger.handleMap.get(uniffiHandle)
-            val makeCall = { ->
-                uniffiObj.`log`(
-                    FfiConverterUInt.lift(`level`),
-                    FfiConverterString.lift(`levelLabel`),
-                    FfiConverterString.lift(`message`),
-                )
-            }
-            val writeReturn = { _: Unit -> Unit }
-            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
-        }
-    }
-
-    internal object uniffiFree : UniffiCallbackInterfaceFree {
-        override fun callback(handle: Long) {
-            FfiConverterTypeFfiLogger.handleMap.remove(handle)
-        }
-    }
-
-    internal var vtable = UniffiVTableCallbackInterfaceFfiLogger.UniffiByValue(
-        `log`,
-        uniffiFree,
-    )
-
-    // Registers the foreign callback with the Rust side.
-    // This method is generated for each callback interface.
-    internal fun register(lib: UniffiLib) {
-        lib.uniffi_xmtpv3_fn_init_callback_vtable_ffilogger(vtable)
-    }
-}
-
-/**
- * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
- *
- * @suppress
- */
-public object FfiConverterTypeFfiLogger : FfiConverterCallbackInterface<FfiLogger>()
-
-
 /**
  * @suppress
  */
@@ -11284,7 +11160,6 @@ public object FfiConverterMapStringBoolean :
 @Throws(GenericException::class)
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 suspend fun `createClient`(
-    `logger`: FfiLogger,
     `host`: kotlin.String,
     `isSecure`: kotlin.Boolean,
     `db`: kotlin.String?,
@@ -11297,9 +11172,6 @@ suspend fun `createClient`(
 ): FfiXmtpClient {
     return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_create_client(
-            FfiConverterTypeFfiLogger.lower(
-                `logger`
-            ),
             FfiConverterString.lower(`host`),
             FfiConverterBoolean.lower(`isSecure`),
             FfiConverterOptionalString.lower(`db`),
@@ -11406,19 +11278,15 @@ fun `generatePrivatePreferencesTopicIdentifier`(`privateKey`: kotlin.ByteArray):
 @Throws(GenericException::class)
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 suspend fun `getInboxIdForAddress`(
-    `logger`: FfiLogger,
     `host`: kotlin.String,
     `isSecure`: kotlin.Boolean,
     `accountAddress`: kotlin.String,
 ): kotlin.String? {
     return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_get_inbox_id_for_address(
-            FfiConverterTypeFfiLogger.lower(
-                `logger`
-            ),
-            FfiConverterString.lower(`host`),
-            FfiConverterBoolean.lower(`isSecure`),
-            FfiConverterString.lower(`accountAddress`),
+            FfiConverterString.lower(
+                `host`
+            ), FfiConverterBoolean.lower(`isSecure`), FfiConverterString.lower(`accountAddress`),
         ),
         { future, callback, continuation ->
             UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(

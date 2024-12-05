@@ -5,7 +5,6 @@ import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.Message
-import org.xmtp.android.library.libxmtp.XMTPLogger
 import org.xmtp.android.library.messages.rawData
 import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiDeviceSyncKind
@@ -47,7 +46,6 @@ class Client() {
     lateinit var conversations: Conversations
     lateinit var environment: XMTPEnvironment
     lateinit var dbPath: String
-    var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
     private lateinit var ffiClient: FfiXmtpClient
 
@@ -62,7 +60,6 @@ class Client() {
 
         suspend fun getOrCreateInboxId(environment: ClientOptions.Api, address: String): String {
             var inboxId = getInboxIdForAddress(
-                logger = XMTPLogger(),
                 host = environment.env.getUrl(),
                 isSecure = environment.isSecure,
                 accountAddress = address.lowercase()
@@ -91,7 +88,6 @@ class Client() {
             val dbPath = directoryFile.absolutePath + "/$alias.db3"
 
             val ffiClient = createClient(
-                logger = XMTPLogger(),
                 host = api.env.getUrl(),
                 isSecure = api.isSecure,
                 db = dbPath,
@@ -201,7 +197,6 @@ class Client() {
         dbPath = directoryFile.absolutePath + "/$alias.db3"
 
         val ffiClient = createClient(
-            logger = logger,
             host = options.api.env.getUrl(),
             isSecure = options.api.isSecure,
             db = dbPath,
@@ -210,7 +205,7 @@ class Client() {
             inboxId = inboxId,
             nonce = 0.toULong(),
             legacySignedPrivateKeyProto = null,
-            historySyncUrl = options.historySyncUrl
+            historySyncUrl = null
         )
 
         options.preAuthenticateToInboxCallback?.let {
