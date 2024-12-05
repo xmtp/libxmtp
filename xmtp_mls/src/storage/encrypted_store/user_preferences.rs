@@ -38,8 +38,8 @@ impl StoredUserPreferences {
         conn.raw_query(|conn| {
             diesel::insert_into(dsl::user_preferences)
                 .values(self)
-                .on_conflict_do_nothing()
                 .execute(conn)?;
+
             Ok(())
         })
     }
@@ -58,10 +58,9 @@ mod tests {
     async fn test_insert_and_upate_preferences() {
         with_connection(|conn| {
             // loads a default
-            let mut pref = StoredUserPreferences::load(conn).unwrap();
+            let pref = StoredUserPreferences::load(conn).unwrap();
             assert_eq!(pref, StoredUserPreferences::default());
             assert_eq!(pref.id, None);
-            // pref.hmac_key = Some(vec![]);
             // save that default
             pref.insert(conn).unwrap();
 
@@ -76,7 +75,7 @@ mod tests {
 
             // check that there are two preferences stored
             let query = dsl::user_preferences.order(dsl::id.desc());
-            let mut result = conn
+            let result = conn
                 .raw_query(|conn| query.load::<StoredUserPreferences>(conn))
                 .unwrap();
             assert_eq!(result.len(), 2);
