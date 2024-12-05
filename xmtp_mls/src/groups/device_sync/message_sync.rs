@@ -149,6 +149,96 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_sync_continues_during_db_disconnect() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+
+        let amal_a_provider = amal_a.mls_provider().unwrap();
+        let amal_a_conn = amal_a_provider.conn_ref();
+
+        // make sure amal's worker has time to sync
+        // 3 Intents:
+        //  1.) UpdateGroupMembership Intent for new sync group
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        wait_for_min_intents(amal_a_conn, 3).await;
+        tracing::info!("Waiting for intents published");
+        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+
+        // let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        tracing::info!("Disconnecting");
+        amal_a.release_db_connection().unwrap();
+
+        // Create a second installation for amal.
+        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_conn = amal_b_provider.conn_ref();
+
+        let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
+        assert_eq!(groups_b.len(), 0);
+
+        // make sure amal's worker has time to sync
+        // 3 Intents:
+        //  1.) UpdateGroupMembership Intent for new sync group
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        wait_for_min_intents(amal_b_conn, 3).await;
+        tracing::info!("Waiting for intents published");
+
+        // Have the second installation request for a consent sync.
+        amal_b
+            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
+            .await
+            .unwrap();
+
+        amal_a.reconnect_db().unwrap();
+
+        // make sure amal's worker has time to sync
+        // 2 Intents:
+        //  1.) Device Sync Request
+        //  2.) MessageHistory Sync Request
+        wait_for_min_intents(amal_a_conn, 2).await;
+        tracing::info!("Waiting for intents published");
+
+        // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
+        amal_a
+            .sync_welcomes(amal_a_conn)
+            .await
+            .expect("sync_welcomes");
+        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        // group id should have changed to the new sync group created by the second installation
+        assert_ne!(old_group_id, new_group_id);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn disconnect_does_not_effect_init() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+
+        let amal_a_provider = amal_a.mls_provider().unwrap();
+        let amal_a_conn = amal_a_provider.conn_ref();
+
+        //release db conn right after creating client, not giving the worker time to do initial
+        //sync
+        amal_a.release_db_connection().unwrap();
+
+        let sync_group = amal_a.get_sync_group(amal_a_conn);
+        crate::assert_err!(sync_group, GroupError::GroupNotFound);
+
+        amal_a.reconnect_db().unwrap();
+
+        // make sure amal's worker has time to sync
+        // 3 Intents:
+        //  1.) Sync Group Creation
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        wait_for_min_intents(amal_a_conn, 3).await;
+        tracing::info!("Waiting for intents published");
+        let sync_group = amal_a.get_sync_group(amal_a_conn);
+        assert!(sync_group.is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;

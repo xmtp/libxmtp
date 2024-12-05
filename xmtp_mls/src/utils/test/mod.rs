@@ -236,7 +236,7 @@ where
     register_client(&client, owner).await;
 
     if client.history_sync_url.is_some() {
-        client.start_sync_worker().await.unwrap();
+        client.start_sync_worker();
     }
 
     client
