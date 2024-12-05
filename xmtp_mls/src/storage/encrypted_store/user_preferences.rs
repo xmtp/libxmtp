@@ -1,4 +1,4 @@
-use crate::storage::StorageError;
+use crate::{impl_store, storage::StorageError, Store};
 
 use super::{
     schema::user_preferences::{self, dsl},
@@ -15,6 +15,7 @@ pub struct StoredUserPreferences {
     /// Randomly generated hmac key root
     pub hmac_key: Option<Vec<u8>>,
 }
+impl_store!(StoredUserPreferences, user_preferences);
 
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
@@ -29,25 +30,15 @@ impl StoredUserPreferences {
         preferences.id = None;
         preferences.hmac_key = Some(hmac_key);
 
-        preferences.insert(conn)?;
+        preferences.store(conn)?;
 
         Ok(())
-    }
-
-    fn insert(&self, conn: &DbConnection) -> Result<(), StorageError> {
-        conn.raw_query(|conn| {
-            diesel::insert_into(dsl::user_preferences)
-                .values(self)
-                .execute(conn)?;
-
-            Ok(())
-        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::encrypted_store::tests::with_connection;
+    use crate::{storage::encrypted_store::tests::with_connection, Store};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -62,7 +53,7 @@ mod tests {
             assert_eq!(pref, StoredUserPreferences::default());
             assert_eq!(pref.id, None);
             // save that default
-            pref.insert(conn).unwrap();
+            pref.store(conn).unwrap();
 
             // set an hmac key
             let hmac_key = vec![1, 2, 1, 2, 1, 2, 1, 2, 1, 2];
