@@ -151,6 +151,10 @@ where
     V: SmartContractSignatureVerifier + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
+        // Wait for the identity to be ready before doing anything
+        while !self.client.identity().is_ready() {
+            tokio::task::yield_now().await;
+        }
         self.sync_init().await?;
 
         while let Some(event) = self.stream.next().await {
