@@ -893,11 +893,16 @@ impl FfiConversations {
         Ok(sync_group.into())
     }
 
-    pub async fn sync_all_conversations(&self) -> Result<u32, GenericError> {
+    pub async fn sync_all_conversations(
+        &self,
+        consent_state: Option<FfiConsentState>,
+    ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = inner.store().conn()?;
 
-        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(&conn).await?;
+        let consent: Option<ConsentState> = consent_state.map(|state| state.into());
+
+        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(&conn, consent).await?;
 
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
@@ -2524,7 +2529,10 @@ mod tests {
                 .unwrap();
         }
 
-        bo.conversations().sync_all_conversations().await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         let alix_groups = alix
             .conversations()
             .list(FfiListConversationsOptions::default())
@@ -2548,7 +2556,10 @@ mod tests {
         assert_eq!(bo_messages1.len(), 0);
         assert_eq!(bo_messages5.len(), 0);
 
-        bo.conversations().sync_all_conversations().await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
 
         let bo_messages1 = bo_group1
             .find_messages(FfiListMessagesOptions::default())
@@ -2576,7 +2587,11 @@ mod tests {
                 .unwrap();
         }
         bo.conversations().sync().await.unwrap();
-        let num_groups_synced_1: u32 = bo.conversations().sync_all_conversations().await.unwrap();
+        let num_groups_synced_1: u32 = bo
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         assert_eq!(num_groups_synced_1, 30);
 
         // Remove bo from all groups and sync
@@ -2593,11 +2608,19 @@ mod tests {
         }
 
         // First sync after removal needs to process all groups and set them to inactive
-        let num_groups_synced_2: u32 = bo.conversations().sync_all_conversations().await.unwrap();
+        let num_groups_synced_2: u32 = bo
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         assert_eq!(num_groups_synced_2, 30);
 
         // Second sync after removal will not process inactive groups
-        let num_groups_synced_3: u32 = bo.conversations().sync_all_conversations().await.unwrap();
+        let num_groups_synced_3: u32 = bo
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         assert_eq!(num_groups_synced_3, 0);
     }
 
@@ -3837,9 +3860,15 @@ mod tests {
             .create_dm(bola.account_address.clone())
             .await
             .unwrap();
-        let alix_num_sync = alix_conversations.sync_all_conversations().await.unwrap();
+        let alix_num_sync = alix_conversations
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         bola_conversations.sync().await.unwrap();
-        let bola_num_sync = bola_conversations.sync_all_conversations().await.unwrap();
+        let bola_num_sync = bola_conversations
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         assert_eq!(alix_num_sync, 1);
         assert_eq!(bola_num_sync, 1);
 
@@ -4121,7 +4150,7 @@ mod tests {
             // update the sync group's messages to pipe them into the events
             alix_b
                 .conversations()
-                .sync_all_conversations()
+                .sync_all_conversations(None)
                 .await
                 .unwrap();
 
