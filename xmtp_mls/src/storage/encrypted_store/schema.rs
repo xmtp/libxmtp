@@ -108,6 +108,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_preferences (id) {
+        id -> Nullable<Integer>,
+        hmac_key -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
     wallet_addresses (wallet_address) {
         inbox_id -> Text,
         wallet_address -> Text,
@@ -129,5 +136,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_store,
     openmls_key_value,
     refresh_state,
+    user_preferences,
     wallet_addresses,
 );
