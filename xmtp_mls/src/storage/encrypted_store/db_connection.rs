@@ -51,6 +51,8 @@ where
         self.inner.lock()
     }
 
+    /// Internal-only API to get the underlying `diesel::Connection` reference
+    /// without a scope
     pub(super) fn inner_ref(&self) -> Arc<Mutex<C>> {
         self.inner.clone()
     }
