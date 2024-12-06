@@ -42,11 +42,11 @@ pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_defaults {
     use self::{
-        test_utils::{rand_string, rand_u64, rand_vec},
         unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
         verified_signature::VerifiedSignature,
     };
     use super::*;
+    use xmtp_common::{rand_hexstring, rand_u64, rand_vec};
 
     impl IdentityUpdate {
         pub fn new_test(actions: Vec<Action>, inbox_id: String) -> Self {
@@ -62,19 +62,19 @@ pub mod test_defaults {
 
     impl Default for AddAssociation {
         fn default() -> Self {
-            let existing_member = rand_string();
-            let new_member = rand_vec();
+            let existing_member = rand_hexstring();
+            let new_member = rand_vec::<32>();
             Self {
                 existing_member_signature: VerifiedSignature::new(
                     existing_member.into(),
                     SignatureKind::Erc191,
-                    rand_vec(),
+                    rand_vec::<32>(),
                     None,
                 ),
                 new_member_signature: VerifiedSignature::new(
                     new_member.clone().into(),
                     SignatureKind::InstallationKey,
-                    rand_vec(),
+                    rand_vec::<32>(),
                     None,
                 ),
                 new_member_identifier: new_member.into(),
@@ -85,14 +85,14 @@ pub mod test_defaults {
     // Default will create an inbox with a ERC-191 signature
     impl Default for CreateInbox {
         fn default() -> Self {
-            let signer = rand_string();
+            let signer = rand_hexstring();
             Self {
                 nonce: rand_u64(),
                 account_address: signer.clone(),
                 initial_address_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
-                    rand_vec(),
+                    rand_vec::<32>(),
                     None,
                 ),
             }
@@ -101,15 +101,15 @@ pub mod test_defaults {
 
     impl Default for RevokeAssociation {
         fn default() -> Self {
-            let signer = rand_string();
+            let signer = rand_hexstring();
             Self {
                 recovery_address_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
-                    rand_vec(),
+                    rand_vec::<32>(),
                     None,
                 ),
-                revoked_member: rand_string().into(),
+                revoked_member: rand_hexstring().into(),
             }
         }
     }
@@ -119,10 +119,11 @@ pub mod test_defaults {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    use self::test_utils::{rand_string, rand_vec};
     use super::*;
     use crate::associations::verified_signature::VerifiedSignature;
+    use xmtp_common::{rand_hexstring, rand_vec};
 
     pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
@@ -144,7 +145,7 @@ pub(crate) mod tests {
             existing_member_signature: VerifiedSignature::new(
                 initial_wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             ..Default::default()
@@ -157,7 +158,7 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id =
@@ -172,11 +173,11 @@ pub(crate) mod tests {
         assert!(existing_entity.identifier.eq(&account_address.into()));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn create_and_add_separately() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
-        let new_installation_identifier: MemberIdentifier = rand_vec().into();
+        let new_installation_identifier: MemberIdentifier = rand_vec::<32>().into();
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
 
         let update = Action::AddAssociation(AddAssociation {
@@ -184,13 +185,13 @@ pub(crate) mod tests {
             new_member_signature: VerifiedSignature::new(
                 new_installation_identifier.clone(),
                 SignatureKind::InstallationKey,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 first_member.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -206,24 +207,24 @@ pub(crate) mod tests {
         assert_eq!(new_member.added_by_entity, Some(first_member));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_address.clone();
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce).unwrap();
-        let new_member_identifier: MemberIdentifier = rand_vec().into();
+        let new_member_identifier: MemberIdentifier = rand_vec::<32>().into();
         let add_action = AddAssociation {
             existing_member_signature: VerifiedSignature::new(
                 account_address.clone().into(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             // Add an installation ID
             new_member_signature: VerifiedSignature::new(
                 new_member_identifier.clone(),
                 SignatureKind::InstallationKey,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             new_member_identifier: new_member_identifier.clone(),
@@ -243,9 +244,9 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn create_from_legacy_key() {
-        let member_identifier: MemberIdentifier = rand_string().into();
+        let member_identifier: MemberIdentifier = rand_hexstring().into();
         let create_action = CreateInbox {
             nonce: 0,
             account_address: member_identifier.to_string(),
@@ -282,7 +283,7 @@ pub(crate) mod tests {
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn add_wallet_from_installation_key() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -293,19 +294,19 @@ pub(crate) mod tests {
             .unwrap()
             .identifier;
 
-        let new_wallet_address: MemberIdentifier = rand_string().into();
+        let new_wallet_address: MemberIdentifier = rand_hexstring().into();
         let add_association = Action::AddAssociation(AddAssociation {
             new_member_identifier: new_wallet_address.clone(),
             new_member_signature: VerifiedSignature::new(
                 new_wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 installation_id.clone(),
                 SignatureKind::InstallationKey,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -318,13 +319,13 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
         let bad_signature = VerifiedSignature::new(
-            rand_string().into(),
+            rand_hexstring().into(),
             SignatureKind::Erc191,
-            rand_vec(),
+            rand_vec::<32>(),
             None,
         );
         let action = CreateInbox {
@@ -334,7 +335,7 @@ pub(crate) mod tests {
 
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![Action::CreateInbox(action)],
-            rand_string(),
+            rand_hexstring(),
         )]);
 
         assert!(state_result.is_err());
@@ -344,15 +345,15 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
         // Signature is from a random address
         let bad_signature = VerifiedSignature::new(
-            rand_string().into(),
+            rand_hexstring().into(),
             SignatureKind::Erc191,
-            rand_vec(),
+            rand_vec::<32>(),
             None,
         );
 
@@ -376,7 +377,7 @@ pub(crate) mod tests {
             existing_member_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             ..Default::default()
@@ -392,7 +393,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id =
@@ -402,9 +403,9 @@ pub(crate) mod tests {
         let update = Action::AddAssociation(AddAssociation {
             // Existing member signature is coming from a random wallet
             existing_member_signature: VerifiedSignature::new(
-                rand_string().into(),
+                rand_hexstring().into(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             ..Default::default()
@@ -420,26 +421,26 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn reject_if_installation_adding_installation() {
         let existing_state = new_test_inbox_with_installation();
         let inbox_id = existing_state.inbox_id().to_string();
         let existing_installations = existing_state.members_by_kind(MemberKind::Installation);
         let existing_installation = existing_installations.first().unwrap();
-        let new_installation_id: MemberIdentifier = rand_vec().into();
+        let new_installation_id: MemberIdentifier = rand_vec::<32>().into();
 
         let update = Action::AddAssociation(AddAssociation {
             existing_member_signature: VerifiedSignature::new(
                 existing_installation.identifier.clone(),
                 SignatureKind::InstallationKey,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             new_member_identifier: new_installation_id.clone(),
             new_member_signature: VerifiedSignature::new(
                 new_installation_id.clone(),
                 SignatureKind::InstallationKey,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -457,7 +458,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn revoke() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -471,7 +472,7 @@ pub(crate) mod tests {
             recovery_address_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             revoked_member: installation_id.clone(),
@@ -485,7 +486,7 @@ pub(crate) mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn revoke_children() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -500,7 +501,7 @@ pub(crate) mod tests {
             existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             ..Default::default()
@@ -517,7 +518,7 @@ pub(crate) mod tests {
             recovery_address_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             revoked_member: wallet_address.clone(),
@@ -532,7 +533,7 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 0);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn revoke_and_re_add() {
         let initial_state = new_test_inbox();
         let wallet_address = initial_state
@@ -544,19 +545,19 @@ pub(crate) mod tests {
 
         let inbox_id = initial_state.inbox_id().to_string();
 
-        let second_wallet_address: MemberIdentifier = rand_string().into();
+        let second_wallet_address: MemberIdentifier = rand_hexstring().into();
         let add_second_wallet = Action::AddAssociation(AddAssociation {
             new_member_identifier: second_wallet_address.clone(),
             new_member_signature: VerifiedSignature::new(
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -565,7 +566,7 @@ pub(crate) mod tests {
             recovery_address_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             revoked_member: second_wallet_address.clone(),
@@ -586,13 +587,13 @@ pub(crate) mod tests {
             new_member_signature: VerifiedSignature::new(
                 second_wallet_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             existing_member_signature: VerifiedSignature::new(
                 wallet_address,
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -605,19 +606,19 @@ pub(crate) mod tests {
         assert_eq!(state_after_re_add.members().len(), 2);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
-        let new_recovery_address = rand_string();
+        let new_recovery_address = rand_hexstring();
         let update_recovery = Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
             new_recovery_address: new_recovery_address.clone(),
             recovery_address_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
         });
@@ -633,7 +634,7 @@ pub(crate) mod tests {
             recovery_address_signature: VerifiedSignature::new(
                 initial_recovery_address.clone(),
                 SignatureKind::Erc191,
-                rand_vec(),
+                rand_vec::<32>(),
                 None,
             ),
             revoked_member: initial_recovery_address.clone(),
@@ -650,14 +651,14 @@ pub(crate) mod tests {
         ));
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn scw_signature_binding() {
         let initial_chain_id: u64 = 1;
-        let signer = rand_string();
+        let signer = rand_hexstring();
         let initial_address_signature = VerifiedSignature::new(
             signer.clone().into(),
             SignatureKind::Erc1271,
-            rand_vec(),
+            rand_vec::<32>(),
             Some(initial_chain_id),
         );
         let action = CreateInbox {
@@ -675,13 +676,13 @@ pub(crate) mod tests {
         let inbox_id = initial_state.inbox_id();
 
         let new_chain_id: u64 = 2;
-        let new_member: MemberIdentifier = rand_vec().into();
+        let new_member: MemberIdentifier = rand_vec::<32>().into();
 
         // A signature from the same account address but on a different chain ID
         let existing_member_sig = VerifiedSignature::new(
             signer.clone().into(),
             SignatureKind::Erc1271,
-            rand_vec(),
+            rand_vec::<32>(),
             Some(new_chain_id),
         );
 
@@ -691,7 +692,7 @@ pub(crate) mod tests {
                 new_member_signature: VerifiedSignature::new(
                     new_member.clone(),
                     SignatureKind::InstallationKey,
-                    rand_vec(),
+                    rand_vec::<32>(),
                     None,
                 ),
                 new_member_identifier: new_member.clone(),
@@ -702,7 +703,7 @@ pub(crate) mod tests {
             }),
             Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
                 recovery_address_signature: existing_member_sig.clone(),
-                new_recovery_address: rand_string(),
+                new_recovery_address: rand_hexstring(),
             }),
         ];
 

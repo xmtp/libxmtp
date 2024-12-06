@@ -39,8 +39,6 @@ use crate::{
     intents::Intents,
     mutex_registry::MutexRegistry,
     preferences::UserPreferenceUpdate,
-    retry::Retry,
-    retry_async, retryable,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
@@ -55,6 +53,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
 };
+use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -110,7 +109,7 @@ impl From<GroupError> for ClientError {
     }
 }
 
-impl crate::retry::RetryableError for ClientError {
+impl xmtp_common::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
             ClientError::Group(group_error) => retryable!(group_error),
@@ -448,9 +447,9 @@ where
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
-            self.local_events
-                .send(LocalEvents::OutgoingPreferenceUpdates(records))
-                .map_err(|e| ClientError::Generic(e.to_string()))?;
+            let _ = self
+                .local_events
+                .send(LocalEvents::OutgoingPreferenceUpdates(records));
         }
 
         Ok(())

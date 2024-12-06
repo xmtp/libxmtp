@@ -151,8 +151,9 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::{api::ApiClientWrapper, retry::Retry};
-    use xmtp_id::associations::{test_utils::rand_string, unverified::UnverifiedIdentityUpdate};
+    use crate::api::ApiClientWrapper;
+    use xmtp_common::{rand_hexstring, Retry};
+    use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::api::v1::{
         get_identity_updates_response::{
             IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
@@ -173,7 +174,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn publish_identity_update() {
         let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_string();
+        let inbox_id = rand_hexstring();
         let identity_update = create_identity_update(inbox_id.clone());
 
         mock_api
@@ -191,7 +192,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_identity_update_v2() {
         let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_string();
+        let inbox_id = rand_hexstring();
         let inbox_id_clone = inbox_id.clone();
         let inbox_id_clone_2 = inbox_id.clone();
         mock_api
@@ -238,10 +239,10 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_inbox_ids() {
         let mut mock_api = MockApiClient::new();
-        let inbox_id = rand_string();
+        let inbox_id = rand_hexstring();
         let inbox_id_clone = inbox_id.clone();
         let inbox_id_clone_2 = inbox_id.clone();
-        let address = rand_string();
+        let address = rand_hexstring();
         let address_clone = address.clone();
         let address_clone_2 = address.clone();
 

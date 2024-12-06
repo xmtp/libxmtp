@@ -1,4 +1,4 @@
-use crate::{retry::RetryableError, retryable};
+use xmtp_common::{retryable, RetryableError};
 
 use super::encrypted_store::db_connection::DbConnectionPrivate;
 use bincode;
@@ -1041,9 +1041,9 @@ pub(crate) mod tests {
     use crate::{
         configuration::CIPHERSUITE,
         storage::{sql_key_store::SqlKeyStoreError, EncryptedMessageStore, StorageOption},
-        utils::test::tmp_path,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
+    use xmtp_common::tmp_path;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]

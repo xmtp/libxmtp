@@ -14,8 +14,8 @@ use crate::storage::refresh_state::EntityKind;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
 use crate::subscriptions::SubscribeError;
-use crate::{retry::Retry, retry_async};
 use prost::Message;
+use xmtp_common::{retry_async, Retry};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
@@ -259,6 +259,8 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     use super::*;
     use tokio_stream::wrappers::UnboundedReceiverStream;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -269,11 +271,7 @@ pub(crate) mod tests {
     };
     use futures::StreamExt;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -307,11 +305,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -364,11 +358,7 @@ pub(crate) mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 10)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let group = Arc::new(
@@ -406,11 +396,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 5)
-    )]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -438,7 +424,7 @@ pub(crate) mod tests {
         // just to make sure stream is started
         let _ = start_rx.await;
         // Adding in a sleep, since the HTTP API client may acknowledge requests before they are ready
-        crate::sleep(core::time::Duration::from_millis(100)).await;
+        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
 
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])

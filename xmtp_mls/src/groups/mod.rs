@@ -58,6 +58,7 @@ use self::{
     validated_commit::CommitValidationError,
 };
 use std::{collections::HashSet, sync::Arc};
+use xmtp_common::time::now_ns;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -84,7 +85,6 @@ use crate::{
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
     preferences::UserPreferenceUpdate,
-    retry::RetryableError,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
@@ -94,10 +94,11 @@ use crate::{
         sql_key_store,
     },
     subscriptions::{LocalEventError, LocalEvents},
-    utils::{id::calculate_message_id, time::now_ns},
+    utils::id::calculate_message_id,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
 };
+use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -1593,12 +1594,12 @@ pub(crate) mod tests {
     use openmls::prelude::Member;
     use prost::Message;
     use std::sync::Arc;
+    use xmtp_common::assert_err;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::{
-        assert_err,
         builder::ClientBuilder,
         codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
@@ -1916,8 +1917,9 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     fn test_create_from_welcome_validation() {
         use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
-        use crate::{assert_logged, utils::test::traced_test};
-        traced_test(|| async {
+        use xmtp_common::assert_logged;
+        xmtp_common::traced_test!(async {
+            tracing::info!("TEST");
             let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
