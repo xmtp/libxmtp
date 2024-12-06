@@ -36,3 +36,4 @@ tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread", "sy
 
 [features]
 test-utils = ["dep:parking_lot", "dep:tracing-subscriber", "dep:tracing-wasm", "dep:console_error_panic_hook"]
+bench = ["test-utils"]

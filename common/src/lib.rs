@@ -7,6 +7,9 @@ mod test;
 #[cfg(feature = "test-utils")]
 pub use test::*;
 
+#[cfg(feature = "bench")]
+pub mod bench;
+
 pub mod retry;
 pub use retry::*;
 
