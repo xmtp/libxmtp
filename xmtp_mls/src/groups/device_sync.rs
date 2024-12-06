@@ -172,7 +172,7 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingConsentUpdates(consent_records) => {
+                LocalEvents::OutgoingPreferenceUpdates(consent_records) => {
                     let provider = self.client.mls_provider()?;
                     for record in consent_records {
                         let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
@@ -685,7 +685,7 @@ where
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
                             self.local_events
-                                .send(LocalEvents::OutgoingConsentUpdates(vec![
+                                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
                                     UserPreferenceUpdate::ConsentUpdate(existing_consent_record),
                                 ]))
                                 .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;

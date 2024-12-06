@@ -1094,7 +1094,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let _ = self
                 .client
                 .local_events()
-                .send(LocalEvents::OutgoingConsentUpdates(vec![
+                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
                     UserPreferenceUpdate::ConsentUpdate(consent_record),
                 ]));
         }

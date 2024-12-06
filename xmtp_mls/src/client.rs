@@ -449,7 +449,7 @@ where
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
             self.local_events
-                .send(LocalEvents::OutgoingConsentUpdates(records))
+                .send(LocalEvents::OutgoingPreferenceUpdates(records))
                 .map_err(|e| ClientError::Generic(e.to_string()))?;
         }
 
