@@ -19,15 +19,13 @@ where
             "Streaming consent update. {:?}",
             record
         );
-        let conn = provider.conn_ref();
 
         let sync_group = self.ensure_sync_group(provider).await?;
-
         let update_proto: UserPreferenceUpdateProto = UserPreferenceUpdate::ConsentUpdate(record)
             .try_into()
             .map_err(|e| DeviceSyncError::Bincode(format!("{e:?}")))?;
         let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
                 message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
@@ -111,7 +109,7 @@ pub(crate) mod tests {
         let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Old Group Id: {}", hex::encode(&old_group_id));
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a.sync_welcomes(amal_a_conn).await.unwrap();
+        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
         let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("New Group Id: {}", hex::encode(&new_group_id));
         // group id should have changed to the new sync group created by the second installation

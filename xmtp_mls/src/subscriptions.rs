@@ -12,7 +12,10 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 
 use crate::{
     client::{extract_welcome_message, ClientError},
-    groups::{mls_sync::GroupMessageProcessingError, subscriptions, GroupError, MlsGroup},
+    groups::{
+        group_metadata::GroupMetadata, mls_sync::GroupMessageProcessingError,
+        scoped_client::ScopedGroupClient as _, subscriptions, GroupError, MlsGroup,
+    },
     preferences::UserPreferenceUpdate,
     retry::{Retry, RetryableError},
     retry_async, retryable,
@@ -22,7 +25,7 @@ use crate::{
         group_message::StoredGroupMessage,
         StorageError,
     },
-    Client, XmtpApi,
+    Client, XmtpApi, XmtpOpenMlsProvider,
 };
 use thiserror::Error;
 
@@ -223,6 +226,7 @@ where
 {
     async fn process_streamed_welcome(
         &self,
+        provider: &XmtpOpenMlsProvider,
         welcome: WelcomeMessage,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let welcome_v1 = extract_welcome_message(welcome)?;
@@ -236,10 +240,10 @@ where
                 let welcome_v1 = &welcome_v1;
                 self.context
                     .store()
-                    .transaction_async(|provider| async move {
+                    .transaction_async(provider, |provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
                             Arc::new(self.clone()),
-                            &provider,
+                            provider,
                             welcome_v1.hpke_public_key.as_slice(),
                             &welcome_v1.data,
                             welcome_v1.id as i64,
@@ -251,7 +255,7 @@ where
         );
 
         if let Some(err) = creation_result.as_ref().err() {
-            let conn = self.context.store().conn()?;
+            let conn = provider.conn_ref();
             let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
             match result {
                 Ok(Some(group)) => {
@@ -276,69 +280,79 @@ where
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let provider = self.mls_provider()?;
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = self.process_streamed_welcome(envelope).await?;
+        let welcome = self.process_streamed_welcome(&provider, envelope).await?;
         Ok(welcome)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn stream_conversations(
-        &self,
+    pub async fn stream_conversations<'a>(
+        &'a self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + '_, ClientError>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + 'a, ClientError>
     where
         ApiClient: XmtpMlsStreams,
     {
-        let event_queue = tokio_stream::wrappers::BroadcastStream::new(
-            self.local_events.subscribe(),
-        )
-        .filter_map(|event| async {
-            crate::optify!(event, "Missed messages due to event queue lag")
-                .and_then(LocalEvents::group_filter)
-                .map(Result::Ok)
-        });
-
-        // Helper function for filtering Dm groups
-        let filter_group = move |group: Result<MlsGroup<Self>, ClientError>| {
-            let conversation_type = &conversation_type;
-            // take care of any possible errors
-            let result = || -> Result<_, _> {
-                let group = group?;
-                let provider = group.client.context().mls_provider()?;
-                let metadata = group.metadata(&provider)?;
-                Ok((metadata, group))
-            };
-            let filtered = result().map(|(metadata, group)| {
-                conversation_type
-                    .map_or(true, |ct| ct == metadata.conversation_type)
-                    .then_some(group)
-            });
-            futures::future::ready(filtered.transpose())
-        };
-
         let installation_key = self.installation_public_key();
         let id_cursor = 0;
 
         tracing::info!(inbox_id = self.inbox_id(), "Setting up conversation stream");
         let subscription = self
             .api_client
-            .subscribe_welcome_messages(installation_key.into(), Some(id_cursor))
-            .await?;
+            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor))
+            .await?
+            .map(WelcomeOrGroup::<ApiClient, V>::Welcome);
 
-        let stream = subscription
-            .map(|welcome| async {
-                tracing::info!(
-                    inbox_id = self.inbox_id(),
-                    "Received conversation streaming payload"
-                );
-                self.process_streamed_welcome(welcome?).await
-            })
-            .filter_map(|v| async { Some(v.await) });
+        let event_queue =
+            tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe())
+                .filter_map(|event| async {
+                    crate::optify!(event, "Missed messages due to event queue lag")
+                        .and_then(LocalEvents::group_filter)
+                        .map(Result::Ok)
+                })
+                .map(WelcomeOrGroup::<ApiClient, V>::Group);
 
-        Ok(futures::stream::select(stream, event_queue).filter_map(filter_group))
+        let stream = futures::stream::select(event_queue, subscription);
+        let stream = stream.filter_map(move |group_or_welcome| async move {
+            tracing::info!(
+                inbox_id = self.inbox_id(),
+                installation_id = %self.installation_id(),
+                "Received conversation streaming payload"
+            );
+            let filtered = self.process_streamed_convo(group_or_welcome).await;
+            let filtered = filtered.map(|(metadata, group)| {
+                conversation_type
+                    .map_or(true, |ct| ct == metadata.conversation_type)
+                    .then_some(group)
+            });
+            filtered.transpose()
+        });
+
+        Ok(stream)
     }
+
+    async fn process_streamed_convo(
+        &self,
+        welcome_or_group: WelcomeOrGroup<ApiClient, V>,
+    ) -> Result<(GroupMetadata, MlsGroup<Client<ApiClient, V>>), SubscribeError> {
+        let provider = self.mls_provider()?;
+        let group = match welcome_or_group {
+            WelcomeOrGroup::Welcome(welcome) => {
+                self.process_streamed_welcome(&provider, welcome?).await?
+            }
+            WelcomeOrGroup::Group(group) => group?,
+        };
+        let metadata = group.metadata(provider)?;
+        Ok((metadata, group))
+    }
+}
+
+enum WelcomeOrGroup<ApiClient, V> {
+    Group(Result<MlsGroup<Client<ApiClient, V>>, SubscribeError>),
+    Welcome(Result<WelcomeMessage, xmtp_proto::Error>),
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -377,17 +391,19 @@ where
             conversation_type = ?conversation_type,
             "stream all messages"
         );
+        let mut group_id_to_info = async {
+            let provider = self.mls_provider()?;
+            self.sync_welcomes(&provider).await?;
 
-        let conn = self.store().conn()?;
-        self.sync_welcomes(&conn).await?;
-
-        let mut group_id_to_info = self
-            .store()
-            .conn()?
-            .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
-            .into_iter()
-            .map(Into::into)
-            .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+            let group_id_to_info = provider
+                .conn_ref()
+                .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
+                .into_iter()
+                .map(Into::into)
+                .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
+            Ok::<_, ClientError>(group_id_to_info)
+        }
+        .await?;
 
         let stream = async_stream::stream! {
             let messages_stream = subscriptions::stream_messages(
@@ -586,7 +602,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let bob_group = bob
-            .sync_welcomes(&bob.store().conn().unwrap())
+            .sync_welcomes(&bob.mls_provider().unwrap())
             .await
             .unwrap();
         let bob_group = bob_group.first().unwrap();
@@ -895,7 +911,7 @@ pub(crate) mod tests {
         }
 
         // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes(&alix.store().conn().unwrap())
+        alix.sync_welcomes(&alix.mls_provider().unwrap())
             .await
             .unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
@@ -930,7 +946,7 @@ pub(crate) mod tests {
             },
         );
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -980,7 +996,7 @@ pub(crate) mod tests {
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -1003,7 +1019,7 @@ pub(crate) mod tests {
                 notify_pointer.notify_one();
             });
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -1013,7 +1029,7 @@ pub(crate) mod tests {
         }
 
         let dm = bo
-            .create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .create_dm_by_inbox_id(&bo.mls_provider().unwrap(), alix.inbox_id().to_string())
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
@@ -1057,7 +1073,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
             .await
             .unwrap();
 

@@ -190,6 +190,13 @@ pub mod private {
             Ok::<_, StorageError>(())
         }
 
+        pub fn mls_provider(
+            &self,
+        ) -> Result<XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+            let conn = self.conn()?;
+            Ok(crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate::new(conn))
+        }
+
         /// Pulls a new connection from the store
         pub fn conn(
             &self,
@@ -198,6 +205,7 @@ pub mod private {
         }
 
         /// Start a new database transaction with the OpenMLS Provider from XMTP
+        /// with the provided connection
         /// # Arguments
         /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
         ///
@@ -210,22 +218,25 @@ pub mod private {
         ///     provider.conn().db_operation()?;
         /// })
         /// ```
-        pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+        pub fn transaction<T, F, E>(
+            &self,
+            provider: &XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            fun: F,
+        ) -> Result<T, E>
         where
             F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
             tracing::debug!("Transaction beginning");
-            let connection = self.db.conn()?;
             {
+                let connection = provider.conn_ref();
                 let mut connection = connection.inner_mut_ref();
                 <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
             }
 
-            let provider = XmtpOpenMlsProviderPrivate::new(connection);
             let conn = provider.conn_ref();
 
-            match fun(&provider) {
+            match fun(provider) {
                 Ok(value) => {
                     conn.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
@@ -260,27 +271,29 @@ pub mod private {
         ///     provider.conn().db_operation()?;
         /// }).await
         /// ```
-        pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+        pub async fn transaction_async<'a, T, F, E, Fut>(
+            &self,
+            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            fun: F,
+        ) -> Result<T, E>
         where
-            F: FnOnce(XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+            F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
             Fut: futures::Future<Output = Result<T, E>>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
             tracing::debug!("Transaction async beginning");
-            let db_connection = self.db.conn()?;
             {
-                let mut connection = db_connection.inner_mut_ref();
+                let connection = provider.conn_ref();
+                let mut connection = connection.inner_mut_ref();
                 <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
             }
-            let local_connection = db_connection.inner_ref();
-            let provider = XmtpOpenMlsProviderPrivate::new(db_connection);
 
-            // the other connection is dropped in the closure
             // ensuring we have only one strong reference
             let result = fun(provider).await;
+            let local_connection = provider.conn_ref().inner_ref();
             if Arc::strong_count(&local_connection) > 1 {
                 tracing::warn!(
-                    "More than 1 strong connection references still exist during transaction"
+                    "More than 1 strong connection references still exist during async transaction"
                 );
             }
 
@@ -467,7 +480,7 @@ pub(crate) mod tests {
             identity::StoredIdentity,
         },
         utils::test::{rand_vec, tmp_path},
-        Fetch, Store, StreamHandle as _,
+        Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
     };
 
     /// Test harness that loads an Ephemeral store.
@@ -651,11 +664,11 @@ pub(crate) mod tests {
         .unwrap();
 
         let barrier = Arc::new(Barrier::new(2));
-
+        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let store_pointer = store.clone();
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
-            store_pointer.transaction(|provider| {
+            store_pointer.transaction(&provider, |provider| {
                 let conn1 = provider.conn_ref();
                 StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
                     .store(conn1)
@@ -669,20 +682,22 @@ pub(crate) mod tests {
         });
 
         let store_pointer = store.clone();
+        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
-                let connection = provider.conn_ref();
-                let group = StoredGroup::new(
-                    b"should not exist".to_vec(),
-                    0,
-                    GroupMembershipState::Allowed,
-                    "goodbye".to_string(),
-                    None,
-                );
-                group.store(connection)?;
-                Ok(())
-            });
+            let result =
+                store_pointer.transaction(&provider, |provider| -> Result<(), anyhow::Error> {
+                    let connection = provider.conn_ref();
+                    let group = StoredGroup::new(
+                        b"should not exist".to_vec(),
+                        0,
+                        GroupMembershipState::Allowed,
+                        "goodbye".to_string(),
+                        None,
+                    );
+                    group.store(connection)?;
+                    Ok(())
+                });
             barrier.wait();
             result
         });
@@ -718,10 +733,10 @@ pub(crate) mod tests {
         .unwrap();
 
         let store_pointer = store.clone();
-
+        let provider = XmtpOpenMlsProvider::new(store_pointer.conn().unwrap());
         let handle = crate::spawn(None, async move {
             store_pointer
-                .transaction_async(|provider| async move {
+                .transaction_async(&provider, |provider| async move {
                     let conn1 = provider.conn_ref();
                     StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
                         .store(conn1)

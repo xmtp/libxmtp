@@ -275,9 +275,14 @@ impl Client {
 
   #[napi]
   pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>> {
+    let conn = self
+      .inner_client()
+      .store()
+      .conn()
+      .map_err(ErrorWrapper::from)?;
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_address(address)
+      .find_inbox_id_from_address(&conn, address)
       .await
       .map_err(ErrorWrapper::from)?;
 

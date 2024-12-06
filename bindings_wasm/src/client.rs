@@ -12,7 +12,6 @@ use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::ClientBuilder;
-use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -273,9 +272,14 @@ impl Client {
 
   #[wasm_bindgen(js_name = findInboxIdByAddress)]
   pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>, JsError> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_address(address)
+      .find_inbox_id_from_address(&conn, address)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

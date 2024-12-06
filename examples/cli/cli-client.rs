@@ -290,9 +290,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::ListGroups {} => {
             info!("List Groups");
-            let conn = client.store().conn()?;
+            let provider = client.mls_provider()?;
             client
-                .sync_welcomes(&conn)
+                .sync_welcomes(&provider)
                 .await
                 .expect("failed to sync welcomes");
 
@@ -440,9 +440,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
             );
         }
         Commands::RequestHistorySync {} => {
-            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes(&conn).await.unwrap();
+            client.sync_welcomes(&provider).await.unwrap();
             client.start_sync_worker();
             client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
@@ -451,9 +450,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
             info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
-            let conn = client.store().conn()?;
-            client.sync_welcomes(&conn).await?;
-            let group = client.get_sync_group(&conn)?;
+            let provider = client.mls_provider()?;
+            client.sync_welcomes(&provider).await?;
+            let group = client.get_sync_group(provider.conn_ref())?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group
@@ -574,8 +573,8 @@ where
 }
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
-    let conn = client.store().conn().unwrap();
-    client.sync_welcomes(&conn).await?;
+    let provider = client.mls_provider().unwrap();
+    client.sync_welcomes(&provider).await?;
     let group = client.group(group_id)?;
     group
         .sync()

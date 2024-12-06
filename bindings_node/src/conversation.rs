@@ -197,8 +197,9 @@ impl Conversation {
       self.created_at_ns,
     );
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
+    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let message = group
-      .process_streamed_group_message(envelope_bytes)
+      .process_streamed_group_message(&provider, envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
 

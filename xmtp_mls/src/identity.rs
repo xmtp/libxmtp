@@ -5,7 +5,6 @@ use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -111,14 +110,12 @@ impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        store: &EncryptedMessageStore,
+        provider: &XmtpOpenMlsProvider,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         use IdentityStrategy::*;
 
         info!("Initializing identity");
-        let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
             .conn_ref()
             .fetch(&())?
@@ -150,7 +147,7 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
-                        &provider,
+                        provider,
                         scw_signature_verifier,
                     )
                     .await

@@ -19,7 +19,11 @@ impl<C> XmtpOpenMlsProviderPrivate<C> {
         }
     }
 
-    pub(crate) fn conn_ref(&self) -> &DbConnectionPrivate<C> {
+    pub fn new_crypto() -> RustCrypto {
+        RustCrypto::default()
+    }
+
+    pub fn conn_ref(&self) -> &DbConnectionPrivate<C> {
         self.key_store.conn_ref()
     }
 }
