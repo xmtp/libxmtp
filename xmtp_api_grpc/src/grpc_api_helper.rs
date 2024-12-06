@@ -8,6 +8,7 @@ use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use tracing::Instrument;
 
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
@@ -28,7 +29,9 @@ use xmtp_proto::{
     Error, ErrorKind,
 };
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_tls_channel(address: String) -> Result<Channel, Error> {
+    let span = tracing::trace_span!("grpc_connect", address);
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
@@ -58,6 +61,7 @@ pub async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         .tls_config(ClientTlsConfig::new().with_enabled_roots())
         .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
         .connect()
+        .instrument(span)
         .await
         .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
 
@@ -74,6 +78,7 @@ pub struct Client {
 }
 
 impl Client {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))

@@ -3229,7 +3229,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6899,7 +6899,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -7299,11 +7299,13 @@ dependencies = [
  "getrandom",
  "gloo-timers 0.3.0",
  "js-sys",
+ "once_cell",
  "parking_lot 0.12.3",
  "rand",
  "thiserror 2.0.6",
  "tokio",
  "tracing",
+ "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
  "wasm-bindgen-futures",
@@ -7416,7 +7418,6 @@ dependencies = [
  "libsqlite3-sys",
  "mockall",
  "mockito",
- "once_cell",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -7437,7 +7438,6 @@ dependencies = [
  "tokio-stream",
  "toml 0.8.19",
  "tracing",
- "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
  "trait-variant",
@@ -7505,7 +7505,9 @@ dependencies = [
 name = "xmtpv3"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "ethers",
+ "fdlimit",
  "futures",
  "paranoid-android",
  "parking_lot 0.12.3",

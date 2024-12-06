@@ -120,9 +120,9 @@ impl NativeDb {
             StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => {
-                builder.max_size(25).build(ConnectionManager::new(path))?
-            }
+            StorageOption::Persistent(ref path) => builder
+                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+                .build(ConnectionManager::new(path))?,
         };
 
         Ok(Self {
@@ -186,9 +186,9 @@ impl XmtpDb for NativeDb {
             StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => {
-                builder.max_size(25).build(ConnectionManager::new(path))?
-            }
+            StorageOption::Persistent(ref path) => builder
+                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+                .build(ConnectionManager::new(path))?,
         };
 
         let mut pool_write = self.pool.write();

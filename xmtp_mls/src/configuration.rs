@@ -28,6 +28,8 @@ pub const MAX_GROUP_SIZE: usize = 400;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
+pub const MAX_DB_POOL_SIZE: u32 = 10;
+
 /// the max amount of data that can be sent in one gRPC call
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
