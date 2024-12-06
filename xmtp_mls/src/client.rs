@@ -882,9 +882,17 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         conn: &DbConnection,
+        consent_state: Option<ConsentState>,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(conn).await?;
-        let groups = self.find_groups(GroupQueryArgs::default().include_sync_groups())?;
+
+        let query_args = GroupQueryArgs {
+            consent_state,
+            include_sync_groups: true,
+            ..GroupQueryArgs::default()
+        };
+
+        let groups = self.find_groups(query_args)?;
         let active_groups_count = self.sync_all_groups(groups).await?;
 
         Ok(active_groups_count)
@@ -1188,6 +1196,115 @@ pub(crate) mod tests {
         let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
+    async fn test_sync_all_groups_and_welcomes() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create two groups and add Bob
+        let alix_bo_group1 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let alix_bo_group2 = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_bo_group1
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+        alix_bo_group2
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Initial sync (None): Bob should fetch both groups
+        let bob_received_groups = bo
+            .sync_all_welcomes_and_groups(&bo.store().conn().unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(bob_received_groups, 2);
+
+        // Verify Bob initially has no messages
+        let bo_group1 = bo.group(alix_bo_group1.group_id.clone()).unwrap();
+        assert_eq!(
+            bo_group1
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            0
+        );
+        let bo_group2 = bo.group(alix_bo_group2.group_id.clone()).unwrap();
+        assert_eq!(
+            bo_group2
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            0
+        );
+
+        // Alix sends a message to both groups
+        alix_bo_group1
+            .send_message(vec![1, 2, 3].as_slice())
+            .await
+            .unwrap();
+        alix_bo_group2
+            .send_message(vec![4, 5, 6].as_slice())
+            .await
+            .unwrap();
+
+        // Sync with `Unknown`: Bob should not fetch new messages
+        let bob_received_groups_unknown = bo
+            .sync_all_welcomes_and_groups(&bo.store().conn().unwrap(), Some(ConsentState::Allowed))
+            .await
+            .unwrap();
+        assert_eq!(bob_received_groups_unknown, 0);
+
+        // Verify Bob still has no messages
+        assert_eq!(
+            bo_group1
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            bo_group2
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            0
+        );
+
+        // Alix sends another message to both groups
+        alix_bo_group1
+            .send_message(vec![7, 8, 9].as_slice())
+            .await
+            .unwrap();
+        alix_bo_group2
+            .send_message(vec![10, 11, 12].as_slice())
+            .await
+            .unwrap();
+
+        // Sync with `None`: Bob should fetch all messages
+        let bob_received_groups_all = bo
+            .sync_all_welcomes_and_groups(&bo.store().conn().unwrap(), Some(ConsentState::Unknown))
+            .await
+            .unwrap();
+        assert_eq!(bob_received_groups_all, 2);
+
+        // Verify Bob now has all messages
+        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(bo_messages1.len(), 2);
+
+        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(bo_messages2.len(), 2);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
