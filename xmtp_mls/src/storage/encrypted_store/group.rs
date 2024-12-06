@@ -215,6 +215,8 @@ impl DbConnection {
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
+            // Filter out sync groups from the main query
+            .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
 
@@ -238,13 +240,7 @@ impl DbConnection {
             query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
-        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
-        // Otherwise filter sync groups out by default.
-        if !matches!(conversation_type, Some(ConversationType::Sync)) && !include_sync_groups {
-            query = query.filter(groups_dsl::conversation_type.ne(ConversationType::Sync));
-        }
-
-        let groups = if let Some(consent_state) = consent_state {
+        let mut groups = if let Some(consent_state) = consent_state {
             if *consent_state == ConsentState::Unknown {
                 let query = query
                     .left_join(
@@ -277,6 +273,15 @@ impl DbConnection {
         } else {
             self.raw_query(|conn| query.load::<StoredGroup>(conn))?
         };
+
+        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
+        // Then query for those separately
+        if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
+            let query =
+                groups_dsl::groups.filter(groups_dsl::conversation_type.eq(ConversationType::Sync));
+            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+            groups.append(&mut sync_groups);
+        }
 
         Ok(groups)
     }
@@ -781,7 +786,19 @@ pub(crate) mod tests {
 
             let found = conn.latest_sync_group().unwrap();
             assert!(found.is_some());
-            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync)
+            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync);
+
+            // Load the sync group with a consent filter
+            let allowed_groups = conn
+                .find_groups(&GroupQueryArgs {
+                    consent_state: Some(ConsentState::Allowed),
+                    include_sync_groups: true,
+                    ..Default::default()
+                })
+                .unwrap();
+
+            assert_eq!(allowed_groups.len(), 1);
+            assert_eq!(allowed_groups[0].id, sync_group.id);
         })
         .await
     }
