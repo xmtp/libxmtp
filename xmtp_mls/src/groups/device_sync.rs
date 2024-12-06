@@ -340,6 +340,8 @@ where
                     }
                     _ => {
                         tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        crate::sleep(Duration::from_secs(2)).await;
                     }
                 }
             }
