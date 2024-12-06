@@ -446,7 +446,7 @@ where
             records.append(&mut new_records);
             let records = records
                 .into_iter()
-                .map(|r| UserPreferenceUpdate::ConsentUpdate(r))
+                .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
             self.local_events
                 .send(LocalEvents::OutgoingConsentUpdates(records))
