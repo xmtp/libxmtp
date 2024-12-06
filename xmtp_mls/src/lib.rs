@@ -12,6 +12,7 @@ pub mod identity;
 pub mod identity_updates;
 mod intents;
 mod mutex_registry;
+mod preferences;
 pub mod retry;
 pub mod storage;
 mod stream_handles;

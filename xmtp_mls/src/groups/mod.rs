@@ -83,6 +83,7 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
+    preferences::UserPreferenceUpdate,
     retry::RetryableError,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -1093,7 +1094,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let _ = self
                 .client
                 .local_events()
-                .send(LocalEvents::OutgoingConsentUpdates(vec![consent_record]));
+                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
+                    UserPreferenceUpdate::ConsentUpdate(consent_record),
+                ]));
         }
 
         Ok(())

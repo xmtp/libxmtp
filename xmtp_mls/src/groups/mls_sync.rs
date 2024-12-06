@@ -606,17 +606,17 @@ where
                                     SyncMessage::Reply { message_id },
                                 ));
                             }
-                            Some(MessageType::ConsentUpdate(update)) => {
-                                tracing::info!(
-                                    "Incoming streamed consent update: {:?} {} updated to {:?}.",
-                                    update.entity_type(),
-                                    update.entity,
-                                    update.state()
-                                );
-
-                                let _ = self.client.local_events().send(
-                                    LocalEvents::IncomingConsentUpdates(vec![update.try_into()?]),
-                                );
+                            Some(MessageType::UserPreferenceUpdate(update)) => {
+                                // Ignore errors since this may come from a newer version of the lib
+                                // that has new update types.
+                                if let Ok(update) = update.try_into() {
+                                    let _ = self
+                                        .client
+                                        .local_events()
+                                        .send(LocalEvents::IncomingPreferenceUpdate(vec![update]));
+                                } else {
+                                    tracing::warn!("Failed to deserialize preference update. Is this libxmtp version old?");
+                                }
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);

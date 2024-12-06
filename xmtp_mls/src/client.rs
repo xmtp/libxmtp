@@ -38,6 +38,7 @@ use crate::{
     identity_updates::{load_identity_updates, IdentityUpdateError},
     intents::Intents,
     mutex_registry::MutexRegistry,
+    preferences::UserPreferenceUpdate,
     retry::Retry,
     retry_async, retryable,
     storage::{
@@ -443,8 +444,12 @@ where
         if self.history_sync_url.is_some() {
             let mut records = records.to_vec();
             records.append(&mut new_records);
+            let records = records
+                .into_iter()
+                .map(UserPreferenceUpdate::ConsentUpdate)
+                .collect();
             self.local_events
-                .send(LocalEvents::OutgoingConsentUpdates(records))
+                .send(LocalEvents::OutgoingPreferenceUpdates(records))
                 .map_err(|e| ClientError::Generic(e.to_string()))?;
         }
 

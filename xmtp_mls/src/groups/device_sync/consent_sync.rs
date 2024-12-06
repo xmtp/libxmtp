@@ -1,12 +1,7 @@
 use super::*;
-use crate::{
-    storage::consent_record::{ConsentState, ConsentType},
-    Client, XmtpApi,
-};
+use crate::{preferences::UserPreferenceUpdate, Client, XmtpApi};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::mls::message_contents::{
-    ConsentEntityType, ConsentState as ConsentStateProto, ConsentUpdate as ConsentUpdateProto,
-};
+use xmtp_proto::xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
@@ -16,7 +11,7 @@ where
     pub(crate) async fn send_consent_update(
         &self,
         provider: &XmtpOpenMlsProvider,
-        record: &StoredConsentRecord,
+        record: StoredConsentRecord,
     ) -> Result<(), DeviceSyncError> {
         tracing::info!(
             inbox_id = self.inbox_id(),
@@ -26,26 +21,16 @@ where
         );
         let conn = provider.conn_ref();
 
-        let consent_update_proto = ConsentUpdateProto {
-            entity: record.entity.clone(),
-            entity_type: match record.entity_type {
-                ConsentType::Address => ConsentEntityType::Address,
-                ConsentType::ConversationId => ConsentEntityType::ConversationId,
-                ConsentType::InboxId => ConsentEntityType::InboxId,
-            } as i32,
-            state: match record.state {
-                ConsentState::Allowed => ConsentStateProto::Allowed,
-                ConsentState::Denied => ConsentStateProto::Denied,
-                ConsentState::Unknown => ConsentStateProto::Unspecified,
-            } as i32,
-        };
-
         let sync_group = self.ensure_sync_group(provider).await?;
-        let content_bytes = serde_json::to_vec(&consent_update_proto)?;
+
+        let update_proto: UserPreferenceUpdateProto = UserPreferenceUpdate::ConsentUpdate(record)
+            .try_into()
+            .map_err(|e| DeviceSyncError::Bincode(format!("{e:?}")))?;
+        let content_bytes = serde_json::to_vec(&update_proto)?;
         sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
-                message_type: Some(MessageType::ConsentUpdate(consent_update_proto)),
+                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
             })),
         })?;
 

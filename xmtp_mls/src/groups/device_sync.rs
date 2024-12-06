@@ -1,5 +1,6 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
+use crate::preferences::UserPreferenceUpdate;
 use crate::retry::{Retry, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
@@ -107,6 +108,8 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
+    #[error("Unable to serialize: {0}")]
+    Bincode(String),
 }
 
 impl RetryableError for DeviceSyncError {
@@ -169,16 +172,27 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingConsentUpdates(consent_records) => {
+                LocalEvents::OutgoingPreferenceUpdates(consent_records) => {
                     let provider = self.client.mls_provider()?;
-                    for consent_record in consent_records {
+                    for record in consent_records {
+                        let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
+                            continue;
+                        };
+
                         self.client
-                            .send_consent_update(&provider, &consent_record)
+                            .send_consent_update(&provider, consent_record)
                             .await?;
                     }
                 }
-                LocalEvents::IncomingConsentUpdates(consent_records) => {
+                LocalEvents::IncomingPreferenceUpdate(updates) => {
                     let provider = self.client.mls_provider()?;
+                    let consent_records = updates
+                        .into_iter()
+                        .filter_map(|pu| match pu {
+                            UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
                     provider
                         .conn_ref()
                         .insert_or_replace_consent_records(&consent_records)?;
@@ -326,6 +340,8 @@ where
                     }
                     _ => {
                         tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        crate::sleep(Duration::from_secs(2)).await;
                     }
                 }
             }
@@ -671,8 +687,8 @@ where
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
                             self.local_events
-                                .send(LocalEvents::OutgoingConsentUpdates(vec![
-                                    existing_consent_record,
+                                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
+                                    UserPreferenceUpdate::ConsentUpdate(existing_consent_record),
                                 ]))
                                 .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
                         }
