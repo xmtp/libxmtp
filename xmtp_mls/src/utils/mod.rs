@@ -8,16 +8,30 @@ pub mod hash {
 }
 
 pub mod time {
+    use std::time::Duration;
+
     use wasm_timer::{SystemTime, UNIX_EPOCH};
 
     pub const NS_IN_SEC: i64 = 1_000_000_000;
+    const SECS_IN_30_DAYS: i64 = 60 * 60 * 24 * 30;
+
+    fn duration_since_epoch() -> Duration {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+    }
 
     pub fn now_ns() -> i64 {
-        let now = SystemTime::now();
+        duration_since_epoch().as_nanos() as i64
+    }
 
-        now.duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos() as i64
+    pub fn now_secs() -> i64 {
+        duration_since_epoch().as_secs() as i64
+    }
+
+    /// Current hmac epoch. HMAC keys change every 30 dayso
+    pub fn hmac_epoch() -> i64 {
+        now_secs() / SECS_IN_30_DAYS
     }
 }
 

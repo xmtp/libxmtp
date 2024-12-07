@@ -11,6 +11,7 @@ pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
+use hkdf::Hkdf;
 use intents::SendMessageIntentData;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -32,6 +33,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use sha2::Sha256;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -92,9 +94,13 @@ use crate::{
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         sql_key_store,
+        user_preferences::StoredUserPreferences,
     },
     subscriptions::{LocalEventError, LocalEvents},
-    utils::{id::calculate_message_id, time::now_ns},
+    utils::{
+        id::calculate_message_id,
+        time::{hmac_epoch, now_ns},
+    },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
 };
@@ -264,6 +270,24 @@ pub struct MlsGroup<C> {
     pub created_at_ns: i64,
     pub client: Arc<C>,
     mutex: Arc<Mutex<()>>,
+}
+
+impl<C: ScopedGroupClient> MlsGroup<C> {
+    fn hmac_keys(&self) -> Result<Vec<Vec<u8>>, GroupError> {
+        let conn = self.client.store().conn()?;
+        let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
+        let hmac_epoch = hmac_epoch();
+
+        let mut current_hmac = [0u8; 42];
+        let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
+        hkdf.expand(&self.group_id[..], &mut current_hmac);
+        hkdf.expand(
+            &hex::decode(format!("{hmac_epoch:16}")).expect("Digits should parse")[..],
+            &mut current_hmac,
+        );
+
+        Ok(vec![])
+    }
 }
 
 #[derive(Default)]
