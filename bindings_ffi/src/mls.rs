@@ -531,16 +531,11 @@ impl FfiXmtpClient {
 
     pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conversations: Vec<Arc<FfiConversation>> = inner
-            .find_groups(GroupQueryArgs::default())?
-            .into_iter()
-            .map(|group| Arc::new(group.into()))
-            .collect();
+        let conversations = inner.find_groups(GroupQueryArgs::default())?;
 
         let mut keys = vec![];
         for conversation in conversations {
             let mut k = conversation
-                .inner
                 .hmac_keys(-1..=1)?
                 .into_iter()
                 .map(Into::into)
