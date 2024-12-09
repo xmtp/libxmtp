@@ -3,9 +3,9 @@ use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
-    intents::Intents,
-    storage::{DbConnection, EncryptedMessageStore},
+    storage::{DbConnection, EncryptedMessageStore, StorageError},
     subscriptions::LocalEvents,
+    types::InstallationId,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -37,15 +37,13 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().inbox_id()
     }
 
-    fn installation_id(&self) -> &[u8] {
+    fn installation_id(&self) -> InstallationId {
         self.context_ref().installation_public_key()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         self.context_ref().mls_provider()
     }
-
-    fn intents(&self) -> &Arc<Intents>;
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext>;
 
@@ -105,15 +103,13 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().inbox_id()
     }
 
-    fn installation_id(&self) -> &[u8] {
+    fn installation_id(&self) -> InstallationId {
         self.context_ref().installation_public_key()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         self.context_ref().mls_provider()
     }
-
-    fn intents(&self) -> &Arc<Intents>;
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext>;
 
@@ -171,10 +167,6 @@ where
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
         Client::<ApiClient, Verifier>::context(self)
-    }
-
-    fn intents(&self) -> &Arc<Intents> {
-        crate::Client::<ApiClient, Verifier>::intents(self)
     }
 
     fn history_sync_url(&self) -> &Option<String> {
@@ -264,10 +256,6 @@ where
         (**self).store()
     }
 
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -276,7 +264,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 
@@ -358,10 +346,6 @@ where
         (**self).history_sync_url()
     }
 
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -370,7 +354,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 

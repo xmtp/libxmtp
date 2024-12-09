@@ -63,6 +63,8 @@ pub enum GenericError {
 pub enum FfiSubscribeError {
     #[error("Subscribe Error {0}")]
     Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
+    #[error("Storage error: {0}")]
+    Storage(#[from] xmtp_mls::storage::StorageError),
 }
 
 impl From<String> for GenericError {
