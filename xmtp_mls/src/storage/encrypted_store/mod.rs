@@ -459,6 +459,7 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
     use crate::{
@@ -466,9 +467,9 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        utils::test::{rand_vec, tmp_path},
         Fetch, Store, StreamHandle as _,
     };
+    use xmtp_common::{rand_vec, tmp_path};
 
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
@@ -497,8 +498,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -509,7 +509,7 @@ pub(crate) mod tests {
         let conn = &store.conn().unwrap();
 
         let inbox_id = "inbox_id";
-        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+        StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)
             .unwrap();
 
@@ -517,8 +517,7 @@ pub(crate) mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -531,7 +530,7 @@ pub(crate) mod tests {
             let conn = &store.conn().unwrap();
 
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
@@ -540,10 +539,8 @@ pub(crate) mod tests {
         }
         EncryptedMessageStore::remove_db_files(db_path)
     }
-
-    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn releases_db_lock() {
         let db_path = tmp_path();
         {
@@ -556,7 +553,7 @@ pub(crate) mod tests {
             let conn = &store.conn().unwrap();
 
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
@@ -575,8 +572,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
     async fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -588,9 +584,13 @@ pub(crate) mod tests {
                     .await
                     .unwrap();
 
-            StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
-                .store(&store.conn().unwrap())
-                .unwrap();
+            StoredIdentity::new(
+                "dummy_address".to_string(),
+                rand_vec::<24>(),
+                rand_vec::<24>(),
+            )
+            .store(&store.conn().unwrap())
+            .unwrap();
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
@@ -605,8 +605,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         {
@@ -619,7 +618,7 @@ pub(crate) mod tests {
 
             let conn1 = &store.conn().unwrap();
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn1)
                 .unwrap();
 
@@ -657,7 +656,7 @@ pub(crate) mod tests {
         let handle = std::thread::spawn(move || {
             store_pointer.transaction(|provider| {
                 let conn1 = provider.conn_ref();
-                StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
+                StoredIdentity::new("correct".to_string(), rand_vec::<24>(), rand_vec::<24>())
                     .store(conn1)
                     .unwrap();
                 // wait for second transaction to start
@@ -723,7 +722,7 @@ pub(crate) mod tests {
             store_pointer
                 .transaction_async(|provider| async move {
                     let conn1 = provider.conn_ref();
-                    StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
+                    StoredIdentity::new("crab".to_string(), rand_vec::<24>(), rand_vec::<24>())
                         .store(conn1)
                         .unwrap();
 

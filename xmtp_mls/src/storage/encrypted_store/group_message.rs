@@ -284,11 +284,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        assert_err, assert_ok,
         storage::encrypted_store::{group::tests::generate_group, tests::with_connection},
-        utils::test::{rand_time, rand_vec},
         Store,
     };
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 
     fn generate_message(
         kind: Option<GroupMessageKind>,
@@ -296,19 +296,18 @@ pub(crate) mod tests {
         sent_at_ns: Option<i64>,
     ) -> StoredGroupMessage {
         StoredGroupMessage {
-            id: rand_vec(),
-            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec()),
-            decrypted_message_bytes: rand_vec(),
+            id: rand_vec::<24>(),
+            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
+            decrypted_message_bytes: rand_vec::<24>(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
-            sender_installation_id: rand_vec(),
+            sender_installation_id: rand_vec::<24>(),
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
@@ -317,8 +316,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -334,8 +332,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_cannot_insert_message_without_group() {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
@@ -349,8 +346,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_gets_many_messages() {
         use crate::storage::encrypted_store::schema::group_messages::dsl;
 
@@ -385,8 +381,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_gets_messages_by_time() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -423,8 +418,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_gets_messages_by_kind() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -471,8 +465,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_orders_messages_by_sent() {
         with_connection(|conn| {
             let group = generate_group(None);

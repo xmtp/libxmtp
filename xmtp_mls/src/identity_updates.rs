@@ -1,11 +1,8 @@
-use crate::{
-    retry::{Retry, RetryableError},
-    retry_async, retryable,
-    storage::association_state::StoredAssociationState,
-};
+use crate::storage::association_state::StoredAssociationState;
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
 use xmtp_id::{
     associations::{
@@ -593,9 +590,10 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::test::{rand_vec, FullXmtpClient},
+        utils::test::FullXmtpClient,
         Client, XmtpApi,
     };
+    use xmtp_common::rand_vec;
 
     use super::{is_member_of_association_state, load_identity_updates};
 
@@ -620,7 +618,7 @@ pub(crate) mod tests {
 
     fn insert_identity_update(conn: &DbConnection, inbox_id: &str, sequence_id: i64) {
         let identity_update =
-            StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec());
+            StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec::<24>());
 
         conn.insert_or_ignore_identity_updates(&[identity_update])
             .expect("insert should succeed");
@@ -730,8 +728,8 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
-        use crate::{assert_logged, utils::test::traced_test};
-        traced_test(|| async {
+        use xmtp_common::assert_logged;
+        xmtp_common::traced_test!(async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
             let wallet_address = wallet.get_address();
