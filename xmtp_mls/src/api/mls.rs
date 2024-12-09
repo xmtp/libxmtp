@@ -114,9 +114,9 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn query_welcome_messages(
+    pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
-        installation_id: &[u8],
+        installation_id: Id,
         id_cursor: Option<u64>,
     ) -> Result<Vec<WelcomeMessage>, ApiError> {
         tracing::debug!(
@@ -134,7 +134,7 @@ where
                 (async {
                     self.api_client
                         .query_welcome_messages(QueryWelcomeMessagesRequest {
-                            installation_key: installation_id.to_vec(),
+                            installation_key: installation_id.as_ref().to_vec(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
                                 limit: page_size,
@@ -290,7 +290,7 @@ where
 
     pub async fn subscribe_welcome_messages(
         &self,
-        installation_key: Vec<u8>,
+        installation_key: &[u8],
         id_cursor: Option<u64>,
     ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError>
     where
@@ -300,7 +300,7 @@ where
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {
-                    installation_key,
+                    installation_key: installation_key.to_vec(),
                     id_cursor: id_cursor.unwrap_or(0),
                 }],
             })

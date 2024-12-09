@@ -296,8 +296,8 @@ impl FfiXmtpClient {
 
     pub async fn find_inbox_id(&self, address: String) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
-
-        let result = inner.find_inbox_id_from_address(address).await?;
+        let conn = self.inner_client.store().conn()?;
+        let result = inner.find_inbox_id_from_address(&conn, address).await?;
         Ok(result)
     }
 
@@ -915,8 +915,8 @@ impl FfiConversations {
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        inner.sync_welcomes(&conn).await?;
+        let provider = inner.mls_provider()?;
+        inner.sync_welcomes(&provider).await?;
         Ok(())
     }
 
@@ -932,12 +932,11 @@ impl FfiConversations {
         consent_state: Option<FfiConsentState>,
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-
+        let provider = inner.mls_provider()?;
         let consent: Option<ConsentState> = consent_state.map(|state| state.into());
-
-        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(&conn, consent).await?;
-
+        let num_groups_synced: usize = inner
+            .sync_all_welcomes_and_groups(&provider, consent)
+            .await?;
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
             .try_into()
@@ -1301,9 +1300,10 @@ impl FfiConversation {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, FfiSubscribeError> {
+        let provider = self.inner.mls_provider()?;
         let message = self
             .inner
-            .process_streamed_group_message(envelope_bytes)
+            .process_streamed_group_message(&provider, envelope_bytes)
             .await?;
         let ffi_message = message.into();
 
@@ -1887,6 +1887,8 @@ mod tests {
         conversations: Mutex<Vec<Arc<FfiConversation>>>,
         consent_updates: Mutex<Vec<FfiConsent>>,
         notify: Notify,
+        inbox_id: Option<String>,
+        installation_id: Option<String>,
     }
 
     impl RustStreamCallback {
@@ -1906,12 +1908,22 @@ mod tests {
             .await?;
             Ok(())
         }
+
+        pub fn from_client(client: &FfiXmtpClient) -> Self {
+            RustStreamCallback {
+                inbox_id: Some(client.inner_client.inbox_id().to_string()),
+                installation_id: Some(hex::encode(client.inner_client.installation_public_key())),
+                ..Default::default()
+            }
+        }
     }
 
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
             let mut messages = self.messages.lock().unwrap();
             log::info!(
+                inbox_id = self.inbox_id,
+                installation_id = self.installation_id,
                 "ON MESSAGE Received\n-------- \n{}\n----------",
                 String::from_utf8_lossy(&message.content)
             );
@@ -1927,7 +1939,11 @@ mod tests {
 
     impl FfiConversationCallback for RustStreamCallback {
         fn on_conversation(&self, group: Arc<super::FfiConversation>) {
-            log::debug!("received conversation");
+            log::debug!(
+                inbox_id = self.inbox_id,
+                installation_id = self.installation_id,
+                "received conversation"
+            );
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
             let mut convos = self.conversations.lock().unwrap();
             convos.push(group);
@@ -1941,7 +1957,11 @@ mod tests {
 
     impl FfiConsentCallback for RustStreamCallback {
         fn on_consent_update(&self, mut consent: Vec<FfiConsent>) {
-            log::debug!("received consent update");
+            log::debug!(
+                inbox_id = self.inbox_id,
+                installation_id = self.installation_id,
+                "received consent update"
+            );
             let mut consent_updates = self.consent_updates.lock().unwrap();
             consent_updates.append(&mut consent);
             self.notify.notify_one();
@@ -2808,7 +2828,7 @@ mod tests {
         let caro = new_test_client().await;
 
         // Alix begins a stream for all messages
-        let message_callbacks = Arc::new(RustStreamCallback::default());
+        let message_callbacks = Arc::new(RustStreamCallback::from_client(&alix));
         let stream_messages = alix
             .conversations()
             .stream_all_messages(message_callbacks.clone())
@@ -2855,12 +2875,12 @@ mod tests {
         let bo2 = new_test_client_with_wallet(bo_wallet).await;
 
         // Bo begins a stream for all messages
-        let bo_message_callbacks = Arc::new(RustStreamCallback::default());
-        let bo_stream_messages = bo2
+        let bo2_message_callbacks = Arc::new(RustStreamCallback::from_client(&bo2));
+        let bo2_stream_messages = bo2
             .conversations()
-            .stream_all_messages(bo_message_callbacks.clone())
+            .stream_all_messages(bo2_message_callbacks.clone())
             .await;
-        bo_stream_messages.wait_for_ready().await;
+        bo2_stream_messages.wait_for_ready().await;
 
         alix_group.update_installations().await.unwrap();
 
@@ -3224,7 +3244,7 @@ mod tests {
         let bo = new_test_client().await;
         let caro = new_test_client().await;
 
-        let caro_conn = caro.inner_client.store().conn().unwrap();
+        let caro_provider = caro.inner_client.mls_provider().unwrap();
 
         let alix_group = alix
             .conversations()
@@ -3254,7 +3274,11 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = caro.inner_client.sync_welcomes(&caro_conn).await.unwrap();
+        let _ = caro
+            .inner_client
+            .sync_welcomes(&caro_provider)
+            .await
+            .unwrap();
 
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -3273,7 +3297,7 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let bola_conn = bola.inner_client.store().conn().unwrap();
+        let bola_provider = bola.inner_client.mls_provider().unwrap();
 
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
@@ -3284,7 +3308,10 @@ mod tests {
             .await
             .unwrap();
 
-        bola.inner_client.sync_welcomes(&bola_conn).await.unwrap();
+        bola.inner_client
+            .sync_welcomes(&bola_provider)
+            .await
+            .unwrap();
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = Arc::new(RustStreamCallback::default());

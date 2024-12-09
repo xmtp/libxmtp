@@ -92,7 +92,7 @@ trait-variant = "0.1.2"
 url = "2.5.0"
 wasm-bindgen = "=0.2.99"
 wasm-bindgen-futures = "0.4"
-wasm-bindgen-test = "0.3.47"
+wasm-bindgen-test = "0.3.49"
 web-sys = "0.3"
 zeroize = "1.8"
 
@@ -143,6 +143,6 @@ opt-level = "s"
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
-diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branch = "main" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/sqlite-web-rs", branch = "main" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }

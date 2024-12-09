@@ -402,7 +402,7 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider.conn_ref(), {
+        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
             move |_time_ns| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
@@ -446,7 +446,6 @@ where
         provider: &XmtpOpenMlsProvider,
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
         // find the sync group
         let sync_group = self.get_sync_group(provider.conn_ref())?;
 
@@ -458,7 +457,7 @@ where
             .await?;
 
         // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
+        self.ensure_member_of_all_groups(provider, &msg.sender_inbox_id)
             .await?;
 
         // the reply message
@@ -472,7 +471,7 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
@@ -492,8 +491,10 @@ where
         let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
+        let messages = provider.conn_ref().get_group_messages(
+            &sync_group.group_id,
+            &MsgQueryArgs::default().kind(GroupMessageKind::Application),
+        )?;
 
         for msg in messages.into_iter().rev() {
             let Ok(msg_content) =
@@ -566,13 +567,14 @@ where
         self.insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
             .await?;
 
-        self.sync_welcomes(provider.conn_ref()).await?;
+        self.sync_welcomes(provider).await?;
 
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group(id)?;
-            Box::pin(group.sync()).await?;
+            let group = self.group_with_conn(provider.conn_ref(), id)?;
+            group.maybe_update_installations(provider, None).await?;
+            Box::pin(group.sync_with_conn(provider)).await?;
         }
 
         Ok(())
@@ -580,14 +582,18 @@ where
 
     async fn ensure_member_of_all_groups(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         inbox_id: &str,
     ) -> Result<(), GroupError> {
+        let conn = provider.conn_ref();
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
-            let group = self.group(group.id)?;
-            Box::pin(group.add_members_by_inbox_id(&[inbox_id.to_string()])).await?;
+            let group = self.group_with_conn(conn, group.id)?;
+            Box::pin(
+                group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
+            )
+            .await?;
         }
 
         Ok(())
