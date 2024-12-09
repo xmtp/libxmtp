@@ -46,17 +46,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         .store()
                         .transaction_async(|provider| async move {
                             let prov_ref = &provider; // Borrow provider instead of moving it
-                            self.load_mls_group_with_lock_async(prov_ref, |mut mls_group| async move {
-                                // Attempt processing immediately, but fail if the message is not an Application Message
-                                // Returning an error should roll back the DB tx
-                               self.process_message(&mut mls_group, &prov_ref, msgv1, false)
-                                    .await
-                                    // NOTE: We want to make sure we retry an error in process_message
-                                    .map_err(SubscribeError::ReceiveGroup)
-                            }).await
+                            self.load_mls_group_with_lock_async(
+                                prov_ref,
+                                |mut mls_group| async move {
+                                    // Attempt processing immediately, but fail if the message is not an Application Message
+                                    // Returning an error should roll back the DB tx
+                                    self.process_message(&prov_ref, msgv1, false)
+                                        .await
+                                        // NOTE: We want to make sure we retry an error in process_message
+                                        .map_err(SubscribeError::ReceiveGroup)
+                                },
+                            )
+                            .await
                         })
                         .await
-
                 })
             );
 
