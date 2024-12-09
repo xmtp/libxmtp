@@ -369,9 +369,8 @@ where
             if intent.state == IntentState::Committed {
                 return Ok(IntentState::Committed);
             }
-            let group_epoch = mls_group.epoch();
-
             let message_epoch = message.epoch();
+            let group_epoch = mls_group.epoch();
             debug!(
                 inbox_id = self.client.inbox_id(),
                 installation_id = %self.client.installation_id(),
@@ -856,7 +855,7 @@ where
                 Retry::default(),
                 (async {
                     self.consume_message(provider, &message)
-                        .await
+                    .await
                 })
             );
             if let Err(e) = result {
@@ -1210,10 +1209,7 @@ where
             return Ok(());
         }
         // determine how long of an interval in time to use before updating list
-        let interval_ns = match update_interval_ns {
-            Some(val) => val,
-            None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-        };
+        let interval_ns = update_interval_ns.unwrap_or_else(|| SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = crate::utils::time::now_ns();
         let last_ns = provider

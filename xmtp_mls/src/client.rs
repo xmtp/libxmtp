@@ -865,8 +865,8 @@ where
                 async move {
                     tracing::info!(
                         inbox_id = self.inbox_id(),
-                        "current epoch for [{}] in sync_all_groups()",
-                        self.inbox_id(),
+                        "[{}] syncing group",
+                        self.inbox_id()
                     );
                     tracing::info!(
                         inbox_id = self.inbox_id(),
