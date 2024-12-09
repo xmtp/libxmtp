@@ -189,7 +189,7 @@ where
         let mut result = vec![];
         let current_epoch = hmac_epoch();
         for delta in epoch_delta_range {
-            let mut key = base_okm.clone();
+            let mut key = base_okm;
             let epoch = current_epoch + delta;
             hkdf.expand(&epoch.to_le_bytes(), &mut key)
                 .expect("Length is correct");

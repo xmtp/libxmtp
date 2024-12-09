@@ -91,16 +91,10 @@ use crate::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        schema::user_preferences,
         sql_key_store,
-        user_preferences::StoredUserPreferences,
-        StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
-    utils::{
-        id::calculate_message_id,
-        time::{hmac_epoch, now_ns},
-    },
+    utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store,
 };

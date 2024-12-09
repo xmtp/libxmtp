@@ -4,13 +4,12 @@ use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
-    group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
-    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
-    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
+    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
+    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::{Error as ApiError, ErrorKind};
 
