@@ -548,11 +548,11 @@ impl FfiXmtpClient {
     }
 }
 
-impl Into<FfiHmacKey> for HmacKey {
-    fn into(self) -> FfiHmacKey {
-        FfiHmacKey {
-            epoch: self.epoch,
-            key: self.key.to_vec(),
+impl From<HmacKey> for FfiHmacKey {
+    fn from(value: HmacKey) -> Self {
+        Self {
+            epoch: value.epoch,
+            key: value.key.to_vec(),
         }
     }
 }
