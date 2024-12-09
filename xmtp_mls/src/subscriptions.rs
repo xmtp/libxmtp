@@ -12,8 +12,10 @@ use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage}
 
 use crate::{
     client::{extract_welcome_message, ClientError},
-    groups::{mls_sync::GroupMessageProcessingError, subscriptions, GroupError, MlsGroup},
-    preferences::UserPreferenceUpdate,
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
+        subscriptions, GroupError, MlsGroup,
+    },
     retry::{Retry, RetryableError},
     retry_async, retryable,
     storage::{

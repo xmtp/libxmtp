@@ -92,6 +92,7 @@ criterion = { version = "0.5", features = [
     "html_reports",
     "async_tokio",
 ], optional = true }
+hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 mockall = { version = "0.13.1", optional = true }
 once_cell = { version = "1.19", optional = true }

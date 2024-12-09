@@ -7369,6 +7369,7 @@ dependencies = [
  "gloo-timers 0.3.0",
  "hex",
  "hkdf",
+ "hmac 0.12.1",
  "indicatif",
  "libsqlite3-sys",
  "mockall",

@@ -11,7 +11,7 @@ pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
-use hkdf::Hkdf;
+use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -33,7 +33,6 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use sha2::Sha256;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -85,7 +84,6 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
-    preferences::UserPreferenceUpdate,
     retry::RetryableError,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -93,8 +91,10 @@ use crate::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        schema::user_preferences,
         sql_key_store,
         user_preferences::StoredUserPreferences,
+        StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::{
@@ -270,28 +270,6 @@ pub struct MlsGroup<C> {
     pub created_at_ns: i64,
     pub client: Arc<C>,
     mutex: Arc<Mutex<()>>,
-}
-
-impl<C: ScopedGroupClient> MlsGroup<C> {
-    fn hmac_keys(&self) -> Result<Vec<[u8; 42]>, GroupError> {
-        let conn = self.client.store().conn()?;
-
-        // Input key material is a combination of the root key, the group id, and the 30 day epoch
-        // Start with root key
-        let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
-
-        let mut base_kdf = [0u8; 42];
-        let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
-        hkdf.expand(&self.group_id[..], &mut base_kdf);
-
-        let mut okm = vec![base_kdf; 3];
-        let hmac_epoch = hmac_epoch();
-        for i in -1..=1 {
-            hkdf.expand(&(hmac_epoch + i).to_le_bytes(), &mut okm[(i as usize) + 1]);
-        }
-
-        Ok(okm)
-    }
 }
 
 #[derive(Default)]
@@ -1704,9 +1682,12 @@ pub(crate) mod tests {
             }],
             serialized_welcome,
         );
+        let messages = sender_group
+            .add_hmac_to_messages(vec![serialized_commit.as_slice()])
+            .unwrap();
         sender_client
             .api_client
-            .send_group_messages(vec![serialized_commit.as_slice()])
+            .send_group_messages(messages)
             .await
             .unwrap();
         sender_group

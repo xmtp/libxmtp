@@ -33,12 +33,14 @@ use xmtp_proto::xmtp::mls::api::v1::{
 
 use crate::{
     api::ApiClientWrapper,
-    groups::{group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup},
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, group_permissions::PolicySet,
+        GroupError, GroupMetadataOptions, MlsGroup,
+    },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
     intents::Intents,
     mutex_registry::MutexRegistry,
-    preferences::UserPreferenceUpdate,
     retry::Retry,
     retry_async, retryable,
     storage::{
