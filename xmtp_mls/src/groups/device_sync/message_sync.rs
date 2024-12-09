@@ -106,7 +106,7 @@ pub(crate) mod tests {
         let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
-            .sync_welcomes(amal_a_conn)
+            .sync_welcomes(&amal_a_provider)
             .await
             .expect("sync_welcomes");
         let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
@@ -205,7 +205,7 @@ pub(crate) mod tests {
 
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
-            .sync_welcomes(amal_a_conn)
+            .sync_welcomes(&amal_a_provider)
             .await
             .expect("sync_welcomes");
         let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
@@ -262,7 +262,7 @@ pub(crate) mod tests {
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        amal.sync_welcomes(&amal.store().conn().unwrap())
+        amal.sync_welcomes(&amal.mls_provider().unwrap())
             .await
             .expect("sync welcomes");
 
@@ -271,7 +271,7 @@ pub(crate) mod tests {
             ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
 
         bo_client
-            .sync_welcomes(&bo_client.store().conn().unwrap())
+            .sync_welcomes(&bo_client.mls_provider().unwrap())
             .await
             .expect("sync welcomes");
 
