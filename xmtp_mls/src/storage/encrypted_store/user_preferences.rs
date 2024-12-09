@@ -49,7 +49,7 @@ impl StoredUserPreferences {
 
     pub fn set_hmac_key(conn: &DbConnection, hmac_key: Vec<u8>) -> Result<(), StorageError> {
         let mut preferences = Self::load(conn)?;
-        // Have the id to increment
+        // Have the id increment
         preferences.id = None;
         preferences.hmac_key = hmac_key;
 
