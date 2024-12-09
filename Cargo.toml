@@ -142,6 +142,6 @@ opt-level = "s"
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
-diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branch = "main" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/sqlite-web-rs", branch = "main" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
