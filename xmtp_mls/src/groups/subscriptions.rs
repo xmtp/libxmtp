@@ -41,6 +41,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let process_result = retry_async!(
                 Retry::default(),
                 (async {
+                    let client_id = &client_id;
                     let msgv1 = &msgv1;
                     self.context()
                         .store()
@@ -48,9 +49,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                             let prov_ref = &provider; // Borrow provider instead of moving it
                             self.load_mls_group_with_lock_async(
                                 prov_ref,
-                                |mut mls_group| async move {
+                                |mls_group| async move {
                                     // Attempt processing immediately, but fail if the message is not an Application Message
                                     // Returning an error should roll back the DB tx
+                                 tracing::info!(
+                                inbox_id = self.client.inbox_id(),
+                                group_id = hex::encode(&self.group_id),
+                                msg_id = msgv1.id,
+                                "current epoch for [{}] in process_stream_entry()",
+                                client_id,
+                            );
                                     self.process_message(&prov_ref, msgv1, false)
                                         .await
                                         // NOTE: We want to make sure we retry an error in process_message

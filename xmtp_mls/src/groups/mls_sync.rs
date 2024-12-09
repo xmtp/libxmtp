@@ -360,9 +360,8 @@ where
             if intent.state == IntentState::Committed {
                 return Ok(IntentState::Committed);
             }
-            let group_epoch = mls_group.epoch();
-
             let message_epoch = message.epoch();
+            let group_epoch = mls_group.epoch();
             debug!(
                 inbox_id = self.client.inbox_id(),
                 installation_id = hex::encode(self.client.installation_id()),
@@ -702,6 +701,14 @@ where
         let intent = provider
             .conn_ref()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&self.group_id),
+            msg_id = envelope.id,
+            "Processing envelope with hash {:?}",
+            hex::encode(sha256(envelope.data.as_slice()))
+        );
+
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => {
@@ -729,6 +736,14 @@ where
             }
             // No matching intent found
             Ok(None) => {
+                tracing::info!(
+                    inbox_id = self.client.inbox_id(),
+                    group_id = hex::encode(&self.group_id),
+                    msg_id = envelope.id,
+                    "client [{}] is about to process external envelope [{}]",
+                    self.client.inbox_id(),
+                    envelope.id
+                );
                 self.process_external_message(provider, message, envelope)
                     .await
             }
@@ -792,7 +807,10 @@ where
         for message in messages.into_iter() {
             let result = retry_async!(
                 Retry::default(),
-                (async { self.consume_message(&message, provider.conn_ref()).await })
+                (async {
+                    self.consume_message(&message, provider.conn_ref())
+                    .await
+                })
             );
             if let Err(e) = result {
                 let is_retryable = e.is_retryable();
@@ -1139,10 +1157,7 @@ where
             return Ok(());
         }
         // determine how long of an interval in time to use before updating list
-        let interval_ns = match update_interval_ns {
-            Some(val) => val,
-            None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-        };
+        let interval_ns = update_interval_ns.unwrap_or_else(|| SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = crate::utils::time::now_ns();
         let last_ns = provider

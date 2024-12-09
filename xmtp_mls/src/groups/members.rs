@@ -41,7 +41,6 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let group_membership = self.load_mls_group_with_lock(provider, |mls_group| {
-            // Extract group membership from extensions
             Ok(extract_group_membership(mls_group.extensions())?)
         })?;
         let requests = group_membership
