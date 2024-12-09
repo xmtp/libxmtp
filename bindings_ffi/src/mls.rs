@@ -16,6 +16,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_mls::storage::group_message::SortDirection;
@@ -527,6 +528,38 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
     }
+
+    pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conversations: Vec<Arc<FfiConversation>> = inner
+            .find_groups(GroupQueryArgs::default())?
+            .into_iter()
+            .map(|group| Arc::new(group.into()))
+            .collect();
+
+        let mut keys = vec![];
+        for conversation in conversations {
+            let mut k = conversation
+                .inner
+                .hmac_keys(-1..=1)?
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>();
+
+            keys.append(&mut k);
+        }
+
+        Ok(keys)
+    }
+}
+
+impl Into<FfiHmacKey> for HmacKey {
+    fn into(self) -> FfiHmacKey {
+        FfiHmacKey {
+            epoch: self.epoch,
+            key: self.key.to_vec(),
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -535,6 +568,12 @@ pub struct FfiInboxState {
     pub recovery_address: String,
     pub installations: Vec<FfiInstallation>,
     pub account_addresses: Vec<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiHmacKey {
+    key: Vec<u8>,
+    epoch: i64,
 }
 
 #[derive(uniffi::Record)]

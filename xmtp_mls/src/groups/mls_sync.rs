@@ -6,7 +6,7 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError},
-    GroupError, IntentError, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, IntentError, MlsGroup, ScopedGroupClient,
 };
 use crate::{
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
@@ -61,7 +61,7 @@ use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
-    ops::Range,
+    ops::{Range, RangeInclusive},
 };
 use thiserror::Error;
 use xmtp_id::{InboxId, InboxIdRef};
@@ -167,17 +167,17 @@ struct PublishIntentData {
     payload_to_publish: Vec<u8>,
 }
 
-pub struct HmacKey {
-    key: [u8; 42],
-    // # of 30 day periods since unix epoch
-    epoch: i64,
-}
-
 impl<ScopedClient> MlsGroup<ScopedClient>
 where
     ScopedClient: ScopedGroupClient,
 {
-    fn hmac_keys(&self, epoch_delta_range: Range<i64>) -> Result<Vec<HmacKey>, StorageError> {
+    /// Provides hmac keys for a range of epochs around current epoch
+    /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
+    /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
+    pub fn hmac_keys(
+        &self,
+        epoch_delta_range: RangeInclusive<i64>,
+    ) -> Result<Vec<HmacKey>, StorageError> {
         let mut base_okm = [0; 42];
 
         let conn = self.client.store().conn()?;
@@ -200,12 +200,12 @@ where
         Ok(result)
     }
 
-    pub(super) fn add_hmac_to_messages(
+    pub(super) fn prepare_group_messages(
         &self,
         payloads: Vec<&[u8]>,
     ) -> Result<Vec<GroupMessageInput>, GroupError> {
         let hmac_key = self
-            .hmac_keys(0..1)?
+            .hmac_keys(0..=0)?
             .pop()
             .expect("Range of count 1 was provided.");
         let sender_hmac =
@@ -1047,7 +1047,7 @@ where
                         intent.id
                     );
 
-                    let messages = self.add_hmac_to_messages(vec![payload_slice])?;
+                    let messages = self.prepare_group_messages(vec![payload_slice])?;
                     self.client.api().send_group_messages(messages).await?;
 
                     tracing::info!(

@@ -285,6 +285,12 @@ impl<C> Clone for MlsGroup<C> {
     }
 }
 
+pub struct HmacKey {
+    pub key: [u8; 42],
+    // # of 30 day periods since unix epoch
+    pub epoch: i64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateAdminListType {
     Add,
@@ -1677,7 +1683,7 @@ pub(crate) mod tests {
             serialized_welcome,
         );
         let messages = sender_group
-            .add_hmac_to_messages(vec![serialized_commit.as_slice()])
+            .prepare_group_messages(vec![serialized_commit.as_slice()])
             .unwrap();
         sender_client
             .api_client
