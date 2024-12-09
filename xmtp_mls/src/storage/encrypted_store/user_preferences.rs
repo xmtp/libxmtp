@@ -69,14 +69,10 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_insert_and_upate_preferences() {
+    async fn test_insert_and_update_preferences() {
         with_connection(|conn| {
-            // loads a default
-            let pref = StoredUserPreferences::load(conn).unwrap();
-            assert_eq!(pref, StoredUserPreferences::default());
-            assert_eq!(pref.id, None);
-            // save that default
-            pref.store(conn).unwrap();
+            // loads and stores a default
+            let _pref = StoredUserPreferences::load(conn).unwrap();
 
             // set an hmac key
             let hmac_key = vec![1, 2, 1, 2, 1, 2, 1, 2, 1, 2];

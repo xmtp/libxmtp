@@ -61,7 +61,7 @@ use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
-    ops::{Range, RangeInclusive},
+    ops::RangeInclusive,
 };
 use thiserror::Error;
 use xmtp_id::{InboxId, InboxIdRef};
