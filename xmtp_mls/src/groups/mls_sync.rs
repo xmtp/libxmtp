@@ -1602,7 +1602,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{builder::ClientBuilder, storage::schema::user_preferences::hmac_key};
+    use crate::builder::ClientBuilder;
     use futures::future;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
