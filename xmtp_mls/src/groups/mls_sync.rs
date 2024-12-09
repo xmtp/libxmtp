@@ -1602,7 +1602,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, storage::schema::user_preferences::hmac_key};
     use futures::future;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1630,5 +1630,31 @@ pub(crate) mod tests {
             futures.push(amal_group.publish_intents(&provider))
         }
         future::join_all(futures).await;
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    async fn hmac_keys_work_as_expected() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup<_>> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
+        let current_hmac_key = amal_group.hmac_keys(0..=0).unwrap().pop().unwrap();
+        assert_eq!(hmac_keys.len(), 3);
+        assert_eq!(hmac_keys[1].key, current_hmac_key.key);
+        assert_eq!(hmac_keys[1].epoch, current_hmac_key.epoch);
+
+        // Make sure the keys are different
+        assert_ne!(hmac_keys[0].key, hmac_keys[1].key);
+        assert_ne!(hmac_keys[0].key, hmac_keys[2].key);
+        assert_ne!(hmac_keys[1].key, hmac_keys[2].key);
+
+        // Make sure the epochs align
+        let current_epoch = hmac_epoch();
+        assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
+        assert_eq!(hmac_keys[1].epoch, current_epoch);
+        assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
     }
 }
