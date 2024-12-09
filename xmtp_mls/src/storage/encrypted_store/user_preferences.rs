@@ -61,7 +61,7 @@ impl StoredUserPreferences {
 
 #[cfg(test)]
 mod tests {
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::storage::encrypted_store::tests::with_connection;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
