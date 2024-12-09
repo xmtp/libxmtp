@@ -29,7 +29,7 @@ pub mod time {
         duration_since_epoch().as_secs() as i64
     }
 
-    /// Current hmac epoch. HMAC keys change every 30 dayso
+    /// Current hmac epoch. HMAC keys change every 30 days
     pub fn hmac_epoch() -> i64 {
         now_secs() / SECS_IN_30_DAYS
     }
