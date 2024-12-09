@@ -1,6 +1,5 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
-use crate::preferences::UserPreferenceUpdate;
 use crate::retry::{Retry, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
@@ -25,6 +24,7 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use futures::{Stream, StreamExt};
+use preference_sync::UserPreferenceUpdate;
 use rand::{
     distributions::{Alphanumeric, DistString},
     Rng, RngCore,
@@ -50,6 +50,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 pub mod consent_sync;
 pub mod message_sync;
+pub mod preference_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce

@@ -51,6 +51,7 @@ bincode.workspace = true
 diesel_migrations.workspace = true
 futures.workspace = true
 hex.workspace = true
+hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 parking_lot.workspace = true
@@ -59,6 +60,7 @@ rand = { workspace = true }
 reqwest = { version = "0.12.4", features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
+sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio-stream = { version = "0.1", default-features = false, features = [
@@ -90,6 +92,7 @@ criterion = { version = "0.5", features = [
     "html_reports",
     "async_tokio",
 ], optional = true }
+hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 mockall = { version = "0.13.1", optional = true }
 once_cell = { version = "1.19", optional = true }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{preferences::UserPreferenceUpdate, Client, XmtpApi};
+use crate::{Client, XmtpApi};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto;
 

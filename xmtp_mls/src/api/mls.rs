@@ -4,13 +4,12 @@ use super::ApiClientWrapper;
 use crate::{retry_async, XmtpApi};
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
-    group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
-    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
-    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
+    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
+    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::{Error as ApiError, ErrorKind};
 
@@ -250,28 +249,22 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
+    pub async fn send_group_messages(
+        &self,
+        group_messages: Vec<GroupMessageInput>,
+    ) -> Result<(), ApiError> {
         tracing::debug!(
             inbox_id = self.inbox_id,
             "sending [{}] group messages",
             group_messages.len()
         );
-        let to_send: Vec<GroupMessageInput> = group_messages
-            .iter()
-            .map(|msg| GroupMessageInput {
-                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
-                    data: msg.to_vec(),
-                    sender_hmac: vec![],
-                })),
-            })
-            .collect();
 
         retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
                     .send_group_messages(SendGroupMessagesRequest {
-                        messages: to_send.clone(),
+                        messages: group_messages.clone(),
                     })
                     .await
             })
