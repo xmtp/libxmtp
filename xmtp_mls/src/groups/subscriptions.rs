@@ -65,7 +65,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                             }).await
                         })
                         .await
-
                 })
             );
 
