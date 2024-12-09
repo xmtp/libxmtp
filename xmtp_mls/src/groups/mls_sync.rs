@@ -14,6 +14,7 @@ use crate::{
         GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    constants::HMAC_SALT,
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
@@ -1401,18 +1402,15 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
-        let mut base_okm = [0; 42];
-
         let conn = self.client.store().conn()?;
-        let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
-        let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
-        hkdf.expand(&self.group_id[..], &mut base_okm)
-            .expect("Length is valid");
+        let mut ikm = StoredUserPreferences::load(&conn)?.hmac_key;
+        ikm.extend(&self.group_id);
+        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm[..]);
 
         let mut result = vec![];
         let current_epoch = hmac_epoch();
         for delta in epoch_delta_range {
-            let mut key = base_okm;
+            let mut key = [0; 42];
             let epoch = current_epoch + delta;
             hkdf.expand(&epoch.to_le_bytes(), &mut key)
                 .expect("Length is correct");

@@ -6,6 +6,7 @@ pub mod builder;
 pub mod client;
 pub mod codecs;
 pub mod configuration;
+mod constants;
 pub mod groups;
 mod hpke;
 pub mod identity;
