@@ -727,6 +727,7 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -865,10 +866,15 @@ pub(crate) mod tests {
         };
 
         let provider = group.client.mls_provider().unwrap();
-        let mut openmls_group = group.load_mls_group(&provider).unwrap();
-        let decrypted_message = openmls_group
-            .process_message(&provider, mls_message)
-            .unwrap();
+        let decrypted_message = match group
+            .load_mls_group_with_lock(&provider, |mut mls_group| {
+                mls_group
+                    .process_message(&provider, mls_message)
+                    .map_err(|e| GroupError::Generic(e.to_string()))
+            }) {
+            Ok(message) => message,
+            Err(err) => panic!("Error: {:?}", err),
+        };
 
         let staged_commit = match decrypted_message.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,

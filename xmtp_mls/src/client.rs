@@ -863,25 +863,19 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    let mls_group = group.load_mls_group(provider)?;
+                    tracing::info!(
+                        inbox_id = self.inbox_id(),
+                        "current epoch for [{}] in sync_all_groups()",
+                        self.inbox_id(),
+                    );
                     tracing::info!(
                         inbox_id = self.inbox_id(),
                         "[{}] syncing group",
                         self.inbox_id()
                     );
-                    tracing::info!(
-                        inbox_id = self.inbox_id(),
-                        group_epoch = mls_group.epoch().as_u64(),
-                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
-                        self.inbox_id(),
-                        mls_group.epoch()
-                    );
-                    if mls_group.is_active() {
-                        group.maybe_update_installations(provider, None).await?;
-
-                        group.sync_with_conn(provider).await?;
-                        active_group_count.fetch_add(1, Ordering::SeqCst);
-                    }
+                    group.maybe_update_installations(provider, None).await?;
+                    group.sync_with_conn(provider).await?;
+                    active_group_count.fetch_add(1, Ordering::SeqCst);
 
                     Ok::<(), GroupError>(())
                 }
