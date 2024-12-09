@@ -273,20 +273,24 @@ pub struct MlsGroup<C> {
 }
 
 impl<C: ScopedGroupClient> MlsGroup<C> {
-    fn hmac_keys(&self) -> Result<Vec<Vec<u8>>, GroupError> {
+    fn hmac_keys(&self) -> Result<Vec<[u8; 42]>, GroupError> {
         let conn = self.client.store().conn()?;
+
+        // Input key material is a combination of the root key, the group id, and the 30 day epoch
+        // Start with root key
         let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
-        let hmac_epoch = hmac_epoch();
 
-        let mut current_hmac = [0u8; 42];
+        let mut base_kdf = [0u8; 42];
         let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
-        hkdf.expand(&self.group_id[..], &mut current_hmac);
-        hkdf.expand(
-            &hex::decode(format!("{hmac_epoch:16}")).expect("Digits should parse")[..],
-            &mut current_hmac,
-        );
+        hkdf.expand(&self.group_id[..], &mut base_kdf);
 
-        Ok(vec![])
+        let mut okm = vec![base_kdf; 3];
+        let hmac_epoch = hmac_epoch();
+        for i in -1..=1 {
+            hkdf.expand(&(hmac_epoch + i).to_le_bytes(), &mut okm[(i as usize) + 1]);
+        }
+
+        Ok(okm)
     }
 }
 
