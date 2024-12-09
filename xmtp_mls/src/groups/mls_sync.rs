@@ -171,63 +171,6 @@ impl<ScopedClient> MlsGroup<ScopedClient>
 where
     ScopedClient: ScopedGroupClient,
 {
-    /// Provides hmac keys for a range of epochs around current epoch
-    /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
-    /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
-    pub fn hmac_keys(
-        &self,
-        epoch_delta_range: RangeInclusive<i64>,
-    ) -> Result<Vec<HmacKey>, StorageError> {
-        let mut base_okm = [0; 42];
-
-        let conn = self.client.store().conn()?;
-        let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
-        let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
-        hkdf.expand(&self.group_id[..], &mut base_okm)
-            .expect("Length is valid");
-
-        let mut result = vec![];
-        let current_epoch = hmac_epoch();
-        for delta in epoch_delta_range {
-            let mut key = base_okm;
-            let epoch = current_epoch + delta;
-            hkdf.expand(&epoch.to_le_bytes(), &mut key)
-                .expect("Length is correct");
-
-            result.push(HmacKey { key, epoch });
-        }
-
-        Ok(result)
-    }
-
-    pub(super) fn prepare_group_messages(
-        &self,
-        payloads: Vec<&[u8]>,
-    ) -> Result<Vec<GroupMessageInput>, GroupError> {
-        let hmac_key = self
-            .hmac_keys(0..=0)?
-            .pop()
-            .expect("Range of count 1 was provided.");
-        let sender_hmac =
-            Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
-
-        let mut result = vec![];
-        for payload in payloads {
-            let mut sender_hmac = sender_hmac.clone();
-            sender_hmac.update(payload);
-            let sender_hmac = sender_hmac.finalize();
-
-            result.push(GroupMessageInput {
-                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
-                    data: payload.to_vec(),
-                    sender_hmac: sender_hmac.into_bytes().to_vec(),
-                })),
-            });
-        }
-
-        Ok(result)
-    }
-
     #[tracing::instrument(skip_all)]
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
@@ -1448,6 +1391,65 @@ where
         }
         try_join_all(futures).await?;
         Ok(())
+    }
+
+    /// Provides hmac keys for a range of epochs around current epoch
+    /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
+    /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub fn hmac_keys(
+        &self,
+        epoch_delta_range: RangeInclusive<i64>,
+    ) -> Result<Vec<HmacKey>, StorageError> {
+        let mut base_okm = [0; 42];
+
+        let conn = self.client.store().conn()?;
+        let root_key = StoredUserPreferences::load(&conn)?.hmac_key;
+        let hkdf = Hkdf::<Sha256>::new(None, &root_key[..]);
+        hkdf.expand(&self.group_id[..], &mut base_okm)
+            .expect("Length is valid");
+
+        let mut result = vec![];
+        let current_epoch = hmac_epoch();
+        for delta in epoch_delta_range {
+            let mut key = base_okm;
+            let epoch = current_epoch + delta;
+            hkdf.expand(&epoch.to_le_bytes(), &mut key)
+                .expect("Length is correct");
+
+            result.push(HmacKey { key, epoch });
+        }
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(super) fn prepare_group_messages(
+        &self,
+        payloads: Vec<&[u8]>,
+    ) -> Result<Vec<GroupMessageInput>, GroupError> {
+        let hmac_key = self
+            .hmac_keys(0..=0)?
+            .pop()
+            .expect("Range of count 1 was provided.");
+        let sender_hmac =
+            Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
+
+        let mut result = vec![];
+        for payload in payloads {
+            let mut sender_hmac = sender_hmac.clone();
+            sender_hmac.update(payload);
+            let sender_hmac = sender_hmac.finalize();
+
+            result.push(GroupMessageInput {
+                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
+                    data: payload.to_vec(),
+                    sender_hmac: sender_hmac.into_bytes().to_vec(),
+                })),
+            });
+        }
+
+        Ok(result)
     }
 }
 
