@@ -13,7 +13,7 @@ use crate::{
     identity_updates::load_identity_updates,
     retry::Retry,
     storage::EncryptedMessageStore,
-    StorageError, XmtpApi,
+    StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 
 #[derive(Error, Debug)]
@@ -186,20 +186,22 @@ where
     let store = store
         .take()
         .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
+    let conn = store.conn()?;
+    let provider = XmtpOpenMlsProvider::new(conn);
+    let identity = identity_strategy
+        .initialize_identity(&api_client_wrapper, &provider, &scw_verifier)
+        .await?;
 
     debug!(
-        inbox_id = identity_strategy.inbox_id(),
-        "Initializing identity"
+        inbox_id = identity.inbox_id(),
+        installation_id = hex::encode(identity.installation_keys.public_bytes()),
+        "Initialized identity"
     );
-
-    let identity = identity_strategy
-        .initialize_identity(&api_client_wrapper, &store, &scw_verifier)
-        .await?;
 
     // get sequence_id from identity updates and loaded into the DB
     load_identity_updates(
         &api_client_wrapper,
-        &store.conn()?,
+        provider.conn_ref(),
         vec![identity.inbox_id.as_str()].as_slice(),
     )
     .await?;
@@ -557,7 +559,7 @@ pub(crate) mod tests {
         let identity = IdentityStrategy::new("other_inbox_id".to_string(), address, nonce, None);
         assert!(matches!(
             identity
-                .initialize_identity(&wrapper, &store, &scw_verifier)
+                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
                 .await
                 .unwrap_err(),
             IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -598,7 +600,7 @@ pub(crate) mod tests {
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(dbg!(
             identity
-                .initialize_identity(&wrapper, &store, &scw_verifier)
+                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
                 .await
         )
         .is_ok());
@@ -636,7 +638,7 @@ pub(crate) mod tests {
         let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(identity
-            .initialize_identity(&wrapper, &store, &scw_verifier)
+            .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
             .await
             .is_ok());
     }
@@ -676,7 +678,7 @@ pub(crate) mod tests {
         let inbox_id = "inbox_id".to_string();
         let identity = IdentityStrategy::new(inbox_id.clone(), address.clone(), nonce, None);
         let err = identity
-            .initialize_identity(&wrapper, &store, &scw_verifier)
+            .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
             .await
             .unwrap_err();
 
