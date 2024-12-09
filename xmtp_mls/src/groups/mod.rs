@@ -57,6 +57,7 @@ use self::{
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
+use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
@@ -79,6 +80,7 @@ use crate::{
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    groups,
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
@@ -96,8 +98,10 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Store,
+    GroupCommitLock, Store, MLS_COMMIT_LOCK,
 };
+use crate::hpke::HpkeError::StorageError;
+use crate::storage::sql_key_store::SqlKeyStoreError;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -202,6 +206,8 @@ pub enum GroupError {
     IntentNotCommitted,
     #[error(transparent)]
     ProcessIntent(#[from] ProcessIntentError),
+    #[error("Failed to acquire lock for group operation")]
+    LockUnavailable,
 }
 
 impl RetryableError for GroupError {
@@ -228,6 +234,7 @@ impl RetryableError for GroupError {
             Self::MessageHistory(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
+            Self::LockUnavailable => true,
             Self::SyncFailedToWait => true,
             Self::GroupNotFound
             | Self::GroupMetadata(_)
@@ -335,6 +342,59 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .ok_or(GroupError::GroupNotFound)?;
 
         Ok(mls_group)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) fn load_mls_group_with_lock<F, R>(
+        &self,
+        provider: impl OpenMlsProvider,
+        operation: F,
+    ) -> Result<R, GroupError>
+    where
+        F: FnOnce(OpenMlsGroup) -> Result<R, GroupError>,
+    {
+        // Get the group ID for locking
+        let group_id = self.group_id.clone();
+
+        // Acquire the lock synchronously using blocking_lock
+
+        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone())?;
+        // Load the MLS group
+        let mls_group =
+            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
+                .map_err(|_| GroupError::GroupNotFound)?
+                .ok_or(GroupError::GroupNotFound)?;
+
+        // Perform the operation with the MLS group
+        operation(mls_group)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(crate) async fn load_mls_group_with_lock_async<F, E, E2, R, Fut>(
+        &self,
+        provider: impl OpenMlsProvider,
+        operation: F,
+    ) -> Result<R, E>
+    where
+        F: FnOnce(OpenMlsGroup) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<R, E2>>,
+        E: From<E2>,
+        E: Into<GroupMessageProcessingError>,
+        E: From<SqlKeyStoreError>
+    {
+        // Get the group ID for locking
+        let group_id = self.group_id.clone();
+
+        // Acquire the lock asynchronously
+        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+
+        // Load the MLS group
+        let mls_group =
+            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))?
+                .ok_or(|e|GroupMessageProcessingError::Storage)?;
+
+        // Perform the operation with the MLS group
+        operation(mls_group).await.map_err(Into::into)
     }
 
     // Create a new group and save it to the DB
@@ -1109,12 +1169,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await
     }
 
-    /// Checks if the the current user is active in the group.
+    /// Checks if the current user is active in the group.
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
-        let mls_group = self.load_mls_group(provider)?;
-        Ok(mls_group.is_active())
+        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
     }
 
     /// Get the `GroupMetadata` of the group.
@@ -3677,9 +3736,8 @@ pub(crate) mod tests {
             panic!("wrong message format")
         };
         let provider = client.mls_provider().unwrap();
-        let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let process_result = group
-            .process_message(&mut openmls_group, &provider, &first_message, false)
+            .process_message(&provider, &first_message, false)
             .await;
 
         assert_err!(

@@ -1,5 +1,5 @@
 use std::{ops::Deref, sync::Arc};
-
+use futures::TryFutureExt;
 use napi::{
   bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},

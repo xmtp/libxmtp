@@ -22,15 +22,76 @@ pub mod utils;
 pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 pub use client::{Client, Network};
 use storage::{DuplicateItem, StorageError};
 pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
+use std::sync::LazyLock;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
 
 #[macro_use]
 extern crate tracing;
+/// A manager for group-specific semaphores
+#[derive(Debug)]
+pub struct GroupCommitLock {
+    // Storage for group-specific semaphores
+    locks: Mutex<HashMap<Vec<u8>, Arc<Semaphore>>>,
+}
+
+impl GroupCommitLock {
+    /// Create a new `GroupCommitLock`
+    pub fn new() -> Self {
+        Self {
+            locks: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Get or create a semaphore for a specific group and acquire it, returning a guard
+    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> SemaphoreGuard {
+        let semaphore = {
+            let mut locks = self.locks.lock().unwrap();
+            locks
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                .clone()
+        };
+
+        let semaphore_clone = semaphore.clone();
+        let permit = semaphore.acquire_owned().await.unwrap();
+        SemaphoreGuard { _permit: permit, _semaphore: semaphore_clone }
+    }
+
+    /// Get or create a semaphore for a specific group and acquire it synchronously
+    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
+        let semaphore = {
+            let mut locks = self.locks.lock().unwrap();
+            locks
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                .clone() // Clone here to retain ownership for later use
+        };
+
+        // Synchronously acquire the permit
+        let permit = semaphore.clone().try_acquire_owned().map_err(|_| GroupError::LockUnavailable)?;
+        Ok(SemaphoreGuard {
+            _permit: permit,
+            _semaphore: semaphore, // semaphore is now valid because we cloned it earlier
+        })
+    }
+}
+
+/// A guard that releases the semaphore when dropped
+pub struct SemaphoreGuard {
+    _permit: OwnedSemaphorePermit,
+    _semaphore: Arc<Semaphore>,
+}
+
+// Static instance of `GroupCommitLock`
+pub static MLS_COMMIT_LOCK: LazyLock<GroupCommitLock> = LazyLock::new(GroupCommitLock::new);
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
@@ -79,6 +140,7 @@ pub trait Delete<Model> {
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
+use crate::groups::GroupError;
 
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
