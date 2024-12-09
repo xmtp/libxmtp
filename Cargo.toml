@@ -56,7 +56,7 @@ sha2 = "0.10.8"
 sha3 = "0.10.8"
 thiserror = "2.0"
 tls_codec = "0.4.1"
-tokio = { version = "1.35.1", default-features = false }
+tokio = { version = "1.42.0", default-features = false }
 uuid = "1.10"
 wasm-timer = "0.2"
 web-time = "1.1"

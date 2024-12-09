@@ -28,7 +28,7 @@ speedy = "0.8"
 hex.workspace = true
 prost.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-tokio = "1.41"
+tokio = "1.42"
 ecdsa = "0.16"
 k256 = "0.13"
 tempfile = "3.14"
