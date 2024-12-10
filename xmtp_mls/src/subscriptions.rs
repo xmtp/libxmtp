@@ -546,6 +546,7 @@ pub(crate) mod tests {
         Arc,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::InboxOwner;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
@@ -702,7 +703,8 @@ pub(crate) mod tests {
     async fn test_stream_all_messages_changing_group_list() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let caro_wallet = generate_local_wallet();
+        let caro = Arc::new(ClientBuilder::new_test_client(&caro_wallet).await);
 
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -726,27 +728,21 @@ pub(crate) mod tests {
         );
         handle.wait_for_ready().await;
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
+        alix_group.send_message(b"first").await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `first`");
 
-        let bo_group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        bo_group
-            .add_members_by_inbox_id(&[caro.inbox_id()])
-            .await
-            .unwrap();
+        let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
 
-        bo_group.send_message("second".as_bytes()).await.unwrap();
+        bo_group.send_message(b"second").await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `second`");
 
-        alix_group.send_message("third".as_bytes()).await.unwrap();
+        alix_group.send_message(b"third").await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -760,13 +756,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        alix_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group.send_message(b"fourth").await.unwrap();
         delivery
             .wait_for_delivery()
             .await
             .expect("timed out waiting for `fourth`");
 
-        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
+        alix_group_2.send_message(b"fifth").await.unwrap();
         delivery
             .wait_for_delivery()
             .await
@@ -789,7 +785,15 @@ pub(crate) mod tests {
         crate::sleep(core::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock();
+
         assert_eq!(messages.len(), 5);
+
+        let messages = messages
+            .clone()
+            .into_iter()
+            .map(|m| String::from_utf8(m.decrypted_message_bytes).unwrap())
+            .collect::<Vec<_>>();
+        tracing::info!("{messages:?}");
     }
 
     #[ignore]

@@ -2478,7 +2478,6 @@ mod tests {
 
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_can_stream_group_messages_for_updates() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2520,6 +2519,9 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
+        alix_group.send(b"Hello there".to_vec()).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+
         // Uncomment the following lines to add more group name updates
         bo_group
             .update_group_name("Old Name3".to_string())
@@ -2527,7 +2529,7 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
-        assert_eq!(message_callbacks.message_count(), 3);
+        assert_eq!(message_callbacks.message_count(), 4);
 
         stream_messages.end_and_wait().await.unwrap();
 
