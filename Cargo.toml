@@ -39,6 +39,7 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 getrandom = { version = "0.2", default-features = false }
 hex = "0.4.3"
+hkdf = "0.12.3"
 openmls = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }

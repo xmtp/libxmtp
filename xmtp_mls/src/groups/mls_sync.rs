@@ -6,12 +6,12 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError},
-    GroupError, IntentError, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, IntentError, MlsGroup, ScopedGroupClient,
 };
 use crate::{
     codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
@@ -28,14 +28,18 @@ use crate::{
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
+        user_preferences::StoredUserPreferences,
+        StorageError,
     },
     subscriptions::LocalEvents,
-    utils::{hash::sha256, id::calculate_message_id},
+    utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
 use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -53,19 +57,22 @@ use openmls::{framing::WireFormat, prelude::BasicCredentialError};
 use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
+use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
+    ops::RangeInclusive,
 };
 use thiserror::Error;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
         welcome_message_input::{
             Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
         },
-        GroupMessage, WelcomeMessageInput,
+        GroupMessage, GroupMessageInput, WelcomeMessageInput,
     },
     message_contents::{
         plaintext_envelope::{v2::MessageType, Content, V1, V2},
@@ -1021,10 +1028,8 @@ where
                         intent.id
                     );
 
-                    self.client
-                        .api()
-                        .send_group_messages(vec![payload_slice])
-                        .await?;
+                    let messages = self.prepare_group_messages(vec![payload_slice])?;
+                    self.client.api().send_group_messages(messages).await?;
 
                     tracing::info!(
                         intent.id,
@@ -1387,6 +1392,62 @@ where
         try_join_all(futures).await?;
         Ok(())
     }
+
+    /// Provides hmac keys for a range of epochs around current epoch
+    /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
+    /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub fn hmac_keys(
+        &self,
+        epoch_delta_range: RangeInclusive<i64>,
+    ) -> Result<Vec<HmacKey>, StorageError> {
+        let conn = self.client.store().conn()?;
+        let mut ikm = StoredUserPreferences::load(&conn)?.hmac_key;
+        ikm.extend(&self.group_id);
+        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm[..]);
+
+        let mut result = vec![];
+        let current_epoch = hmac_epoch();
+        for delta in epoch_delta_range {
+            let mut key = [0; 42];
+            let epoch = current_epoch + delta;
+            hkdf.expand(&epoch.to_le_bytes(), &mut key)
+                .expect("Length is correct");
+
+            result.push(HmacKey { key, epoch });
+        }
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(super) fn prepare_group_messages(
+        &self,
+        payloads: Vec<&[u8]>,
+    ) -> Result<Vec<GroupMessageInput>, GroupError> {
+        let hmac_key = self
+            .hmac_keys(0..=0)?
+            .pop()
+            .expect("Range of count 1 was provided.");
+        let sender_hmac =
+            Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
+
+        let mut result = vec![];
+        for payload in payloads {
+            let mut sender_hmac = sender_hmac.clone();
+            sender_hmac.update(payload);
+            let sender_hmac = sender_hmac.finalize();
+
+            result.push(GroupMessageInput {
+                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
+                    data: payload.to_vec(),
+                    sender_hmac: sender_hmac.into_bytes().to_vec(),
+                })),
+            });
+        }
+
+        Ok(result)
+    }
 }
 
 // Extracts the message sender, but does not do any validation to ensure that the
@@ -1568,5 +1629,31 @@ pub(crate) mod tests {
             futures.push(amal_group.publish_intents(&provider))
         }
         future::join_all(futures).await;
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    async fn hmac_keys_work_as_expected() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup<_>> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
+        let current_hmac_key = amal_group.hmac_keys(0..=0).unwrap().pop().unwrap();
+        assert_eq!(hmac_keys.len(), 3);
+        assert_eq!(hmac_keys[1].key, current_hmac_key.key);
+        assert_eq!(hmac_keys[1].epoch, current_hmac_key.epoch);
+
+        // Make sure the keys are different
+        assert_ne!(hmac_keys[0].key, hmac_keys[1].key);
+        assert_ne!(hmac_keys[0].key, hmac_keys[2].key);
+        assert_ne!(hmac_keys[1].key, hmac_keys[2].key);
+
+        // Make sure the epochs align
+        let current_epoch = hmac_epoch();
+        assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
+        assert_eq!(hmac_keys[1].epoch, current_epoch);
+        assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
     }
 }

@@ -11,6 +11,7 @@ pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
+use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -83,7 +84,6 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
-    preferences::UserPreferenceUpdate,
     retry::RetryableError,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -283,6 +283,12 @@ impl<C> Clone for MlsGroup<C> {
             mutex: self.mutex.clone(),
         }
     }
+}
+
+pub struct HmacKey {
+    pub key: [u8; 42],
+    // # of 30 day periods since unix epoch
+    pub epoch: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1686,9 +1692,12 @@ pub(crate) mod tests {
             }],
             serialized_welcome,
         );
+        let messages = sender_group
+            .prepare_group_messages(vec![serialized_commit.as_slice()])
+            .unwrap();
         sender_client
             .api_client
-            .send_group_messages(vec![serialized_commit.as_slice()])
+            .send_group_messages(messages)
             .await
             .unwrap();
         sender_group
