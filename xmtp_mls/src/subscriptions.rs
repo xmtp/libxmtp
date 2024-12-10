@@ -787,13 +787,6 @@ pub(crate) mod tests {
         let messages = messages.lock();
 
         assert_eq!(messages.len(), 5);
-
-        let messages = messages
-            .clone()
-            .into_iter()
-            .map(|m| String::from_utf8(m.decrypted_message_bytes).unwrap())
-            .collect::<Vec<_>>();
-        tracing::info!("{messages:?}");
     }
 
     #[ignore]
