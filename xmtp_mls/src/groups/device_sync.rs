@@ -109,8 +109,8 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
-    #[error("Unable to serialize: {0}")]
-    Bincode(String),
+    #[error("Unable to serialize")]
+    Bincode(#[from] bincode::Error),
 }
 
 impl RetryableError for DeviceSyncError {
@@ -173,9 +173,9 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingPreferenceUpdates(consent_records) => {
+                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
                     let provider = self.client.mls_provider()?;
-                    for record in consent_records {
+                    for record in preference_updates {
                         let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
                             continue;
                         };
