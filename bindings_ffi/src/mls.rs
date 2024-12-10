@@ -1002,41 +1002,33 @@ impl FfiConversations {
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.clone(),
-            Some(ConversationType::Group),
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_messages(message_callback, Some(FfiConversationType::Group))
+            .await
     }
 
     pub async fn stream_all_dm_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.clone(),
-            Some(ConversationType::Dm),
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_messages(message_callback, Some(FfiConversationType::Dm))
+            .await
     }
 
     pub async fn stream_all_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
+        self.stream_messages(message_callback, None).await
+    }
+
+    async fn stream_messages(
+        &self,
+        message_callback: Arc<dyn FfiMessageCallback>,
+        conversation_type: Option<FfiConversationType>,
+    ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
-            None,
+            conversation_type.map(Into::into),
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
@@ -1056,6 +1048,16 @@ impl FfiConversations {
             });
 
         FfiStreamCloser::new(handle)
+    }
+}
+
+impl From<FfiConversationType> for ConversationType {
+    fn from(value: FfiConversationType) -> Self {
+        match value {
+            FfiConversationType::Dm => ConversationType::Dm,
+            FfiConversationType::Group => ConversationType::Group,
+            FfiConversationType::Sync => ConversationType::Sync,
+        }
     }
 }
 
