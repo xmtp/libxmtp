@@ -109,7 +109,7 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
-    #[error("Unable to serialize")]
+    #[error(transparent)]
     Bincode(#[from] bincode::Error),
 }
 
@@ -174,16 +174,8 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    let provider = self.client.mls_provider()?;
-                    for record in preference_updates {
-                        let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
-                            continue;
-                        };
-
-                        self.client
-                            .send_consent_update(&provider, consent_record)
-                            .await?;
-                    }
+                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
+                        .await?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(updates) => {
                     let provider = self.client.mls_provider()?;

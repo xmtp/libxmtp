@@ -1,14 +1,10 @@
 use super::*;
+use crate::{storage::consent_record::StoredConsentRecord, Client};
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::DeserializationError;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
-
-use crate::{storage::consent_record::StoredConsentRecord, Client, XmtpOpenMlsProvider};
-
-use super::DeviceSyncError;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[repr(i32)]
@@ -18,11 +14,11 @@ pub enum UserPreferenceUpdate {
 }
 
 impl UserPreferenceUpdate {
-    pub(crate) async fn sync_across_devices<C: XmtpApi>(
+    pub(crate) async fn sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
-        provider: &XmtpOpenMlsProvider,
-        client: &Client<C>,
+        client: &Client<C, V>,
     ) -> Result<(), DeviceSyncError> {
+        let provider = client.mls_provider()?;
         let conn = provider.conn_ref();
         let sync_group = client.get_sync_group(conn)?;
 
@@ -32,34 +28,18 @@ impl UserPreferenceUpdate {
             .collect::<Result<Vec<_>, _>>()?;
         let update_proto = UserPreferenceUpdateProto { content: updates };
         let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, &provider, |_time_ns| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
                 message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
             })),
         })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group
+            .sync_until_last_intent_resolved(&provider)
+            .await?;
 
         Ok(())
-    }
-}
-
-impl TryFrom<UserPreferenceUpdateProto> for UserPreferenceUpdate {
-    type Error = DeserializationError;
-    fn try_from(value: UserPreferenceUpdateProto) -> Result<Self, Self::Error> {
-        let update =
-            bincode::deserialize(&value.content).map_err(|_| DeserializationError::Bincode)?;
-
-        Ok(update)
-    }
-}
-
-impl TryFrom<UserPreferenceUpdate> for UserPreferenceUpdateProto {
-    type Error = bincode::Error;
-    fn try_from(update: UserPreferenceUpdate) -> Result<Self, Self::Error> {
-        let content = bincode::serialize(&update)?;
-        Ok(Self { content })
     }
 }
 
