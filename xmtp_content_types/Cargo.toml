@@ -1,0 +1,7 @@
+[package]
+name = "xmtp_content_types"
+edition = "2021"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
