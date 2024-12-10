@@ -2522,6 +2522,14 @@ mod tests {
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
+        let dm = bo
+            .conversations()
+            .create_dm(alix.account_address.clone())
+            .await
+            .unwrap();
+        dm.send(b"Hello again".to_vec()).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+
         // Uncomment the following lines to add more group name updates
         bo_group
             .update_group_name("Old Name3".to_string())
@@ -2529,7 +2537,7 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
-        assert_eq!(message_callbacks.message_count(), 4);
+        assert_eq!(message_callbacks.message_count(), 6);
 
         stream_messages.end_and_wait().await.unwrap();
 
