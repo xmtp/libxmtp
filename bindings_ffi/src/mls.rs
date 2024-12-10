@@ -1036,41 +1036,33 @@ impl FfiConversations {
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.clone(),
-            Some(ConversationType::Group),
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_messages(message_callback, Some(FfiConversationType::Group))
+            .await
     }
 
     pub async fn stream_all_dm_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
-        let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.clone(),
-            Some(ConversationType::Dm),
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
-
-        FfiStreamCloser::new(handle)
+        self.stream_messages(message_callback, Some(FfiConversationType::Dm))
+            .await
     }
 
     pub async fn stream_all_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
     ) -> FfiStreamCloser {
+        self.stream_messages(message_callback, None).await
+    }
+
+    async fn stream_messages(
+        &self,
+        message_callback: Arc<dyn FfiMessageCallback>,
+        conversation_type: Option<FfiConversationType>,
+    ) -> FfiStreamCloser {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
-            None,
+            conversation_type.map(Into::into),
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
@@ -1090,6 +1082,16 @@ impl FfiConversations {
             });
 
         FfiStreamCloser::new(handle)
+    }
+}
+
+impl From<FfiConversationType> for ConversationType {
+    fn from(value: FfiConversationType) -> Self {
+        match value {
+            FfiConversationType::Dm => ConversationType::Dm,
+            FfiConversationType::Group => ConversationType::Group,
+            FfiConversationType::Sync => ConversationType::Sync,
+        }
     }
 }
 
@@ -2512,7 +2514,6 @@ mod tests {
 
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    #[ignore]
     async fn test_can_stream_group_messages_for_updates() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
@@ -2554,6 +2555,17 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
+        alix_group.send(b"Hello there".to_vec()).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+
+        let dm = bo
+            .conversations()
+            .create_dm(alix.account_address.clone())
+            .await
+            .unwrap();
+        dm.send(b"Hello again".to_vec()).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+
         // Uncomment the following lines to add more group name updates
         bo_group
             .update_group_name("Old Name3".to_string())
@@ -2561,7 +2573,7 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
-        assert_eq!(message_callbacks.message_count(), 3);
+        assert_eq!(message_callbacks.message_count(), 6);
 
         stream_messages.end_and_wait().await.unwrap();
 
