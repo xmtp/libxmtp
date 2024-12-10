@@ -16,6 +16,7 @@ pub enum UserPreferenceUpdate {
 }
 
 impl UserPreferenceUpdate {
+    /// Send a preference update through the sync group for other devices to consume
     pub(crate) async fn sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
@@ -44,6 +45,7 @@ impl UserPreferenceUpdate {
         Ok(())
     }
 
+    /// Process and insert incoming preference updates over the sync group
     pub(crate) fn process_incoming_preference_update<C: ScopedGroupClient>(
         update_proto: UserPreferenceUpdateProto,
         client: &C,
@@ -54,7 +56,7 @@ impl UserPreferenceUpdate {
             if let Ok(update) = bincode::deserialize(&update) {
                 updates.push(update);
             } else {
-                // Don't fail ion errors since this may come from a newer version of the lib
+                // Don't fail on errors since this may come from a newer version of the lib
                 // that has new update types.
                 tracing::warn!(
                     "Failed to deserialize preference update. Is this libxmtp version outdated?"
