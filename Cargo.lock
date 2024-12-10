@@ -7301,6 +7301,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_content_types"
+version = "0.1.0"
+
+[[package]]
 name = "xmtp_cryptography"
 version = "0.1.0"
 dependencies = [
