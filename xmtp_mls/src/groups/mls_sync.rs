@@ -14,7 +14,10 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
+        validated_commit::ValidatedCommit,
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
@@ -620,16 +623,10 @@ where
                                 ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
-                                // Ignore errors since this may come from a newer version of the lib
-                                // that has new update types.
-                                if let Ok(update) = update.try_into() {
-                                    let _ = self
-                                        .client
-                                        .local_events()
-                                        .send(LocalEvents::IncomingPreferenceUpdate(vec![update]));
-                                } else {
-                                    tracing::warn!("Failed to deserialize preference update. Is this libxmtp version old?");
-                                }
+                                UserPreferenceUpdate::process_incoming_preference_update(
+                                    update,
+                                    &self.client,
+                                );
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);

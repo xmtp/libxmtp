@@ -1,5 +1,7 @@
 use super::*;
-use crate::{storage::consent_record::StoredConsentRecord, Client};
+use crate::{
+    groups::scoped_client::ScopedGroupClient, storage::consent_record::StoredConsentRecord, Client,
+};
 use serde::{Deserialize, Serialize};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
@@ -38,6 +40,27 @@ impl UserPreferenceUpdate {
         sync_group
             .sync_until_last_intent_resolved(&provider)
             .await?;
+
+        Ok(())
+    }
+
+    pub(crate) fn process_incoming_preference_update<C: ScopedGroupClient>(
+        update_proto: UserPreferenceUpdateProto,
+        client: &C,
+    ) -> Result<(), DeviceSyncError> {
+        let proto_content = update_proto.content;
+        let mut updates: Vec<Self> = Vec::with_capacity(proto_content.len());
+        for update in proto_content {
+            if let Ok(update) = bincode::deserialize(&update) {
+                updates.push(update);
+            } else {
+                // Don't fail ion errors since this may come from a newer version of the lib
+                // that has new update types.
+                tracing::warn!(
+                    "Failed to deserialize preference update. Is this libxmtp version outdated?"
+                );
+            }
+        }
 
         Ok(())
     }
