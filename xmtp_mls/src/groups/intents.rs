@@ -865,14 +865,11 @@ pub(crate) mod tests {
         };
 
         let provider = group.client.mls_provider().unwrap();
-        let decrypted_message = match group
+        let decrypted_message = group
             .load_mls_group_with_lock(&provider, |mut mls_group| {
                 Ok(mls_group
                     .process_message(&provider, mls_message).unwrap())
-            }) {
-            Ok(message) => message,
-            Err(err) => panic!("Error: {:?}", err),
-        };
+            }).unwrap();
 
         let staged_commit = match decrypted_message.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
