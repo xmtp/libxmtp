@@ -54,7 +54,7 @@ pub(crate) mod tests {
 
     use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
-    use crate::utils::test::{rand_string, rand_vec};
+    use crate::test_utils::{rand_string, rand_vec};
 
     use super::*;
 

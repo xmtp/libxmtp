@@ -1,7 +1,14 @@
 [package]
-name = "xmtp_content_types"
 edition = "2021"
-license.workspace = true
+name = "xmtp_content_types"
 version.workspace = true
+license.workspace = true
 
 [dependencies]
+thiserror = { workspace = true }
+prost = { workspace = true, features = ["prost-derive"] }
+rand = { workspace = true }
+tonic = { version = "0.12", features = ["transport"] }
+
+# XMTP/Local
+xmtp_proto = { workspace = true, features = ["convert"] }

@@ -7294,6 +7294,7 @@ dependencies = [
  "valuable",
  "valuable-serde",
  "xmtp_api_grpc",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -7303,6 +7304,13 @@ dependencies = [
 [[package]]
 name = "xmtp_content_types"
 version = "0.1.0"
+dependencies = [
+ "prost",
+ "rand",
+ "thiserror 2.0.6",
+ "tonic",
+ "xmtp_proto",
+]
 
 [[package]]
 name = "xmtp_cryptography"
@@ -7426,6 +7434,7 @@ dependencies = [
  "web-time",
  "xmtp_api_grpc",
  "xmtp_api_http",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_proto",
