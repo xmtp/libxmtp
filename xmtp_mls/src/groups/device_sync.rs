@@ -383,10 +383,10 @@ where
 
         let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
-            move |_time_ns| PlaintextEnvelope {
+            move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: new_request_id(),
+                    idempotency_key: now.to_string(),
                 })),
             }
         })?;
@@ -450,14 +450,14 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
+                idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group.publish_intents(provider).await?;
 
         Ok(())
     }

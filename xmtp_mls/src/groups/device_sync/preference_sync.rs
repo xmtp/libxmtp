@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    groups::scoped_client::ScopedGroupClient,
     storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
     Client,
 };
@@ -24,8 +23,7 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
     ) -> Result<(), DeviceSyncError> {
         let provider = client.mls_provider()?;
-        let conn = provider.conn_ref();
-        let sync_group = client.get_sync_group(conn)?;
+        let sync_group = client.ensure_sync_group(&provider).await?;
 
         let updates = updates
             .iter()
@@ -33,26 +31,23 @@ impl UserPreferenceUpdate {
             .collect::<Result<Vec<_>, _>>()?;
         let update_proto = UserPreferenceUpdateProto { content: updates };
         let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, &provider, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
                 message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
+                idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group
-            .sync_until_last_intent_resolved(&provider)
-            .await?;
+        sync_group.publish_intents(&provider).await?;
 
         Ok(())
     }
 
     /// Process and insert incoming preference updates over the sync group
-    pub(crate) fn process_incoming_preference_update<C: ScopedGroupClient>(
+    pub(crate) fn process_incoming_preference_update(
         update_proto: UserPreferenceUpdateProto,
-        client: &C,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<Self>, StorageError> {
-        let provider = client.mls_provider()?;
         let conn = provider.conn_ref();
 
         let proto_content = update_proto.content;
