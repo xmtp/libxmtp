@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{groups::intents::IntentError, retry::RetryableError, retryable};
 
-use super::sql_key_store;
+use super::sql_key_store::{self, SqlKeyStoreError};
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -25,6 +25,7 @@ pub enum StorageError {
     Serialization(String),
     #[error("deserialization error")]
     Deserialization(String),
+    // TODO:insipx Make NotFound into an enum of possible items that may not be found
     #[error("{0} not found")]
     NotFound(String),
     #[error("lock")]
@@ -43,6 +44,8 @@ pub enum StorageError {
     FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
     Duplicate(DuplicateItem),
+    #[error(transparent)]
+    OpenMlsStorage(#[from] SqlKeyStoreError),
 }
 
 #[derive(Error, Debug)]
