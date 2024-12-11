@@ -9,7 +9,6 @@ use super::{
     GroupError, HmacKey, IntentError, MlsGroup, ScopedGroupClient,
 };
 use crate::{
-    codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
@@ -64,6 +63,7 @@ use std::{
     ops::RangeInclusive,
 };
 use thiserror::Error;
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -122,7 +122,7 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Intent(#[from] IntentError),
     #[error(transparent)]
-    Codec(#[from] crate::codecs::CodecError),
+    Codec(#[from] CodecError),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]

@@ -39,6 +39,7 @@ valuable = { version = "0.1", features = ["derive"] }
 valuable-serde = "0.1"
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
+xmtp_content_types = { path = "../../xmtp_content_types" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
