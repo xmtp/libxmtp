@@ -206,7 +206,7 @@ where
     )
     .await?;
 
-    let client = Client::new(
+    let mut client = Client::new(
         api_client_wrapper,
         identity,
         store,

@@ -154,7 +154,8 @@ pub(crate) mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_sync_continues_during_db_disconnect() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let mut amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
 
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
@@ -216,7 +217,8 @@ pub(crate) mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn disconnect_does_not_effect_init() {
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
+        let mut amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
 
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();

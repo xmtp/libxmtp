@@ -64,6 +64,7 @@ pub(crate) mod tests {
         // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
@@ -74,7 +75,7 @@ pub(crate) mod tests {
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
         tracing::info!("Waiting for intents published");
-        wait_for_min_intents(amal_b_conn, 3).await;
+        amal_b_worker.wait_for_new_events(1).await.unwrap();
 
         let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Old Group Id: {}", hex::encode(&old_group_id));

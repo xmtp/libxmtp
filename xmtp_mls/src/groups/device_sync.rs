@@ -24,6 +24,7 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use futures::{Stream, StreamExt};
+use parking_lot::Mutex;
 use preference_sync::UserPreferenceUpdate;
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -31,9 +32,13 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::OnceCell;
+use tokio::sync::{Notify, OnceCell};
+use tokio::time::error::Elapsed;
+use tokio::time::timeout;
 use tracing::{instrument, warn};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -133,7 +138,9 @@ where
             "starting sync worker"
         );
 
-        SyncWorker::new(client).spawn_worker();
+        let worker = SyncWorker::new(client);
+        self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
     }
 }
 
@@ -146,6 +153,42 @@ pub struct SyncWorker<ApiClient, V> {
     >,
     init: OnceCell<()>,
     retry: Retry,
+
+    // Number of events processed
+    handle: Arc<WorkerHandle>,
+}
+
+pub struct WorkerHandle {
+    processed: AtomicUsize,
+    notify: Notify,
+}
+impl WorkerHandle {
+    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while count > 0 {
+                self.notify.notified().await;
+                count -= 1;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn wait_for_processed_count(&self, count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while self.processed.load(Ordering::SeqCst) < count {
+                self.notify.notified().await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub fn processed_count(&self) -> usize {
+        self.processed.load(Ordering::SeqCst)
+    }
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -179,6 +222,9 @@ where
                 }
                 _ => {}
             }
+
+            self.handle.processed.fetch_add(1, Ordering::SeqCst);
+            self.handle.notify.notify_waiters();
         }
         Ok(())
     }
@@ -303,6 +349,11 @@ where
             stream,
             init: OnceCell::new(),
             retry,
+
+            handle: Arc::new(WorkerHandle {
+                processed: AtomicUsize::new(0),
+                notify: Notify::new(),
+            }),
         }
     }
 
