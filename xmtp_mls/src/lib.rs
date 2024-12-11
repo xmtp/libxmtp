@@ -76,7 +76,8 @@ impl GroupCommitLock {
                 eprintln!("Failed to acquire semaphore permit: {}", err);
                 return Err(GroupError::LockUnavailable);
             }
-        };        Ok(SemaphoreGuard {
+        };
+        Ok(SemaphoreGuard {
             _permit: permit,
             _semaphore: semaphore_clone,
         })
