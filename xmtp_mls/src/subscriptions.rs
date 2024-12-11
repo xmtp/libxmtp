@@ -585,11 +585,11 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_group = bob
+        let bob_groups = bob
             .sync_welcomes(&bob.store().conn().unwrap())
             .await
             .unwrap();
-        let bob_group = bob_group.first().unwrap();
+        let bob_group = bob_groups.first().unwrap();
 
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();

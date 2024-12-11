@@ -189,9 +189,6 @@ where
     #[tracing::instrument(skip_all)]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         // Check if we're still part of the group
-        if !self.is_active(provider)? {
-            return Ok(());
-        }
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 
@@ -1152,10 +1149,6 @@ where
         provider: &XmtpOpenMlsProvider,
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
-        // Check if we're still part of the group
-        if !self.is_active(provider)? {
-            return Ok(());
-        }
         // determine how long of an interval in time to use before updating list
         let interval_ns = update_interval_ns.unwrap_or_else(|| SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 

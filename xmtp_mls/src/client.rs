@@ -853,9 +853,17 @@ where
                         "[{}] syncing group",
                         self.inbox_id()
                     );
-                    group.maybe_update_installations(provider_ref, None).await?;
-                    group.sync_with_conn(provider_ref).await?;
-                    active_group_count.fetch_add(1, Ordering::SeqCst);
+                    let is_active = group
+                        .load_mls_group_with_lock_async(provider_ref, |mls_group| async move {
+                            Ok::<bool, GroupError>(mls_group.is_active())
+                        })
+                        .await?;
+                    if is_active {
+                        group.maybe_update_installations(provider_ref, None).await?;
+
+                        group.sync_with_conn(provider_ref).await?;
+                        active_group_count.fetch_add(1, Ordering::SeqCst);
+                    }
 
                     Ok::<(), GroupError>(())
                 }

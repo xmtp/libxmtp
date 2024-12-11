@@ -1160,16 +1160,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group|
-            Ok(mls_group.is_active())
-        )
+        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
     }
 
     /// Get the `GroupMetadata` of the group.
     pub fn metadata(&self, provider: impl OpenMlsProvider) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group|
+        self.load_mls_group_with_lock(provider, |mls_group| {
             Ok(extract_group_metadata(&mls_group)?)
-        )
+        })
     }
 
     /// Get the `GroupMutableMetadata` of the group.
@@ -1177,18 +1175,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: impl OpenMlsProvider,
     ) -> Result<GroupMutableMetadata, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group|
+        self.load_mls_group_with_lock(provider, |mls_group| {
             Ok(GroupMutableMetadata::try_from(&mls_group)?)
-        )
+        })
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
 
-        self.load_mls_group_with_lock(&provider, |mls_group|
+        self.load_mls_group_with_lock(&provider, |mls_group| {
             Ok(extract_group_permissions(&mls_group)?)
-        )
+        })
     }
 
     /// Used for testing that dm group validation works as expected.
@@ -1909,17 +1907,17 @@ pub(crate) mod tests {
 
         // Check Amal's MLS group state.
         let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
-        let amal_members_len = amal_group.load_mls_group_with_lock(&amal_db, |mls_group|
-            Ok(mls_group.members().count())
-        ).unwrap();
+        let amal_members_len = amal_group
+            .load_mls_group_with_lock(&amal_db, |mls_group| Ok(mls_group.members().count()))
+            .unwrap();
 
         assert_eq!(amal_members_len, 3);
 
         // Check Bola's MLS group state.
         let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
-        let bola_members_len = bola_group.load_mls_group_with_lock(&bola_db, |mls_group|
-            Ok(mls_group.members().count())
-        ).unwrap();
+        let bola_members_len = bola_group
+            .load_mls_group_with_lock(&bola_db, |mls_group| Ok(mls_group.members().count()))
+            .unwrap();
 
         assert_eq!(bola_members_len, 3);
 
@@ -1980,23 +1978,26 @@ pub(crate) mod tests {
                 .unwrap();
             let provider = alix.mls_provider().unwrap();
             // Doctor the group membership
-            let mut mls_group = alix_group.load_mls_group_with_lock(&provider, |mut mls_group| {
-                let mut existing_extensions = mls_group.extensions().clone();
-                let mut group_membership = GroupMembership::new();
-                group_membership.add("deadbeef".to_string(), 1);
-                existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            let mut mls_group = alix_group
+                .load_mls_group_with_lock(&provider, |mut mls_group| {
+                    let mut existing_extensions = mls_group.extensions().clone();
+                    let mut group_membership = GroupMembership::new();
+                    group_membership.add("deadbeef".to_string(), 1);
+                    existing_extensions
+                        .add_or_replace(build_group_membership_extension(&group_membership));
 
-                mls_group
-                    .update_group_context_extensions(
-                        &provider,
-                        existing_extensions.clone(),
-                        &alix.identity().installation_keys,
-                    )
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
+                    mls_group
+                        .update_group_context_extensions(
+                            &provider,
+                            existing_extensions.clone(),
+                            &alix.identity().installation_keys,
+                        )
+                        .unwrap();
+                    mls_group.merge_pending_commit(&provider).unwrap();
 
-                Ok(mls_group) // Return the updated group if necessary
-            }).unwrap();
+                    Ok(mls_group) // Return the updated group if necessary
+                })
+                .unwrap();
 
             // Now add bo to the group
             force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
@@ -2123,9 +2124,11 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 2);
 
         let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
-        let pending_commit_is_none = group.load_mls_group_with_lock(&provider, |mls_group|
-            Ok(mls_group.pending_commit().is_none())
-        ).unwrap();
+        let pending_commit_is_none = group
+            .load_mls_group_with_lock(&provider, |mls_group| {
+                Ok(mls_group.pending_commit().is_none())
+            })
+            .unwrap();
 
         assert!(pending_commit_is_none);
 
@@ -2306,9 +2309,11 @@ pub(crate) mod tests {
         assert!(new_installations_were_added.is_ok());
 
         group.sync().await.unwrap();
-        let num_members = group.load_mls_group_with_lock(&provider, |mls_group|
-            Ok(mls_group.members().collect::<Vec<_>>().len())
-        ).unwrap();
+        let num_members = group
+            .load_mls_group_with_lock(&provider, |mls_group| {
+                Ok(mls_group.members().collect::<Vec<_>>().len())
+            })
+            .unwrap();
 
         assert_eq!(num_members, 3);
     }
@@ -3888,9 +3893,9 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(valid_dm_group
-            .load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group|
+            .load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group| {
                 validate_dm_group(&client, &mls_group, added_by_inbox)
-            )
+            })
             .is_ok());
 
         // Test case 2: Invalid conversation type
