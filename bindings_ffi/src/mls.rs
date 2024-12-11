@@ -1824,7 +1824,7 @@ mod tests {
         FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
         FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError, GenericError,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -1837,16 +1837,13 @@ mod tests {
         time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
-    use tracing_subscriber::layer::Identity;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
-        test_utils::add_wallet_signature,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
         api::test_utils::{wait_for_eq, wait_for_ok},
-        client::ClientError,
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
@@ -4635,7 +4632,7 @@ mod tests {
         register_client(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
-        let client_b2 = create_client(
+        let _client_b2 = create_client(
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
