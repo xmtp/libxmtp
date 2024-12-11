@@ -1,8 +1,13 @@
+use super::*;
+use crate::{
+    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
+    Client,
+};
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::DeserializationError;
-use xmtp_proto::xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto;
-
-use crate::storage::consent_record::StoredConsentRecord;
+use xmtp_proto::{
+    api_client::trait_impls::XmtpApi,
+    xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
+};
 
 #[derive(Serialize, Deserialize, Clone)]
 #[repr(i32)]
@@ -11,22 +16,75 @@ pub enum UserPreferenceUpdate {
     HmacKeyUpdate { key: Vec<u8> } = 2,
 }
 
-impl TryFrom<UserPreferenceUpdateProto> for UserPreferenceUpdate {
-    type Error = DeserializationError;
-    fn try_from(value: UserPreferenceUpdateProto) -> Result<Self, Self::Error> {
-        let update =
-            bincode::deserialize(&value.content).map_err(|_| DeserializationError::Bincode)?;
+impl UserPreferenceUpdate {
+    /// Send a preference update through the sync group for other devices to consume
+    pub(crate) async fn sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+        updates: Vec<Self>,
+        client: &Client<C, V>,
+    ) -> Result<(), DeviceSyncError> {
+        let provider = client.mls_provider()?;
+        let sync_group = client.ensure_sync_group(&provider).await?;
 
-        Ok(update)
+        let updates = updates
+            .iter()
+            .map(bincode::serialize)
+            .collect::<Result<Vec<_>, _>>()?;
+        let update_proto = UserPreferenceUpdateProto { content: updates };
+        let content_bytes = serde_json::to_vec(&update_proto)?;
+        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
+            content: Some(Content::V2(V2 {
+                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
+                idempotency_key: now.to_string(),
+            })),
+        })?;
+
+        sync_group.publish_intents(&provider).await?;
+
+        Ok(())
     }
-}
 
-impl TryInto<UserPreferenceUpdateProto> for UserPreferenceUpdate {
-    type Error = bincode::Error;
+    /// Process and insert incoming preference updates over the sync group
+    pub(crate) fn process_incoming_preference_update(
+        update_proto: UserPreferenceUpdateProto,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<Self>, StorageError> {
+        let conn = provider.conn_ref();
 
-    fn try_into(self) -> Result<UserPreferenceUpdateProto, Self::Error> {
-        let content = bincode::serialize(&self)?;
-        Ok(UserPreferenceUpdateProto { content })
+        let proto_content = update_proto.content;
+
+        let mut updates = Vec::with_capacity(proto_content.len());
+        let mut consent_updates = vec![];
+
+        for update in proto_content {
+            if let Ok(update) = bincode::deserialize::<UserPreferenceUpdate>(&update) {
+                updates.push(update.clone());
+                match update {
+                    UserPreferenceUpdate::ConsentUpdate(consent_record) => {
+                        consent_updates.push(consent_record);
+                    }
+                    UserPreferenceUpdate::HmacKeyUpdate { key } => {
+                        StoredUserPreferences {
+                            hmac_key: Some(key),
+                            ..StoredUserPreferences::load(conn)?
+                        }
+                        .store(conn)?;
+                    }
+                }
+            } else {
+                // Don't fail on errors since this may come from a newer version of the lib
+                // that has new update types.
+                tracing::warn!(
+                    "Failed to deserialize preference update. Is this libxmtp version outdated?"
+                );
+            }
+        }
+
+        // Insert all of the consent records at once.
+        if !consent_updates.is_empty() {
+            conn.insert_or_replace_consent_records(&consent_updates)?;
+        }
+
+        Ok(updates)
     }
 }
 

@@ -24,6 +24,7 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use futures::{Stream, StreamExt};
+use parking_lot::Mutex;
 use preference_sync::UserPreferenceUpdate;
 use rand::{
     distributions::{Alphanumeric, DistString},
@@ -31,9 +32,13 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::OnceCell;
+use tokio::sync::{Notify, OnceCell};
+use tokio::time::error::Elapsed;
+use tokio::time::timeout;
 use tracing::{instrument, warn};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -109,8 +114,8 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
-    #[error("Unable to serialize: {0}")]
-    Bincode(String),
+    #[error(transparent)]
+    Bincode(#[from] bincode::Error),
 }
 
 impl RetryableError for DeviceSyncError {
@@ -133,7 +138,9 @@ where
             "starting sync worker"
         );
 
-        SyncWorker::new(client).spawn_worker();
+        let worker = SyncWorker::new(client);
+        self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
     }
 }
 
@@ -146,6 +153,42 @@ pub struct SyncWorker<ApiClient, V> {
     >,
     init: OnceCell<()>,
     retry: Retry,
+
+    // Number of events processed
+    handle: Arc<WorkerHandle>,
+}
+
+pub struct WorkerHandle {
+    processed: AtomicUsize,
+    notify: Notify,
+}
+impl WorkerHandle {
+    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while count > 0 {
+                self.notify.notified().await;
+                count -= 1;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn wait_for_processed_count(&self, count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while self.processed.load(Ordering::SeqCst) < count {
+                self.notify.notified().await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub fn processed_count(&self) -> usize {
+        self.processed.load(Ordering::SeqCst)
+    }
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -173,33 +216,15 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingPreferenceUpdates(consent_records) => {
-                    let provider = self.client.mls_provider()?;
-                    for record in consent_records {
-                        let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
-                            continue;
-                        };
-
-                        self.client
-                            .send_consent_update(&provider, consent_record)
-                            .await?;
-                    }
-                }
-                LocalEvents::IncomingPreferenceUpdate(updates) => {
-                    let provider = self.client.mls_provider()?;
-                    let consent_records = updates
-                        .into_iter()
-                        .filter_map(|pu| match pu {
-                            UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>();
-                    provider
-                        .conn_ref()
-                        .insert_or_replace_consent_records(&consent_records)?;
+                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
+                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
+                        .await?;
                 }
                 _ => {}
             }
+
+            self.handle.processed.fetch_add(1, Ordering::SeqCst);
+            self.handle.notify.notify_waiters();
         }
         Ok(())
     }
@@ -324,6 +349,11 @@ where
             stream,
             init: OnceCell::new(),
             retry,
+
+            handle: Arc::new(WorkerHandle {
+                processed: AtomicUsize::new(0),
+                notify: Notify::new(),
+            }),
         }
     }
 
@@ -404,10 +434,10 @@ where
 
         let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
-            move |_time_ns| PlaintextEnvelope {
+            move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: new_request_id(),
+                    idempotency_key: now.to_string(),
                 })),
             }
         })?;
@@ -471,14 +501,14 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
+                idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group.publish_intents(provider).await?;
 
         Ok(())
     }

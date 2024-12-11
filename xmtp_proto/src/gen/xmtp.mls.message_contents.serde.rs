@@ -4068,9 +4068,7 @@ impl serde::Serialize for UserPreferenceUpdate {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.UserPreferenceUpdate", len)?;
         if !self.content.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
+            struct_ser.serialize_field("content", &self.content.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -4137,7 +4135,8 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
                                 return Err(serde::de::Error::duplicate_field("content"));
                             }
                             content__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
                             ;
                         }
                     }

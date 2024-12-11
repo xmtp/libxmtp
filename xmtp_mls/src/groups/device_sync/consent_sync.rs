@@ -1,42 +1,12 @@
 use super::*;
 use crate::{Client, XmtpApi};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto;
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn send_consent_update(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        record: StoredConsentRecord,
-    ) -> Result<(), DeviceSyncError> {
-        tracing::info!(
-            inbox_id = self.inbox_id(),
-            installation_id = hex::encode(self.installation_public_key()),
-            "Streaming consent update. {:?}",
-            record
-        );
-
-        let sync_group = self.ensure_sync_group(provider).await?;
-        let update_proto: UserPreferenceUpdateProto = UserPreferenceUpdate::ConsentUpdate(record)
-            .try_into()
-            .map_err(|e| DeviceSyncError::Bincode(format!("{e:?}")))?;
-        let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
-                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
-            })),
-        })?;
-
-        sync_group.sync_until_last_intent_resolved(provider).await?;
-
-        Ok(())
-    }
-
     pub(super) fn syncable_consent_records(
         &self,
         conn: &DbConnection,
@@ -94,6 +64,7 @@ pub(crate) mod tests {
         // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
@@ -104,7 +75,7 @@ pub(crate) mod tests {
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
         tracing::info!("Waiting for intents published");
-        wait_for_min_intents(amal_b_conn, 3).await;
+        amal_b_worker.wait_for_new_events(1).await.unwrap();
 
         let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Old Group Id: {}", hex::encode(&old_group_id));
