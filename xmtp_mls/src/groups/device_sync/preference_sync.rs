@@ -63,7 +63,11 @@ impl UserPreferenceUpdate {
                         consent_updates.push(consent_record);
                     }
                     UserPreferenceUpdate::HmacKeyUpdate { key } => {
-                        StoredUserPreferences::set_hmac_key(conn, key)?
+                        StoredUserPreferences {
+                            hmac_key: Some(key),
+                            ..StoredUserPreferences::load(conn)?
+                        }
+                        .store(conn)?;
                     }
                 }
             } else {

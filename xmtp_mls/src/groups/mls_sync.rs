@@ -1407,7 +1407,15 @@ where
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
         let conn = self.client.store().conn()?;
-        let mut ikm = StoredUserPreferences::load(&conn)?.hmac_key;
+
+        let preferences = StoredUserPreferences::load(&conn)?;
+        let mut ikm = match preferences.hmac_key {
+            Some(ikm) => ikm,
+            None => {
+                let local_events = self.client.local_events();
+                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+            }
+        };
         ikm.extend(&self.group_id);
         let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
