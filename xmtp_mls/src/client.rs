@@ -874,7 +874,7 @@ where
                         self.inbox_id()
                     );
                     let is_active = group
-                        .load_mls_group_with_lock_async(provider_ref, |mls_group| async move {
+                        .load_mls_group_with_lock_async(provider, |mls_group| async move {
                             Ok::<bool, GroupError>(mls_group.is_active())
                         })
                         .await?;

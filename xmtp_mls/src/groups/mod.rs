@@ -58,7 +58,6 @@ use self::{
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
-use futures::TryFutureExt;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
@@ -73,9 +72,6 @@ use xmtp_proto::xmtp::mls::{
         PlaintextEnvelope,
     },
 };
-
-use crate::hpke::HpkeError::StorageError;
-use crate::storage::sql_key_store::SqlKeyStoreError;
 use crate::{
     api::WrappedApiError,
     client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
@@ -84,7 +80,6 @@ use crate::{
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups,
     hpke::{decrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
@@ -96,13 +91,14 @@ use crate::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        sql_key_store, StorageError,
+        sql_key_store,
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    GroupCommitLock, Store, MLS_COMMIT_LOCK,
+    Store, MLS_COMMIT_LOCK,
 };
+use crate::storage::StorageError;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
