@@ -428,7 +428,7 @@ where
                         &pending_commit,
                         &mls_group,
                     )
-                        .await;
+                    .await;
 
                     if let Err(err) = maybe_validated_commit {
                         tracing::error!(
@@ -453,7 +453,11 @@ where
                         return Ok(IntentState::ToPublish);
                     } else {
                         // If no error committing the change, write a transcript message
-                        self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
+                        self.save_transcript_message(
+                            conn,
+                            validated_commit,
+                            envelope_timestamp_ns,
+                        )?;
                     }
                 }
                 IntentKind::SendMessage => {
@@ -473,7 +477,8 @@ where
             };
 
             Ok(IntentState::Committed)
-        }).await
+        })
+        .await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -734,26 +739,25 @@ where
                     envelope.id,
                     intent_id
                 );
-                    match self
-                        .process_own_message(intent, provider, message.into(), envelope)
-                        .await?
-                    {
-                        IntentState::ToPublish => {
-                            Ok(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
-                        }
-                        IntentState::Committed => {
-                            Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
-                        }
-                        IntentState::Published => {
-                            tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
-                            Ok(())
-                        }
-                        IntentState::Error => {
-                            tracing::warn!("Intent [{}] moved to error status", intent_id);
-                            Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
-                        }
+                match self
+                    .process_own_message(intent, provider, message.into(), envelope)
+                    .await?
+                {
+                    IntentState::ToPublish => {
+                        Ok(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                     }
-
+                    IntentState::Committed => {
+                        Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
+                    }
+                    IntentState::Published => {
+                        tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
+                        Ok(())
+                    }
+                    IntentState::Error => {
+                        tracing::warn!("Intent [{}] moved to error status", intent_id);
+                        Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
+                    }
+                }
             }
             // No matching intent found
             Ok(None) => {
@@ -850,10 +854,7 @@ where
         for message in messages.into_iter() {
             let result = retry_async!(
                 Retry::default(),
-                (async {
-                    self.consume_message(provider, &message)
-                    .await
-                })
+                (async { self.consume_message(provider, &message).await })
             );
             if let Err(e) = result {
                 let is_retryable = e.is_retryable();
@@ -1202,7 +1203,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         // determine how long of an interval in time to use before updating list
-        let interval_ns = update_interval_ns.unwrap_or_else(|| SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = crate::utils::time::now_ns();
         let last_ns = provider
@@ -1269,7 +1270,7 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        self.load_mls_group_with_lock_async(provider, | mls_group| async move {
+        self.load_mls_group_with_lock_async(provider, |mls_group| async move {
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
@@ -1320,7 +1321,8 @@ where
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
             ))
-        }).await
+        })
+        .await
     }
 
     /**

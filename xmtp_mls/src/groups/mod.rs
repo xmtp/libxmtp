@@ -58,20 +58,7 @@ use self::{
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
-use std::future::Future;
-use std::{collections::HashSet, sync::Arc};
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
-    message_contents::{
-        plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
-    },
-};
+use crate::storage::StorageError;
 use crate::{
     api::WrappedApiError,
     client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
@@ -98,7 +85,20 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store, MLS_COMMIT_LOCK,
 };
-use crate::storage::StorageError;
+use std::future::Future;
+use std::{collections::HashSet, sync::Arc};
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::xmtp::mls::{
+    api::v1::{
+        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        GroupMessage,
+    },
+    message_contents::{
+        plaintext_envelope::{Content, V1},
+        PlaintextEnvelope,
+    },
+};
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -1650,7 +1650,6 @@ pub(crate) mod tests {
 
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
-    use openmls::prelude::Member;
     use prost::Message;
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
