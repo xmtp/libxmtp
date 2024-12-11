@@ -13,7 +13,7 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
 
 1. Go to the `examples/cli` directory.
 
-2. Create a sender wallet account (user1). Create an [XMTP identity](../../xmtp_mls/IDENTITY.md) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
+2. Create a sender wallet account (user1). Create an [XMTP identity](https://github.com/xmtp/libxmtp/blob/main/xmtp_mls/benches/identity.rs) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
 
    ```bash
    ./xli.sh --db user1.db3 register
