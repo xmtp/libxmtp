@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
-    groups::scoped_client::ScopedGroupClient, storage::consent_record::StoredConsentRecord, Client,
+    groups::scoped_client::ScopedGroupClient,
+    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
+    Client,
 };
 use serde::{Deserialize, Serialize};
 use xmtp_proto::{
@@ -50,14 +52,25 @@ impl UserPreferenceUpdate {
         update_proto: UserPreferenceUpdateProto,
         client: &C,
     ) -> Result<Vec<Self>, StorageError> {
+        let provider = client.mls_provider()?;
+        let conn = provider.conn_ref();
+
         let proto_content = update_proto.content;
-        let mut updates: Vec<Self> = Vec::with_capacity(proto_content.len());
+
+        let mut updates = Vec::with_capacity(proto_content.len());
+        let mut consent_updates = vec![];
+
         for update in proto_content {
-            if let Ok(update) = bincode::deserialize(&update) {
+            if let Ok(update) = bincode::deserialize::<UserPreferenceUpdate>(&update) {
+                updates.push(update.clone());
                 match update {
-                    UserPreferenceUpdate::ConsentUpdate(consent) =>
+                    UserPreferenceUpdate::ConsentUpdate(consent_record) => {
+                        consent_updates.push(consent_record);
+                    }
+                    UserPreferenceUpdate::HmacKeyUpdate { key } => {
+                        StoredUserPreferences::set_hmac_key(conn, key)?
+                    }
                 }
-                updates.push(update);
             } else {
                 // Don't fail on errors since this may come from a newer version of the lib
                 // that has new update types.
@@ -67,7 +80,10 @@ impl UserPreferenceUpdate {
             }
         }
 
-
+        // Insert all of the consent records at once.
+        if !consent_updates.is_empty() {
+            conn.insert_or_replace_consent_records(&consent_updates)?;
+        }
 
         Ok(updates)
     }
