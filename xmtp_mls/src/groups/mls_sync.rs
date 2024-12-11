@@ -627,7 +627,7 @@ where
                                 // and returns a copy of what was inserted
                                 let updates =
                                     UserPreferenceUpdate::process_incoming_preference_update(
-                                        update, &provider,
+                                        update, provider,
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
