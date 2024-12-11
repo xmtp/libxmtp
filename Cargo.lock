@@ -461,6 +461,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -485,6 +486,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "xmtp_api_http",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -3517,6 +3519,7 @@ dependencies = [
  "tracing-subscriber",
  "vergen",
  "warp",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
@@ -6831,21 +6834,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-timer"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
-dependencies = [
- "futures",
- "js-sys",
- "parking_lot 0.11.2",
- "pin-utils",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "web-sys"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7294,11 +7282,35 @@ dependencies = [
  "valuable",
  "valuable-serde",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_common"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures",
+ "getrandom",
+ "gloo-timers 0.3.0",
+ "js-sys",
+ "parking_lot 0.12.3",
+ "rand",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-wasm",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "web-time",
+ "xmtp_cryptography",
 ]
 
 [[package]]
@@ -7309,6 +7321,7 @@ dependencies = [
  "rand",
  "thiserror 2.0.6",
  "tonic",
+ "xmtp_common",
  "xmtp_proto",
 ]
 
@@ -7366,7 +7379,8 @@ dependencies = [
  "tracing",
  "url",
  "wasm-bindgen-test",
- "wasm-timer",
+ "web-time",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_proto",
  "xmtp_v2",
@@ -7429,11 +7443,10 @@ dependencies = [
  "trait-variant",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
- "wasm-timer",
  "web-sys",
- "web-time",
  "xmtp_api_grpc",
  "xmtp_api_http",
+ "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
@@ -7457,6 +7470,7 @@ dependencies = [
  "tonic",
  "tracing",
  "wasm-bindgen-test",
+ "xmtp_common",
 ]
 
 [[package]]
@@ -7504,6 +7518,7 @@ dependencies = [
  "uniffi",
  "uuid 1.11.0",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",

@@ -43,3 +43,4 @@ xmtp_content_types = { path = "../../xmtp_content_types" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
+xmtp_common.workspace = true

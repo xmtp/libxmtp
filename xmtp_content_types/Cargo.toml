@@ -11,6 +11,10 @@ rand = { workspace = true }
 
 # XMTP/Local
 xmtp_proto = { workspace = true, features = ["convert"] }
+xmtp_common = { workspace = true }
+
+[dev-dependencies]
+xmtp_common = { workspace = true, features = ['test-utils'] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.12", features = ["transport"] }

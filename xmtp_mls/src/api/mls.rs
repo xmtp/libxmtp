@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::ApiClientWrapper;
-use crate::{retry_async, XmtpApi};
+use crate::XmtpApi;
+use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,

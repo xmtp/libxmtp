@@ -32,6 +32,7 @@ use tracing_subscriber::{
 use valuable::Valuable;
 use xmtp_api_grpc::grpc_api_helper::Client as ClientV3;
 use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
@@ -54,7 +55,6 @@ use xmtp_mls::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
         StorageOption,
     },
-    utils::time::now_ns,
     InboxOwner,
 };
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;

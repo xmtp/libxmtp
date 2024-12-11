@@ -76,7 +76,6 @@ pub fn create_grpc_stream_inner<
     http_client: reqwest::Client,
 ) -> impl Stream<Item = Result<R, Error>> {
     async_stream::stream! {
-        tracing::info!("Spawning grpc http stream");
         let request = http_client
                 .post(endpoint)
                 .json(&request)

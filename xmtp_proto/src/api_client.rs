@@ -128,12 +128,6 @@ where
     }
 }
 
-/// Global Marker trait for WebAssembly
-#[cfg(target_arch = "wasm32")]
-pub trait Wasm {}
-#[cfg(target_arch = "wasm32")]
-impl<T> Wasm for T {}
-
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

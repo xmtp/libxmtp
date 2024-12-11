@@ -8,8 +8,8 @@
 //! Intents are written to local storage (SQLite), before being published to the delivery service via gRPC. An
 //! intent is fully resolved (success or failure) once it
 
-use crate::retry::RetryableError;
 use thiserror::Error;
+use xmtp_common::RetryableError;
 
 #[derive(Debug, Error)]
 pub enum ProcessIntentError {

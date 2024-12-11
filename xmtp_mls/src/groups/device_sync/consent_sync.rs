@@ -50,33 +50,41 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::time::{Duration, Instant};
+    use xmtp_common::{
+        assert_ok,
+        time::{Duration, Instant},
+    };
 
     use super::*;
     use crate::{
-        assert_ok,
         builder::ClientBuilder,
-        groups::scoped_client::LocalScopedGroupClient,
+        groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
         utils::test::wait_for_min_intents,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_consent_sync() {
+        xmtp_common::logger();
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
-
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
 
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
+        wait_for_min_intents(amal_a_conn, 3).await;
 
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
@@ -93,12 +101,12 @@ pub(crate) mod tests {
 
         // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
+
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
-
-        // make sure amal's worker has time to sync
+        // make sure amal's workers have time to sync
         // 3 Intents:
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
@@ -120,30 +128,25 @@ pub(crate) mod tests {
         // Have amal_a receive the message (and auto-process)
         let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
-
-        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
-        let start = Instant::now();
-        let mut reply = None;
-        while reply.is_none() {
-            reply = amal_b
+        xmtp_common::wait_for_some(|| async {
+            amal_b
                 .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
-                .unwrap();
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive sync reply.");
-            }
-        }
+                .unwrap()
+        })
+        .await
+        .unwrap();
 
         // Wait up to 3 seconds for sync to process (typically is almost instant)
-        let mut consent_b = 0;
-        let start = Instant::now();
-        while consent_b != consent_a {
-            consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
-
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
-            }
-        }
+        xmtp_common::wait_for_eq(
+            || {
+                let consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
+                futures::future::ready(consent_b != consent_a)
+            },
+            true,
+        )
+        .await
+        .unwrap();
 
         // Test consent streaming
         let amal_b_sync_group = amal_b.get_sync_group(amal_b_conn).unwrap();

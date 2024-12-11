@@ -296,8 +296,9 @@ mod tests {
     use ethers::core::k256::{ecdsa::Signature as K256Signature, elliptic_curve::scalar::IsHigh};
     use ethers::signers::{LocalWallet, Signer};
     use rand::thread_rng;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[tokio::test]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn test_to_lower_s() {
         // Create a test wallet
         let wallet = LocalWallet::new(&mut thread_rng());
@@ -334,7 +335,7 @@ mod tests {
         assert!(!is_high, "Normalized signature should have low-s value");
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_invalid_signature() {
         // Test with invalid signature bytes
         let invalid_sig = vec![0u8; 65];

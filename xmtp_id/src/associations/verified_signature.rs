@@ -175,15 +175,15 @@ mod tests {
     use super::*;
     use crate::{
         associations::{
-            sign_with_legacy_key,
-            test_utils::{rand_string, MockSmartContractSignatureVerifier},
-            verified_signature::VerifiedSignature,
-            InstallationKeyContext, MemberIdentifier, SignatureKind,
+            sign_with_legacy_key, test_utils::MockSmartContractSignatureVerifier,
+            verified_signature::VerifiedSignature, InstallationKeyContext, MemberIdentifier,
+            SignatureKind,
         },
         InboxOwner,
     };
     use ethers::signers::{LocalWallet, Signer};
     use prost::Message;
+    use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
     use xmtp_proto::xmtp::message_contents::{
         signature::Union as SignatureUnion, signed_private_key,
@@ -367,7 +367,7 @@ mod tests {
     async fn test_smart_contract_wallet() {
         let mock_verifier = MockSmartContractSignatureVerifier::new(true);
         let chain_id: u64 = 24;
-        let account_address = rand_string();
+        let account_address = rand_hexstring();
         let account_id = AccountId::new(format!("eip155:{chain_id}"), account_address.clone());
         let signature_text = "test_smart_contract_wallet_signature";
         let signature_bytes = &[1, 2, 3];

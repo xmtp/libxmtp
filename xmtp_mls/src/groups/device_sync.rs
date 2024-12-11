@@ -1,11 +1,9 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
-use crate::retry::{Retry, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
-use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
     client::ClientError,
@@ -15,9 +13,8 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    Client,
+    Client, Store,
 };
-use crate::{retry_async, Store};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -25,16 +22,14 @@ use aes_gcm::{
 };
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
+use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
+use xmtp_common::time::{now_ns, Duration};
+use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -154,9 +149,9 @@ where
     V: SmartContractSignatureVerifier + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        // Wait for the identity to be ready before doing anything
+        // Wait for the identity to be ready & verified before doing anything
         while !self.client.identity().is_ready() {
-            crate::sleep(Duration::from_millis(200)).await;
+            xmtp_common::yield_().await
         }
         self.sync_init().await?;
 
@@ -332,17 +327,22 @@ where
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
+                tracing::info!("Running worker..");
                 match err {
                     DeviceSyncError::Client(ClientError::Storage(
                         StorageError::PoolNeedsConnection,
                     )) => {
-                        tracing::warn!("Pool disconnected. task will restart on reconnect");
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
                         break;
                     }
                     _ => {
                         tracing::error!(inbox_id, installation_id, "sync worker error {err}");
                         // Wait 2 seconds before restarting.
-                        crate::sleep(Duration::from_secs(2)).await;
+                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
                     }
                 }
             }
@@ -615,7 +615,7 @@ where
         tracing::info!(
             inbox_id = self.inbox_id(),
             installation_id = hex::encode(self.installation_public_key()),
-            "Using upload url {upload_url}"
+            "Using upload url {upload_url}",
         );
 
         let response = reqwest::Client::new()
@@ -858,14 +858,11 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
 }
 
 pub(super) fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
+    xmtp_common::rand_string::<ENC_KEY_SIZE>()
 }
 
 pub(super) fn generate_nonce() -> [u8; NONCE_SIZE] {
-    let mut nonce = [0u8; NONCE_SIZE];
-    let mut rng = crypto_utils::rng();
-    rng.fill_bytes(&mut nonce);
-    nonce
+    xmtp_common::rand_array::<NONCE_SIZE>()
 }
 
 pub(super) fn new_pin() -> String {
