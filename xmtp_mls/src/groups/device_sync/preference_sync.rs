@@ -49,11 +49,14 @@ impl UserPreferenceUpdate {
     pub(crate) fn process_incoming_preference_update<C: ScopedGroupClient>(
         update_proto: UserPreferenceUpdateProto,
         client: &C,
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<Vec<Self>, StorageError> {
         let proto_content = update_proto.content;
         let mut updates: Vec<Self> = Vec::with_capacity(proto_content.len());
         for update in proto_content {
             if let Ok(update) = bincode::deserialize(&update) {
+                match update {
+                    UserPreferenceUpdate::ConsentUpdate(consent) =>
+                }
                 updates.push(update);
             } else {
                 // Don't fail on errors since this may come from a newer version of the lib
@@ -64,7 +67,9 @@ impl UserPreferenceUpdate {
             }
         }
 
-        Ok(())
+
+
+        Ok(updates)
     }
 }
 

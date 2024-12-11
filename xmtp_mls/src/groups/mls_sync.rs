@@ -1,6 +1,7 @@
 use super::{
     build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
     build_extensions_for_permissions_update, build_group_membership_extension,
+    device_sync::DeviceSyncError,
     intents::{
         Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
@@ -623,10 +624,15 @@ where
                                 ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
-                                UserPreferenceUpdate::process_incoming_preference_update(
-                                    update,
-                                    &self.client,
-                                );
+                                let updates =
+                                    UserPreferenceUpdate::process_incoming_preference_update(
+                                        update,
+                                        &self.client,
+                                    )?;
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::IncomingPreferenceUpdate(updates));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);

@@ -177,19 +177,6 @@ where
                     UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
                         .await?;
                 }
-                LocalEvents::IncomingPreferenceUpdate(updates) => {
-                    let provider = self.client.mls_provider()?;
-                    let consent_records = updates
-                        .into_iter()
-                        .filter_map(|pu| match pu {
-                            UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>();
-                    provider
-                        .conn_ref()
-                        .insert_or_replace_consent_records(&consent_records)?;
-                }
                 _ => {}
             }
         }
