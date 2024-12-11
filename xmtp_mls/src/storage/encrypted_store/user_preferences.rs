@@ -70,7 +70,7 @@ impl StoredUserPreferences {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, groups::scoped_client::LocalScopedGroupClient};
+    use crate::builder::ClientBuilder;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -90,7 +90,7 @@ mod tests {
         assert!(pref.hmac_key.is_none());
 
         // set an hmac key
-        let hmac_key = StoredUserPreferences::new_hmac_key(&conn, client.local_events()).unwrap();
+        let hmac_key = StoredUserPreferences::new_hmac_key(&conn, &client.local_events).unwrap();
         let pref = StoredUserPreferences::load(&conn).unwrap();
         // Make sure it saved
         assert_eq!(hmac_key, pref.hmac_key.unwrap());
