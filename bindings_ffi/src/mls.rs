@@ -1824,7 +1824,7 @@ mod tests {
         FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
         FfiCreateGroupOptions, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError, GenericError,
     };
     use ethers::utils::hex;
     use rand::distributions::{Alphanumeric, DistString};
@@ -1837,13 +1837,16 @@ mod tests {
         time::{Duration, Instant},
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use tracing_subscriber::layer::Identity;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
+        test_utils::add_wallet_signature,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
         api::test_utils::{wait_for_eq, wait_for_ok},
+        client::ClientError,
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         storage::EncryptionKey,
         InboxOwner,
@@ -4459,5 +4462,231 @@ mod tests {
             String::from_utf8_lossy(&bo_group_messages[0].content),
             "Hello in group"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
+        // Step 1: Generate wallet A
+        let wallet_a = generate_local_wallet();
+
+        // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let client_a = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &wallet_a_inbox_id,
+            wallet_a.get_address(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet_a.clone());
+        register_client(&ffi_inbox_owner, &client_a).await;
+
+        // Step 3: Generate wallet B
+        let wallet_b = generate_local_wallet();
+
+        // Step 4: Associate wallet B to inbox A
+        let add_wallet_signature_request = client_a
+            .add_wallet(&wallet_b.get_address())
+            .await
+            .expect("could not add wallet");
+        add_wallet_signature_request
+            .add_wallet_signature(&wallet_b)
+            .await;
+        client_a
+            .apply_signature_request(add_wallet_signature_request)
+            .await
+            .unwrap();
+
+        // Verify that we can now use wallet B to create a new client that has inbox_id == client_a.inbox_id
+        let nonce = 1;
+        let inbox_id = client_a.inbox_id();
+
+        let client_b = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            wallet_b.get_address(),
+            nonce,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet_b.clone());
+        register_client(&ffi_inbox_owner, &client_b).await;
+
+        assert!(client_b.inbox_id() == client_a.inbox_id());
+
+        // Verify both clients can receive messages for inbox_id == client_a.inbox_id
+        let bo = new_test_client().await;
+
+        // Alix creates DM with Bo
+        let bo_dm = bo
+            .conversations()
+            .create_dm(wallet_a.get_address().clone())
+            .await
+            .unwrap();
+
+        bo_dm.send("Hello in DM".as_bytes().to_vec()).await.unwrap();
+
+        // Verify that client_a and client_b received the dm message to wallet a address
+        client_a
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_b
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_dm_messages = client_a
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()[0]
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let bo_dm_messages = client_b
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap()[0]
+            .find_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
+        assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
+
+        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &nonce).unwrap();
+        let client_b_new_result = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &client_b_inbox_id,
+            wallet_b.get_address(),
+            nonce,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await;
+
+        // Client creation for b now fails since wallet b is already associated with inbox a
+        match client_b_new_result {
+            Err(err) => {
+                println!("Error returned: {:?}", err);
+                assert_eq!(
+                    err.to_string(),
+                    "Client builder error: error creating new identity: Inbox ID mismatch"
+                        .to_string()
+                );
+            }
+            Ok(_) => panic!("Expected an error, but got Ok"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
+        // Step 1: Wallet A creates a new client with inbox_id A
+        let wallet_a = generate_local_wallet();
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let client_a = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &wallet_a_inbox_id,
+            wallet_a.get_address(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+        let ffi_inbox_owner_a = LocalWalletInboxOwner::with_wallet(wallet_a.clone());
+        register_client(&ffi_inbox_owner_a, &client_a).await;
+
+        // Step 2: Wallet B creates a new client with inbox_id B
+        let wallet_b = generate_local_wallet();
+        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &1).unwrap();
+        let client_b1 = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &wallet_b_inbox_id,
+            wallet_b.get_address(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+        let ffi_inbox_owner_b1 = LocalWalletInboxOwner::with_wallet(wallet_b.clone());
+        register_client(&ffi_inbox_owner_b1, &client_b1).await;
+
+        // Step 3: Wallet B creates a second client for inbox_id B
+        let client_b2 = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &wallet_b_inbox_id,
+            wallet_b.get_address(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+
+        // Step 4: Client A adds association to wallet B
+        let add_wallet_signature_request = client_a
+            .add_wallet(&wallet_b.get_address())
+            .await
+            .expect("could not add wallet");
+        add_wallet_signature_request
+            .add_wallet_signature(&wallet_b)
+            .await;
+        client_a
+            .apply_signature_request(add_wallet_signature_request)
+            .await
+            .unwrap();
+
+        // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
+        let client_b3 = create_client(
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &wallet_b_inbox_id,
+            wallet_b.get_address(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await;
+
+        // Client creation for b now fails since wallet b is already associated with inbox a
+        match client_b3 {
+            Err(err) => {
+                println!("Error returned: {:?}", err);
+                assert_eq!(
+                    err.to_string(),
+                    "Client builder error: error creating new identity: Inbox ID mismatch"
+                        .to_string()
+                );
+            }
+            Ok(_) => panic!("Expected an error, but got Ok"),
+        }
     }
 }
