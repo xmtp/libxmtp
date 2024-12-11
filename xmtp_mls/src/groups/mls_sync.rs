@@ -624,11 +624,15 @@ where
                                 ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
+                                // This function inserts the updates appropriately,
+                                // and returns a copy of what was inserted
                                 let updates =
                                     UserPreferenceUpdate::process_incoming_preference_update(
                                         update,
                                         &self.client,
                                     )?;
+
+                                // Broadcast those updates for integrators to be notified of changes
                                 let _ = self
                                     .client
                                     .local_events()
@@ -1407,15 +1411,18 @@ where
         let conn = self.client.store().conn()?;
         let mut ikm = StoredUserPreferences::load(&conn)?.hmac_key;
         ikm.extend(&self.group_id);
-        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm[..]);
+        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
         let mut result = vec![];
         let current_epoch = hmac_epoch();
         for delta in epoch_delta_range {
-            let mut key = [0; 42];
             let epoch = current_epoch + delta;
-            hkdf.expand(&epoch.to_le_bytes(), &mut key)
-                .expect("Length is correct");
+
+            let mut info = self.group_id.clone();
+            info.extend(&epoch.to_le_bytes());
+
+            let mut key = [0; 42];
+            hkdf.expand(&info, &mut key).expect("Length is correct");
 
             result.push(HmacKey { key, epoch });
         }
