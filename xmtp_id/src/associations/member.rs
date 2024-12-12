@@ -165,15 +165,12 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::test_utils;
-
     use super::*;
-
-    use test_utils::rand_string;
+    use xmtp_common::rand_hexstring;
 
     impl Default for MemberIdentifier {
         fn default() -> Self {
-            MemberIdentifier::Address(rand_string())
+            MemberIdentifier::Address(rand_hexstring())
         }
     }
 

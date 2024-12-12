@@ -5,11 +5,9 @@ pub mod test_utils;
 
 use std::sync::Arc;
 
-use crate::{
-    retry::{Retry, RetryableError},
-    XmtpApi,
-};
+use crate::XmtpApi;
 use thiserror::Error;
+use xmtp_common::{Retry, RetryableError};
 use xmtp_id::{associations::DeserializationError as AssociationDeserializationError, InboxId};
 use xmtp_proto::Error as ApiError;
 

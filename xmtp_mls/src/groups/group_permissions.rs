@@ -1275,19 +1275,17 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{
-        groups::{
-            group_metadata::DmMembers, group_mutable_metadata::MetadataField,
-            validated_commit::MutableMetadataChanges,
-        },
-        utils::test::{rand_string, rand_vec},
+    use crate::groups::{
+        group_metadata::DmMembers, group_mutable_metadata::MetadataField,
+        validated_commit::MutableMetadataChanges,
     };
+    use xmtp_common::{rand_string, rand_vec};
 
     use super::*;
 
     fn build_change(inbox_id: Option<String>, is_admin: bool, is_super_admin: bool) -> Inbox {
         Inbox {
-            inbox_id: inbox_id.unwrap_or(rand_string()),
+            inbox_id: inbox_id.unwrap_or(rand_string::<24>()),
             is_creator: is_super_admin,
             is_super_admin,
             is_admin,
@@ -1302,8 +1300,8 @@ pub(crate) mod tests {
         is_super_admin: bool,
     ) -> CommitParticipant {
         CommitParticipant {
-            inbox_id: inbox_id.unwrap_or(rand_string()),
-            installation_id: installation_id.unwrap_or_else(rand_vec),
+            inbox_id: inbox_id.unwrap_or(rand_string::<24>()),
+            installation_id: installation_id.unwrap_or_else(rand_vec::<24>),
             is_creator: is_super_admin,
             is_admin,
             is_super_admin,
@@ -1344,7 +1342,13 @@ pub(crate) mod tests {
         let field_changes = metadata_fields_changed
             .unwrap_or_default()
             .into_iter()
-            .map(|field| MetadataFieldChange::new(field, Some(rand_string()), Some(rand_string())))
+            .map(|field| {
+                MetadataFieldChange::new(
+                    field,
+                    Some(rand_string::<24>()),
+                    Some(rand_string::<24>()),
+                )
+            })
             .collect();
 
         let dm_members = if let Some(dm_target_inbox_id) = dm_target_inbox_id {

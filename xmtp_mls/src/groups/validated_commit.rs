@@ -24,10 +24,9 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    retry::RetryableError,
-    retryable,
     storage::db_connection::DbConnection,
 };
+use xmtp_common::{retry::RetryableError, retryable};
 
 use super::{
     group_membership::{GroupMembership, MembershipDiff},

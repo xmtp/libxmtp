@@ -1,7 +1,8 @@
 use diesel::prelude::*;
 
 use super::{db_connection::DbConnection, schema::key_package_history, StorageError};
-use crate::{impl_store_or_ignore, utils::time::now_ns, StoreOrIgnore};
+use crate::{impl_store_or_ignore, StoreOrIgnore};
+use xmtp_common::time::now_ns;
 
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = key_package_history)]
@@ -78,7 +79,8 @@ impl DbConnection {
 
 #[cfg(test)]
 mod tests {
-    use crate::{storage::encrypted_store::tests::with_connection, utils::test::rand_vec};
+    use crate::storage::encrypted_store::tests::with_connection;
+    use xmtp_common::rand_vec;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -86,7 +88,7 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_store_key_package_history_entry() {
         with_connection(|conn| {
-            let hash_ref = rand_vec();
+            let hash_ref = rand_vec::<24>();
             let new_entry = conn
                 .store_key_package_history_entry(hash_ref.clone())
                 .unwrap();
@@ -100,9 +102,9 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_store_multiple() {
         with_connection(|conn| {
-            let hash_ref1 = rand_vec();
-            let hash_ref2 = rand_vec();
-            let hash_ref3 = rand_vec();
+            let hash_ref1 = rand_vec::<24>();
+            let hash_ref2 = rand_vec::<24>();
+            let hash_ref3 = rand_vec::<24>();
 
             conn.store_key_package_history_entry(hash_ref1.clone())
                 .unwrap();

@@ -1,8 +1,6 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
-#[macro_use]
-extern crate tracing;
 pub mod api;
 pub mod builder;
 pub mod client;
@@ -13,7 +11,6 @@ pub mod identity;
 pub mod identity_updates;
 mod intents;
 mod mutex_registry;
-pub mod retry;
 pub mod storage;
 mod stream_handles;
 pub mod subscriptions;
@@ -118,12 +115,6 @@ pub struct SemaphoreGuard {
 // Static instance of `GroupCommitLock`
 pub static MLS_COMMIT_LOCK: LazyLock<GroupCommitLock> = LazyLock::new(GroupCommitLock::new);
 
-/// Global Marker trait for WebAssembly
-#[cfg(target_arch = "wasm32")]
-pub trait Wasm {}
-#[cfg(target_arch = "wasm32")]
-impl<T> Wasm for T {}
-
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
@@ -167,138 +158,12 @@ pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
 
-#[cfg(target_arch = "wasm32")]
-#[doc(hidden)]
-pub async fn sleep(duration: core::time::Duration) {
-    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[doc(hidden)]
-pub async fn sleep(duration: core::time::Duration) {
-    tokio::time::sleep(duration).await
-}
-
-/// Turn the `Result<T, E>` into an `Option<T>`, logging the error with `tracing::error` and
-/// returning `None` if the value matches on Result::Err().
-/// Optionally pass a message as the second argument.
-#[macro_export]
-macro_rules! optify {
-    ( $e: expr ) => {
-        match $e {
-            Ok(v) => Some(v),
-            Err(e) => {
-                tracing::error!("{}", e);
-                None
-            }
-        }
-    };
-    ( $e: expr, $msg: tt ) => {
-        match $e {
-            Ok(v) => Some(v),
-            Err(e) => {
-                tracing::error!("{}: {:?}", $msg, e);
-                None
-            }
-        }
-    };
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     // Execute once before any tests are run
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]
     fn _setup() {
-        use tracing_subscriber::{
-            fmt::{self, format},
-            layer::SubscriberExt,
-            util::SubscriberInitExt,
-            EnvFilter, Layer,
-        };
-
-        let structured = std::env::var("STRUCTURED");
-        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
-
-        let filter = || {
-            EnvFilter::builder()
-                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-                .from_env_lossy()
-        };
-
-        tracing_subscriber::registry()
-            // structured JSON logger
-            .with(is_structured.then(|| {
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .flatten_event(true)
-                    .with_level(true)
-                    .with_filter(filter())
-            }))
-            // default logger
-            .with((!is_structured).then(|| {
-                fmt::layer()
-                    .compact()
-                    .fmt_fields({
-                        format::debug_fn(move |writer, field, value| {
-                            if field.name() == "message" {
-                                write!(writer, "{:?}", value)?;
-                            }
-                            Ok(())
-                        })
-                    })
-                    .with_filter(filter())
-            }))
-            .init();
-    }
-
-    /// wrapper over assert!(matches!()) for Errors
-    /// assert_err!(fun(), StorageError::Explosion)
-    ///
-    /// or the message variant,
-    /// assert_err!(fun(), StorageError::Explosion, "the storage did not explode");
-    #[macro_export]
-    macro_rules! assert_err {
-        ( $x:expr , $y:pat $(,)? ) => {
-            assert!(matches!($x, Err($y)))
-        };
-
-        ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{
-            assert!(matches!($x, Err($y)), $($msg)+)
-        }}
-    }
-
-    /// wrapper over assert! macros for Ok's
-    ///
-    /// Make sure something is Ok(_) without caring about return value.
-    /// assert_ok!(fun());
-    ///
-    /// Against an expected value, e.g Ok(true)
-    /// assert_ok!(fun(), true);
-    ///
-    /// or the message variant,
-    /// assert_ok!(fun(), Ok(_), "the storage is not ok");
-    #[macro_export]
-    macro_rules! assert_ok {
-
-        ( $e:expr ) => {
-            assert_ok!($e,)
-        };
-
-        ( $e:expr, ) => {{
-            use std::result::Result::*;
-            match $e {
-                Ok(v) => v,
-                Err(e) => panic!("assertion failed: Err({:?})", e),
-            }
-        }};
-
-        ( $x:expr , $y:expr $(,)? ) => {
-            assert_eq!($x, Ok($y.into()));
-        };
-
-        ( $x:expr, $y:expr $(,)?, $($msg:tt)+) => {{
-            assert_eq!($x, Ok($y.into()), $($msg)+);
-        }}
+        xmtp_common::logger()
     }
 }

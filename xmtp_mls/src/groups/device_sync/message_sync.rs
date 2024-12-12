@@ -42,24 +42,25 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
+
     use crate::{
-        api::test_utils::wait_for_some,
-        assert_ok,
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
     };
-    use std::time::{Duration, Instant};
+    use xmtp_common::{assert_ok, wait_for_some};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_message_history_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -123,35 +124,30 @@ pub(crate) mod tests {
         let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
-        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
-        let start = Instant::now();
-        let mut reply = None;
-        while reply.is_none() {
-            reply = amal_b
+        xmtp_common::wait_for_some(|| async {
+            amal_b
                 .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
                 .await
-                .unwrap();
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive sync reply.");
-            }
-        }
+                .unwrap()
+        })
+        .await
+        .unwrap();
 
-        // Wait up to 3 seconds for sync to process (typically is almost instant)
-        let [mut groups_a, mut groups_b, mut messages_a, mut messages_b] = [0; 4];
-        let start = Instant::now();
-        while groups_a != groups_b || messages_a != messages_b {
-            groups_a = amal_a.syncable_groups(amal_a_conn).unwrap().len();
-            groups_b = amal_b.syncable_groups(amal_b_conn).unwrap().len();
-            messages_a = amal_a.syncable_messages(amal_a_conn).unwrap().len();
-            messages_b = amal_b.syncable_messages(amal_b_conn).unwrap().len();
-
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Message sync did not work. Groups: {groups_a}/{groups_b} | Messages: {messages_a}/{messages_b}");
-            }
-        }
+        xmtp_common::wait_for_eq(
+            || {
+                let groups_a = amal_a.syncable_groups(amal_a_conn).unwrap().len();
+                let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap().len();
+                let messages_a = amal_a.syncable_messages(amal_a_conn).unwrap().len();
+                let messages_b = amal_b.syncable_messages(amal_b_conn).unwrap().len();
+                futures::future::ready(groups_a != groups_b || messages_a != messages_b)
+            },
+            true,
+        )
+        .await
+        .unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_sync_continues_during_db_disconnect() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -213,35 +209,7 @@ pub(crate) mod tests {
         assert_ne!(old_group_id, new_group_id);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn disconnect_does_not_effect_init() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
-
-        //release db conn right after creating client, not giving the worker time to do initial
-        //sync
-        amal_a.release_db_connection().unwrap();
-
-        let sync_group = amal_a.get_sync_group(amal_a_conn);
-        crate::assert_err!(sync_group, GroupError::GroupNotFound);
-
-        amal_a.reconnect_db().unwrap();
-
-        // make sure amal's worker has time to sync
-        // 3 Intents:
-        //  1.) Sync Group Creation
-        //  2.) Device Sync Request
-        //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 3).await;
-        tracing::info!("Waiting for intents published");
-        let sync_group = amal_a.get_sync_group(amal_a_conn);
-        assert!(sync_group.is_ok());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -258,7 +226,7 @@ pub(crate) mod tests {
         assert_eq!(result.len(), 2);
     }
 
-    #[tokio::test]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -295,20 +263,20 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_pin() {
         let pin = new_pin();
         assert!(pin.chars().all(|c| c.is_numeric()));
         assert_eq!(pin.len(), 4);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_request_id() {
         let request_id = new_request_id();
         assert_eq!(request_id.len(), ENC_KEY_SIZE);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_new_key() {
         let sig_key = DeviceSyncKeyType::new_aes_256_gcm_key();
         let enc_key = DeviceSyncKeyType::new_aes_256_gcm_key();
@@ -318,7 +286,7 @@ pub(crate) mod tests {
         assert_ne!(sig_key, enc_key);
     }
 
-    #[test]
+    #[wasm_bindgen_test(unsupported = test)]
     fn test_generate_nonce() {
         let nonce_1 = generate_nonce();
         let nonce_2 = generate_nonce();

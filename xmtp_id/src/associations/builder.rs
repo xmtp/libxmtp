@@ -4,8 +4,9 @@
 
 use std::collections::HashMap;
 
-use crate::{scw_verifier::SmartContractSignatureVerifier, utils::now_ns};
+use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
+use xmtp_common::time::now_ns;
 
 use super::{
     unsigned_actions::{

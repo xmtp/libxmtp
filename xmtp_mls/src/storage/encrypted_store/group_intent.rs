@@ -15,7 +15,7 @@ use super::{
     Sqlite,
 };
 use crate::{
-    groups::{intents::SendMessageIntentData, IntentError},
+    groups::intents::{IntentError, SendMessageIntentData},
     impl_fetch, impl_store,
     storage::StorageError,
     utils::id::calculate_message_id,
@@ -400,9 +400,9 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             tests::with_connection,
         },
-        utils::test::rand_vec,
         Fetch, Store,
     };
+    use xmtp_common::rand_vec;
 
     fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
         let group = StoredGroup::new(
@@ -445,8 +445,8 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_store_and_fetch() {
-        let group_id = rand_vec();
-        let data = rand_vec();
+        let group_id = rand_vec::<24>();
+        let data = rand_vec::<24>();
         let kind = IntentKind::UpdateGroupMembership;
         let state = IntentState::ToPublish;
 
@@ -479,25 +479,25 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_query() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
 
         let test_intents: Vec<NewGroupIntent> = vec![
             NewGroupIntent::new_test(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
                 IntentState::ToPublish,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
                 IntentState::Published,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
                 IntentState::Committed,
             ),
         ];
@@ -559,7 +559,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn find_by_payload_hash() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
 
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
@@ -568,7 +568,7 @@ pub(crate) mod tests {
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
             )
             .store(conn)
             .unwrap();
@@ -577,8 +577,8 @@ pub(crate) mod tests {
             let intent = find_first_intent(conn, group_id.clone());
 
             // Set the payload hash
-            let payload_hash = rand_vec();
-            let post_commit_data = rand_vec();
+            let payload_hash = rand_vec::<24>();
+            let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
                 payload_hash.clone(),
@@ -602,7 +602,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_happy_path_state_transitions() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
 
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
@@ -611,7 +611,7 @@ pub(crate) mod tests {
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
             )
             .store(conn)
             .unwrap();
@@ -619,8 +619,8 @@ pub(crate) mod tests {
             let mut intent = find_first_intent(conn, group_id.clone());
 
             // Set to published
-            let payload_hash = rand_vec();
-            let post_commit_data = rand_vec();
+            let payload_hash = rand_vec::<24>();
+            let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
                 payload_hash.clone(),
@@ -648,7 +648,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_republish_state_transition() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
 
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
@@ -657,7 +657,7 @@ pub(crate) mod tests {
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
             )
             .store(conn)
             .unwrap();
@@ -665,8 +665,8 @@ pub(crate) mod tests {
             let mut intent = find_first_intent(conn, group_id.clone());
 
             // Set to published
-            let payload_hash = rand_vec();
-            let post_commit_data = rand_vec();
+            let payload_hash = rand_vec::<24>();
+            let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
                 payload_hash.clone(),
@@ -693,7 +693,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_invalid_state_transition() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
 
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
@@ -702,7 +702,7 @@ pub(crate) mod tests {
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
             )
             .store(conn)
             .unwrap();
@@ -729,13 +729,13 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_increment_publish_attempts() {
-        let group_id = rand_vec();
+        let group_id = rand_vec::<24>();
         with_connection(|conn| {
             insert_group(conn, group_id.clone());
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
-                rand_vec(),
+                rand_vec::<24>(),
             )
             .store(conn)
             .unwrap();

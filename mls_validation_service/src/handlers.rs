@@ -328,11 +328,12 @@ mod tests {
         prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
+    use xmtp_common::{rand_string, rand_u64};
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
         associations::{
             generate_inbox_id,
-            test_utils::{rand_string, rand_u64, MockSmartContractSignatureVerifier},
+            test_utils::MockSmartContractSignatureVerifier,
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
         },
         is_smart_contract,
@@ -399,7 +400,7 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_get_association_state() {
-        let account_address = rand_string();
+        let account_address = rand_string::<24>();
         let nonce = rand_u64();
         let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
         let update = UnverifiedIdentityUpdate::new_test(

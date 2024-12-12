@@ -27,8 +27,9 @@ tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-wasm-timer.workspace = true
+web-time.workspace = true
 ethers = { workspace = true, features = ["rustls"] }
+xmtp_common.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { workspace = true, features = ["js"] }
@@ -40,10 +41,11 @@ openmls.workspace = true
 [dev-dependencies]
 xmtp_v2 = { path = "../xmtp_v2" }
 ed25519-dalek = { workspace = true, features = ["digest", "rand_core"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
+wasm-bindgen-test.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test.workspace = true
 gloo-timers.workspace = true
 
 [features]
-test-utils = []
+test-utils = ["xmtp_common/test-utils"]
