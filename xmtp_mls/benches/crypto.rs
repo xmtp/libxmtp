@@ -46,7 +46,6 @@ fn bench_encrypt_welcome(c: &mut Criterion) {
                     let keypair = crypto
                         .derive_hpke_keypair(CIPHERSUITE.hpke_config(), ikm.as_slice())
                         .unwrap();
-
                     let mut payload = vec![0; size];
                     OsRng.fill_bytes(payload.as_mut_slice());
                     (payload, keypair.public)
