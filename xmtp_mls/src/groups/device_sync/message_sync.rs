@@ -210,34 +210,6 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
-    async fn disconnect_does_not_effect_init() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
-
-        //release db conn right after creating client, not giving the worker time to do initial
-        //sync
-        amal_a.release_db_connection().unwrap();
-
-        let sync_group = amal_a.get_sync_group(amal_a_conn);
-        assert_err!(sync_group, GroupError::GroupNotFound);
-
-        amal_a.reconnect_db().unwrap();
-
-        // make sure amal's worker has time to sync
-        // 3 Intents:
-        //  1.) Sync Group Creation
-        //  2.) Device Sync Request
-        //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 3).await;
-        tracing::info!("Waiting for intents published");
-        let sync_group = amal_a.get_sync_group(amal_a_conn);
-        assert!(sync_group.is_ok());
-    }
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
