@@ -88,14 +88,12 @@ impl UserPreferenceUpdate {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(not(target_arch = "wasm32"), test))]
 mod tests {
     use crypto_utils::generate_local_wallet;
 
     use crate::{
         builder::ClientBuilder,
-        groups::{
-        },
         storage::consent_record::{ConsentState, ConsentType},
     };
 
