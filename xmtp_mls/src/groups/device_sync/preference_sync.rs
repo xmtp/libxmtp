@@ -142,8 +142,8 @@ mod tests {
 
         amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
 
-        let sync_group_a = amal_a.get_sync_group(&amal_a_conn).unwrap();
-        let sync_group_b = amal_b.get_sync_group(&amal_b_conn).unwrap();
+        let sync_group_a = amal_a.get_sync_group(amal_a_conn).unwrap();
+        let sync_group_b = amal_b.get_sync_group(amal_b_conn).unwrap();
         assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
 
         sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
@@ -152,8 +152,8 @@ mod tests {
         // Wait for a to process the new hmac key
         amal_a_worker.wait_for_processed_count(2).await.unwrap();
 
-        let pref_a = StoredUserPreferences::load(&amal_a_conn).unwrap();
-        let pref_b = StoredUserPreferences::load(&amal_b_conn).unwrap();
+        let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
+        let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
     }

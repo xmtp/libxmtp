@@ -52,12 +52,7 @@ impl StoredUserPreferences {
         let query = dsl::user_preferences.order(dsl::id.desc()).limit(1);
         let mut result = conn.raw_query(|conn| query.load::<StoredUserPreferences>(conn))?;
 
-        let result = match result.pop() {
-            Some(result) => result,
-            None => Self::default(),
-        };
-
-        Ok(result)
+        Ok(result.pop().unwrap_or_default())
     }
 
     pub fn new_hmac_key<C>(
