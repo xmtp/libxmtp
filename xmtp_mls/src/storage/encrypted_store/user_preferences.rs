@@ -1,5 +1,5 @@
 use crate::{
-    groups::device_sync::preference_sync::UserPreferenceUpdate, impl_store, storage::StorageError,
+    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
     subscriptions::LocalEvents, Store,
 };
 
@@ -11,17 +11,41 @@ use diesel::prelude::*;
 use rand::{rngs::OsRng, RngCore};
 use tokio::sync::broadcast::Sender;
 
-#[derive(Identifiable, Insertable, Queryable, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Identifiable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default)]
 #[diesel(table_name = user_preferences)]
 #[diesel(primary_key(id))]
 pub struct StoredUserPreferences {
     /// Primary key - latest key is the "current" preference
-    pub id: Option<i32>,
+    pub id: i32,
     /// Randomly generated hmac key root
     pub hmac_key: Option<Vec<u8>>,
 }
 
-impl_store!(StoredUserPreferences, user_preferences);
+#[derive(Insertable)]
+#[diesel(table_name = user_preferences)]
+pub struct NewStoredUserPreferences<'a> {
+    hmac_key: Option<&'a Vec<u8>>,
+}
+
+impl<'a> From<&'a StoredUserPreferences> for NewStoredUserPreferences<'a> {
+    fn from(value: &'a StoredUserPreferences) -> Self {
+        Self {
+            hmac_key: value.hmac_key.as_ref(),
+        }
+    }
+}
+
+impl Store<DbConnection> for StoredUserPreferences {
+    fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
+        conn.raw_query(|conn| {
+            diesel::update(dsl::user_preferences)
+                .set(self)
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+}
 
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
@@ -46,8 +70,6 @@ impl StoredUserPreferences {
         local_events: &Sender<LocalEvents<C>>,
     ) -> Result<Vec<u8>, StorageError> {
         let mut preferences = Self::load(conn)?;
-        // Have the id increment
-        preferences.id = None;
 
         let mut hmac_key = vec![0; 32];
         OsRng.fill_bytes(&mut hmac_key);
@@ -60,7 +82,12 @@ impl StoredUserPreferences {
             },
         ]));
 
-        preferences.store(conn)?;
+        let to_insert: NewStoredUserPreferences = (&preferences).into();
+        conn.raw_query(|conn| {
+            diesel::insert_into(dsl::user_preferences)
+                .values(to_insert)
+                .execute(conn)
+        })?;
 
         Ok(hmac_key)
     }

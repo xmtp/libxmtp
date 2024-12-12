@@ -31,6 +31,7 @@ use rand::{
     Rng, RngCore,
 };
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -175,14 +176,25 @@ impl WorkerHandle {
         Ok(())
     }
 
-    pub async fn wait_for_processed_count(&self, count: usize) -> Result<(), Elapsed> {
+    pub async fn wait_for_processed_count(&self, expected: usize) -> Result<(), Elapsed> {
         timeout(Duration::from_secs(3), async {
-            while self.processed.load(Ordering::SeqCst) < count {
+            while self.processed.load(Ordering::SeqCst) < expected {
                 self.notify.notified().await;
             }
         })
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn block_for_num_events<Fut>(&self, num_events: usize, op: Fut) -> Result<(), Elapsed>
+    where
+        Fut: Future<Output = ()>,
+    {
+        let processed_count = self.processed_count();
+        op.await;
+        self.wait_for_processed_count(processed_count + num_events)
+            .await?;
         Ok(())
     }
 
@@ -217,8 +229,12 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
+                    tracing::error!("Outgoing preference update {preference_updates:?}");
                     UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
                         .await?;
+                }
+                LocalEvents::IncomingPreferenceUpdate(_) => {
+                    tracing::error!("Incoming preference update");
                 }
                 _ => {}
             }

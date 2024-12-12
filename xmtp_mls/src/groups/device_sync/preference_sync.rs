@@ -9,7 +9,7 @@ use xmtp_proto::{
     xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[repr(i32)]
 pub enum UserPreferenceUpdate {
     ConsentUpdate(StoredConsentRecord) = 1,
@@ -90,7 +90,17 @@ impl UserPreferenceUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::consent_record::{ConsentState, ConsentType};
+    use crypto_utils::generate_local_wallet;
+
+    use crate::{
+        api::test_utils::{wait_for_eq, wait_for_ok},
+        builder::ClientBuilder,
+        groups::{
+            scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
+            GroupMetadataOptions,
+        },
+        storage::consent_record::{ConsentState, ConsentType},
+    };
 
     use super::*;
 
@@ -116,5 +126,47 @@ mod tests {
 
         let OldUserPreferenceUpdate::ConsentUpdate(update) = old_update;
         assert_eq!(update.state, ConsentState::Allowed);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_hmac_sync() {
+        let wallet = generate_local_wallet();
+        let amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
+        let amal_a_provider = amal_a.mls_provider().unwrap();
+        let amal_a_conn = amal_a_provider.conn_ref();
+        let amal_a_worker = amal_a.sync_worker_handle().unwrap();
+
+        let amal_b =
+            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
+        let amal_b_provider = amal_b.mls_provider().unwrap();
+        let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
+
+        // wait for the new sync group
+        amal_a_worker.wait_for_processed_count(1).await.unwrap();
+        amal_b_worker.wait_for_processed_count(1).await.unwrap();
+
+        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
+        // amal_b.sync_welcomes(&amal_b_provider).await.unwrap();
+
+        std::thread::sleep(Duration::from_millis(1000));
+
+        let sync_group_a = amal_a.get_sync_group(&amal_a_conn).unwrap();
+        let sync_group_b = amal_b.get_sync_group(&amal_b_conn).unwrap();
+        assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
+
+        sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
+        sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
+
+        amal_a_worker.wait_for_processed_count(2).await.unwrap();
+        // amal_b_worker.wait_for_processed_count(2).await.unwrap();
+
+        let pref_a = StoredUserPreferences::load(&amal_a_conn).unwrap();
+        let pref_b = StoredUserPreferences::load(&amal_b_conn).unwrap();
+
+        tracing::info!("{:?}", pref_a.hmac_key);
+        tracing::info!("{:?}", pref_b.hmac_key);
+        assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
     }
 }
