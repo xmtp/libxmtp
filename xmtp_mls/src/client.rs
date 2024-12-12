@@ -31,11 +31,13 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessage, WelcomeMessage,
 };
 
+#[cfg(feature = "test-utils")]
+use crate::groups::device_sync::WorkerHandle;
+
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, WorkerHandle},
-        group_permissions::PolicySet,
+        device_sync::preference_sync::UserPreferenceUpdate, group_permissions::PolicySet,
         GroupError, GroupMetadataOptions, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
@@ -144,9 +146,11 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
-    sync_worker_handle: Arc<Mutex<Option<Arc<WorkerHandle>>>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
+
+    #[cfg(feature = "test-utils")]
+    sync_worker_handle: Arc<Mutex<Option<Arc<WorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s
@@ -157,8 +161,10 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
             context: self.context.clone(),
             history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
-            sync_worker_handle: self.sync_worker_handle.clone(),
             scw_verifier: self.scw_verifier.clone(),
+
+            #[cfg(feature = "test-utils")]
+            sync_worker_handle: self.sync_worker_handle.clone(),
         }
     }
 }
@@ -244,6 +250,7 @@ where
             context,
             history_sync_url,
             local_events: tx,
+            #[cfg(feature = "test-utils")]
             sync_worker_handle: Arc::new(Mutex::default()),
             scw_verifier: scw_verifier.into(),
         }
@@ -253,10 +260,12 @@ where
         &self.scw_verifier
     }
 
+    #[cfg(feature = "test-utils")]
     pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
         self.sync_worker_handle.lock().clone()
     }
 
+    #[cfg(feature = "test-utils")]
     pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
         *self.sync_worker_handle.lock() = Some(handle);
     }
