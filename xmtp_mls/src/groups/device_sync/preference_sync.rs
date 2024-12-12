@@ -93,11 +93,8 @@ mod tests {
     use crypto_utils::generate_local_wallet;
 
     use crate::{
-        api::test_utils::{wait_for_eq, wait_for_ok},
         builder::ClientBuilder,
         groups::{
-            scoped_client::{LocalScopedGroupClient, ScopedGroupClient},
-            GroupMetadataOptions,
         },
         storage::consent_record::{ConsentState, ConsentType},
     };
