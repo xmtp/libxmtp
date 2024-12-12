@@ -88,7 +88,7 @@ impl UserPreferenceUpdate {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
