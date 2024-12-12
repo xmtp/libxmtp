@@ -137,7 +137,7 @@ pub(crate) mod tests {
         .await
         .unwrap();
 
-        // Wait up to 3 seconds for sync to process (typically is almost instant)
+        // Wait up to 20 seconds for sync to process (typically is almost instant)
         xmtp_common::wait_for_eq(
             || {
                 let consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();

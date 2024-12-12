@@ -130,7 +130,7 @@ where
     F: Fn() -> Fut,
     Fut: Future<Output = Option<T>>,
 {
-    crate::time::timeout(crate::time::Duration::from_secs(60), async {
+    crate::time::timeout(crate::time::Duration::from_secs(20), async {
         loop {
             if let Some(r) = f().await {
                 return r;
@@ -148,7 +148,7 @@ where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<T, E>>,
 {
-    crate::time::timeout(crate::time::Duration::from_secs(60), async {
+    crate::time::timeout(crate::time::Duration::from_secs(20), async {
         loop {
             if let Ok(r) = f().await {
                 return r;
@@ -166,7 +166,7 @@ where
     Fut: Future<Output = T>,
     T: std::fmt::Debug + PartialEq,
 {
-    let result = crate::time::timeout(crate::time::Duration::from_secs(60), async {
+    let result = crate::time::timeout(crate::time::Duration::from_secs(20), async {
         loop {
             let result = f().await;
             if expected == result {
