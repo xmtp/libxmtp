@@ -366,7 +366,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         operation: F,
     ) -> Result<R, E>
     where
-        F: FnOnce(OpenMlsGroup) -> Fut + Send,
+        F: FnOnce(OpenMlsGroup) -> Fut,
         Fut: Future<Output = Result<R, E>>,
         E: From<GroupMessageProcessingError> + From<crate::StorageError>,
     {
