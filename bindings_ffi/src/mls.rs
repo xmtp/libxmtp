@@ -1546,7 +1546,6 @@ impl FfiConversation {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let provider = self.inner.mls_provider()?;
-        // blocking is OK b/c not wasm
         let metadata = tokio::task::block_in_place(|| {
             futures::executor::block_on(self.inner.metadata(&provider))
         })?;
@@ -1561,7 +1560,6 @@ impl FfiConversation {
 
     pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
-        // blocking OK b/c not wasm
         let conversation_type = tokio::task::block_in_place(|| {
             futures::executor::block_on(self.inner.conversation_type(&provider))
         })?;
