@@ -73,6 +73,7 @@ web-time.workspace = true
 zeroize.workspace = true
 
 # XMTP/Local
+xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
