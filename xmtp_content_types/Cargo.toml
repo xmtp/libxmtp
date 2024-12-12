@@ -1,0 +1,16 @@
+[package]
+edition = "2021"
+name = "xmtp_content_types"
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+prost = { workspace = true, features = ["prost-derive"] }
+rand = { workspace = true }
+
+# XMTP/Local
+xmtp_proto = { workspace = true, features = ["convert"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tonic = { version = "0.12", features = ["transport"] }

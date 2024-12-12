@@ -1652,6 +1652,7 @@ pub(crate) mod tests {
     use futures::future::join_all;
     use prost::Message;
     use std::sync::Arc;
+    use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
@@ -1659,7 +1660,6 @@ pub(crate) mod tests {
     use crate::{
         assert_err,
         builder::ClientBuilder,
-        codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
         groups::{
             build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
             build_protected_metadata_extension,
