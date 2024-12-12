@@ -132,14 +132,13 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	}
 
 	@discardableResult public func send(
-		encodedContent: EncodedContent, options: SendOptions? = nil
-	) async throws -> String {
+		encodedContent: EncodedContent) async throws -> String {
 		switch self {
 		case let .group(group):
 			return try await group.send(
-				content: encodedContent, options: options)
+                encodedContent: encodedContent)
 		case let .dm(dm):
-			return try await dm.send(content: encodedContent, options: options)
+            return try await dm.send(encodedContent: encodedContent)
 		}
 	}
 
