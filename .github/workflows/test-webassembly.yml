@@ -35,7 +35,7 @@ jobs:
       - name: Start Docker containers
         run: dev/up
       - name: Build WebAssembly Packages
-        run: cargo build --tests --release --features test-utils --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common
+        run: cargo build --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common
       - name: test with chrome
         run: |
           cargo test --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -- \
