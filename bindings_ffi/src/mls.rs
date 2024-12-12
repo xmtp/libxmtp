@@ -1396,7 +1396,7 @@ impl FfiConversation {
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_image_url_square(provider)?)
+        Ok(self.inner.group_image_url_square(&provider)?)
     }
 
     pub async fn update_group_description(
@@ -1412,7 +1412,7 @@ impl FfiConversation {
 
     pub fn group_description(&self) -> Result<String, GenericError> {
         let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_description(provider)?)
+        Ok(self.inner.group_description(&provider)?)
     }
 
     pub async fn update_group_pinned_frame_url(
@@ -1546,7 +1546,10 @@ impl FfiConversation {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let metadata = self.inner.metadata(provider)?;
+        // blocking is OK b/c not wasm
+        let metadata = tokio::task::block_in_place(|| {
+            futures::executor::block_on(self.inner.metadata(&provider))
+        })?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1558,7 +1561,10 @@ impl FfiConversation {
 
     pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let conversation_type = self.inner.conversation_type(&provider)?;
+        // blocking OK b/c not wasm
+        let conversation_type = tokio::task::block_in_place(|| {
+            futures::executor::block_on(self.inner.conversation_type(&provider))
+        })?;
         Ok(conversation_type.into())
     }
 }

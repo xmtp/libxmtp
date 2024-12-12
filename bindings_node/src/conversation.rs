@@ -167,9 +167,10 @@ impl Conversation {
       self.created_at_ns,
     );
     let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
-    let conversation_type = group
-      .conversation_type(&provider)
-      .map_err(ErrorWrapper::from)?;
+    let conversation_type = tokio::task::block_in_place(|| {
+      futures::executor::block_on(group.conversation_type(&provider))
+    })
+    .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
       ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
@@ -248,7 +249,7 @@ impl Conversation {
     );
 
     let admin_list = group
-      .admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(admin_list)
@@ -263,7 +264,7 @@ impl Conversation {
     );
 
     let super_admin_list = group
-      .super_admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .super_admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(super_admin_list)
@@ -449,7 +450,7 @@ impl Conversation {
     );
 
     let group_name = group
-      .group_name(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_name(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_name)
@@ -480,7 +481,7 @@ impl Conversation {
     );
 
     let group_image_url_square = group
-      .group_image_url_square(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_image_url_square(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_image_url_square)
@@ -511,7 +512,7 @@ impl Conversation {
     );
 
     let group_description = group
-      .group_description(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_description(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_description)
@@ -542,7 +543,7 @@ impl Conversation {
     );
 
     let group_pinned_frame_url = group
-      .group_pinned_frame_url(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_pinned_frame_url(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_pinned_frame_url)
@@ -585,7 +586,7 @@ impl Conversation {
 
     Ok(
       group
-        .is_active(group.mls_provider().map_err(ErrorWrapper::from)?)
+        .is_active(&group.mls_provider().map_err(ErrorWrapper::from)?)
         .map_err(ErrorWrapper::from)?,
     )
   }
@@ -609,9 +610,10 @@ impl Conversation {
       self.created_at_ns,
     );
 
-    let metadata = group
-      .metadata(group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let metadata = tokio::task::block_in_place(|| {
+      futures::executor::block_on(group.metadata(&group.mls_provider()?))
+    })
+    .map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })
   }
