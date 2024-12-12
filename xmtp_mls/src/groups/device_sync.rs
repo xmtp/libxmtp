@@ -119,7 +119,7 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 impl<ApiClient, V> Client<ApiClient, V> {
     pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
         self.sync_worker_handle.lock().clone()
@@ -145,7 +145,7 @@ where
         );
 
         let worker = SyncWorker::new(client);
-        #[cfg(feature = "test-utils")]
+        #[cfg(any(test, feature = "test-utils"))]
         self.set_sync_worker_handle(worker.handle.clone());
         worker.spawn_worker();
     }
@@ -162,17 +162,17 @@ pub struct SyncWorker<ApiClient, V> {
     retry: Retry,
 
     // Number of events processed
-    #[cfg(feature = "test-utils")]
+    #[cfg(any(test, feature = "test-utils"))]
     handle: Arc<WorkerHandle>,
 }
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 pub struct WorkerHandle {
     processed: AtomicUsize,
     notify: Notify,
 }
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 impl WorkerHandle {
     pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
         timeout(Duration::from_secs(3), async {
@@ -249,7 +249,7 @@ where
                 _ => {}
             }
 
-            #[cfg(feature = "test-utils")]
+            #[cfg(any(test, feature = "test-utils"))]
             {
                 self.handle.processed.fetch_add(1, Ordering::SeqCst);
                 self.handle.notify.notify_waiters();
@@ -379,7 +379,7 @@ where
             init: OnceCell::new(),
             retry,
 
-            #[cfg(feature = "test-utils")]
+            #[cfg(any(test, feature = "test-utils"))]
             handle: Arc::new(WorkerHandle {
                 processed: AtomicUsize::new(0),
                 notify: Notify::new(),
