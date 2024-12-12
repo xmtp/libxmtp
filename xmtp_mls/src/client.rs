@@ -149,7 +149,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) scw_verifier: Arc<V>,
 
     #[cfg(feature = "test-utils")]
-    sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s
@@ -257,16 +257,6 @@ where
 
     pub fn scw_verifier(&self) -> &V {
         &self.scw_verifier
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
-        self.sync_worker_handle.lock().clone()
-    }
-
-    #[cfg(feature = "test-utils")]
-    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
-        *self.sync_worker_handle.lock() = Some(handle);
     }
 }
 

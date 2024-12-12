@@ -55,7 +55,7 @@ pub(crate) mod tests {
         groups::GroupMetadataOptions,
         utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
     };
-    use xmtp_common::{assert_err, assert_ok, wait_for_some};
+    use xmtp_common::{assert_ok, wait_for_some};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 

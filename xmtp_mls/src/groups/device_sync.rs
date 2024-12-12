@@ -119,6 +119,17 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
+#[cfg(feature = "test-utils")]
+impl<ApiClient, V> Client<ApiClient, V> {
+    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
+        self.sync_worker_handle.lock().clone()
+    }
+
+    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
+        *self.sync_worker_handle.lock() = Some(handle);
+    }
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
