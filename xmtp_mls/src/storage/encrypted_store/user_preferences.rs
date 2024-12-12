@@ -54,12 +54,7 @@ impl StoredUserPreferences {
 
         let result = match result.pop() {
             Some(result) => result,
-            None => {
-                // Create a default and store it.
-                let result = Self::default();
-                result.store(conn)?;
-                result
-            }
+            None => Self::default(),
         };
 
         Ok(result)
@@ -127,6 +122,6 @@ mod tests {
         let result = conn
             .raw_query(|conn| query.load::<StoredUserPreferences>(conn))
             .unwrap();
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.len(), 1);
     }
 }

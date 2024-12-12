@@ -148,9 +148,6 @@ mod tests {
         amal_b_worker.wait_for_processed_count(1).await.unwrap();
 
         amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
-        // amal_b.sync_welcomes(&amal_b_provider).await.unwrap();
-
-        std::thread::sleep(Duration::from_millis(1000));
 
         let sync_group_a = amal_a.get_sync_group(&amal_a_conn).unwrap();
         let sync_group_b = amal_b.get_sync_group(&amal_b_conn).unwrap();
@@ -159,14 +156,12 @@ mod tests {
         sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
         sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
 
+        // Wait for a to process the new hmac key
         amal_a_worker.wait_for_processed_count(2).await.unwrap();
-        // amal_b_worker.wait_for_processed_count(2).await.unwrap();
 
         let pref_a = StoredUserPreferences::load(&amal_a_conn).unwrap();
         let pref_b = StoredUserPreferences::load(&amal_b_conn).unwrap();
 
-        tracing::info!("{:?}", pref_a.hmac_key);
-        tracing::info!("{:?}", pref_b.hmac_key);
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
     }
 }
