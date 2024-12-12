@@ -12,7 +12,6 @@ use openmls::{
     messages::Welcome,
     prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
-use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::broadcast;
 
@@ -150,7 +149,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) scw_verifier: Arc<V>,
 
     #[cfg(feature = "test-utils")]
-    sync_worker_handle: Arc<Mutex<Option<Arc<WorkerHandle>>>>,
+    sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s
@@ -251,7 +250,7 @@ where
             history_sync_url,
             local_events: tx,
             #[cfg(feature = "test-utils")]
-            sync_worker_handle: Arc::new(Mutex::default()),
+            sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
         }
     }
