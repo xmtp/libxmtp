@@ -50,20 +50,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use xmtp_proto::xmtp::mls::message_contents::{group_updated::Inbox, GroupUpdated};
-
-    use crate::test_utils::rand_string;
-
     use super::*;
+    use xmtp_common::rand_string;
+    use xmtp_proto::xmtp::mls::message_contents::{group_updated::Inbox, GroupUpdated};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_encode_decode() {
         let new_member = Inbox {
-            inbox_id: rand_string(),
+            inbox_id: rand_string::<24>(),
         };
         let data = GroupUpdated {
-            initiated_by_inbox_id: rand_string(),
+            initiated_by_inbox_id: rand_string::<24>(),
             added_inboxes: vec![new_member.clone()],
             removed_inboxes: vec![],
             metadata_field_changes: vec![],

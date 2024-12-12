@@ -1,6 +1,6 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
 //! `wasm_bindgen_futures::spawn` for web.
-use futures::{Future, FutureExt};
+use futures::FutureExt;
 
 #[cfg(target_arch = "wasm32")]
 pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
@@ -72,6 +72,12 @@ pub use wasm::*;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
     use futures::future::Either;
 
     use super::*;
@@ -150,32 +156,62 @@ mod wasm {
         F::Output: 'static,
     {
         let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-        let (closer_tx, mut closer_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let (closer_tx, closer_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let closer_handle = CloserHandle::new(closer_rx);
 
         let handle = WasmStreamHandle {
             result: res_rx,
             closer: closer_tx,
             ready,
         };
-
+        tracing::info!("Spawning local task on web executor");
         wasm_bindgen_futures::spawn_local(async move {
-            let recv = closer_rx.recv();
-            futures::pin_mut!(recv);
+            futures::pin_mut!(closer_handle);
             futures::pin_mut!(future);
-            let value = match futures::future::select(recv, future).await {
-                Either::Left((_, _)) => Err(StreamHandleError::StreamClosed),
-                Either::Right((v, _)) => Ok(v),
+            let value = match futures::future::select(closer_handle, future).await {
+                Either::Left((_, _)) => {
+                    tracing::warn!("stream closed");
+                    Err(StreamHandleError::StreamClosed)
+                }
+                Either::Right((v, _)) => {
+                    tracing::debug!("Future ended with value");
+                    Ok(v)
+                }
             };
             let _ = res_tx.send(value);
+            tracing::info!("spawned local future closing");
         });
 
         handle
+    }
+
+    struct CloserHandle(tokio::sync::mpsc::Receiver<()>);
+
+    impl CloserHandle {
+        fn new(receiver: tokio::sync::mpsc::Receiver<()>) -> Self {
+            Self(receiver)
+        }
+    }
+
+    impl Future for CloserHandle {
+        type Output = ();
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self.0.poll_recv(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Some(_)) => Poll::Ready(()),
+                // if the channel is closed, the task has detached and must
+                // be kept alive for the duration for the program
+                Poll::Ready(None) => Poll::Pending,
+            }
+        }
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::*;
+    use std::future::Future;
     use tokio::task::JoinHandle;
 
     pub struct TokioStreamHandle<T> {

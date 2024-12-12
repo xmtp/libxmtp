@@ -409,9 +409,8 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::{
-        generate_inbox_id, test_utils::rand_string, unsigned_actions::UnsignedCreateInbox,
-    };
+    use crate::associations::{generate_inbox_id, unsigned_actions::UnsignedCreateInbox};
+    use xmtp_common::rand_hexstring;
 
     use super::{
         UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
@@ -421,7 +420,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
-        let account_address = rand_string();
+        let account_address = rand_hexstring();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
             inbox_id: generate_inbox_id(account_address.as_str(), &nonce).unwrap(),

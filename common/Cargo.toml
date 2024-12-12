@@ -1,0 +1,38 @@
+[package]
+name = "xmtp_common"
+edition = "2021"
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+web-time.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["time"] }
+rand = "0.8"
+futures.workspace = true
+xmtp_cryptography.workspace = true
+
+parking_lot = { workspace = true, optional  = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter", "ansi", "json"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["js"] }
+gloo-timers = { workspace = true, features = ["futures"] }
+tracing-wasm = { version = "0.2", optional = true }
+console_error_panic_hook = { version =  "0.1", optional = true }
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window"] }
+wasm-bindgen-futures.workspace = true
+
+[dev-dependencies]
+thiserror.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tokio = { workspace = true, features = ["time", "macros", "rt", "sync"]}
+wasm-bindgen-test.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread", "sync"]}
+
+[features]
+test-utils = ["dep:parking_lot", "dep:tracing-subscriber", "dep:tracing-wasm", "dep:console_error_panic_hook"]

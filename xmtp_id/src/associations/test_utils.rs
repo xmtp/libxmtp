@@ -11,31 +11,8 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::Bytes,
 };
-use rand::Rng;
 use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 use xmtp_cryptography::CredentialSign;
-
-pub fn rand_string() -> String {
-    let hex_chars = "0123456789abcdef";
-    let v: String = (0..40)
-        .map(|_| {
-            let idx = rand::thread_rng().gen_range(0..hex_chars.len());
-            hex_chars.chars().nth(idx).unwrap()
-        })
-        .collect();
-
-    format!("0x{}", v)
-}
-
-pub fn rand_u64() -> u64 {
-    rand::thread_rng().gen()
-}
-
-pub fn rand_vec() -> Vec<u8> {
-    let mut buf = [0u8; 32];
-    rand::thread_rng().fill(&mut buf[..]);
-    buf.to_vec()
-}
 
 #[derive(Debug, Clone)]
 pub struct MockSmartContractSignatureVerifier {

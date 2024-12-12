@@ -90,14 +90,13 @@ impl UserPreferenceUpdate {
 
 #[cfg(all(not(target_arch = "wasm32"), test))]
 mod tests {
-    use crypto_utils::generate_local_wallet;
-
+    use super::*;
     use crate::{
         builder::ClientBuilder,
         storage::consent_record::{ConsentState, ConsentType},
     };
-
-    use super::*;
+    use crypto_utils::generate_local_wallet;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -105,8 +104,7 @@ mod tests {
         ConsentUpdate(StoredConsentRecord) = 1,
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     async fn test_can_deserialize_between_versions() {
         let consent_record = StoredConsentRecord {
             entity: "hello there".to_string(),

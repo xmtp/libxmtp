@@ -11,10 +11,10 @@ use crate::{
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
-    retry::Retry,
     storage::EncryptedMessageStore,
     StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use xmtp_common::Retry;
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -230,24 +230,22 @@ pub(crate) mod tests {
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
-    use crate::retry::Retry;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
-    use crate::{
-        api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
-        utils::test::rand_vec, Store,
-    };
+    use crate::{api::test_utils::*, identity::Identity, storage::identity::StoredIdentity, Store};
+    use xmtp_common::{rand_vec, tmp_path, Retry};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
+    use xmtp_common::rand_u64;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_id::associations::generate_inbox_id;
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
-    use xmtp_id::associations::{generate_inbox_id, test_utils::rand_u64};
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::xmtp::identity::api::v1::{
@@ -263,7 +261,6 @@ pub(crate) mod tests {
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
-        utils::test::tmp_path,
         Client, InboxOwner,
     };
 
@@ -627,7 +624,7 @@ pub(crate) mod tests {
         let stored: StoredIdentity = (&Identity {
             inbox_id: inbox_id.clone(),
             installation_keys: XmtpInstallationCredential::new(),
-            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
             signature_request: None,
             is_ready: AtomicBool::new(true),
         })
@@ -664,7 +661,7 @@ pub(crate) mod tests {
         let stored: StoredIdentity = (&Identity {
             inbox_id: stored_inbox_id.clone(),
             installation_keys: Default::default(),
-            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
             signature_request: None,
             is_ready: AtomicBool::new(true),
         })

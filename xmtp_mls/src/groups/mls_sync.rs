@@ -13,6 +13,7 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    groups::device_sync::DeviceSyncContent,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
@@ -21,8 +22,6 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    retry::{Retry, RetryableError},
-    retry_async,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -34,11 +33,11 @@ use crate::{
         StorageError,
     },
     subscriptions::LocalEvents,
+    subscriptions::SyncMessage,
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
-use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -66,6 +65,8 @@ use std::{
     ops::RangeInclusive,
 };
 use thiserror::Error;
+use tracing::debug;
+use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -134,7 +135,7 @@ pub enum GroupMessageProcessingError {
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
 }
 
-impl crate::retry::RetryableError for GroupMessageProcessingError {
+impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Diesel(err) => err.is_retryable(),
@@ -1226,7 +1227,7 @@ where
             None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
         };
 
-        let now_ns = crate::utils::time::now_ns();
+        let now_ns = xmtp_common::time::now_ns();
         let last_ns = provider
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
