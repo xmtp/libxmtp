@@ -2,7 +2,7 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
 use xmtp_mls::groups::{
-  group_mutable_metadata::MetadataField,
+  group_mutable_metadata::MetadataField as XmtpMetadataField,
   group_permissions::{
     BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
     MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies,
@@ -207,10 +207,14 @@ impl GroupPermissions {
       remove_member_policy: PermissionPolicy::from(&policy_set.remove_member_policy),
       add_admin_policy: PermissionPolicy::from(&policy_set.add_admin_policy),
       remove_admin_policy: PermissionPolicy::from(&policy_set.remove_admin_policy),
-      update_group_name_policy: get_policy(MetadataField::GroupName.as_str()),
-      update_group_description_policy: get_policy(MetadataField::Description.as_str()),
-      update_group_image_url_square_policy: get_policy(MetadataField::GroupImageUrlSquare.as_str()),
-      update_group_pinned_frame_url_policy: get_policy(MetadataField::GroupPinnedFrameUrl.as_str()),
+      update_group_name_policy: get_policy(XmtpMetadataField::GroupName.as_str()),
+      update_group_description_policy: get_policy(XmtpMetadataField::Description.as_str()),
+      update_group_image_url_square_policy: get_policy(
+        XmtpMetadataField::GroupImageUrlSquare.as_str(),
+      ),
+      update_group_pinned_frame_url_policy: get_policy(
+        XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
+      ),
     })
   }
 }
@@ -222,19 +226,19 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   ) -> std::result::Result<Self, GroupMutablePermissionsError> {
     let mut metadata_permissions_map: HashMap<String, MetadataPolicies> = HashMap::new();
     metadata_permissions_map.insert(
-      MetadataField::GroupName.to_string(),
+      XmtpMetadataField::GroupName.to_string(),
       policy_set.update_group_name_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      MetadataField::Description.to_string(),
+      XmtpMetadataField::Description.to_string(),
       policy_set.update_group_description_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      MetadataField::GroupImageUrlSquare.to_string(),
+      XmtpMetadataField::GroupImageUrlSquare.to_string(),
       policy_set.update_group_image_url_square_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      MetadataField::GroupPinnedFrameUrl.to_string(),
+      XmtpMetadataField::GroupPinnedFrameUrl.to_string(),
       policy_set.update_group_pinned_frame_url_policy.try_into()?,
     );
 
@@ -246,5 +250,24 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       update_metadata_policy: metadata_permissions_map,
       update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
     })
+  }
+}
+
+#[napi]
+pub enum MetadataField {
+  GroupName,
+  Description,
+  ImageUrlSquare,
+  PinnedFrameUrl,
+}
+
+impl From<&MetadataField> for XmtpMetadataField {
+  fn from(field: &MetadataField) -> Self {
+    match field {
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::Description => XmtpMetadataField::Description,
+      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::PinnedFrameUrl => XmtpMetadataField::GroupPinnedFrameUrl,
+    }
   }
 }
