@@ -37,6 +37,7 @@ use super::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
+    serial::SerialOpenMlsGroup,
     ScopedGroupClient,
 };
 
@@ -214,11 +215,11 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit(
+    pub async fn from_staged_commit<'a>(
         client: impl ScopedGroupClient,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
-        openmls_group: &OpenMlsGroup,
+        openmls_group: &SerialOpenMlsGroup<'a>,
     ) -> Result<Self, CommitValidationError> {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();

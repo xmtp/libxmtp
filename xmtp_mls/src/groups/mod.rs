@@ -6,6 +6,7 @@ pub mod group_permissions;
 pub mod intents;
 pub mod members;
 pub mod scoped_client;
+mod serial;
 
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
@@ -33,6 +34,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use serial::SerialOpenMlsGroup;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -58,8 +60,8 @@ use self::{
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
-use std::{collections::HashSet, sync::Arc};
 use std::ops::{Deref, DerefMut};
+use std::{collections::HashSet, sync::Arc};
 use xmtp_common::time::now_ns;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
@@ -74,18 +76,31 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
-use crate::{api::WrappedApiError, client::{deserialize_welcome, ClientError, XmtpMlsLocalContext}, configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-    MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
-    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
-}, hpke::{decrypt_welcome, HpkeError}, identity::{parse_credential, IdentityError}, identity_updates::{load_identity_updates, InstallationDiffError}, intents::ProcessIntentError, storage::{
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-    db_connection::DbConnection,
-    group::{ConversationType, GroupMembershipState, StoredGroup},
-    group_intent::IntentKind,
-    group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-    sql_key_store, StorageError,
-}, subscriptions::{LocalEventError, LocalEvents}, utils::id::calculate_message_id, xmtp_openmls_provider::XmtpOpenMlsProvider, SemaphoreGuard, Store, MLS_COMMIT_LOCK};
+use crate::{
+    api::WrappedApiError,
+    client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
+    configuration::{
+        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
+        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+        SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    },
+    hpke::{decrypt_welcome, HpkeError},
+    identity::{parse_credential, IdentityError},
+    identity_updates::{load_identity_updates, InstallationDiffError},
+    intents::ProcessIntentError,
+    storage::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        db_connection::DbConnection,
+        group::{ConversationType, GroupMembershipState, StoredGroup},
+        group_intent::IntentKind,
+        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        sql_key_store, StorageError,
+    },
+    subscriptions::{LocalEventError, LocalEvents},
+    utils::id::calculate_message_id,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Store,
+};
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
@@ -293,23 +308,7 @@ pub enum UpdateAdminListType {
     AddSuper,
     RemoveSuper,
 }
-pub struct LockedMlsGroup {
-    group: OpenMlsGroup,
-    lock: SemaphoreGuard,
-}
 
-impl Deref for LockedMlsGroup {
-    type Target = OpenMlsGroup;
-    fn deref(&self) -> &Self::Target {
-        &self.group
-    }
-}
-
-impl DerefMut for LockedMlsGroup {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.group
-    }
-}
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -344,18 +343,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub(crate) fn load_mls_group(
         &self,
         provider: impl OpenMlsProvider,
-    ) -> Result<LockedMlsGroup, GroupError> {
+    ) -> Result<OpenMlsGroup, GroupError> {
         // Get the group ID for locking
-        let group_id = self.group_id.clone();
+        let mls_group =
+            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
+                .map_err(|_| GroupError::GroupNotFound)?
+                .ok_or(GroupError::GroupNotFound)?;
 
-        // Acquire the lock synchronously using blocking_lock
-        let lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone())?;
-        // Load the MLS group
-        let group = OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-            .map_err(|_| GroupError::GroupNotFound)?
-            .ok_or(GroupError::GroupNotFound)?;
-
-        Ok(LockedMlsGroup { group, lock })
+        Ok(mls_group)
     }
 
     // Create a new group and save it to the DB
@@ -1160,7 +1155,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: impl OpenMlsProvider,
     ) -> Result<GroupMutableMetadata, GroupError> {
-        let mls_group = &self.load_mls_group(provider)?.group;
+        let mls_group = &self.load_mls_group(provider)?;
         Ok(mls_group.try_into()?)
     }
 
