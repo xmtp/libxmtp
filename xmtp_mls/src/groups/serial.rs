@@ -58,13 +58,13 @@ impl OpenMlsLock for OpenMlsGroup {
             .or_default()
             .clone();
 
+        // this may block
         let lock = mutex.lock();
         let lock = unsafe {
             // let the borrow checker know that this guard's mutex is going to be owned by the struct it's returning
             std::mem::transmute::<MutexGuard<'_, ()>, MutexGuard<'a, ()>>(lock)
         };
 
-        // this may block
         SerialOpenMlsGroup {
             group: self,
             lock,
