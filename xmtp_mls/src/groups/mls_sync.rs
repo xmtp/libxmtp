@@ -358,7 +358,7 @@ where
     async fn process_own_message(
         &self,
         intent: StoredGroupIntent,
-        locked_openmls_group: &mut OpenMlsGroup,
+        openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope: &GroupMessageV1,
@@ -368,7 +368,7 @@ where
             id: ref msg_id,
             ..
         } = *envelope;
-        let mut locked_openmls_group = locked_openmls_group.lock();
+        let mut locked_openmls_group = openmls_group.lock();
 
         if intent.state == IntentState::Committed {
             return Ok(IntentState::Committed);
