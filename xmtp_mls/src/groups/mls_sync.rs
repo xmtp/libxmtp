@@ -368,7 +368,7 @@ where
             id: ref msg_id,
             ..
         } = *envelope;
-        let mut locked_openmls_group = openmls_group.lock();
+        let mut locked_openmls_group = openmls_group.lock().await;
 
         if intent.state == IntentState::Committed {
             return Ok(IntentState::Committed);
@@ -501,7 +501,7 @@ where
             id: ref msg_id,
             ..
         } = *envelope;
-        let mut locked_openmls_group = openmls_group.lock();
+        let mut locked_openmls_group = openmls_group.lock().await;
 
         let decrypted_message = locked_openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) = extract_message_sender(
