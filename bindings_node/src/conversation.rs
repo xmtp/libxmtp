@@ -9,6 +9,8 @@ use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::{
   groups::{
     group_metadata::GroupMetadata as XmtpGroupMetadata,
+    group_mutable_metadata::MetadataField as XmtpMetadataField,
+    intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
   storage::{
@@ -23,7 +25,7 @@ use crate::{
   consent_state::ConsentState,
   encoded_content::EncodedContent,
   message::{ListMessagesOptions, Message},
-  permissions::GroupPermissions,
+  permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
   ErrorWrapper,
 };
@@ -653,5 +655,32 @@ impl Conversation {
     );
 
     Ok(group.dm_inbox_id().map_err(ErrorWrapper::from)?)
+  }
+
+  #[napi]
+  pub async fn update_permission_policy(
+    &self,
+    permission_update_type: PermissionUpdateType,
+    permission_policy_option: PermissionPolicy,
+    metadata_field: Option<MetadataField>,
+  ) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .update_permission_policy(
+        XmtpPermissionUpdateType::from(&permission_update_type),
+        permission_policy_option
+          .try_into()
+          .map_err(ErrorWrapper::from)?,
+        metadata_field.map(|field| XmtpMetadataField::from(&field)),
+      )
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
   }
 }

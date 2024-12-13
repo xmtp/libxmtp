@@ -1,10 +1,12 @@
-use napi::bindgen_prelude::{Error, Result};
+use napi::bindgen_prelude::Result;
 use napi_derive::napi;
+use std::collections::HashMap;
 use xmtp_mls::groups::{
-  group_mutable_metadata::MetadataField,
+  group_mutable_metadata::MetadataField as XmtpMetadataField,
   group_permissions::{
-    BasePolicies, GroupMutablePermissions, MembershipPolicies, MetadataBasePolicies,
-    MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies,
+    BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
+    MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies, PermissionsPolicies,
+    PolicySet,
   },
   intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
   PreconfiguredPolicies,
@@ -49,15 +51,15 @@ pub enum PermissionPolicy {
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
-  type Error = Error;
+  type Error = GroupMutablePermissionsError;
 
-  fn try_into(self) -> Result<PermissionPolicyOption> {
+  fn try_into(self) -> std::result::Result<PermissionPolicyOption, Self::Error> {
     match self {
       PermissionPolicy::Allow => Ok(PermissionPolicyOption::Allow),
       PermissionPolicy::Deny => Ok(PermissionPolicyOption::Deny),
       PermissionPolicy::Admin => Ok(PermissionPolicyOption::AdminOnly),
       PermissionPolicy::SuperAdmin => Ok(PermissionPolicyOption::SuperAdminOnly),
-      _ => Err(Error::from_reason("InvalidPermissionPolicyOption")),
+      _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
     }
   }
 }
@@ -107,7 +109,49 @@ impl From<&PermissionsPolicies> for PermissionPolicy {
   }
 }
 
+impl TryInto<MetadataPolicies> for PermissionPolicy {
+  type Error = GroupMutablePermissionsError;
+
+  fn try_into(self) -> std::result::Result<MetadataPolicies, GroupMutablePermissionsError> {
+    match self {
+      PermissionPolicy::Allow => Ok(MetadataPolicies::allow()),
+      PermissionPolicy::Deny => Ok(MetadataPolicies::deny()),
+      PermissionPolicy::Admin => Ok(MetadataPolicies::allow_if_actor_admin()),
+      PermissionPolicy::SuperAdmin => Ok(MetadataPolicies::allow_if_actor_super_admin()),
+      _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+    }
+  }
+}
+
+impl TryInto<PermissionsPolicies> for PermissionPolicy {
+  type Error = GroupMutablePermissionsError;
+
+  fn try_into(self) -> std::result::Result<PermissionsPolicies, Self::Error> {
+    match self {
+      PermissionPolicy::Deny => Ok(PermissionsPolicies::deny()),
+      PermissionPolicy::Admin => Ok(PermissionsPolicies::allow_if_actor_admin()),
+      PermissionPolicy::SuperAdmin => Ok(PermissionsPolicies::allow_if_actor_super_admin()),
+      _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+    }
+  }
+}
+
+impl TryInto<MembershipPolicies> for PermissionPolicy {
+  type Error = GroupMutablePermissionsError;
+
+  fn try_into(self) -> std::result::Result<MembershipPolicies, Self::Error> {
+    match self {
+      PermissionPolicy::Allow => Ok(MembershipPolicies::allow()),
+      PermissionPolicy::Deny => Ok(MembershipPolicies::deny()),
+      PermissionPolicy::Admin => Ok(MembershipPolicies::allow_if_actor_admin()),
+      PermissionPolicy::SuperAdmin => Ok(MembershipPolicies::allow_if_actor_super_admin()),
+      _ => Err(GroupMutablePermissionsError::InvalidPermissionPolicyOption),
+    }
+  }
+}
+
 #[napi(object)]
+#[derive(Clone)]
 pub struct PermissionPolicySet {
   pub add_member_policy: PermissionPolicy,
   pub remove_member_policy: PermissionPolicy,
@@ -163,10 +207,67 @@ impl GroupPermissions {
       remove_member_policy: PermissionPolicy::from(&policy_set.remove_member_policy),
       add_admin_policy: PermissionPolicy::from(&policy_set.add_admin_policy),
       remove_admin_policy: PermissionPolicy::from(&policy_set.remove_admin_policy),
-      update_group_name_policy: get_policy(MetadataField::GroupName.as_str()),
-      update_group_description_policy: get_policy(MetadataField::Description.as_str()),
-      update_group_image_url_square_policy: get_policy(MetadataField::GroupImageUrlSquare.as_str()),
-      update_group_pinned_frame_url_policy: get_policy(MetadataField::GroupPinnedFrameUrl.as_str()),
+      update_group_name_policy: get_policy(XmtpMetadataField::GroupName.as_str()),
+      update_group_description_policy: get_policy(XmtpMetadataField::Description.as_str()),
+      update_group_image_url_square_policy: get_policy(
+        XmtpMetadataField::GroupImageUrlSquare.as_str(),
+      ),
+      update_group_pinned_frame_url_policy: get_policy(
+        XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
+      ),
     })
+  }
+}
+
+impl TryFrom<PermissionPolicySet> for PolicySet {
+  type Error = GroupMutablePermissionsError;
+  fn try_from(
+    policy_set: PermissionPolicySet,
+  ) -> std::result::Result<Self, GroupMutablePermissionsError> {
+    let mut metadata_permissions_map: HashMap<String, MetadataPolicies> = HashMap::new();
+    metadata_permissions_map.insert(
+      XmtpMetadataField::GroupName.to_string(),
+      policy_set.update_group_name_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::Description.to_string(),
+      policy_set.update_group_description_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::GroupImageUrlSquare.to_string(),
+      policy_set.update_group_image_url_square_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::GroupPinnedFrameUrl.to_string(),
+      policy_set.update_group_pinned_frame_url_policy.try_into()?,
+    );
+
+    Ok(PolicySet {
+      add_member_policy: policy_set.add_member_policy.try_into()?,
+      remove_member_policy: policy_set.remove_member_policy.try_into()?,
+      add_admin_policy: policy_set.add_admin_policy.try_into()?,
+      remove_admin_policy: policy_set.remove_admin_policy.try_into()?,
+      update_metadata_policy: metadata_permissions_map,
+      update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
+    })
+  }
+}
+
+#[napi]
+pub enum MetadataField {
+  GroupName,
+  Description,
+  ImageUrlSquare,
+  PinnedFrameUrl,
+}
+
+impl From<&MetadataField> for XmtpMetadataField {
+  fn from(field: &MetadataField) -> Self {
+    match field {
+      MetadataField::GroupName => XmtpMetadataField::GroupName,
+      MetadataField::Description => XmtpMetadataField::Description,
+      MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
+      MetadataField::PinnedFrameUrl => XmtpMetadataField::GroupPinnedFrameUrl,
+    }
   }
 }
