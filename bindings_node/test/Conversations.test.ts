@@ -80,6 +80,42 @@ describe('Conversations', () => {
     expect((await client2.conversations().listGroups()).length).toBe(1)
   })
 
+  it('should create a group with custom permissions', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        permissions: GroupPermissionsOptions.CustomPolicy,
+        customPermissionPolicySet: {
+          addAdminPolicy: 2,
+          addMemberPolicy: 3,
+          removeAdminPolicy: 1,
+          removeMemberPolicy: 0,
+          updateGroupNamePolicy: 2,
+          updateGroupDescriptionPolicy: 1,
+          updateGroupImageUrlSquarePolicy: 0,
+          updateGroupPinnedFrameUrlPolicy: 3,
+        },
+      })
+    expect(group).toBeDefined()
+    expect(group.groupPermissions().policyType()).toBe(
+      GroupPermissionsOptions.CustomPolicy
+    )
+    expect(group.groupPermissions().policySet()).toEqual({
+      addAdminPolicy: 2,
+      addMemberPolicy: 3,
+      removeAdminPolicy: 1,
+      removeMemberPolicy: 0,
+      updateGroupNamePolicy: 2,
+      updateGroupDescriptionPolicy: 1,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 3,
+    })
+  })
+
   it('should create a dm group', async () => {
     const user1 = createUser()
     const user2 = createUser()
