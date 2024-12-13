@@ -12,7 +12,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::message::Message;
-use crate::permissions::GroupPermissionsOptions;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 
@@ -105,6 +105,7 @@ pub struct CreateGroupOptions {
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
   pub group_pinned_frame_url: Option<String>,
+  pub custom_permission_policy_set: Option<PermissionPolicySet>,
 }
 
 impl CreateGroupOptions {
@@ -143,8 +144,21 @@ impl Conversations {
         group_image_url_square: None,
         group_description: None,
         group_pinned_frame_url: None,
+        custom_permission_policy_set: None,
       },
     };
+
+    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
+      if options.custom_permission_policy_set.is_none() {
+        return Err(Error::from_reason("CustomPolicy must include policy set"));
+      }
+    } else if options.custom_permission_policy_set.is_some() {
+      return Err(Error::from_reason(
+        "Only CustomPolicy may specify a policy set",
+      ));
+    }
+
+    let metadata_options = options.clone().into_group_metadata_options();
 
     let group_permissions = match options.permissions {
       Some(GroupPermissionsOptions::AllMembers) => {
@@ -153,10 +167,19 @@ impl Conversations {
       Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
       }
+      Some(GroupPermissionsOptions::CustomPolicy) => {
+        if let Some(policy_set) = options.custom_permission_policy_set {
+          Some(
+            policy_set
+              .try_into()
+              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
+          )
+        } else {
+          None
+        }
+      }
       _ => None,
     };
-
-    let metadata_options = options.clone().into_group_metadata_options();
 
     let convo = if account_addresses.is_empty() {
       self
