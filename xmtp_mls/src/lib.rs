@@ -24,7 +24,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use storage::{DuplicateItem, StorageError};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
@@ -106,7 +105,6 @@ pub trait Delete<Model> {
 }
 
 use crate::groups::GroupError;
-use crate::groups::GroupError::LockUnavailable;
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
