@@ -191,7 +191,6 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let conversation_type = group
       .conversation_type(&provider)
-      .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
       ConversationType::Group => None,

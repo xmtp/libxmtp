@@ -1183,10 +1183,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Get the `GroupMetadata` of the group.
-    pub fn metadata(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<GroupMetadata, GroupError> {
+    pub fn metadata(&self, provider: &XmtpOpenMlsProvider) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock(provider, |mls_group| {
             extract_group_metadata(&mls_group).map_err(Into::into)
         })

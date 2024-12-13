@@ -106,10 +106,10 @@ pub trait Delete<Model> {
 }
 
 use crate::groups::GroupError;
+use crate::groups::GroupError::LockUnavailable;
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
-use crate::groups::GroupError::LockUnavailable;
 
 #[cfg(test)]
 pub(crate) mod tests {

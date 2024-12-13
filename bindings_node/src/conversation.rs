@@ -167,10 +167,9 @@ impl Conversation {
       self.created_at_ns,
     );
     let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
-    let conversation_type = tokio::task::block_in_place(|| {
-      futures::executor::block_on(group.conversation_type(&provider))
-    })
-    .map_err(ErrorWrapper::from)?;
+    let conversation_type = group
+      .conversation_type(&provider)
+      .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
       ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
@@ -611,8 +610,8 @@ impl Conversation {
     );
 
     let metadata = group
-        .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
-        .map_err(ErrorWrapper::from)?;
+      .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
+      .map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })
   }
