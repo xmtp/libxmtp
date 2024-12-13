@@ -873,7 +873,7 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-
+                    let mls_group = group.load_mls_group(provider)?;
                     tracing::info!(
                         inbox_id = self.inbox_id(),
                         "[{}] syncing group",
@@ -884,11 +884,7 @@ where
                         "current epoch for [{}] in sync_all_groups()",
                         self.inbox_id(),
                     );
-                    let is_active = {
-                        let mls_group = group.load_mls_group(provider)?;
-                        mls_group.is_active()
-                    };
-                    if is_active {
+                    if mls_group.is_active() {
                         group.maybe_update_installations(provider, None).await?;
                         group.sync_with_conn(provider).await?;
                         active_group_count.fetch_add(1, Ordering::SeqCst);
