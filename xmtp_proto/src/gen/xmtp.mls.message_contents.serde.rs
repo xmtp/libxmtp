@@ -4063,14 +4063,12 @@ impl serde::Serialize for UserPreferenceUpdate {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.content.is_empty() {
+        if !self.contents.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.UserPreferenceUpdate", len)?;
-        if !self.content.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
+        if !self.contents.is_empty() {
+            struct_ser.serialize_field("contents", &self.contents.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -4082,12 +4080,12 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "content",
+            "contents",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Content,
+            Contents,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4109,7 +4107,7 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
                         E: serde::de::Error,
                     {
                         match value {
-                            "content" => Ok(GeneratedField::Content),
+                            "contents" => Ok(GeneratedField::Contents),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4129,21 +4127,22 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut content__ = None;
+                let mut contents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Content => {
-                            if content__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("content"));
+                        GeneratedField::Contents => {
+                            if contents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contents"));
                             }
-                            content__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            contents__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
                             ;
                         }
                     }
                 }
                 Ok(UserPreferenceUpdate {
-                    content: content__.unwrap_or_default(),
+                    contents: contents__.unwrap_or_default(),
                 })
             }
         }

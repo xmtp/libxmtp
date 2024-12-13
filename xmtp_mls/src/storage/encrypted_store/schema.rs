@@ -109,8 +109,8 @@ diesel::table! {
 
 diesel::table! {
     user_preferences (id) {
-        id -> Nullable<Integer>,
-        hmac_key -> Binary,
+        id -> Integer,
+        hmac_key -> Nullable<Binary>,
     }
 }
 

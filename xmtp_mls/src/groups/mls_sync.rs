@@ -14,7 +14,10 @@ use crate::{
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::device_sync::DeviceSyncContent,
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
+        validated_commit::ValidatedCommit,
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
@@ -617,21 +620,29 @@ where
                                         SyncMessage::Reply { message_id },
                                     ));
                                 }
-                                Some(MessageType::UserPreferenceUpdate(update)) => {
-                                    // Ignore errors since this may come from a newer version of the lib
-                                    // that has new update types.
-                                    if let Ok(update) = update.try_into() {
-                                        let _ = self
-                                            .client
-                                            .local_events()
-                                            .send(LocalEvents::IncomingPreferenceUpdate(vec![update]));
-                                    } else {
-                                        tracing::warn!("Failed to deserialize preference update. Is this libxmtp version old?");
-                                    }
-                                }
-                                _ => {
-                                    return Err(GroupMessageProcessingError::InvalidPayload);
-                                }
+                                .store_or_ignore(provider.conn_ref())?;
+
+                                tracing::info!("Received a history reply.");
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                    SyncMessage::Reply { message_id },
+                                ));
+                            }
+                            Some(MessageType::UserPreferenceUpdate(update)) => {
+                                // This function inserts the updates appropriately,
+                                // and returns a copy of what was inserted
+                                let updates =
+                                    UserPreferenceUpdate::process_incoming_preference_update(
+                                        update, provider,
+                                    )?;
+
+                                // Broadcast those updates for integrators to be notified of changes
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::IncomingPreferenceUpdate(updates));
+                            }
+                            _ => {
+                                return Err(GroupMessageProcessingError::InvalidPayload);
                             }
                         }
                         None => return Err(GroupMessageProcessingError::InvalidPayload),
@@ -1387,17 +1398,28 @@ where
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
         let conn = self.client.store().conn()?;
-        let mut ikm = StoredUserPreferences::load(&conn)?.hmac_key;
+
+        let preferences = StoredUserPreferences::load(&conn)?;
+        let mut ikm = match preferences.hmac_key {
+            Some(ikm) => ikm,
+            None => {
+                let local_events = self.client.local_events();
+                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+            }
+        };
         ikm.extend(&self.group_id);
-        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm[..]);
+        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
 
         let mut result = vec![];
         let current_epoch = hmac_epoch();
         for delta in epoch_delta_range {
-            let mut key = [0; 42];
             let epoch = current_epoch + delta;
-            hkdf.expand(&epoch.to_le_bytes(), &mut key)
-                .expect("Length is correct");
+
+            let mut info = self.group_id.clone();
+            info.extend(&epoch.to_le_bytes());
+
+            let mut key = [0; 42];
+            hkdf.expand(&info, &mut key).expect("Length is correct");
 
             result.push(HmacKey { key, epoch });
         }
