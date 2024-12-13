@@ -615,13 +615,6 @@ where
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
-                                    tracing::info!("Received a history reply.");
-                                    let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                        SyncMessage::Reply { message_id },
-                                    ));
-                                }
-                                .store_or_ignore(provider.conn_ref())?;
-
                                 tracing::info!("Received a history reply.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
                                     SyncMessage::Reply { message_id },
@@ -644,6 +637,7 @@ where
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
                             }
+                        }
                         }
                         None => return Err(GroupMessageProcessingError::InvalidPayload),
                     }
