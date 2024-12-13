@@ -10,12 +10,12 @@ let
     rustTarget = "x86_64-unknown-linux-musl";
   };
 
-  dockerImage = pkgs.dockerTools.streamLayeredImage {
-    name = "xmtp/mls_validation_service";
+  dockerImage = pkgs.dockerTools.buildImage {
+    name = "xmtp/mls-validation-service";
     tag = "latest";
     contents = [ muslService.bin ];
     config = {
-      Cmd = [ "${muslService.bin}/bin/mls_validation_service" ];
+      Cmd = [ "${muslService.bin}/bin/mls-validation-service" ];
     };
   };
 in

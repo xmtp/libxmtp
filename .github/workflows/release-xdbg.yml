@@ -1,0 +1,37 @@
+name: Build and Push xdbgDocker
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [aarch64-darwin, x86_64-linux, aarch64-linux, x86_64-darwin]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v20
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - uses: cachix/cachix-action@v14
+        with:
+        name: xmtp
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      - name: Build xdbgDocker
+        run: |
+          nix build .#packages.${{ matrix.platform }}.xdbgDocker
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Tag Docker image
+        run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:xdbg-${{ matrix.platform }}
+          nix path-info .#packages.${{ matrix.platform }}.xdbgDocker | xargs -I {} docker load < {}/docker-image.tar.gz
+          docker tag $(docker images --filter "label=org.opencontainers.image.title=xdbg" -q):latest $IMAGE_NAME
+      - name: Push Docker image to GHCR
+        run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:xdbg-${{ matrix.platform }}
+          docker push $IMAGE_NAME
