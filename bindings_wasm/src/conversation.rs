@@ -526,7 +526,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = groupMetadata)]
-  pub async fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
+  pub fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
     let group = self.to_mls_group();
     let metadata = group
       .metadata(
@@ -534,7 +534,6 @@ impl Conversation {
           .mls_provider()
           .map_err(|e| JsError::new(&format!("{e}")))?,
       )
-      .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(GroupMetadata { inner: metadata })

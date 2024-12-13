@@ -610,10 +610,9 @@ impl Conversation {
       self.created_at_ns,
     );
 
-    let metadata = tokio::task::block_in_place(|| {
-      futures::executor::block_on(group.metadata(&group.mls_provider()?))
-    })
-    .map_err(ErrorWrapper::from)?;
+    let metadata = group
+        .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
+        .map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })
   }

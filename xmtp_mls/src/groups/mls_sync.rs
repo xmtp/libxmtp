@@ -198,7 +198,6 @@ where
     // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        // Check if we're still part of the group
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 

@@ -34,7 +34,7 @@ pub use xmtp_proto::api_client::trait_impls::*;
 #[derive(Debug)]
 pub struct GroupCommitLock {
     // Storage for group-specific semaphores
-    locks: Mutex<HashMap<Vec<u8>, Arc<Semaphore>>>,
+    locks: Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>,
 }
 
 impl Default for GroupCommitLock {
@@ -51,45 +51,17 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
-        let semaphore = {
+    pub async fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<Arc<Mutex<()>>, GroupError> {
+        let mutex = {
             let mut locks = self.locks.lock();
             locks
                 .entry(group_id)
-                .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                .or_insert_with(|| Arc::new(Mutex::new(())))
                 .clone()
         };
 
-        let permit = semaphore.clone().acquire_owned().await?;
-        Ok(SemaphoreGuard {
-            _permit: permit,
-            _semaphore: semaphore,
-        })
+        Ok(mutex)
     }
-
-    /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
-        let semaphore = {
-            let mut locks = self.locks.lock();
-            locks
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                .clone()
-        };
-
-        // Synchronously acquire the permit
-        let permit = semaphore.clone().try_acquire_owned()?;
-        Ok(SemaphoreGuard {
-            _permit: permit,
-            _semaphore: semaphore, // semaphore is now valid because we cloned it earlier
-        })
-    }
-}
-
-/// A guard that releases the semaphore when dropped
-pub struct SemaphoreGuard {
-    _permit: OwnedSemaphorePermit,
-    _semaphore: Arc<Semaphore>,
 }
 
 // Static instance of `GroupCommitLock`
@@ -137,6 +109,7 @@ use crate::groups::GroupError;
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
+use crate::groups::GroupError::LockUnavailable;
 
 #[cfg(test)]
 pub(crate) mod tests {

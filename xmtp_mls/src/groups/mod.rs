@@ -353,7 +353,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock synchronously using blocking_lock
-        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone())?;
+        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone());
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -380,7 +380,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone()).await;
 
         // Load the MLS group
         let mls_group =
@@ -896,7 +896,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -914,7 +914,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
@@ -955,7 +955,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_description: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -984,7 +984,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -1017,7 +1017,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -1079,11 +1079,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
-    pub async fn conversation_type(
+    pub fn conversation_type(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<ConversationType, GroupError> {
-        let metadata = self.metadata(provider).await?;
+        let metadata = self.metadata(provider)?;
         Ok(metadata.conversation_type)
     }
 
@@ -1094,7 +1094,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         inbox_id: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_action_type = match action_type {
@@ -1183,14 +1183,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Get the `GroupMetadata` of the group.
-    pub async fn metadata(
+    pub fn metadata(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(provider, |mls_group| {
-            futures::future::ready(extract_group_metadata(&mls_group).map_err(Into::into))
+        self.load_mls_group_with_lock(provider, |mls_group| {
+            extract_group_metadata(&mls_group).map_err(Into::into)
         })
-        .await
     }
 
     /// Get the `GroupMutableMetadata` of the group.
@@ -3117,7 +3116,6 @@ pub(crate) mod tests {
 
         let protected_metadata: GroupMetadata = amal_group
             .metadata(&amal_group.mls_provider().unwrap())
-            .await
             .unwrap();
         assert_eq!(
             protected_metadata.conversation_type,

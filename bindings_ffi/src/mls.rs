@@ -1546,9 +1546,7 @@ impl FfiConversation {
 
     pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let metadata = tokio::task::block_in_place(|| {
-            futures::executor::block_on(self.inner.metadata(&provider))
-        })?;
+        let metadata = self.inner.metadata(&provider)?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1560,9 +1558,7 @@ impl FfiConversation {
 
     pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let conversation_type = tokio::task::block_in_place(|| {
-            futures::executor::block_on(self.inner.conversation_type(&provider))
-        })?;
+        let conversation_type = self.inner.conversation_type(&provider)?;
         Ok(conversation_type.into())
     }
 }
