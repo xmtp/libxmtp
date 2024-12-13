@@ -9,6 +9,9 @@ import {
   Conversation,
   GroupPermissionsOptions,
   Message,
+  MetadataField,
+  PermissionPolicy,
+  PermissionUpdateType,
 } from '../dist'
 
 const SLEEP_MS = 100
@@ -113,6 +116,60 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
+    })
+  })
+
+  it('should update group permission policy', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+
+    expect(group.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 0,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 3,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 0,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
+    })
+
+    await group.updatePermissionPolicy(
+      PermissionUpdateType.AddAdmin,
+      PermissionPolicy.Deny
+    )
+
+    expect(group.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 0,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 1,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 0,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
+    })
+
+    await group.updatePermissionPolicy(
+      PermissionUpdateType.UpdateMetadata,
+      PermissionPolicy.Deny,
+      MetadataField.GroupName
+    )
+
+    expect(group.groupPermissions().policySet()).toEqual({
+      addMemberPolicy: 0,
+      removeMemberPolicy: 2,
+      addAdminPolicy: 1,
+      removeAdminPolicy: 3,
+      updateGroupNamePolicy: 1,
+      updateGroupDescriptionPolicy: 0,
+      updateGroupImageUrlSquarePolicy: 0,
+      updateGroupPinnedFrameUrlPolicy: 0,
     })
   })
 
