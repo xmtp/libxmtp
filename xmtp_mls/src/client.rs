@@ -30,6 +30,9 @@ use xmtp_proto::xmtp::mls::api::v1::{
     GroupMessage, WelcomeMessage,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use crate::groups::device_sync::WorkerHandle;
+
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -144,6 +147,9 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s
@@ -155,6 +161,9 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
             history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
+
+            #[cfg(any(test, feature = "test-utils"))]
+            sync_worker_handle: self.sync_worker_handle.clone(),
         }
     }
 }
@@ -240,6 +249,8 @@ where
             context,
             history_sync_url,
             local_events: tx,
+            #[cfg(any(test, feature = "test-utils"))]
+            sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
         }
     }

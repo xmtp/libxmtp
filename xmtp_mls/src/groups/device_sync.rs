@@ -24,9 +24,14 @@ use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::OnceCell;
+use tokio::sync::{Notify, OnceCell};
+use tokio::time::error::Elapsed;
+use tokio::time::timeout;
 use tracing::{instrument, warn};
 use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
@@ -104,13 +109,24 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
-    #[error("Unable to serialize: {0}")]
-    Bincode(String),
+    #[error(transparent)]
+    Bincode(#[from] bincode::Error),
 }
 
 impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
         true
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl<ApiClient, V> Client<ApiClient, V> {
+    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
+        self.sync_worker_handle.lock().clone()
+    }
+
+    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
+        *self.sync_worker_handle.lock() = Some(handle);
     }
 }
 
@@ -128,7 +144,10 @@ where
             "starting sync worker"
         );
 
-        SyncWorker::new(client).spawn_worker();
+        let worker = SyncWorker::new(client);
+        #[cfg(any(test, feature = "test-utils"))]
+        self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
     }
 }
 
@@ -141,6 +160,57 @@ pub struct SyncWorker<ApiClient, V> {
     >,
     init: OnceCell<()>,
     retry: Retry,
+
+    // Number of events processed
+    #[cfg(any(test, feature = "test-utils"))]
+    handle: Arc<WorkerHandle>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub struct WorkerHandle {
+    processed: AtomicUsize,
+    notify: Notify,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl WorkerHandle {
+    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while count > 0 {
+                self.notify.notified().await;
+                count -= 1;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn wait_for_processed_count(&self, expected: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while self.processed.load(Ordering::SeqCst) < expected {
+                self.notify.notified().await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn block_for_num_events<Fut>(&self, num_events: usize, op: Fut) -> Result<(), Elapsed>
+    where
+        Fut: Future<Output = ()>,
+    {
+        let processed_count = self.processed_count();
+        op.await;
+        self.wait_for_processed_count(processed_count + num_events)
+            .await?;
+        Ok(())
+    }
+
+    pub fn processed_count(&self) -> usize {
+        self.processed.load(Ordering::SeqCst)
+    }
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -168,32 +238,21 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingPreferenceUpdates(consent_records) => {
-                    let provider = self.client.mls_provider()?;
-                    for record in consent_records {
-                        let UserPreferenceUpdate::ConsentUpdate(consent_record) = record else {
-                            continue;
-                        };
-
-                        self.client
-                            .send_consent_update(&provider, consent_record)
-                            .await?;
-                    }
+                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
+                    tracing::error!("Outgoing preference update {preference_updates:?}");
+                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
+                        .await?;
                 }
-                LocalEvents::IncomingPreferenceUpdate(updates) => {
-                    let provider = self.client.mls_provider()?;
-                    let consent_records = updates
-                        .into_iter()
-                        .filter_map(|pu| match pu {
-                            UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>();
-                    provider
-                        .conn_ref()
-                        .insert_or_replace_consent_records(&consent_records)?;
+                LocalEvents::IncomingPreferenceUpdate(_) => {
+                    tracing::error!("Incoming preference update");
                 }
                 _ => {}
+            }
+
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                self.handle.processed.fetch_add(1, Ordering::SeqCst);
+                self.handle.notify.notify_waiters();
             }
         }
         Ok(())
@@ -319,6 +378,12 @@ where
             stream,
             init: OnceCell::new(),
             retry,
+
+            #[cfg(any(test, feature = "test-utils"))]
+            handle: Arc::new(WorkerHandle {
+                processed: AtomicUsize::new(0),
+                notify: Notify::new(),
+            }),
         }
     }
 
@@ -404,10 +469,10 @@ where
 
         let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
-            move |_time_ns| PlaintextEnvelope {
+            move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: new_request_id(),
+                    idempotency_key: now.to_string(),
                 })),
             }
         })?;
@@ -471,14 +536,14 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, provider, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
+                idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group.publish_intents(provider).await?;
 
         Ok(())
     }
