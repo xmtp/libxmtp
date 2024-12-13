@@ -227,7 +227,7 @@ impl DbConnection {
                 tracing::info!("Set intent {intent_id} to published");
                 tracing::info!(
                     "intent {intent_id} that was just saved to DB has payload_hash: {:?}",
-                    payload_hash_clone
+                    hex::encode(payload_hash_clone)
                 );
                 Ok(())
             }
