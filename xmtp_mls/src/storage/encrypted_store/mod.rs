@@ -26,6 +26,7 @@ pub mod refresh_state;
 pub mod schema;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
+pub mod user_preferences;
 pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
@@ -189,6 +190,13 @@ pub mod private {
             Ok::<_, StorageError>(())
         }
 
+        pub fn mls_provider(
+            &self,
+        ) -> Result<XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+            let conn = self.conn()?;
+            Ok(crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate::new(conn))
+        }
+
         /// Pulls a new connection from the store
         pub fn conn(
             &self,
@@ -197,6 +205,7 @@ pub mod private {
         }
 
         /// Start a new database transaction with the OpenMLS Provider from XMTP
+        /// with the provided connection
         /// # Arguments
         /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
         ///
@@ -209,22 +218,25 @@ pub mod private {
         ///     provider.conn().db_operation()?;
         /// })
         /// ```
-        pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+        pub fn transaction<T, F, E>(
+            &self,
+            provider: &XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            fun: F,
+        ) -> Result<T, E>
         where
             F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
             tracing::debug!("Transaction beginning");
-            let connection = self.db.conn()?;
             {
+                let connection = provider.conn_ref();
                 let mut connection = connection.inner_mut_ref();
                 <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
             }
 
-            let provider = XmtpOpenMlsProviderPrivate::new(connection);
             let conn = provider.conn_ref();
 
-            match fun(&provider) {
+            match fun(provider) {
                 Ok(value) => {
                     conn.raw_query(|conn| {
                         <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
@@ -259,27 +271,29 @@ pub mod private {
         ///     provider.conn().db_operation()?;
         /// }).await
         /// ```
-        pub async fn transaction_async<T, F, E, Fut>(&self, fun: F) -> Result<T, E>
+        pub async fn transaction_async<'a, T, F, E, Fut>(
+            &self,
+            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            fun: F,
+        ) -> Result<T, E>
         where
-            F: FnOnce(XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+            F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
             Fut: futures::Future<Output = Result<T, E>>,
             E: From<diesel::result::Error> + From<StorageError>,
         {
             tracing::debug!("Transaction async beginning");
-            let db_connection = self.db.conn()?;
             {
-                let mut connection = db_connection.inner_mut_ref();
+                let connection = provider.conn_ref();
+                let mut connection = connection.inner_mut_ref();
                 <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
             }
-            let local_connection = db_connection.inner_ref();
-            let provider = XmtpOpenMlsProviderPrivate::new(db_connection);
 
-            // the other connection is dropped in the closure
             // ensuring we have only one strong reference
             let result = fun(provider).await;
+            let local_connection = provider.conn_ref().inner_ref();
             if Arc::strong_count(&local_connection) > 1 {
                 tracing::warn!(
-                    "More than 1 strong connection references still exist during transaction"
+                    "More than 1 strong connection references still exist during async transaction"
                 );
             }
 
@@ -458,6 +472,7 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
     use crate::{
@@ -465,9 +480,9 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        utils::test::{rand_vec, tmp_path},
-        Fetch, Store, StreamHandle as _,
+        Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
     };
+    use xmtp_common::{rand_vec, tmp_path};
 
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
@@ -496,8 +511,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -508,7 +522,7 @@ pub(crate) mod tests {
         let conn = &store.conn().unwrap();
 
         let inbox_id = "inbox_id";
-        StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+        StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)
             .unwrap();
 
@@ -516,8 +530,7 @@ pub(crate) mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -530,7 +543,7 @@ pub(crate) mod tests {
             let conn = &store.conn().unwrap();
 
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
@@ -539,10 +552,8 @@ pub(crate) mod tests {
         }
         EncryptedMessageStore::remove_db_files(db_path)
     }
-
-    // #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn releases_db_lock() {
         let db_path = tmp_path();
         {
@@ -555,7 +566,7 @@ pub(crate) mod tests {
             let conn = &store.conn().unwrap();
 
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn)
                 .unwrap();
 
@@ -574,8 +585,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
     async fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
@@ -587,9 +597,13 @@ pub(crate) mod tests {
                     .await
                     .unwrap();
 
-            StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
-                .store(&store.conn().unwrap())
-                .unwrap();
+            StoredIdentity::new(
+                "dummy_address".to_string(),
+                rand_vec::<24>(),
+                rand_vec::<24>(),
+            )
+            .store(&store.conn().unwrap())
+            .unwrap();
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
@@ -604,8 +618,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         {
@@ -618,7 +631,7 @@ pub(crate) mod tests {
 
             let conn1 = &store.conn().unwrap();
             let inbox_id = "inbox_id";
-            StoredIdentity::new(inbox_id.to_string(), rand_vec(), rand_vec())
+            StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn1)
                 .unwrap();
 
@@ -650,13 +663,13 @@ pub(crate) mod tests {
         .unwrap();
 
         let barrier = Arc::new(Barrier::new(2));
-
+        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let store_pointer = store.clone();
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
-            store_pointer.transaction(|provider| {
+            store_pointer.transaction(&provider, |provider| {
                 let conn1 = provider.conn_ref();
-                StoredIdentity::new("correct".to_string(), rand_vec(), rand_vec())
+                StoredIdentity::new("correct".to_string(), rand_vec::<24>(), rand_vec::<24>())
                     .store(conn1)
                     .unwrap();
                 // wait for second transaction to start
@@ -668,20 +681,22 @@ pub(crate) mod tests {
         });
 
         let store_pointer = store.clone();
+        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            let result = store_pointer.transaction(|provider| -> Result<(), anyhow::Error> {
-                let connection = provider.conn_ref();
-                let group = StoredGroup::new(
-                    b"should not exist".to_vec(),
-                    0,
-                    GroupMembershipState::Allowed,
-                    "goodbye".to_string(),
-                    None,
-                );
-                group.store(connection)?;
-                Ok(())
-            });
+            let result =
+                store_pointer.transaction(&provider, |provider| -> Result<(), anyhow::Error> {
+                    let connection = provider.conn_ref();
+                    let group = StoredGroup::new(
+                        b"should not exist".to_vec(),
+                        0,
+                        GroupMembershipState::Allowed,
+                        "goodbye".to_string(),
+                        None,
+                    );
+                    group.store(connection)?;
+                    Ok(())
+                });
             barrier.wait();
             result
         });
@@ -717,12 +732,12 @@ pub(crate) mod tests {
         .unwrap();
 
         let store_pointer = store.clone();
-
+        let provider = XmtpOpenMlsProvider::new(store_pointer.conn().unwrap());
         let handle = crate::spawn(None, async move {
             store_pointer
-                .transaction_async(|provider| async move {
+                .transaction_async(&provider, |provider| async move {
                     let conn1 = provider.conn_ref();
-                    StoredIdentity::new("crab".to_string(), rand_vec(), rand_vec())
+                    StoredIdentity::new("crab".to_string(), rand_vec::<24>(), rand_vec::<24>())
                         .store(conn1)
                         .unwrap();
 

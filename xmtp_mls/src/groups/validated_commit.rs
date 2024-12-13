@@ -24,10 +24,9 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    retry::RetryableError,
-    retryable,
     storage::db_connection::DbConnection,
 };
+use xmtp_common::{retry::RetryableError, retryable};
 
 use super::{
     group_membership::{GroupMembership, MembershipDiff},
@@ -303,11 +302,7 @@ impl ValidatedCommit {
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
             let inbox_state = client
-                .get_association_state(
-                    conn,
-                    participant.inbox_id.clone(),
-                    Some(*to_sequence_id as i64),
-                )
+                .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
                 .await
                 .map_err(InstallationDiffError::from)?;
 

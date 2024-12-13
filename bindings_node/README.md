@@ -13,3 +13,7 @@
 ## Testing
 
 Before running the test suite, a local XMTP node must be running. This can be achieved by running `./dev/up` at the root of this repository. Docker is required.
+
+# Publishing
+
+To release a new version of the bindings, update the version in `package.json` with the appropriate semver value and add an entry to the CHANGELOG.md file. Once merged, manually trigger the `Release Node Bindings` workflow to build and publish the bindings.

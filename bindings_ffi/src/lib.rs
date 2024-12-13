@@ -7,11 +7,17 @@ pub mod v2;
 
 pub use crate::inbox_owner::SigningError;
 use inbox_owner::FfiInboxOwner;
-use logger::FfiLogger;
 pub use mls::*;
 use std::error::Error;
 
-uniffi::include_scaffolding!("xmtpv3");
+extern crate tracing as log;
+
+pub use ffi::*;
+#[allow(clippy::all)]
+mod ffi {
+    use super::*;
+    uniffi::include_scaffolding!("xmtpv3");
+}
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]
@@ -57,6 +63,8 @@ pub enum GenericError {
 pub enum FfiSubscribeError {
     #[error("Subscribe Error {0}")]
     Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
+    #[error("Storage error: {0}")]
+    Storage(#[from] xmtp_mls::storage::StorageError),
 }
 
 impl From<String> for GenericError {

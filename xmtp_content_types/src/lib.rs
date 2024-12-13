@@ -3,8 +3,13 @@ pub mod membership_change;
 pub mod text;
 
 use thiserror::Error;
-
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+
+pub enum ContentType {
+    GroupMembershipChange,
+    GroupUpdated,
+    Text,
+}
 
 #[derive(Debug, Error)]
 pub enum CodecError {

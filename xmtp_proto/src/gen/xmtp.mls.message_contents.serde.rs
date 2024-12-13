@@ -70,287 +70,6 @@ impl<'de> serde::Deserialize<'de> for Compression {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for ConsentEntityType {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::Unspecified => "CONSENT_ENTITY_TYPE_UNSPECIFIED",
-            Self::ConversationId => "CONSENT_ENTITY_TYPE_CONVERSATION_ID",
-            Self::InboxId => "CONSENT_ENTITY_TYPE_INBOX_ID",
-            Self::Address => "CONSENT_ENTITY_TYPE_ADDRESS",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for ConsentEntityType {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "CONSENT_ENTITY_TYPE_UNSPECIFIED",
-            "CONSENT_ENTITY_TYPE_CONVERSATION_ID",
-            "CONSENT_ENTITY_TYPE_INBOX_ID",
-            "CONSENT_ENTITY_TYPE_ADDRESS",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsentEntityType;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "CONSENT_ENTITY_TYPE_UNSPECIFIED" => Ok(ConsentEntityType::Unspecified),
-                    "CONSENT_ENTITY_TYPE_CONVERSATION_ID" => Ok(ConsentEntityType::ConversationId),
-                    "CONSENT_ENTITY_TYPE_INBOX_ID" => Ok(ConsentEntityType::InboxId),
-                    "CONSENT_ENTITY_TYPE_ADDRESS" => Ok(ConsentEntityType::Address),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
-impl serde::Serialize for ConsentState {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::Unspecified => "CONSENT_STATE_UNSPECIFIED",
-            Self::Allowed => "CONSENT_STATE_ALLOWED",
-            Self::Denied => "CONSENT_STATE_DENIED",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for ConsentState {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "CONSENT_STATE_UNSPECIFIED",
-            "CONSENT_STATE_ALLOWED",
-            "CONSENT_STATE_DENIED",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsentState;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "CONSENT_STATE_UNSPECIFIED" => Ok(ConsentState::Unspecified),
-                    "CONSENT_STATE_ALLOWED" => Ok(ConsentState::Allowed),
-                    "CONSENT_STATE_DENIED" => Ok(ConsentState::Denied),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
-impl serde::Serialize for ConsentUpdate {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.entity_type != 0 {
-            len += 1;
-        }
-        if self.state != 0 {
-            len += 1;
-        }
-        if !self.entity.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ConsentUpdate", len)?;
-        if self.entity_type != 0 {
-            let v = ConsentEntityType::try_from(self.entity_type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.entity_type)))?;
-            struct_ser.serialize_field("entityType", &v)?;
-        }
-        if self.state != 0 {
-            let v = ConsentState::try_from(self.state)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.state)))?;
-            struct_ser.serialize_field("state", &v)?;
-        }
-        if !self.entity.is_empty() {
-            struct_ser.serialize_field("entity", &self.entity)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for ConsentUpdate {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "entity_type",
-            "entityType",
-            "state",
-            "entity",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            EntityType,
-            State,
-            Entity,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "entityType" | "entity_type" => Ok(GeneratedField::EntityType),
-                            "state" => Ok(GeneratedField::State),
-                            "entity" => Ok(GeneratedField::Entity),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsentUpdate;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.ConsentUpdate")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConsentUpdate, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut entity_type__ = None;
-                let mut state__ = None;
-                let mut entity__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::EntityType => {
-                            if entity_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("entityType"));
-                            }
-                            entity_type__ = Some(map_.next_value::<ConsentEntityType>()? as i32);
-                        }
-                        GeneratedField::State => {
-                            if state__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("state"));
-                            }
-                            state__ = Some(map_.next_value::<ConsentState>()? as i32);
-                        }
-                        GeneratedField::Entity => {
-                            if entity__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("entity"));
-                            }
-                            entity__ = Some(map_.next_value()?);
-                        }
-                    }
-                }
-                Ok(ConsentUpdate {
-                    entity_type: entity_type__.unwrap_or_default(),
-                    state: state__.unwrap_or_default(),
-                    entity: entity__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.ConsentUpdate", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for ContentTypeId {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -4026,8 +3745,8 @@ impl serde::Serialize for plaintext_envelope::V2 {
                 plaintext_envelope::v2::MessageType::DeviceSyncReply(v) => {
                     struct_ser.serialize_field("deviceSyncReply", v)?;
                 }
-                plaintext_envelope::v2::MessageType::ConsentUpdate(v) => {
-                    struct_ser.serialize_field("consentUpdate", v)?;
+                plaintext_envelope::v2::MessageType::UserPreferenceUpdate(v) => {
+                    struct_ser.serialize_field("userPreferenceUpdate", v)?;
                 }
             }
         }
@@ -4048,8 +3767,8 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             "deviceSyncRequest",
             "device_sync_reply",
             "deviceSyncReply",
-            "consent_update",
-            "consentUpdate",
+            "user_preference_update",
+            "userPreferenceUpdate",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4058,7 +3777,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             Content,
             DeviceSyncRequest,
             DeviceSyncReply,
-            ConsentUpdate,
+            UserPreferenceUpdate,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4084,7 +3803,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             "content" => Ok(GeneratedField::Content),
                             "deviceSyncRequest" | "device_sync_request" => Ok(GeneratedField::DeviceSyncRequest),
                             "deviceSyncReply" | "device_sync_reply" => Ok(GeneratedField::DeviceSyncReply),
-                            "consentUpdate" | "consent_update" => Ok(GeneratedField::ConsentUpdate),
+                            "userPreferenceUpdate" | "user_preference_update" => Ok(GeneratedField::UserPreferenceUpdate),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4134,11 +3853,11 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::DeviceSyncReply)
 ;
                         }
-                        GeneratedField::ConsentUpdate => {
+                        GeneratedField::UserPreferenceUpdate => {
                             if message_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("consentUpdate"));
+                                return Err(serde::de::Error::duplicate_field("userPreferenceUpdate"));
                             }
-                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::ConsentUpdate)
+                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::UserPreferenceUpdate)
 ;
                         }
                     }
@@ -4334,5 +4053,99 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.PolicySet", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for UserPreferenceUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.contents.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.UserPreferenceUpdate", len)?;
+        if !self.contents.is_empty() {
+            struct_ser.serialize_field("contents", &self.contents.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "contents",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Contents,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "contents" => Ok(GeneratedField::Contents),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = UserPreferenceUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.UserPreferenceUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<UserPreferenceUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut contents__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Contents => {
+                            if contents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contents"));
+                            }
+                            contents__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
+                    }
+                }
+                Ok(UserPreferenceUpdate {
+                    contents: contents__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.UserPreferenceUpdate", FIELDS, GeneratedVisitor)
     }
 }

@@ -46,6 +46,8 @@ impl EncryptedConnection {
     /// Creates a file for the salt and stores it
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
+        Self::check_for_sqlcipher(opts)?;
+
         let salt = match opts {
             Ephemeral => None,
             Persistent(ref db_path) => {
@@ -56,6 +58,13 @@ impl EncryptedConnection {
                 match (salt_path.try_exists()?, db_pathbuf.try_exists()?) {
                     // db and salt exist
                     (true, true) => {
+                        tracing::debug!(
+                            salt = %salt_path.display(),
+                            db = %db_pathbuf.display(),
+                            "salt and database exist, db=[{}], salt=[{}]",
+                            db_pathbuf.display(),
+                            salt_path.display(),
+                        );
                         let file = File::open(salt_path)?;
                         salt = <Salt as hex::FromHex>::from_hex(
                             file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
@@ -63,18 +72,31 @@ impl EncryptedConnection {
                     }
                     // the db exists and needs to be migrated
                     (false, true) => {
-                        tracing::debug!("migrating sqlcipher db to plaintext header.");
+                        tracing::debug!(
+                            "migrating sqlcipher db=[{}] to plaintext header with salt=[{}]",
+                            db_pathbuf.display(),
+                            salt_path.display()
+                        );
                         Self::migrate(db_path, key, &mut salt)?;
                     }
                     // the db doesn't exist yet and needs to be created
                     (false, false) => {
-                        tracing::debug!("creating new sqlcipher db");
+                        tracing::debug!(
+                            "creating new sqlcipher db=[{}] with salt=[{}]",
+                            db_pathbuf.display(),
+                            salt_path.display()
+                        );
                         Self::create(db_path, key, &mut salt)?;
                     }
                     // the db doesn't exist but the salt does
                     // This generally doesn't make sense & shouldn't happen.
                     // Create a new database and delete the salt file.
                     (true, false) => {
+                        tracing::debug!(
+                            "database [{}] does not exist, but the salt [{}] does, re-creating",
+                            db_pathbuf.display(),
+                            salt_path.display(),
+                        );
                         std::fs::remove_file(salt_path)?;
                         Self::create(db_path, key, &mut salt)?;
                     }
@@ -199,6 +221,19 @@ impl EncryptedConnection {
             )
         }
     }
+
+    fn check_for_sqlcipher(opts: &StorageOption) -> Result<(), StorageError> {
+        if let Some(path) = opts.path() {
+            let exists = std::path::Path::new(path).exists();
+            tracing::debug!("db @ [{}] exists? [{}]", path, exists);
+        }
+        let conn = &mut opts.conn()?;
+        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+        if cipher_version.is_empty() {
+            return Err(StorageError::SqlCipherNotLoaded);
+        }
+        Ok(())
+    }
 }
 
 impl super::native::ValidatedConnection for EncryptedConnection {
@@ -269,9 +304,10 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::{storage::EncryptedMessageStore, utils::test::tmp_path};
+    use crate::storage::EncryptedMessageStore;
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
+    use xmtp_common::tmp_path;
 
     use super::*;
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";

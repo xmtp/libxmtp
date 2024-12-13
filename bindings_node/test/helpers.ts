@@ -8,6 +8,7 @@ import {
   createClient as create,
   generateInboxId,
   getInboxIdForAddress,
+  LogLevel,
   SignatureRequestType,
 } from '../dist/index'
 
@@ -44,7 +45,7 @@ export const createClient = async (user: User) => {
     user.account.address,
     undefined,
     undefined,
-    { level: 'info' }
+    { level: LogLevel.info }
   )
 }
 
@@ -79,4 +80,10 @@ export const encodeTextMessage = (text: string) => {
     },
     content: new TextEncoder().encode(text),
   }
+}
+
+export function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }

@@ -72,16 +72,28 @@ pub struct ClientV4 {
 }
 
 impl ClientV4 {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
-        let host = host.to_string();
+    pub async fn create(
+        grpc_url: String,
+        payer_url: String,
+        is_secure: bool,
+    ) -> Result<Self, Error> {
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
         let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
             .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
 
-        let channel = match is_secure {
-            true => create_tls_channel(host).await?,
-            false => Channel::from_shared(host)
+        let grpc_channel = match is_secure {
+            true => create_tls_channel(grpc_url).await?,
+            false => Channel::from_shared(grpc_url)
+                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
+                .connect()
+                .await
+                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+        };
+
+        let payer_channel = match is_secure {
+            true => create_tls_channel(payer_url).await?,
+            false => Channel::from_shared(payer_url)
                 .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
                 .connect()
                 .await
@@ -89,8 +101,8 @@ impl ClientV4 {
         };
 
         // GroupMessageInputTODO(mkysel) for now we assume both payer and replication are on the same host
-        let client = ReplicationApiClient::new(channel.clone());
-        let payer_client = PayerApiClient::new(channel.clone());
+        let client = ReplicationApiClient::new(grpc_channel.clone());
+        let payer_client = PayerApiClient::new(payer_channel.clone());
 
         Ok(Self {
             client,
@@ -362,14 +374,8 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Error> {
-        let client = &mut self.payer_client.clone();
-        let res = client
-            .publish_client_envelopes(PublishClientEnvelopesRequest::try_from(request)?)
-            .await;
-        match res {
-            Ok(_) => Ok(PublishIdentityUpdateResponse {}),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        self.publish_envelopes_to_payer(vec![request]).await?;
+        Ok(PublishIdentityUpdateResponse {})
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -482,20 +488,30 @@ impl ClientV4 {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn publish_envelopes_to_payer<
-        T: TryInto<PublishClientEnvelopesRequest, Error = Error>,
-    >(
+    async fn publish_envelopes_to_payer<T>(
         &self,
-        items: impl IntoIterator<Item = T>,
-    ) -> Result<(), Error> {
+        messages: impl IntoIterator<Item = T>,
+    ) -> Result<(), Error>
+    where
+        T: TryInto<ClientEnvelope>,
+        <T as TryInto<ClientEnvelope>>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let client = &mut self.payer_client.clone();
-        for item in items {
-            let request = item.try_into()?;
-            let res = client.publish_client_envelopes(request).await;
-            if let Err(e) = res {
-                return Err(Error::new(ErrorKind::MlsError).with(e));
-            }
-        }
+
+        let envelopes: Vec<ClientEnvelope> = messages
+            .into_iter()
+            .map(|message| {
+                message
+                    .try_into()
+                    .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+            })
+            .collect::<Result<_, _>>()?;
+
+        client
+            .publish_client_envelopes(PublishClientEnvelopesRequest { envelopes })
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
         Ok(())
     }
 }

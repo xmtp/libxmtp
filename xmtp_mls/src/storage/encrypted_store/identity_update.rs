@@ -134,16 +134,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{
-        storage::encrypted_store::tests::with_connection,
-        utils::test::{rand_time, rand_vec},
-        Store,
-    };
+    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use xmtp_common::{rand_time, rand_vec};
 
     use super::*;
 
     fn build_update(inbox_id: &str, sequence_id: i64) -> StoredIdentityUpdate {
-        StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, rand_time(), rand_vec())
+        StoredIdentityUpdate::new(
+            inbox_id.to_string(),
+            sequence_id,
+            rand_time(),
+            rand_vec::<24>(),
+        )
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

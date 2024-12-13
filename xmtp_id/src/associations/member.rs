@@ -1,3 +1,4 @@
+use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +107,12 @@ impl From<Vec<u8>> for MemberIdentifier {
     }
 }
 
+impl From<VerifyingKey> for MemberIdentifier {
+    fn from(installation: VerifyingKey) -> Self {
+        installation.as_bytes().to_vec().into()
+    }
+}
+
 impl<'a> From<&'a XmtpInstallationCredential> for MemberIdentifier {
     fn from(cred: &'a XmtpInstallationCredential) -> MemberIdentifier {
         MemberIdentifier::Installation(cred.public_slice().to_vec())
@@ -158,15 +165,12 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::test_utils;
-
     use super::*;
-
-    use test_utils::rand_string;
+    use xmtp_common::rand_hexstring;
 
     impl Default for MemberIdentifier {
         fn default() -> Self {
-            MemberIdentifier::Address(rand_string())
+            MemberIdentifier::Address(rand_hexstring())
         }
     }
 

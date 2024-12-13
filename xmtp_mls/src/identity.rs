@@ -1,19 +1,16 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
-use crate::retry::RetryableError;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use crate::storage::EncryptedMessageStore;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    XmtpApi,
+    Fetch, Store, XmtpApi,
 };
-use crate::{retryable, Fetch, Store};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
@@ -31,6 +28,7 @@ use prost::Message;
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
+use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
@@ -60,12 +58,43 @@ use xmtp_proto::xmtp::identity::MlsCredential;
 #[derive(Debug, Clone)]
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
-    CreateIfNotFound(InboxId, String, u64, Option<Vec<u8>>), // (inbox_id, address, nonce, legacy_signed_private_key)
+    CreateIfNotFound {
+        inbox_id: InboxId,
+        address: String,
+        nonce: u64,
+        legacy_signed_private_key: Option<Vec<u8>>,
+    },
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
     #[cfg(test)]
     ExternalIdentity(Identity),
+}
+
+impl IdentityStrategy {
+    pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
+        use IdentityStrategy::*;
+        match self {
+            CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
+            _ => None,
+        }
+    }
+
+    /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
+    /// If an Identity is not found in the local store, creates a new one.
+    pub fn new(
+        inbox_id: InboxId,
+        address: String,
+        nonce: u64,
+        legacy_signed_private_key: Option<Vec<u8>>,
+    ) -> Self {
+        Self::CreateIfNotFound {
+            inbox_id,
+            address,
+            nonce,
+            legacy_signed_private_key,
+        }
+    }
 }
 
 impl IdentityStrategy {
@@ -80,12 +109,12 @@ impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        store: &EncryptedMessageStore,
+        provider: &XmtpOpenMlsProvider,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
+        use IdentityStrategy::*;
+
         info!("Initializing identity");
-        let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(conn);
         let stored_identity: Option<Identity> = provider
             .conn_ref()
             .fetch(&())?
@@ -94,15 +123,13 @@ impl IdentityStrategy {
 
         debug!("identity in store: {:?}", stored_identity);
         match self {
-            IdentityStrategy::CachedOnly => {
-                stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)
-            }
-            IdentityStrategy::CreateIfNotFound(
+            CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
+            CreateIfNotFound {
                 inbox_id,
                 address,
                 nonce,
                 legacy_signed_private_key,
-            ) => {
+            } => {
                 if let Some(stored_identity) = stored_identity {
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
@@ -119,14 +146,14 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
-                        &provider,
+                        provider,
                         scw_signature_verifier,
                     )
                     .await
                 }
             }
             #[cfg(test)]
-            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+            ExternalIdentity(identity) => Ok(identity),
         }
     }
 }
@@ -395,9 +422,12 @@ impl Identity {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 
-    #[allow(dead_code)]
     pub fn is_ready(&self) -> bool {
         self.is_ready.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_ready(&self) {
+        self.is_ready.store(true, Ordering::SeqCst)
     }
 
     pub fn signature_request(&self) -> Option<SignatureRequest> {
@@ -496,8 +526,6 @@ impl Identity {
         }
 
         self.rotate_key_package(provider, api_client).await?;
-        self.is_ready.store(true, Ordering::SeqCst);
-
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 

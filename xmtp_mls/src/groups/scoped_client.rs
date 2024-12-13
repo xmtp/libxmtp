@@ -3,9 +3,9 @@ use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
-    intents::Intents,
-    storage::{DbConnection, EncryptedMessageStore},
+    storage::{DbConnection, EncryptedMessageStore, StorageError},
     subscriptions::LocalEvents,
+    types::InstallationId,
     verified_key_package_v2::VerifiedKeyPackageV2,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
@@ -17,7 +17,7 @@ use xmtp_id::{
 };
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
-#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send ))]
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send))]
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused)]
 pub trait LocalScopedGroupClient: Send + Sync + Sized {
@@ -37,11 +37,13 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().inbox_id()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
-        self.context_ref().mls_provider()
+    fn installation_id(&self) -> InstallationId {
+        self.context_ref().installation_public_key()
     }
 
-    fn intents(&self) -> &Arc<Intents>;
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
+        self.context_ref().mls_provider()
+    }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext>;
 
@@ -62,17 +64,17 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -101,11 +103,13 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().inbox_id()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
-        self.context_ref().mls_provider()
+    fn installation_id(&self) -> InstallationId {
+        self.context_ref().installation_public_key()
     }
 
-    fn intents(&self) -> &Arc<Intents>;
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
+        self.context_ref().mls_provider()
+    }
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext>;
 
@@ -126,17 +130,17 @@ pub trait ScopedGroupClient: Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -163,10 +167,6 @@ where
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
         Client::<ApiClient, Verifier>::context(self)
-    }
-
-    fn intents(&self) -> &Arc<Intents> {
-        crate::Client::<ApiClient, Verifier>::intents(self)
     }
 
     fn history_sync_url(&self) -> &Option<String> {
@@ -201,10 +201,10 @@ where
         .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         crate::Client::<ApiClient, Verifier>::get_association_state(
@@ -216,10 +216,10 @@ where
         .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         crate::Client::<ApiClient, Verifier>::batch_get_association_state(self, conn, identifiers)
             .await
@@ -256,10 +256,6 @@ where
         (**self).store()
     }
 
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -268,7 +264,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 
@@ -298,10 +294,10 @@ where
             .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         (**self)
@@ -309,10 +305,10 @@ where
             .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)
@@ -350,10 +346,6 @@ where
         (**self).history_sync_url()
     }
 
-    fn intents(&self) -> &Arc<Intents> {
-        (**self).intents()
-    }
-
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -362,7 +354,7 @@ where
         (**self).context_ref()
     }
 
-    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, ClientError> {
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
     }
 
@@ -392,10 +384,10 @@ where
             .await
     }
 
-    async fn get_association_state(
+    async fn get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         (**self)
@@ -403,10 +395,10 @@ where
             .await
     }
 
-    async fn batch_get_association_state(
+    async fn batch_get_association_state<'a>(
         &self,
         conn: &DbConnection,
-        identifiers: &[(String, Option<i64>)],
+        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)

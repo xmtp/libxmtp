@@ -23,7 +23,7 @@ impl super::DeriveKey<GroupKey> for Group {
     }
 }
 
-impl<'a> super::DeriveKey<GroupKey> for &'a Group {
+impl super::DeriveKey<GroupKey> for &Group {
     fn key(&self, network: u64) -> GroupKey {
         GroupKey {
             network,

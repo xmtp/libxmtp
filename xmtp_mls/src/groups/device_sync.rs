@@ -1,11 +1,9 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::NS_IN_HOUR;
-use crate::retry::{RetryBuilder, RetryableError};
 use crate::storage::group::{ConversationType, GroupQueryArgs};
 use crate::storage::group_message::MsgQueryArgs;
 use crate::storage::DbConnection;
 use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
-use crate::utils::time::now_ns;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
     client::ClientError,
@@ -15,23 +13,28 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    Client,
+    Client, Store,
 };
-use crate::{retry_async, Store};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
-use futures::{pin_mut, Stream, StreamExt};
-use rand::{
-    distributions::{Alphanumeric, DistString},
-    Rng, RngCore,
-};
+use futures::{Stream, StreamExt};
+use preference_sync::UserPreferenceUpdate;
+use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use thiserror::Error;
-use tracing::warn;
+use tokio::sync::{Notify, OnceCell};
+use tokio::time::error::Elapsed;
+use tokio::time::timeout;
+use tracing::{instrument, warn};
+use xmtp_common::time::{now_ns, Duration};
+use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -47,6 +50,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 pub mod consent_sync;
 pub mod message_sync;
+pub mod preference_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
@@ -105,6 +109,8 @@ pub enum DeviceSyncError {
     SyncPayloadTooOld,
     #[error(transparent)]
     Subscribe(#[from] SubscribeError),
+    #[error(transparent)]
+    Bincode(#[from] bincode::Error),
 }
 
 impl RetryableError for DeviceSyncError {
@@ -113,33 +119,299 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl<ApiClient, V> Client<ApiClient, V> {
+    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
+        self.sync_worker_handle.lock().clone()
+    }
+
+    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
+        *self.sync_worker_handle.lock() = Some(handle);
+    }
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
-    pub async fn start_sync_worker(
-        &self,
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_sync_worker(&self) {
+        let client = self.clone();
+        tracing::debug!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting sync worker"
+        );
+
+        let worker = SyncWorker::new(client);
+        #[cfg(any(test, feature = "test-utils"))]
+        self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
+    }
+}
+
+pub struct SyncWorker<ApiClient, V> {
+    client: Client<ApiClient, V>,
+    /// The sync events stream
+    #[allow(clippy::type_complexity)]
+    stream: Pin<
+        Box<dyn Stream<Item = Result<LocalEvents<Client<ApiClient, V>>, SubscribeError>> + Send>,
+    >,
+    init: OnceCell<()>,
+    retry: Retry,
+
+    // Number of events processed
+    #[cfg(any(test, feature = "test-utils"))]
+    handle: Arc<WorkerHandle>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub struct WorkerHandle {
+    processed: AtomicUsize,
+    notify: Notify,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl WorkerHandle {
+    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while count > 0 {
+                self.notify.notified().await;
+                count -= 1;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn wait_for_processed_count(&self, expected: usize) -> Result<(), Elapsed> {
+        timeout(Duration::from_secs(3), async {
+            while self.processed.load(Ordering::SeqCst) < expected {
+                self.notify.notified().await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn block_for_num_events<Fut>(&self, num_events: usize, op: Fut) -> Result<(), Elapsed>
+    where
+        Fut: Future<Output = ()>,
+    {
+        let processed_count = self.processed_count();
+        op.await;
+        self.wait_for_processed_count(processed_count + num_events)
+            .await?;
+        Ok(())
+    }
+
+    pub fn processed_count(&self) -> usize {
+        self.processed.load(Ordering::SeqCst)
+    }
+}
+
+impl<ApiClient, V> SyncWorker<ApiClient, V>
+where
+    ApiClient: XmtpApi + 'static,
+    V: SmartContractSignatureVerifier + 'static,
+{
+    async fn run(&mut self) -> Result<(), DeviceSyncError> {
+        // Wait for the identity to be ready & verified before doing anything
+        while !self.client.identity().is_ready() {
+            xmtp_common::yield_().await
+        }
+        self.sync_init().await?;
+
+        while let Some(event) = self.stream.next().await {
+            let event = event?;
+            match event {
+                LocalEvents::SyncMessage(msg) => match msg {
+                    SyncMessage::Reply { message_id } => {
+                        let provider = self.client.mls_provider()?;
+                        self.on_reply(message_id, &provider).await?
+                    }
+                    SyncMessage::Request { message_id } => {
+                        let provider = self.client.mls_provider()?;
+                        self.on_request(message_id, &provider).await?
+                    }
+                },
+                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
+                    tracing::error!("Outgoing preference update {preference_updates:?}");
+                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
+                        .await?;
+                }
+                LocalEvents::IncomingPreferenceUpdate(_) => {
+                    tracing::error!("Incoming preference update");
+                }
+                _ => {}
+            }
+
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                self.handle.processed.fetch_add(1, Ordering::SeqCst);
+                self.handle.notify.notify_waiters();
+            }
+        }
+        Ok(())
+    }
+
+    async fn on_reply(
+        &mut self,
+        message_id: Vec<u8>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        self.sync_init(provider).await?;
+        let conn = provider.conn_ref();
+        let Self {
+            ref client,
+            ref retry,
+            ..
+        } = self;
 
-        crate::spawn(None, {
-            let client = self.clone();
+        let msg = retry_async!(
+            retry,
+            (async {
+                conn.get_group_message(&message_id)?
+                    .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                        "Message id {message_id:?} not found."
+                    ))))
+            })
+        )?;
 
-            let receiver = client.local_events.subscribe();
-            let sync_stream = receiver.stream_sync_messages();
+        let msg_content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+        let DeviceSyncContent::Reply(reply) = msg_content else {
+            unreachable!();
+        };
 
-            async move {
-                pin_mut!(sync_stream);
+        client.process_sync_reply(provider, reply).await?;
+        Ok(())
+    }
 
-                while let Err(err) = client.sync_worker(&mut sync_stream).await {
-                    tracing::error!("Sync worker error: {err}");
+    async fn on_request(
+        &mut self,
+        message_id: Vec<u8>,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), DeviceSyncError> {
+        let conn = provider.conn_ref();
+        let Self {
+            ref client, retry, ..
+        } = self;
+
+        let msg = retry_async!(
+            retry,
+            (async {
+                conn.get_group_message(&message_id)?
+                    .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
+                        "Message id {message_id:?} not found."
+                    ))))
+            })
+        )?;
+
+        let msg_content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+        let DeviceSyncContent::Request(request) = msg_content else {
+            unreachable!();
+        };
+
+        client.reply_to_sync_request(provider, request).await?;
+        Ok(())
+    }
+
+    //// Ideally called when the client is registered.
+    //// Will auto-send a sync request if sync group is created.
+    #[instrument(level = "trace", skip_all)]
+    pub async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
+        let Self {
+            ref init,
+            ref client,
+            ..
+        } = self;
+
+        init.get_or_try_init(|| async {
+            let provider = self.client.mls_provider()?;
+            tracing::info!(
+                inbox_id = client.inbox_id(),
+                installation_id = hex::encode(client.installation_public_key()),
+                "Initializing device sync... url: {:?}",
+                client.history_sync_url
+            );
+            if client.get_sync_group(provider.conn_ref()).is_err() {
+                client.ensure_sync_group(&provider).await?;
+
+                client
+                    .send_sync_request(&provider, DeviceSyncKind::Consent)
+                    .await?;
+                client
+                    .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
+                    .await?;
+            }
+            tracing::info!(
+                inbox_id = client.inbox_id(),
+                installation_id = hex::encode(client.installation_public_key()),
+                "Device sync initialized."
+            );
+
+            Ok(())
+        })
+        .await
+        .copied()
+    }
+}
+
+impl<ApiClient, V> SyncWorker<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    fn new(client: Client<ApiClient, V>) -> Self {
+        let retry = Retry::builder()
+            .retries(5)
+            .duration(Duration::from_millis(20))
+            .build();
+
+        let receiver = client.local_events.subscribe();
+        let stream = Box::pin(receiver.stream_sync_messages());
+
+        Self {
+            client,
+            stream,
+            init: OnceCell::new(),
+            retry,
+
+            #[cfg(any(test, feature = "test-utils"))]
+            handle: Arc::new(WorkerHandle {
+                processed: AtomicUsize::new(0),
+                notify: Notify::new(),
+            }),
+        }
+    }
+
+    fn spawn_worker(mut self) {
+        crate::spawn(None, async move {
+            let inbox_id = self.client.inbox_id().to_string();
+            let installation_id = hex::encode(self.client.installation_public_key());
+            while let Err(err) = self.run().await {
+                tracing::info!("Running worker..");
+                match err {
+                    DeviceSyncError::Client(ClientError::Storage(
+                        StorageError::PoolNeedsConnection,
+                    )) => {
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
+                        break;
+                    }
+                    _ => {
+                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
+                    }
                 }
             }
         });
-
-        Ok(())
     }
 }
 
@@ -148,114 +420,14 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn sync_worker<C>(
-        &self,
-        sync_stream: &mut (impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> + Unpin),
-    ) -> Result<(), DeviceSyncError> {
-        let provider = self.mls_provider()?;
-
-        let query_retry = RetryBuilder::default()
-            .retries(5)
-            .duration(Duration::from_millis(20))
-            .build();
-
-        while let Some(event) = sync_stream.next().await {
-            let event = event?;
-            match event {
-                LocalEvents::SyncMessage(msg) => match msg {
-                    SyncMessage::Reply { message_id } => {
-                        let conn = provider.conn_ref();
-                        let msg = retry_async!(
-                            &query_retry,
-                            (async {
-                                conn.get_group_message(&message_id)?.ok_or(
-                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                        "Message id {message_id:?} not found."
-                                    ))),
-                                )
-                            })
-                        )?;
-
-                        let msg_content: DeviceSyncContent =
-                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                        let DeviceSyncContent::Reply(reply) = msg_content else {
-                            unreachable!();
-                        };
-
-                        if let Err(err) = self.process_sync_reply(&provider, reply).await {
-                            tracing::warn!("Sync worker error: {err}");
-                        }
-                    }
-                    SyncMessage::Request { message_id } => {
-                        let conn = provider.conn_ref();
-                        let msg = retry_async!(
-                            &query_retry,
-                            (async {
-                                conn.get_group_message(&message_id)?.ok_or(
-                                    DeviceSyncError::Storage(StorageError::NotFound(format!(
-                                        "Message id {message_id:?} not found."
-                                    ))),
-                                )
-                            })
-                        )?;
-
-                        let msg_content: DeviceSyncContent =
-                            serde_json::from_slice(&msg.decrypted_message_bytes)?;
-                        let DeviceSyncContent::Request(request) = msg_content else {
-                            unreachable!();
-                        };
-
-                        if let Err(err) = self.reply_to_sync_request(&provider, request).await {
-                            tracing::warn!("Sync worker error: {err}");
-                        }
-                    }
-                },
-                LocalEvents::OutgoingConsentUpdates(consent_records) => {
-                    for consent_record in consent_records {
-                        self.send_consent_update(&provider, &consent_record).await?;
-                    }
-                }
-                LocalEvents::IncomingConsentUpdates(consent_records) => {
-                    let conn = provider.conn_ref();
-
-                    conn.insert_or_replace_consent_records(&consent_records)?;
-                }
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
-    /**
-     * Ideally called when the client is registered.
-     * Will auto-send a sync request if sync group is created.
-     */
-    pub async fn sync_init(&self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        tracing::info!(
-            "Initializing device sync... url: {:?}",
-            self.history_sync_url
-        );
-        if self.get_sync_group().is_err() {
-            self.ensure_sync_group(provider).await?;
-
-            self.send_sync_request(provider, DeviceSyncKind::Consent)
-                .await?;
-            self.send_sync_request(provider, DeviceSyncKind::MessageHistory)
-                .await?;
-        }
-        tracing::info!("Device sync initialized.");
-
-        Ok(())
-    }
-
+    #[instrument(level = "trace", skip_all)]
     async fn ensure_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group = match self.get_sync_group() {
+        let sync_group = match self.get_sync_group(provider.conn_ref()) {
             Ok(group) => group,
-            Err(_) => self.create_sync_group()?,
+            Err(_) => self.create_sync_group(provider)?,
         };
         sync_group
             .maybe_update_installations(provider, None)
@@ -265,16 +437,21 @@ where
         Ok(sync_group)
     }
 
+    #[instrument(level = "trace", skip_all)]
     pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
-        tracing::info!("Sending a sync request for {kind:?}");
+        tracing::info!(
+            inbox_id = self.inbox_id(),
+            installation_id = hex::encode(self.installation_public_key()),
+            "Sending a sync request for {kind:?}"
+        );
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -290,20 +467,18 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider.conn_ref(), {
+        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
-            move |_time_ns| PlaintextEnvelope {
+            move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
                     message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: new_request_id(),
+                    idempotency_key: now.to_string(),
                 })),
             }
         })?;
 
         // publish the intent
-        if let Err(err) = sync_group.publish_intents(provider).await {
-            tracing::error!("error publishing sync group intents: {:?}", err);
-        }
+        sync_group.publish_intents(provider).await?;
 
         Ok(request)
     }
@@ -336,9 +511,8 @@ where
         provider: &XmtpOpenMlsProvider,
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
         // find the sync group
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -348,7 +522,7 @@ where
             .await?;
 
         // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(conn, &msg.sender_inbox_id)
+        self.ensure_member_of_all_groups(provider, &msg.sender_inbox_id)
             .await?;
 
         // the reply message
@@ -362,14 +536,14 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
+                idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group.publish_intents(provider).await?;
 
         Ok(())
     }
@@ -379,11 +553,13 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
+        let messages = provider.conn_ref().get_group_messages(
+            &sync_group.group_id,
+            &MsgQueryArgs::default().kind(GroupMessageKind::Application),
+        )?;
 
         for msg in messages.into_iter().rev() {
             let Ok(msg_content) =
@@ -412,7 +588,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group()?;
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group
@@ -456,13 +632,14 @@ where
         self.insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
             .await?;
 
-        self.sync_welcomes(provider.conn_ref()).await?;
+        self.sync_welcomes(provider).await?;
 
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group(id)?;
-            Box::pin(group.sync()).await?;
+            let group = self.group_with_conn(provider.conn_ref(), id)?;
+            group.maybe_update_installations(provider, None).await?;
+            Box::pin(group.sync_with_conn(provider)).await?;
         }
 
         Ok(())
@@ -470,14 +647,18 @@ where
 
     async fn ensure_member_of_all_groups(
         &self,
-        conn: &DbConnection,
+        provider: &XmtpOpenMlsProvider,
         inbox_id: &str,
     ) -> Result<(), GroupError> {
+        let conn = provider.conn_ref();
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
-            let group = self.group(group.id)?;
-            Box::pin(group.add_members_by_inbox_id(&[inbox_id.to_string()])).await?;
+            let group = self.group_with_conn(conn, group.id)?;
+            Box::pin(
+                group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
+            )
+            .await?;
         }
 
         Ok(())
@@ -496,7 +677,11 @@ where
             return Err(DeviceSyncError::MissingHistorySyncUrl);
         };
         let upload_url = format!("{url}/upload");
-        tracing::info!("Using upload url {upload_url}");
+        tracing::info!(
+            inbox_id = self.inbox_id(),
+            installation_id = hex::encode(self.installation_public_key()),
+            "Using upload url {upload_url}",
+        );
 
         let response = reqwest::Client::new()
             .post(upload_url)
@@ -506,6 +691,8 @@ where
 
         if !response.status().is_success() {
             tracing::error!(
+                inbox_id = self.inbox_id(),
+                installation_id = hex::encode(self.installation_public_key()),
                 "Failed to upload file. Status code: {} Response: {response:?}",
                 response.status()
             );
@@ -572,8 +759,8 @@ where
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
                             self.local_events
-                                .send(LocalEvents::OutgoingConsentUpdates(vec![
-                                    existing_consent_record,
+                                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
+                                    UserPreferenceUpdate::ConsentUpdate(existing_consent_record),
                                 ]))
                                 .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
                         }
@@ -585,13 +772,13 @@ where
         Ok(())
     }
 
-    pub fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = self.store().conn()?;
+    #[instrument(level = "trace", skip_all)]
+    pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group_id = conn
             .latest_sync_group()?
             .ok_or(GroupError::GroupNotFound)?
             .id;
-        let sync_group = self.group(sync_group_id.clone())?;
+        let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
 
         Ok(sync_group)
     }
@@ -736,14 +923,11 @@ impl TryFrom<DeviceSyncKeyTypeProto> for DeviceSyncKeyType {
 }
 
 pub(super) fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), ENC_KEY_SIZE)
+    xmtp_common::rand_string::<ENC_KEY_SIZE>()
 }
 
 pub(super) fn generate_nonce() -> [u8; NONCE_SIZE] {
-    let mut nonce = [0u8; NONCE_SIZE];
-    let mut rng = crypto_utils::rng();
-    rng.fill_bytes(&mut nonce);
-    nonce
+    xmtp_common::rand_array::<NONCE_SIZE>()
 }
 
 pub(super) fn new_pin() -> String {

@@ -25,10 +25,22 @@
       perSystem = { pkgs, lib, inputs', system, ... }:
         let
           fenixPkgs = inputs'.fenix.packages;
-          rust-toolchain = fenixPkgs.fromToolchainFile {
-            file = ./rust-toolchain;
-            sha256 = "sha256-s1RPtyvDGJaX/BisLT+ifVfuhDT1nZkZ1NcK8sbwELM=";
-          };
+          androidTargets = [
+            "aarch64-linux-android"
+            "armv7-linux-androideabi"
+            "x86_64-linux-android"
+            "i686-linux-android"
+          ];
+
+          # Pinned Rust Version
+          rust-toolchain = with fenix.packages.${system}; combine [
+            stable.cargo
+            stable.rustc
+            (pkgs.lib.forEach
+              androidTargets
+              (target: targets."${target}".stable.rust-std))
+            targets.x86_64-unknown-linux-musl.stable.rust-std
+          ];
 
           pkgConfig = {
             inherit system;
@@ -56,6 +68,8 @@
             (commonCargoSources ./xmtp_proto)
             (commonCargoSources ./xmtp_v2)
             (commonCargoSources ./xmtp_user_preferences)
+            (commonCargoSources ./common)
+            (commonCargoSources ./xmtp_content_types)
             ./xmtp_id/src/scw_verifier/chain_urls_default.json
             ./xmtp_id/artifact
             ./xmtp_mls/migrations

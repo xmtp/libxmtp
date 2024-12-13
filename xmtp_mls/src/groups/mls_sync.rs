@@ -6,21 +6,22 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError},
-    GroupError, IntentError, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, IntentError, MlsGroup, ScopedGroupClient,
 };
 use crate::{
-    codecs::{group_updated::GroupUpdatedCodec, ContentCodec},
     configuration::{
-        GRPC_DATA_LIMIT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::device_sync::DeviceSyncContent,
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
+        validated_commit::ValidatedCommit,
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    retry::{Retry, RetryableError},
-    retry_async,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -28,14 +29,18 @@ use crate::{
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
+        user_preferences::StoredUserPreferences,
+        StorageError,
     },
     subscriptions::LocalEvents,
-    utils::{hash::sha256, id::calculate_message_id},
+    subscriptions::SyncMessage,
+    utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
-use crate::{groups::device_sync::DeviceSyncContent, subscriptions::SyncMessage};
 use futures::future::try_join_all;
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -53,20 +58,25 @@ use openmls::{framing::WireFormat, prelude::BasicCredentialError};
 use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
+use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
+    ops::RangeInclusive,
 };
 use thiserror::Error;
 use tracing::debug;
+use xmtp_common::{retry_async, Retry, RetryableError};
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
         welcome_message_input::{
             Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
         },
-        GroupMessage, WelcomeMessageInput,
+        GroupMessage, GroupMessageInput, WelcomeMessageInput,
     },
     message_contents::{
         plaintext_envelope::{v2::MessageType, Content, V1, V2},
@@ -116,7 +126,7 @@ pub enum GroupMessageProcessingError {
     #[error(transparent)]
     Intent(#[from] IntentError),
     #[error(transparent)]
-    Codec(#[from] crate::codecs::CodecError),
+    Codec(#[from] CodecError),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
     #[error(transparent)]
@@ -125,7 +135,7 @@ pub enum GroupMessageProcessingError {
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
 }
 
-impl crate::retry::RetryableError for GroupMessageProcessingError {
+impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Diesel(err) => err.is_retryable(),
@@ -171,6 +181,7 @@ where
         let mls_provider = XmtpOpenMlsProvider::from(conn);
         tracing::info!(
             inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             current_epoch = self.load_mls_group(&mls_provider)?.epoch().as_u64(),
             "[{}] syncing group",
@@ -178,6 +189,7 @@ where
         );
         tracing::info!(
             inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             current_epoch = self.load_mls_group(&mls_provider)?.epoch().as_u64(),
             "current epoch for [{}] in sync() is Epoch: [{}]",
@@ -364,6 +376,7 @@ where
         let group_epoch = openmls_group.epoch();
         debug!(
             inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             current_epoch = openmls_group.epoch().as_u64(),
             msg_id,
@@ -392,6 +405,7 @@ where
                     if published_in_epoch_u64 != group_epoch_u64 {
                         tracing::warn!(
                             inbox_id = self.client.inbox_id(),
+                            installation_id = %self.client.installation_id(),
                             group_id = hex::encode(&self.group_id),
                             current_epoch = openmls_group.epoch().as_u64(),
                             msg_id,
@@ -491,6 +505,7 @@ where
 
         tracing::info!(
             inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
             sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
             group_id = hex::encode(&self.group_id),
@@ -512,6 +527,8 @@ where
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
+                    sender_installation_id = hex::encode(&sender_installation_id),
+                    installation_id = %self.client.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = openmls_group.epoch().as_u64(),
                     msg_epoch,
@@ -606,17 +623,19 @@ where
                                     SyncMessage::Reply { message_id },
                                 ));
                             }
-                            Some(MessageType::ConsentUpdate(update)) => {
-                                tracing::info!(
-                                    "Incoming streamed consent update: {:?} {} updated to {:?}.",
-                                    update.entity_type(),
-                                    update.entity,
-                                    update.state()
-                                );
+                            Some(MessageType::UserPreferenceUpdate(update)) => {
+                                // This function inserts the updates appropriately,
+                                // and returns a copy of what was inserted
+                                let updates =
+                                    UserPreferenceUpdate::process_incoming_preference_update(
+                                        update, provider,
+                                    )?;
 
-                                let _ = self.client.local_events().send(
-                                    LocalEvents::IncomingConsentUpdates(vec![update.try_into()?]),
-                                );
+                                // Broadcast those updates for integrators to be notified of changes
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::IncomingPreferenceUpdate(updates));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -636,6 +655,7 @@ where
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
+                    installation_id = %self.client.installation_id(),
                     sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = openmls_group.epoch().as_u64(),
@@ -659,6 +679,7 @@ where
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
+                    installation_id = %self.client.installation_id(),
                     sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = openmls_group.epoch().as_u64(),
@@ -705,6 +726,7 @@ where
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         tracing::info!(
             inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             current_epoch = openmls_group.epoch().as_u64(),
             msg_id = envelope.id,
@@ -718,6 +740,7 @@ where
                 let intent_id = intent.id;
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
+                    installation_id = %self.client.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = openmls_group.epoch().as_u64(),
                     msg_id = envelope.id,
@@ -752,6 +775,7 @@ where
             Ok(None) => {
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
+                    installation_id = %self.client.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = openmls_group.epoch().as_u64(),
                     msg_id = envelope.id,
@@ -769,9 +793,9 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     async fn consume_message(
         &self,
+        provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
-        conn: &DbConnection,
     ) -> Result<(), GroupMessageProcessingError> {
         let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
@@ -784,12 +808,15 @@ where
             _ => EntityKind::Group,
         };
 
-        let last_cursor = conn.get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
+        let last_cursor = provider
+            .conn_ref()
+            .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
         tracing::info!("### last cursor --> [{:?}]", last_cursor);
         let should_skip_message = last_cursor > msgv1.id as i64;
         if should_skip_message {
             tracing::info!(
                 inbox_id = "self.inbox_id()",
+                installation_id = %self.client.installation_id(),
                 group_id = hex::encode(&self.group_id),
                 "Message already processed: skipped msgId:[{}] entity kind:[{:?}] last cursor in db: [{}]",
                 msgv1.id,
@@ -798,19 +825,36 @@ where
             );
             Err(GroupMessageProcessingError::AlreadyProcessed(msgv1.id))
         } else {
-            self.client
-                .intents()
-                .process_for_id(
-                    &msgv1.group_id,
-                    EntityKind::Group,
-                    msgv1.id,
-                    |provider| async move {
-                        self.process_message(openmls_group, &provider, msgv1, true)
-                            .await?;
-                        Ok::<(), GroupMessageProcessingError>(())
-                    },
-                )
-                .await?;
+            let cursor = &msgv1.id;
+            // Download all unread welcome messages and convert to groups.
+            // In a database transaction, increment the cursor for a given entity and
+            // apply the update after the provided `ProcessingFn` has completed successfully.
+            self.client.store().transaction_async(provider, |provider| async move {
+                let is_updated =
+                    provider
+                        .conn_ref()
+                        .update_cursor(&msgv1.group_id, EntityKind::Group, *cursor as i64)?;
+                if !is_updated {
+                    return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
+                }
+                self.process_message(openmls_group, provider, msgv1, true).await?;
+                Ok::<_, GroupMessageProcessingError>(())
+            }).await
+            .inspect(|_| {
+                tracing::info!(
+                    "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
+                    hex::encode(&msgv1.group_id),
+                    cursor
+                );
+            })
+            .inspect_err(|err| {
+                tracing::info!(
+                    "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
+                    hex::encode(&msgv1.group_id),
+                    cursor,
+                    err
+                );
+            })?;
             Ok(())
         }
     }
@@ -828,7 +872,7 @@ where
             let result = retry_async!(
                 Retry::default(),
                 (async {
-                    self.consume_message(&message, &mut openmls_group, provider.conn_ref())
+                    self.consume_message(provider, &message, &mut openmls_group)
                         .await
                 })
             );
@@ -852,7 +896,13 @@ where
         if receive_errors.is_empty() {
             Ok(())
         } else {
-            tracing::error!("Message processing errors: {:?}", receive_errors);
+            tracing::error!(
+                group_id = hex::encode(&self.group_id),
+                inbox_id = self.client.inbox_id(),
+                installation_id = hex::encode(self.client.installation_id()),
+                "Message processing errors: {:?}",
+                receive_errors
+            );
             Err(GroupError::ReceiveErrors(receive_errors))
         }
     }
@@ -944,6 +994,7 @@ where
                             intent.id,
                             intent.kind = %intent.kind,
                             inbox_id = self.client.inbox_id(),
+                            installation_id = %self.client.installation_id(),
                             group_id = hex::encode(&self.group_id),
                             "intent {} has reached max publish attempts", intent.id);
                         // TODO: Eventually clean up errored attempts
@@ -973,24 +1024,24 @@ where
                         openmls_group.epoch().as_u64() as i64,
                     )?;
                     tracing::debug!(
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = %self.client.installation_id(),
                         intent.id,
                         intent.kind = %intent.kind,
-                        inbox_id = self.client.inbox_id(),
                         group_id = hex::encode(&self.group_id),
                         "client [{}] set stored intent [{}] to state `published`",
                         self.client.inbox_id(),
                         intent.id
                     );
 
-                    self.client
-                        .api()
-                        .send_group_messages(vec![payload_slice])
-                        .await?;
+                    let messages = self.prepare_group_messages(vec![payload_slice])?;
+                    self.client.api().send_group_messages(messages).await?;
 
                     tracing::info!(
                         intent.id,
                         intent.kind = %intent.kind,
                         inbox_id = self.client.inbox_id(),
+                        installation_id = %self.client.installation_id(),
                         group_id = hex::encode(&self.group_id),
                         "[{}] published intent [{}] of type [{}]",
                         self.client.inbox_id(),
@@ -1003,7 +1054,11 @@ where
                     }
                 }
                 Ok(None) => {
-                    tracing::info!("Skipping intent because no publish data returned");
+                    tracing::info!(
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = %self.client.installation_id(),
+                        "Skipping intent because no publish data returned"
+                    );
                     let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
                     deleter.delete(intent.id)?;
                 }
@@ -1140,7 +1195,12 @@ where
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
-                tracing::debug!(intent.id, intent.kind = %intent.kind, "taking post commit action");
+                tracing::debug!(
+                    inbox_id = self.client.inbox_id(),
+                    installation_id = %self.client.installation_id(),
+                    intent.id,
+                    intent.kind = %intent.kind, "taking post commit action"
+                );
 
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
@@ -1167,7 +1227,7 @@ where
             None => SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
         };
 
-        let now_ns = crate::utils::time::now_ns();
+        let now_ns = xmtp_common::time::now_ns();
         let last_ns = provider
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
@@ -1203,10 +1263,15 @@ where
             return Ok(());
         }
 
-        debug!("Adding missing installations {:?}", intent_data);
+        debug!(
+            inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
+            "Adding missing installations {:?}",
+            intent_data
+        );
 
-        let intent = self.queue_intent_with_conn(
-            provider.conn_ref(),
+        let intent = self.queue_intent(
+            provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
         )?;
@@ -1333,6 +1398,73 @@ where
         try_join_all(futures).await?;
         Ok(())
     }
+
+    /// Provides hmac keys for a range of epochs around current epoch
+    /// `group.hmac_keys(-1..=1)`` will provide 3 keys consisting of last epoch, current epoch, and next epoch
+    /// `group.hmac_keys(0..=0) will provide 1 key, consisting of only the current epoch
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub fn hmac_keys(
+        &self,
+        epoch_delta_range: RangeInclusive<i64>,
+    ) -> Result<Vec<HmacKey>, StorageError> {
+        let conn = self.client.store().conn()?;
+
+        let preferences = StoredUserPreferences::load(&conn)?;
+        let mut ikm = match preferences.hmac_key {
+            Some(ikm) => ikm,
+            None => {
+                let local_events = self.client.local_events();
+                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+            }
+        };
+        ikm.extend(&self.group_id);
+        let hkdf = Hkdf::<Sha256>::new(Some(HMAC_SALT), &ikm);
+
+        let mut result = vec![];
+        let current_epoch = hmac_epoch();
+        for delta in epoch_delta_range {
+            let epoch = current_epoch + delta;
+
+            let mut info = self.group_id.clone();
+            info.extend(&epoch.to_le_bytes());
+
+            let mut key = [0; 42];
+            hkdf.expand(&info, &mut key).expect("Length is correct");
+
+            result.push(HmacKey { key, epoch });
+        }
+
+        Ok(result)
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub(super) fn prepare_group_messages(
+        &self,
+        payloads: Vec<&[u8]>,
+    ) -> Result<Vec<GroupMessageInput>, GroupError> {
+        let hmac_key = self
+            .hmac_keys(0..=0)?
+            .pop()
+            .expect("Range of count 1 was provided.");
+        let sender_hmac =
+            Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
+
+        let mut result = vec![];
+        for payload in payloads {
+            let mut sender_hmac = sender_hmac.clone();
+            sender_hmac.update(payload);
+            let sender_hmac = sender_hmac.finalize();
+
+            result.push(GroupMessageInput {
+                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
+                    data: payload.to_vec(),
+                    sender_hmac: sender_hmac.into_bytes().to_vec(),
+                })),
+            });
+        }
+
+        Ok(result)
+    }
 }
 
 // Extracts the message sender, but does not do any validation to ensure that the
@@ -1353,10 +1485,10 @@ fn extract_message_sender(
     }
 
     let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
-    return Err(GroupMessageProcessingError::InvalidSender {
+    Err(GroupMessageProcessingError::InvalidSender {
         message_time_ns: message_created_ns,
         credential: basic_credential.identity().to_vec(),
-    });
+    })
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
@@ -1392,7 +1524,7 @@ async fn apply_update_group_membership_intent(
     let mut new_key_packages: Vec<KeyPackage> = vec![];
 
     if !installation_diff.added_installations.is_empty() {
-        let my_installation_id = &client.context().installation_public_key();
+        let my_installation_id = &client.context().installation_public_key().to_vec();
         // Go to the network and load the key packages for any new installation
         let key_packages = client
             .get_key_packages_for_installation_ids(
@@ -1514,5 +1646,31 @@ pub(crate) mod tests {
             futures.push(amal_group.publish_intents(&provider))
         }
         future::join_all(futures).await;
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    async fn hmac_keys_work_as_expected() {
+        let wallet = generate_local_wallet();
+        let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_group: Arc<MlsGroup<_>> =
+            Arc::new(amal.create_group(None, Default::default()).unwrap());
+
+        let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
+        let current_hmac_key = amal_group.hmac_keys(0..=0).unwrap().pop().unwrap();
+        assert_eq!(hmac_keys.len(), 3);
+        assert_eq!(hmac_keys[1].key, current_hmac_key.key);
+        assert_eq!(hmac_keys[1].epoch, current_hmac_key.epoch);
+
+        // Make sure the keys are different
+        assert_ne!(hmac_keys[0].key, hmac_keys[1].key);
+        assert_ne!(hmac_keys[0].key, hmac_keys[2].key);
+        assert_ne!(hmac_keys[1].key, hmac_keys[2].key);
+
+        // Make sure the epochs align
+        let current_epoch = hmac_epoch();
+        assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
+        assert_eq!(hmac_keys[1].epoch, current_epoch);
+        assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
     }
 }

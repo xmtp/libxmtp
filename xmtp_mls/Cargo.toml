@@ -23,6 +23,9 @@ bench = [
     "once_cell",
     "dep:xmtp_api_grpc",
     "criterion",
+    "dep:fdlimit",
+    "dep:ethers",
+    "dep:const_format",
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -35,6 +38,9 @@ test-utils = [
     "xmtp_proto/test-utils",
     "xmtp_api_http/test-utils",
     "xmtp_api_grpc/test-utils",
+    "dep:const_format",
+    "mockall",
+    "xmtp_common/test-utils"
 ]
 update-schema = ["toml"]
 
@@ -46,6 +52,7 @@ bincode.workspace = true
 diesel_migrations.workspace = true
 futures.workspace = true
 hex.workspace = true
+hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 parking_lot.workspace = true
@@ -54,6 +61,7 @@ rand = { workspace = true }
 reqwest = { version = "0.12.4", features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
+sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio-stream = { version = "0.1", default-features = false, features = [
@@ -61,16 +69,20 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 ] }
 tracing.workspace = true
 trait-variant.workspace = true
-wasm-timer.workspace = true
 zeroize.workspace = true
+xmtp_common.workspace = true
 
 # XMTP/Local
+xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 console_error_panic_hook = { workspace = true, optional = true }
+const_format = { workspace = true, optional = true }
+ethers = { workspace = true, features = ["openssl"], optional = true }
+fdlimit = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
 tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
@@ -81,13 +93,17 @@ criterion = { version = "0.5", features = [
     "html_reports",
     "async_tokio",
 ], optional = true }
+hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
+mockall = { version = "0.13.1", optional = true }
 once_cell = { version = "1.19", optional = true }
 tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
+    "registry",
 ], optional = true }
 
 
@@ -128,10 +144,13 @@ web-sys.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+const_format.workspace = true
 mockall = "0.13.1"
 openmls_basic_credential.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"]}
+wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -143,6 +162,7 @@ tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
     "ansi",
+    "json",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -155,7 +175,7 @@ diesel-wasm-sqlite = { workspace = true, features = [
 ] }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -175,3 +195,14 @@ required-features = ["bench"]
 harness = false
 name = "crypto"
 required-features = ["bench"]
+
+[[bench]]
+harness = false
+name = "identity"
+required-features = ["bench"]
+
+
+#[[bench]]
+#harness = false
+#name = "sync"
+#required-features = ["bench"]

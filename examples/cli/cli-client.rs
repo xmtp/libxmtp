@@ -32,6 +32,8 @@ use tracing_subscriber::{
 use valuable::Valuable;
 use xmtp_api_grpc::grpc_api_helper::Client as ClientV3;
 use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_common::time::now_ns;
+use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
@@ -47,14 +49,12 @@ use xmtp_mls::XmtpApi;
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
-    codecs::{text::TextCodec, ContentCodec},
     groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
     identity::IdentityStrategy,
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
         StorageOption,
     },
-    utils::time::now_ns,
     InboxOwner,
 };
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
@@ -235,21 +235,29 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => {
-            Box::new(ClientV4::create("http://localhost:5050".into(), false).await?)
-        }
-        (true, Env::Dev) => {
-            Box::new(ClientV4::create("https://grpc.testnet.xmtp.network:443".into(), true).await?)
-        }
-        (false, Env::Local) => {
-            Box::new(ClientV3::create("http://localhost:5556".into(), false).await?)
-        }
-        (false, Env::Dev) => {
-            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443".into(), true).await?)
-        }
-        (false, Env::Production) => Box::new(
-            ClientV3::create("https://grpc.production.xmtp.network:443".into(), true).await?,
+        (true, Env::Local) => Box::new(
+            ClientV4::create(
+                "http://localhost:5050".into(),
+                "http://localhost:5050".into(),
+                false,
+            )
+            .await?,
         ),
+        (true, Env::Dev) => Box::new(
+            ClientV4::create(
+                "https://grpc.testnet.xmtp.network:443".into(),
+                "https://payer.testnet.xmtp.network:443".into(),
+                true,
+            )
+            .await?,
+        ),
+        (false, Env::Local) => Box::new(ClientV3::create("http://localhost:5556", false).await?),
+        (false, Env::Dev) => {
+            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
+        }
+        (false, Env::Production) => {
+            Box::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
+        }
         (true, Env::Production) => todo!("not supported"),
     };
 
@@ -282,9 +290,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::ListGroups {} => {
             info!("List Groups");
-            let conn = client.store().conn()?;
+            let provider = client.mls_provider()?;
             client
-                .sync_welcomes(&conn)
+                .sync_welcomes(&provider)
                 .await
                 .expect("failed to sync welcomes");
 
@@ -432,10 +440,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
             );
         }
         Commands::RequestHistorySync {} => {
-            let conn = client.store().conn().unwrap();
             let provider = client.mls_provider().unwrap();
-            client.sync_welcomes(&conn).await.unwrap();
-            client.start_sync_worker(&provider).await.unwrap();
+            client.sync_welcomes(&provider).await.unwrap();
+            client.start_sync_worker();
             client
                 .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
                 .await
@@ -443,9 +450,9 @@ async fn main() -> color_eyre::eyre::Result<()> {
             info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
-            let conn = client.store().conn()?;
-            client.sync_welcomes(&conn).await?;
-            let group = client.get_sync_group()?;
+            let provider = client.mls_provider()?;
+            client.sync_welcomes(&provider).await?;
+            let group = client.get_sync_group(provider.conn_ref())?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group
@@ -535,7 +542,7 @@ where
     let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
     let client = create_client(
         cli,
-        IdentityStrategy::CreateIfNotFound(inbox_id, w.get_address(), nonce, None),
+        IdentityStrategy::new(inbox_id, w.get_address(), nonce, None),
         client,
     )
     .await?;
@@ -566,8 +573,8 @@ where
 }
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
-    let conn = client.store().conn().unwrap();
-    client.sync_welcomes(&conn).await?;
+    let provider = client.mls_provider().unwrap();
+    client.sync_welcomes(&provider).await?;
     let group = client.group(group_id)?;
     group
         .sync()

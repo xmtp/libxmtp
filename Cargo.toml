@@ -14,7 +14,9 @@ members = [
   "bindings_node",
   "bindings_ffi",
   "xtask",
-  "xmtp_debug"
+  "xmtp_debug",
+  "xmtp_content_types",
+ "common"
 ]
 
 # Make the feature resolver explicit.
@@ -22,15 +24,15 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
 license = "MIT"
+version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1.0"
 async-stream = "0.3"
 async-trait = "0.1.77"
+base64 = "0.22"
 chrono = "0.4.38"
-wasm-timer = "0.2"
 ctor = "0.2"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
@@ -39,6 +41,7 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 getrandom = { version = "0.2", default-features = false }
 hex = "0.4.3"
+hkdf = "0.12.3"
 openmls = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
@@ -48,8 +51,6 @@ pbjson-types = "0.7.0"
 prost = "^0.13"
 prost-types = "^0.13"
 rand = "0.8.5"
-uuid = "1.10"
-base64 = "0.22"
 regex = "1.10.4"
 rustc-hex = "2.1.0"
 serde = { version = "1.0", default-features = false }
@@ -59,6 +60,9 @@ sha3 = "0.10.8"
 thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
+uuid = "1.10"
+wasm-timer = "0.2"
+web-time = "1.1"
 # Changing this version and rustls may potentially break the android build. Use Caution.
 # Test with Android and Swift first.
 # Its probably preferable to one day use https://github.com/rustls/rustls-platform-verifier
@@ -67,35 +71,41 @@ tokio = { version = "1.35.1", default-features = false }
 # - https://github.com/seanmonstar/reqwest/issues/2159
 # - https://github.com/hyperium/tonic/pull/1974
 # - https://github.com/rustls/rustls-platform-verifier/issues/58
-tonic = { version = "0.12", default-features = false }
-tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.3", default-features = false }
+bincode = "1.3"
+console_error_panic_hook = "0.1"
+const_format = "0.2"
 diesel = { version = "2.2", default-features = false }
 diesel-wasm-sqlite = "0.0.1"
 diesel_migrations = { version = "2.2", default-features = false }
-parking_lot = "0.12.3"
-wasm-bindgen-futures = "0.4"
-wasm-bindgen = "=0.2.95"
-wasm-bindgen-test = "0.3.45"
-gloo-timers = "0.3"
-web-sys = "0.3"
-js-sys = "0.3"
-openssl-sys = { version = "0.9", features = ["vendored"] }
-openssl = { version = "0.10", features = ["vendored"] }
-libsqlite3-sys = { version = "0.29", features = ["bundled-sqlcipher-vendored-openssl" ] }
 dyn-clone = "1"
+fdlimit = "0.3"
+gloo-timers = "0.3"
+js-sys = "0.3"
+libsqlite3-sys = { version = "0.29", features = [
+  "bundled-sqlcipher-vendored-openssl",
+] }
+openssl = { version = "0.10", features = ["vendored"] }
+openssl-sys = { version = "0.9", features = ["vendored"] }
+parking_lot = "0.12.3"
+tonic = { version = "0.12", default-features = false }
+tracing = { version = "0.1", features = ["log"] }
+tracing-subscriber = { version = "0.3", default-features = false }
 trait-variant = "0.1.2"
 url = "2.5.0"
+wasm-bindgen = "=0.2.99"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = "0.3.49"
+web-sys = "0.3"
 zeroize = "1.8"
-bincode = "1.3"
-console_error_panic_hook = "0.1"
 
 # Internal Crate Dependencies
-xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
+xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
+xmtp_content_types = { path = "xmtp_content_types" }
+xmtp_common = { path = "common" }
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,
@@ -122,10 +132,10 @@ strip = "symbols"
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release.package.xmtpv3]
+codegen-units = 1             # Reduce number of codegen units to increase optimizations
 inherits = "release-with-lto"
-codegen-units = 1 # Reduce number of codegen units to increase optimizations
-opt-level = 'z'   # Optimize for size + loop vectorization
-strip = true      # Strip symbols from binary*
+opt-level = 'z'               # Optimize for size + loop vectorization
+strip = true                  # Strip symbols from binary*
 
 [profile.release.package.bindings_wasm]
 inherits = "release-with-lto"
@@ -136,7 +146,7 @@ opt-level = "s"
 # are made public for third-party dependencies: https://github.com/diesel-rs/diesel/pull/4236
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
-diesel-wasm-sqlite = { git = "https://github.com/xmtp/diesel-wasm-sqlite", branch = "main" }
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
+diesel-wasm-sqlite = { git = "https://github.com/xmtp/sqlite-web-rs", branch = "main" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }

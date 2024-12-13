@@ -42,6 +42,7 @@ nix develop .#android --command cargo ndk -o bindings_ffi/jniLibs/ --manifest-pa
   -t armv7-linux-androideabi \
   -- build --release
 
+
 for arch in arm64-v8a armeabi-v7a x86 x86_64; do
   mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
 done

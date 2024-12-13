@@ -35,6 +35,13 @@ pub struct Error {
     source: Option<ErrorSource>,
 }
 
+// network errors should generally be retryable, unless there's a bug in our code
+impl xmtp_common::RetryableError for Error {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
 impl Error {
     pub fn new(kind: ErrorKind) -> Self {
         Self { kind, source: None }

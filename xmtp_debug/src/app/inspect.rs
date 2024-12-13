@@ -38,7 +38,7 @@ impl Inspect {
         match kind {
             Associations => {
                 let state = client
-                    .get_latest_association_state(&conn, hex::encode(*inbox_id))
+                    .get_latest_association_state(&conn, &hex::encode(*inbox_id))
                     .await?;
                 info!(
                     inbox_id = state.inbox_id(),

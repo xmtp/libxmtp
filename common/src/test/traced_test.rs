@@ -1,3 +1,4 @@
+/// Tests that can assert on tracing logs in a tokio threaded context
 use std::{io, sync::Arc};
 
 use parking_lot::Mutex;
@@ -58,8 +59,9 @@ impl fmt::MakeWriter<'_> for TestWriter {
         self.clone()
     }
 }
-
+/*
 /// Only works with current-thread
+#[inline]
 pub fn traced_test<Fut>(f: impl Fn() -> Fut)
 where
     Fut: futures::Future<Output = ()>,
@@ -88,6 +90,39 @@ where
         buf.clear();
     });
 }
+*/
+
+#[macro_export]
+macro_rules! traced_test {
+    ( $f:expr ) => {{
+        use tracing_subscriber::fmt;
+        use $crate::traced_test::TestWriter;
+
+        $crate::traced_test::LOG_BUFFER.with(|buf| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .thread_name("tracing-test")
+                .enable_time()
+                .enable_io()
+                .build()
+                .unwrap();
+            buf.clear();
+
+            let subscriber = fmt::Subscriber::builder()
+                .with_env_filter(format!("{}=debug", env!("CARGO_PKG_NAME")))
+                .with_writer(buf.clone())
+                .with_level(true)
+                .with_ansi(false)
+                .finish();
+
+            let dispatch = tracing::Dispatch::new(subscriber);
+            tracing::dispatcher::with_default(&dispatch, || {
+                rt.block_on($f);
+            });
+
+            buf.clear();
+        });
+    }};
+}
 
 /// macro that can assert logs in tests.
 /// Note: tests that use this must be used in `traced_test` function
@@ -95,7 +130,7 @@ where
 #[macro_export]
 macro_rules! assert_logged {
     ( $search:expr , $occurrences:expr ) => {
-        $crate::utils::test::traced_test::LOG_BUFFER.with(|buf| {
+        $crate::traced_test::LOG_BUFFER.with(|buf| {
             let lines = {
                 buf.flush();
                 buf.as_string()

@@ -33,6 +33,7 @@ use crate::{
     },
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    XmtpOpenMlsProvider,
 };
 
 use super::{
@@ -58,16 +59,17 @@ pub enum IntentError {
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn queue_intent(
         &self,
+        provider: &XmtpOpenMlsProvider,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        self.context().store().transaction(|provider| {
+        self.context().store().transaction(provider, |provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
         })
     }
 
-    pub fn queue_intent_with_conn(
+    fn queue_intent_with_conn(
         &self,
         conn: &DbConnection,
         intent_kind: IntentKind,
@@ -86,13 +88,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
         }
+        tracing::debug!(inbox_id = self.client.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
         Ok(intent)
     }
 
     fn maybe_insert_key_update_intent(&self, conn: &DbConnection) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
-        let now_ns = crate::utils::time::now_ns();
+        let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
             self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![])?;
@@ -799,7 +802,7 @@ pub(crate) mod tests {
 
         // Client B sends a message to Client A
         let groups_b = client_b
-            .sync_welcomes(&client_b.store().conn().unwrap())
+            .sync_welcomes(&client_b.mls_provider().unwrap())
             .await
             .unwrap();
         assert_eq!(groups_b.len(), 1);

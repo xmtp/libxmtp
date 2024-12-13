@@ -32,8 +32,6 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
-    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
-    pub conversation_type: ConversationType,
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
@@ -42,6 +40,8 @@ pub struct StoredGroup {
     pub dm_inbox_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
+    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
+    pub conversation_type: ConversationType,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -215,6 +215,8 @@ impl DbConnection {
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
+            // Filter out sync groups from the main query
+            .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
 
@@ -238,13 +240,7 @@ impl DbConnection {
             query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
-        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
-        // Otherwise filter sync groups out by default.
-        if !matches!(conversation_type, Some(ConversationType::Sync)) && !include_sync_groups {
-            query = query.filter(groups_dsl::conversation_type.ne(ConversationType::Sync));
-        }
-
-        let groups = if let Some(consent_state) = consent_state {
+        let mut groups = if let Some(consent_state) = consent_state {
             if *consent_state == ConsentState::Unknown {
                 let query = query
                     .left_join(
@@ -278,11 +274,28 @@ impl DbConnection {
             self.raw_query(|conn| query.load::<StoredGroup>(conn))?
         };
 
+        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
+        // Then query for those separately
+        if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
+            let query =
+                groups_dsl::groups.filter(groups_dsl::conversation_type.eq(ConversationType::Sync));
+            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+            groups.append(&mut sync_groups);
+        }
+
         Ok(groups)
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
         Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
+    }
+
+    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::conversation_type.eq(ConversationType::Sync));
+
+        Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
@@ -375,7 +388,7 @@ impl DbConnection {
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            let now = crate::utils::time::now_ns();
+            let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::rotated_at_ns.eq(now))
                 .execute(conn)
@@ -403,7 +416,7 @@ impl DbConnection {
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            let now = crate::utils::time::now_ns();
+            let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
@@ -492,6 +505,7 @@ pub enum ConversationType {
     Dm = 2,
     Sync = 3,
 }
+
 impl ToSql<Integer, Sqlite> for ConversationType
 where
     i32: ToSql<Integer, Sqlite>,
@@ -516,6 +530,17 @@ where
     }
 }
 
+impl std::fmt::Display for ConversationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ConversationType::*;
+        match self {
+            Group => write!(f, "group"),
+            Dm => write!(f, "dm"),
+            Sync => write!(f, "sync"),
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -523,18 +548,17 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        assert_ok,
         storage::{
             consent_record::{ConsentType, StoredConsentRecord},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
-        utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };
+    use xmtp_common::{assert_ok, rand_vec, time::now_ns};
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
-        let id = rand_vec();
+        let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::new(
@@ -561,7 +585,7 @@ pub(crate) mod tests {
 
     /// Generate a test dm group
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
-        let id = rand_vec();
+        let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         let dm_inbox_id = Some("placeholder_inbox_id".to_string());
@@ -749,7 +773,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_new_sync_group() {
         with_connection(|conn| {
-            let id = rand_vec();
+            let id = rand_vec::<24>();
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
@@ -761,7 +785,19 @@ pub(crate) mod tests {
 
             let found = conn.latest_sync_group().unwrap();
             assert!(found.is_some());
-            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync)
+            assert_eq!(found.unwrap().conversation_type, ConversationType::Sync);
+
+            // Load the sync group with a consent filter
+            let allowed_groups = conn
+                .find_groups(&GroupQueryArgs {
+                    consent_state: Some(ConsentState::Allowed),
+                    include_sync_groups: true,
+                    ..Default::default()
+                })
+                .unwrap();
+
+            assert_eq!(allowed_groups.len(), 1);
+            assert_eq!(allowed_groups[0].id, sync_group.id);
         })
         .await
     }

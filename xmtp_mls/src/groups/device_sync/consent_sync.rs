@@ -1,54 +1,12 @@
 use super::*;
-use crate::{
-    storage::consent_record::{ConsentState, ConsentType},
-    Client, XmtpApi,
-};
+use crate::{Client, XmtpApi};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::mls::message_contents::{
-    ConsentEntityType, ConsentState as ConsentStateProto, ConsentUpdate as ConsentUpdateProto,
-};
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(crate) async fn send_consent_update(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        record: &StoredConsentRecord,
-    ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Streaming consent update. {:?}", record);
-        let conn = provider.conn_ref();
-
-        let consent_update_proto = ConsentUpdateProto {
-            entity: record.entity.clone(),
-            entity_type: match record.entity_type {
-                ConsentType::Address => ConsentEntityType::Address,
-                ConsentType::ConversationId => ConsentEntityType::ConversationId,
-                ConsentType::InboxId => ConsentEntityType::InboxId,
-            } as i32,
-            state: match record.state {
-                ConsentState::Allowed => ConsentStateProto::Allowed,
-                ConsentState::Denied => ConsentStateProto::Denied,
-                ConsentState::Unknown => ConsentStateProto::Unspecified,
-            } as i32,
-        };
-
-        let sync_group = self.ensure_sync_group(provider).await?;
-        let content_bytes = serde_json::to_vec(&consent_update_proto)?;
-        sync_group.prepare_message(&content_bytes, conn, |_time_ns| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                idempotency_key: new_request_id(),
-                message_type: Some(MessageType::ConsentUpdate(consent_update_proto)),
-            })),
-        })?;
-
-        sync_group.sync_until_last_intent_resolved(provider).await?;
-
-        Ok(())
-    }
-
     pub(super) fn syncable_consent_records(
         &self,
         conn: &DbConnection,
@@ -62,32 +20,38 @@ where
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(test)]
 pub(crate) mod tests {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use wasm_bindgen_test::wasm_bindgen_test;
+
     const HISTORY_SERVER_HOST: &str = "localhost";
     const HISTORY_SERVER_PORT: u16 = 5558;
 
-    use std::time::{Duration, Instant};
-
     use super::*;
     use crate::{
-        assert_ok,
         builder::ClientBuilder,
-        groups::scoped_client::LocalScopedGroupClient,
+        groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
+    };
+    use xmtp_common::{
+        assert_ok,
+        time::{Duration, Instant},
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_consent_sync() {
+        xmtp_common::logger();
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
-
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
-
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
+        let amal_a_worker = amal_a.sync_worker_handle().unwrap();
 
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
@@ -104,51 +68,60 @@ pub(crate) mod tests {
 
         // Create a second installation for amal with sync.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
+
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
 
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
+        // make sure amal's workers have time to sync
+        // 3 Intents:
+        //  1.) UpdateGroupMembership Intent for new sync group
+        //  2.) Device Sync Request
+        //  3.) MessageHistory Sync Request
+        amal_b_worker.wait_for_new_events(1).await.unwrap();
 
-        let old_group_id = amal_a.get_sync_group().unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a.sync_welcomes(amal_a_conn).await.unwrap();
-        let new_group_id = amal_a.get_sync_group().unwrap().group_id;
+        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
+        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
         let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group().unwrap();
-        assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
-        // Wait for up to 3 seconds for the reply on amal_b (usually is almost instant)
-        let start = Instant::now();
-        let mut reply = None;
-        while reply.is_none() {
-            reply = amal_b
+        amal_a_worker
+            .block_for_num_events(1, async {
+                let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
+                assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
+            })
+            .await
+            .unwrap();
+
+        xmtp_common::wait_for_some(|| async {
+            amal_b
                 .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
-                .unwrap();
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Did not receive sync reply.");
-            }
-        }
+                .unwrap()
+        })
+        .await;
 
-        // Wait up to 3 seconds for sync to process (typically is almost instant)
-        let mut consent_b = 0;
-        let start = Instant::now();
-        while consent_b != consent_a {
-            consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
-
-            if start.elapsed() > Duration::from_secs(3) {
-                panic!("Consent sync did not work. Consent: {consent_b}/{consent_a}");
-            }
-        }
+        // Wait up to 20 seconds for sync to process (typically is almost instant)
+        xmtp_common::wait_for_eq(
+            || {
+                let consent_b = amal_b.syncable_consent_records(amal_b_conn).unwrap().len();
+                futures::future::ready(consent_b != consent_a)
+            },
+            true,
+        )
+        .await
+        .unwrap();
 
         // Test consent streaming
-        let amal_b_sync_group = amal_b.get_sync_group().unwrap();
+        let amal_b_sync_group = amal_b.get_sync_group(amal_b_conn).unwrap();
         let bo_wallet = generate_local_wallet();
 
         // Ensure bo is not consented with amal_b

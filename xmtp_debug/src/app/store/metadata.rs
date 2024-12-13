@@ -96,7 +96,7 @@ impl super::DeriveKey<MetaKey> for Metadata {
     }
 }
 
-impl<'a> super::DeriveKey<MetaKey> for &'a Metadata {
+impl super::DeriveKey<MetaKey> for &Metadata {
     fn key(&self, network: u64) -> MetaKey {
         MetaKey {
             network,

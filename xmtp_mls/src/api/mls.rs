@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use super::ApiClientWrapper;
-use crate::{retry_async, XmtpApi};
+use crate::XmtpApi;
+use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
-    group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
-    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
-    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
-    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
-    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
+    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
+    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::{Error as ApiError, ErrorKind};
 
@@ -70,6 +70,12 @@ where
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
     ) -> Result<Vec<GroupMessage>, ApiError> {
+        tracing::debug!(
+            group_id = hex::encode(&group_id),
+            id_cursor,
+            inbox_id = self.inbox_id,
+            "query group messages"
+        );
         let mut out: Vec<GroupMessage> = vec![];
         let page_size = 100;
         let mut id_cursor = id_cursor;
@@ -109,11 +115,17 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn query_welcome_messages(
+    pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
-        installation_id: Vec<u8>,
+        installation_id: Id,
         id_cursor: Option<u64>,
     ) -> Result<Vec<WelcomeMessage>, ApiError> {
+        tracing::debug!(
+            installation_id = hex::encode(installation_id),
+            cursor = id_cursor,
+            inbox_id = self.inbox_id,
+            "query welcomes"
+        );
         let mut out: Vec<WelcomeMessage> = vec![];
         let page_size = 100;
         let mut id_cursor = id_cursor;
@@ -123,7 +135,7 @@ where
                 (async {
                     self.api_client
                         .query_welcome_messages(QueryWelcomeMessagesRequest {
-                            installation_key: installation_id.clone(),
+                            installation_key: installation_id.as_ref().to_vec(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
                                 limit: page_size,
@@ -162,6 +174,7 @@ where
         key_package: Vec<u8>,
         is_inbox_id_credential: bool,
     ) -> Result<(), ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "upload key packages");
         retry_async!(
             self.retry_strategy,
             (async {
@@ -184,6 +197,7 @@ where
         &self,
         installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "fetch key packages");
         let res = retry_async!(
             self.retry_strategy,
             (async {
@@ -220,6 +234,7 @@ where
         &self,
         messages: &[WelcomeMessageInput],
     ) -> Result<(), ApiError> {
+        tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
             self.retry_strategy,
             (async {
@@ -235,23 +250,22 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
-        let to_send: Vec<GroupMessageInput> = group_messages
-            .iter()
-            .map(|msg| GroupMessageInput {
-                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
-                    data: msg.to_vec(),
-                    sender_hmac: vec![],
-                })),
-            })
-            .collect();
+    pub async fn send_group_messages(
+        &self,
+        group_messages: Vec<GroupMessageInput>,
+    ) -> Result<(), ApiError> {
+        tracing::debug!(
+            inbox_id = self.inbox_id,
+            "sending [{}] group messages",
+            group_messages.len()
+        );
 
         retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
                     .send_group_messages(SendGroupMessagesRequest {
-                        messages: to_send.clone(),
+                        messages: group_messages.clone(),
                     })
                     .await
             })
@@ -267,6 +281,7 @@ where
     where
         ApiClient: XmtpMlsStreams,
     {
+        tracing::debug!(inbox_id = self.inbox_id, "subscribing to group messages");
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
@@ -276,16 +291,17 @@ where
 
     pub async fn subscribe_welcome_messages(
         &self,
-        installation_key: Vec<u8>,
+        installation_key: &[u8],
         id_cursor: Option<u64>,
     ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError>
     where
         ApiClient: XmtpMlsStreams,
     {
+        tracing::debug!(inbox_id = self.inbox_id, "subscribing to welcome messages");
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {
-                    installation_key,
+                    installation_key: installation_key.to_vec(),
                     id_cursor: id_cursor.unwrap_or(0),
                 }],
             })

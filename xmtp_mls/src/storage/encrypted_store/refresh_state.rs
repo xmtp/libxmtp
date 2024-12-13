@@ -90,13 +90,13 @@ impl DbConnection {
         }
     }
 
-    pub fn update_cursor(
+    pub fn update_cursor<Id: AsRef<[u8]>>(
         &self,
-        entity_id: &Vec<u8>,
+        entity_id: Id,
         entity_kind: EntityKind,
         cursor: i64,
     ) -> Result<bool, StorageError> {
-        let state: Option<RefreshState> = self.get_refresh_state(entity_id, entity_kind)?;
+        let state: Option<RefreshState> = self.get_refresh_state(&entity_id, entity_kind)?;
         match state {
             Some(state) => {
                 use super::schema::refresh_state::dsl;
@@ -110,7 +110,7 @@ impl DbConnection {
             }
             None => Err(StorageError::NotFound(format!(
                 "state for entity ID {} with kind {:?}",
-                hex::encode(entity_id),
+                hex::encode(entity_id.as_ref()),
                 entity_kind
             ))),
         }

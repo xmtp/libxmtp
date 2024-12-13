@@ -50,11 +50,11 @@ diesel::table! {
         created_at_ns -> BigInt,
         membership_state -> Integer,
         installations_last_checked -> BigInt,
-        conversation_type -> Integer,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
         dm_inbox_id -> Nullable<Text>,
         rotated_at_ns -> BigInt,
+        conversation_type -> Integer,
     }
 }
 
@@ -108,6 +108,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    user_preferences (id) {
+        id -> Integer,
+        hmac_key -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
     wallet_addresses (wallet_address) {
         inbox_id -> Text,
         wallet_address -> Text,
@@ -129,5 +136,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_store,
     openmls_key_value,
     refresh_state,
+    user_preferences,
     wallet_addresses,
 );

@@ -235,14 +235,13 @@ impl Conversations {
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
-    let conn = self
+    let provider = self
       .inner_client
-      .store()
-      .conn()
+      .mls_provider()
       .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .sync_welcomes(&conn)
+      .sync_welcomes(&provider)
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
@@ -250,15 +249,17 @@ impl Conversations {
 
   #[napi]
   pub async fn sync_all_conversations(&self) -> Result<usize> {
-    let groups = self
+    let provider = self
       .inner_client
-      .find_groups(GroupQueryArgs::default())
+      .mls_provider()
       .map_err(ErrorWrapper::from)?;
+
     let num_groups_synced = self
       .inner_client
-      .sync_all_groups(groups)
+      .sync_all_welcomes_and_groups(&provider, None)
       .await
       .map_err(ErrorWrapper::from)?;
+
     Ok(num_groups_synced)
   }
 
@@ -342,12 +343,22 @@ impl Conversations {
     callback: JsFunction,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
+    tracing::trace!(
+      inbox_id = self.inner_client.inbox_id(),
+      conversation_type = ?conversation_type,
+    );
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
       move |message| {
+        tracing::trace!(
+            inbox_id,
+            conversation_type = ?conversation_type,
+            "[received] calling tsfn callback"
+        );
         tsfn.call(
           message
             .map(Into::into)

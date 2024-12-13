@@ -1,5 +1,35 @@
 # @xmtp/node-bindings
 
+## 0.0.28
+
+- Removed `is_installation_authorized` and `is_address_authorized` from `Client`
+- Lowercased `address` passed to `is_address_authorized`
+
+## 0.0.27
+
+- Switched to Ubuntu 22.04 for builds
+
+## 0.0.25
+
+- Fixed streaming by adding `napi4` feature to napi-rs
+
+## 0.0.24
+
+- Fixed using `Vec` instead rust `Uint8Array` type in `is_installation_authorized`
+
+## 0.0.23
+
+- Added `is_installation_authorized` to `Client`
+- Added `is_address_authorized` to `Client`
+
+## 0.0.22
+
+- Moved `verify_signed_with_public_key` out of `Client`
+
+## 0.0.21
+
+- Added `installation_id_bytes` to `Client`
+
 ## 0.0.20
 
 - Fixed argument types for new signing methods
@@ -9,7 +39,8 @@
 - Renamed `Level` to `LogLevel`
 - Filtered out group membership messages from DM groups
 - Fixed `syncAllConversations` export
-- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and `verify_signed_with_public_key` to `Client`
+- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and
+  `verify_signed_with_public_key` to `Client`
 
 ## 0.0.18
 
@@ -27,9 +58,12 @@
 
 - Added sort direction to `NapiListMessagesOptions`
 - Added `dm_peer_inbox_id` method to `NapiGroup`
-- Added `allowed_states` and `conversation_type` to `NapiListConversationsOptions`
-- Added `create_dm`, `list_groups`, and `list_dms` methods to `NapiConversations`
-- Added `stream_groups`, `stream_dms`, `stream_all_group_messages`, and `stream_all_dm_messages` streaming methods to `NapiConversations`
+- Added `allowed_states` and `conversation_type` to
+  `NapiListConversationsOptions`
+- Added `create_dm`, `list_groups`, and `list_dms` methods to
+  `NapiConversations`
+- Added `stream_groups`, `stream_dms`, `stream_all_group_messages`, and
+  `stream_all_dm_messages` streaming methods to `NapiConversations`
 
 ## 0.0.15
 

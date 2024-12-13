@@ -57,3 +57,4 @@ pub const DEFAULT_GROUP_PINNED_FRAME_URL: &str = "";
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
+pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";

@@ -1,4 +1,4 @@
-name: Build and Push xdbgDocker
+name: Build and Push xmtp-debug to ghcr
 on:
   push:
     branches:
@@ -24,6 +24,10 @@ jobs:
       - name: Build xdbgDocker
         run: |
           nix build .#packages.${{ matrix.platform }}.xdbgDocker
+      - name: Build xdbg Binary
+        run: |
+          nix build .#packages.${{ matrix.platform }}.xdbg
+          nix path-info .#packages.${{ matrix.platform }}.xdbg | xargs -I {} cp {}/bin/xdbg ./xdbg-${{ matrix.platform }}
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Tag Docker image
@@ -35,3 +39,12 @@ jobs:
         run: |
           IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:xdbg-${{ matrix.platform }}
           docker push $IMAGE_NAME
+      - name: Upload xdbg binary to release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./xdbg-${{ matrix.platform }}
+          asset_name: xdbg-${{ matrix.platform }}
+          asset_content_type: application/octet-stream

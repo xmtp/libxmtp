@@ -12,7 +12,6 @@ use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::ClientBuilder;
-use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -124,7 +123,7 @@ pub async fn create_client(
   host: String,
   inbox_id: String,
   account_address: String,
-  db_path: String,
+  db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
@@ -133,7 +132,10 @@ pub async fn create_client(
   xmtp_mls::storage::init_sqlite().await;
   let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
 
-  let storage_option = StorageOption::Persistent(db_path);
+  let storage_option = match db_path {
+    Some(path) => StorageOption::Persistent(path),
+    None => StorageOption::Ephemeral,
+  };
 
   let store = match encryption_key {
     Some(key) => {
@@ -150,7 +152,7 @@ pub async fn create_client(
       .map_err(|_| JsError::new("Error creating unencrypted message store"))?,
   };
 
-  let identity_strategy = IdentityStrategy::CreateIfNotFound(
+  let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     account_address.clone().to_lowercase(),
     // this is a temporary solution
@@ -201,6 +203,11 @@ impl Client {
   #[wasm_bindgen(getter, js_name = installationId)]
   pub fn installation_id(&self) -> String {
     ed25519_public_key_to_address(self.inner_client.installation_public_key().as_slice())
+  }
+
+  #[wasm_bindgen(getter, js_name = installationIdBytes)]
+  pub fn installation_id_bytes(&self) -> Uint8Array {
+    Uint8Array::from(self.inner_client.installation_public_key().as_slice())
   }
 
   #[wasm_bindgen(js_name = canMessage)]
@@ -265,9 +272,14 @@ impl Client {
 
   #[wasm_bindgen(js_name = findInboxIdByAddress)]
   pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>, JsError> {
+    let conn = self
+      .inner_client
+      .store()
+      .conn()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_address(address)
+      .find_inbox_id_from_address(&conn, address)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

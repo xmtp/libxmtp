@@ -5,8 +5,30 @@ use napi_derive::napi;
 use std::ops::Deref;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
-  AccountId,
+  verify_signed_with_public_context, AccountId,
 };
+
+#[napi]
+pub fn verify_signed_with_public_key(
+  signature_text: String,
+  signature_bytes: Uint8Array,
+  public_key: Uint8Array,
+) -> Result<()> {
+  let signature_bytes = signature_bytes.deref().to_vec();
+  let signature_bytes: [u8; 64] = signature_bytes
+    .try_into()
+    .map_err(|_| Error::from_reason("signature_bytes is not 64 bytes long."))?;
+
+  let public_key = public_key.deref().to_vec();
+  let public_key: [u8; 32] = public_key
+    .try_into()
+    .map_err(|_| Error::from_reason("public_key is not 32 bytes long."))?;
+
+  Ok(
+    verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
+      .map_err(ErrorWrapper::from)?,
+  )
+}
 
 #[napi]
 #[derive(Eq, Hash, PartialEq)]
@@ -35,17 +57,11 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_wallet_signature_text(
-    &self,
-    existing_wallet_address: String,
-    new_wallet_address: String,
-  ) -> Result<String> {
+  pub async fn add_wallet_signature_text(&self, new_wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client()
-      .associate_wallet(
-        existing_wallet_address.to_lowercase(),
-        new_wallet_address.to_lowercase(),
-      )
+      .associate_wallet(new_wallet_address.to_lowercase())
+      .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
     let mut signature_requests = self.signature_requests().lock().await;
@@ -81,7 +97,7 @@ impl Client {
     let other_installation_ids = inbox_state
       .installation_ids()
       .into_iter()
-      .filter(|id| id != &installation_id)
+      .filter(|id| id != installation_id)
       .collect();
     let signature_request = self
       .inner_client()
@@ -172,5 +188,26 @@ impl Client {
     }
 
     Ok(())
+  }
+
+  #[napi]
+  pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
+    let result = self
+      .inner_client()
+      .context()
+      .sign_with_public_context(signature_text)
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(result.into())
+  }
+
+  #[napi]
+  pub fn verify_signed_with_installation_key(
+    &self,
+    signature_text: String,
+    signature_bytes: Uint8Array,
+  ) -> Result<()> {
+    let public_key = self.inner_client().installation_public_key();
+    verify_signed_with_public_key(signature_text, signature_bytes, public_key.into())
   }
 }

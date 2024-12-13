@@ -1,16 +1,14 @@
 pub mod identity;
 pub mod mls;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
 use std::sync::Arc;
 
-use crate::{
-    retry::{Retry, RetryableError},
-    XmtpApi,
-};
+use crate::XmtpApi;
 use thiserror::Error;
-use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
+use xmtp_common::{Retry, RetryableError};
+use xmtp_id::{associations::DeserializationError as AssociationDeserializationError, InboxId};
 use xmtp_proto::Error as ApiError;
 
 pub use identity::*;
@@ -34,6 +32,7 @@ impl RetryableError for WrappedApiError {
 pub struct ApiClientWrapper<ApiClient> {
     pub(crate) api_client: Arc<ApiClient>,
     pub(crate) retry_strategy: Retry,
+    pub(crate) inbox_id: Option<InboxId>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
@@ -44,6 +43,13 @@ where
         Self {
             api_client,
             retry_strategy,
+            inbox_id: None,
         }
+    }
+
+    /// Attach an InboxId to this API Client Wrapper.
+    /// Attaches an inbox_id context to tracing logs, useful for debugging
+    pub(crate) fn attach_inbox_id(&mut self, inbox_id: Option<InboxId>) {
+        self.inbox_id = inbox_id;
     }
 }

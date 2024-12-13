@@ -14,6 +14,8 @@ mod inspect;
 mod modify;
 /// Query for data on the network
 mod query;
+/// Send functionality
+mod send;
 /// Local storage
 mod store;
 /// Types shared between App Functions
@@ -96,6 +98,7 @@ impl App {
         if let Some(cmd) = cmd {
             match cmd {
                 Generate(g) => generate::Generate::new(g, backend, db).run().await,
+                Send(s) => send::Send::new(s, backend, db).run().await,
                 Inspect(i) => inspect::Inspect::new(i, backend, db).run().await,
                 Query(_q) => todo!(),
                 Info(i) => info::Info::new(i, backend, db).run().await,

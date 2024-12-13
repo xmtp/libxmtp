@@ -135,11 +135,13 @@ struct ForeignIdentity {
 }
 
 impl redb::Value for Identity {
-    type SelfType<'a> = Identity
+    type SelfType<'a>
+        = Identity
     where
         Self: 'a;
 
-    type AsBytes<'a> = [u8; size_of::<Identity>()]
+    type AsBytes<'a>
+        = [u8; size_of::<Identity>()]
     where
         Self: 'a;
 
@@ -184,11 +186,13 @@ pub struct Group {
 }
 
 impl redb::Value for Group {
-    type SelfType<'a> = Group
+    type SelfType<'a>
+        = Group
     where
         Self: 'a;
 
-    type AsBytes<'a> = Vec<u8>
+    type AsBytes<'a>
+        = Vec<u8>
     where
         Self: 'a;
 

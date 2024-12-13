@@ -11,10 +11,10 @@ use crate::{
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
-    retry::Retry,
     storage::EncryptedMessageStore,
-    StorageError, XmtpApi,
+    StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use xmtp_common::Retry;
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -110,8 +110,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V>
 where
-    ApiClient: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     /// Build with a custom smart contract wallet verifier
     pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
@@ -122,7 +122,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + 'static,
+    ApiClient: XmtpApi + 'static + Send + Sync,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
@@ -163,8 +163,8 @@ async fn inner_build<C, V>(
     api_client: Arc<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
-    C: XmtpApi + 'static,
-    V: SmartContractSignatureVerifier + 'static,
+    C: XmtpApi + 'static + Send + Sync,
+    V: SmartContractSignatureVerifier + 'static + Send + Sync,
 {
     let ClientBuilder {
         mut store,
@@ -186,27 +186,39 @@ where
     let store = store
         .take()
         .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-    debug!("Initializing identity");
-
+    let conn = store.conn()?;
+    let provider = XmtpOpenMlsProvider::new(conn);
     let identity = identity_strategy
-        .initialize_identity(&api_client_wrapper, &store, &scw_verifier)
+        .initialize_identity(&api_client_wrapper, &provider, &scw_verifier)
         .await?;
+
+    debug!(
+        inbox_id = identity.inbox_id(),
+        installation_id = hex::encode(identity.installation_keys.public_bytes()),
+        "Initialized identity"
+    );
 
     // get sequence_id from identity updates and loaded into the DB
     load_identity_updates(
         &api_client_wrapper,
-        &store.conn()?,
+        provider.conn_ref(),
         vec![identity.inbox_id.as_str()].as_slice(),
     )
     .await?;
 
-    Ok(Client::new(
+    let client = Client::new(
         api_client_wrapper,
         identity,
         store,
         scw_verifier,
         history_sync_url.clone(),
-    ))
+    );
+
+    if history_sync_url.is_some() {
+        client.start_sync_worker();
+    }
+
+    Ok(client)
 }
 
 #[cfg(test)]
@@ -218,24 +230,22 @@ pub(crate) mod tests {
     use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
-    use crate::retry::Retry;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
-    use crate::{
-        api::test_utils::*, identity::Identity, storage::identity::StoredIdentity,
-        utils::test::rand_vec, Store,
-    };
+    use crate::{api::test_utils::*, identity::Identity, storage::identity::StoredIdentity, Store};
+    use xmtp_common::{rand_vec, tmp_path, Retry};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
+    use xmtp_common::rand_u64;
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_id::associations::generate_inbox_id;
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
     use xmtp_id::associations::ValidatedLegacySignedPublicKey;
-    use xmtp_id::associations::{generate_inbox_id, test_utils::rand_u64};
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::xmtp::identity::api::v1::{
@@ -251,7 +261,6 @@ pub(crate) mod tests {
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
-        utils::test::tmp_path,
         Client, InboxOwner,
     };
 
@@ -340,7 +349,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&legacy_account_address, &1).unwrap(),
                         legacy_account_address.clone(),
                         1,
@@ -352,7 +361,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&legacy_account_address, &1).unwrap(),
                         legacy_account_address.clone(),
                         0,
@@ -364,7 +373,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&legacy_account_address, &0).unwrap(),
                         legacy_account_address.clone(),
                         0,
@@ -377,7 +386,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let account_address = generate_local_wallet().get_address();
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&account_address, &1).unwrap(),
                         account_address.clone(),
                         0,
@@ -390,7 +399,7 @@ pub(crate) mod tests {
                 strategy: {
                     let nonce = 1;
                     let account_address = generate_local_wallet().get_address();
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&account_address, &nonce).unwrap(),
                         account_address.clone(),
                         nonce,
@@ -403,7 +412,7 @@ pub(crate) mod tests {
                 strategy: {
                     let nonce = 0;
                     let account_address = generate_local_wallet().get_address();
-                    IdentityStrategy::CreateIfNotFound(
+                    IdentityStrategy::new(
                         generate_inbox_id(&account_address, &nonce).unwrap(),
                         account_address.clone(),
                         nonce,
@@ -446,7 +455,7 @@ pub(crate) mod tests {
         let id = generate_inbox_id(&legacy_account_address, &0).unwrap();
         println!("{}", id.len());
 
-        let identity_strategy = IdentityStrategy::CreateIfNotFound(
+        let identity_strategy = IdentityStrategy::new(
             generate_inbox_id(&legacy_account_address, &0).unwrap(),
             legacy_account_address.clone(),
             0,
@@ -479,7 +488,7 @@ pub(crate) mod tests {
         assert!(client1.inbox_id() == client2.inbox_id());
         assert!(client1.installation_public_key() == client2.installation_public_key());
 
-        let client3 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client3 = ClientBuilder::new(IdentityStrategy::new(
             generate_inbox_id(&legacy_account_address, &0).unwrap(),
             legacy_account_address.to_string(),
             0,
@@ -495,7 +504,7 @@ pub(crate) mod tests {
         assert!(client1.inbox_id() == client3.inbox_id());
         assert!(client1.installation_public_key() == client3.installation_public_key());
 
-        let client4 = ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        let client4 = ClientBuilder::new(IdentityStrategy::new(
             generate_inbox_id(&legacy_account_address, &0).unwrap(),
             legacy_account_address.to_string(),
             0,
@@ -544,11 +553,10 @@ pub(crate) mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
-        let identity =
-            IdentityStrategy::CreateIfNotFound("other_inbox_id".to_string(), address, nonce, None);
+        let identity = IdentityStrategy::new("other_inbox_id".to_string(), address, nonce, None);
         assert!(matches!(
             identity
-                .initialize_identity(&wrapper, &store, &scw_verifier)
+                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
                 .await
                 .unwrap_err(),
             IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -586,10 +594,10 @@ pub(crate) mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
-        let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
+        let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(dbg!(
             identity
-                .initialize_identity(&wrapper, &store, &scw_verifier)
+                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
                 .await
         )
         .is_ok());
@@ -616,7 +624,7 @@ pub(crate) mod tests {
         let stored: StoredIdentity = (&Identity {
             inbox_id: inbox_id.clone(),
             installation_keys: XmtpInstallationCredential::new(),
-            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
             signature_request: None,
             is_ready: AtomicBool::new(true),
         })
@@ -625,9 +633,9 @@ pub(crate) mod tests {
 
         stored.store(&store.conn().unwrap()).unwrap();
         let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
-        let identity = IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address, nonce, None);
+        let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(identity
-            .initialize_identity(&wrapper, &store, &scw_verifier)
+            .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
             .await
             .is_ok());
     }
@@ -653,7 +661,7 @@ pub(crate) mod tests {
         let stored: StoredIdentity = (&Identity {
             inbox_id: stored_inbox_id.clone(),
             installation_keys: Default::default(),
-            credential: Credential::new(CredentialType::Basic, rand_vec()),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
             signature_request: None,
             is_ready: AtomicBool::new(true),
         })
@@ -665,10 +673,9 @@ pub(crate) mod tests {
         let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
 
         let inbox_id = "inbox_id".to_string();
-        let identity =
-            IdentityStrategy::CreateIfNotFound(inbox_id.clone(), address.clone(), nonce, None);
+        let identity = IdentityStrategy::new(inbox_id.clone(), address.clone(), nonce, None);
         let err = identity
-            .initialize_identity(&wrapper, &store, &scw_verifier)
+            .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
             .await
             .unwrap_err();
 
@@ -691,7 +698,7 @@ pub(crate) mod tests {
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
-        let client_a = Client::builder(IdentityStrategy::CreateIfNotFound(
+        let client_a = Client::builder(IdentityStrategy::new(
             inbox_id.clone(),
             wallet.get_address(),
             nonce,
@@ -707,7 +714,7 @@ pub(crate) mod tests {
         register_client(&client_a, wallet).await;
         assert!(client_a.identity().is_ready());
 
-        let keybytes_a = client_a.installation_public_key();
+        let keybytes_a = client_a.installation_public_key().to_vec();
         drop(client_a);
 
         // Reload the existing store and wallet
@@ -715,7 +722,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let client_b = Client::builder(IdentityStrategy::CreateIfNotFound(
+        let client_b = Client::builder(IdentityStrategy::new(
             inbox_id,
             wallet.get_address(),
             nonce,
@@ -727,7 +734,7 @@ pub(crate) mod tests {
         .build_with_verifier()
         .await
         .unwrap();
-        let keybytes_b = client_b.installation_public_key();
+        let keybytes_b = client_b.installation_public_key().to_vec();
         drop(client_b);
 
         // Ensure the persistence was used to store the generated keys
@@ -739,7 +746,7 @@ pub(crate) mod tests {
         //     EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
         //         .unwrap();
 
-        // ClientBuilder::new(IdentityStrategy::CreateIfNotFound(
+        // ClientBuilder::new(IdentityStrategy::new(
         //     generate_local_wallet().get_address(),
         //     None,
         // ))
@@ -760,7 +767,7 @@ pub(crate) mod tests {
             .build_with_verifier()
             .await
             .unwrap();
-        assert_eq!(client_d.installation_public_key(), keybytes_a);
+        assert_eq!(client_d.installation_public_key().to_vec(), keybytes_a);
     }
 
     /// anvil cannot be used in WebAssembly
@@ -801,7 +808,7 @@ pub(crate) mod tests {
                 let account_address = format!("{scw_addr:?}");
                 let account_id = AccountId::new_evm(anvil_meta.chain_id, account_address.clone());
 
-                let identity_strategy = IdentityStrategy::CreateIfNotFound(
+                let identity_strategy = IdentityStrategy::new(
                     generate_inbox_id(&account_address, &0).unwrap(),
                     account_address,
                     0,
