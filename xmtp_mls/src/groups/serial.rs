@@ -1,20 +1,4 @@
-use openmls::{
-    credentials::{BasicCredential, CredentialType},
-    error::LibraryError,
-    extensions::{
-        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
-        UnknownExtension,
-    },
-    group::{
-        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
-        ProcessedWelcome,
-    },
-    messages::proposals::ProposalType,
-    prelude::{
-        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
-    },
-};
+use openmls::prelude::MlsGroup as OpenMlsGroup;
 
 use std::{
     collections::HashMap,
@@ -28,29 +12,31 @@ pub static MLS_COMMIT_LOCK: LazyLock<parking_lot::Mutex<HashMap<Vec<u8>, Arc<Mut
 
 pub struct SerialOpenMlsGroup<'a> {
     group: &'a mut OpenMlsGroup,
-    lock: MutexGuard<'a, ()>,
+    _lock: MutexGuard<'a, ()>,
     _mutex: Arc<Mutex<()>>,
 }
 
-impl<'a> Deref for SerialOpenMlsGroup<'a> {
+impl Deref for SerialOpenMlsGroup<'_> {
     type Target = OpenMlsGroup;
     fn deref(&self) -> &Self::Target {
-        &self.group
+        self.group
     }
 }
 
-impl<'a> DerefMut for SerialOpenMlsGroup<'a> {
+impl DerefMut for SerialOpenMlsGroup<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.group
     }
 }
 
+#[allow(unused)]
 pub(crate) trait OpenMlsLock {
-    fn lock_blocking<'a>(&'a mut self) -> SerialOpenMlsGroup<'a>;
-    async fn lock<'a>(&'a mut self) -> SerialOpenMlsGroup<'a>;
+    fn lock_blocking(&mut self) -> SerialOpenMlsGroup;
+    async fn lock(&mut self) -> SerialOpenMlsGroup;
 }
 
 impl OpenMlsLock for OpenMlsGroup {
+    #[allow(clippy::needless_lifetimes)]
     async fn lock<'a>(&'a mut self) -> SerialOpenMlsGroup<'a> {
         // .clone() is important here so that the outer lock gets dropped
         let mutex = MLS_COMMIT_LOCK
@@ -68,11 +54,12 @@ impl OpenMlsLock for OpenMlsGroup {
 
         SerialOpenMlsGroup {
             group: self,
-            lock,
+            _lock: lock,
             _mutex: mutex,
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     fn lock_blocking<'a>(&'a mut self) -> SerialOpenMlsGroup<'a> {
         // .clone() is important here so that the outer lock gets dropped
         let mutex = MLS_COMMIT_LOCK
@@ -90,7 +77,7 @@ impl OpenMlsLock for OpenMlsGroup {
 
         SerialOpenMlsGroup {
             group: self,
-            lock,
+            _lock: lock,
             _mutex: mutex,
         }
     }

@@ -34,7 +34,6 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use serial::SerialOpenMlsGroup;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -60,7 +59,6 @@ use self::{
     group_permissions::PolicySet,
     validated_commit::CommitValidationError,
 };
-use std::ops::{Deref, DerefMut};
 use std::{collections::HashSet, sync::Arc};
 use xmtp_common::time::now_ns;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};

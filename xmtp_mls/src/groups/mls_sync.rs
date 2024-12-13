@@ -505,7 +505,7 @@ where
 
         let decrypted_message = locked_openmls_group.process_message(provider, message)?;
         let (sender_inbox_id, sender_installation_id) = extract_message_sender(
-            &mut *locked_openmls_group,
+            &mut locked_openmls_group,
             &decrypted_message,
             envelope_timestamp_ns,
         )?;

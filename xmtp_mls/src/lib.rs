@@ -64,7 +64,6 @@ pub trait Delete<Model> {
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
-use crate::groups::GroupError;
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
