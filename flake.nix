@@ -22,9 +22,8 @@
   outputs = inputs@{ flake-parts, fenix, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
-      perSystem = { pkgs, lib, inputs', system, ... }:
+      perSystem = { pkgs, lib, system, ... }:
         let
-          fenixPkgs = inputs'.fenix.packages;
           androidTargets = [
             "aarch64-linux-android"
             "armv7-linux-androideabi"
@@ -36,7 +35,7 @@
           rust-toolchain = with fenix.packages.${system}; combine [
             stable.cargo
             stable.rustc
-            (pkgs.lib.forEach
+            (lib.forEach
               androidTargets
               (target: targets."${target}".stable.rust-std))
             targets.x86_64-unknown-linux-musl.stable.rust-std
