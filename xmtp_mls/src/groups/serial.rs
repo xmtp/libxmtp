@@ -16,15 +16,15 @@ use openmls::{
     },
 };
 
-use parking_lot::{Mutex, MutexGuard};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::{Arc, LazyLock},
 };
+use tokio::sync::{Mutex, MutexGuard};
 
-pub static MLS_COMMIT_LOCK: LazyLock<Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>> =
-    LazyLock::new(Mutex::default);
+pub static MLS_COMMIT_LOCK: LazyLock<parking_lot::Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>> =
+    LazyLock::new(parking_lot::Mutex::default);
 
 pub struct SerialOpenMlsGroup<'a> {
     group: &'a mut OpenMlsGroup,
@@ -59,7 +59,7 @@ impl OpenMlsLock for OpenMlsGroup {
             .clone();
 
         // this may block
-        let lock = mutex.lock();
+        let lock = mutex.blocking_lock();
         let lock = unsafe {
             // let the borrow checker know that this guard's mutex is going to be owned by the struct it's returning
             std::mem::transmute::<MutexGuard<'_, ()>, MutexGuard<'a, ()>>(lock)

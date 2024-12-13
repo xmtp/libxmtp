@@ -881,8 +881,10 @@ where
                     );
                     tracing::info!(
                         inbox_id = self.inbox_id(),
-                        "current epoch for [{}] in sync_all_groups()",
+                        group_epoch = mls_group.epoch().as_u64(),
+                        "current epoch for [{}] in sync_all_groups() is Epoch: [{}]",
                         self.inbox_id(),
+                        mls_group.epoch()
                     );
                     if mls_group.is_active() {
                         group.maybe_update_installations(provider, None).await?;
