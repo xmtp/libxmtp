@@ -206,7 +206,6 @@ impl DbConnection {
                 .filter(
                     dsl::state
                         .eq(IntentState::ToPublish)
-                        .or(dsl::state.eq(IntentState::Published)),
                 )
                 .set((
                     dsl::state.eq(IntentState::Published),
