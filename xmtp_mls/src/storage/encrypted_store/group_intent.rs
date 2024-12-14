@@ -197,16 +197,12 @@ impl DbConnection {
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
     ) -> Result<(), StorageError> {
-        let payload_hash_clone = payload_hash.clone();
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
                 // ToPublish
-                .filter(
-                    dsl::state
-                        .eq(IntentState::ToPublish)
-                )
+                .filter(dsl::state.eq(IntentState::ToPublish))
                 .set((
                     dsl::state.eq(IntentState::Published),
                     dsl::payload_hash.eq(payload_hash),
@@ -222,14 +218,7 @@ impl DbConnection {
             0 => Err(StorageError::NotFound(format!(
                 "ToPublish intent {intent_id} for publish"
             ))),
-            _ => {
-                tracing::info!("Set intent {intent_id} to published");
-                tracing::info!(
-                    "intent {intent_id} that was just saved to DB has payload_hash: {:?}",
-                    hex::encode(payload_hash_clone)
-                );
-                Ok(())
-            }
+            _ => Ok(()),
         }
     }
 
