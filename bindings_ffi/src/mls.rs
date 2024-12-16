@@ -1073,6 +1073,8 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when there is a new consent update either locally or is synced from anotherh device
+    /// allowing the user to re-render the new state appropriately
     pub async fn stream_consent(&self, callback: Arc<dyn FfiConsentCallback>) -> FfiStreamCloser {
         let handle =
             RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
@@ -1085,6 +1087,8 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when a preference changes either locally or is synced from another device
+    /// allowing the user to re-render the new state appropriately.
     pub async fn stream_preferences(
         &self,
         callback: Arc<dyn FfiPreferenceCallback>,
