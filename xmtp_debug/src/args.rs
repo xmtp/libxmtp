@@ -57,7 +57,7 @@ pub struct Generate {
     #[arg(long, short)]
     pub amount: usize,
     /// Specify amount of random identities to invite to group
-    #[arg(long, short)]
+    #[arg(long)]
     pub invite: Option<usize>,
     #[command(flatten)]
     pub message_opts: MessageGenerateOpts,
