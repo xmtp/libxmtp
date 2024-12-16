@@ -14,7 +14,7 @@ pub static XMTP_PRODUCTION_D14N: LazyLock<Url> = LazyLock::new(|| Url::parse("")
 pub static XMTP_DEV_D14N: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://grpc.testnet.xmtp.network:443").unwrap());
 pub static XMTP_LOCAL_D14N: LazyLock<Url> =
-    LazyLock::new(|| Url::parse("http://localhots:5050").unwrap());
+    LazyLock::new(|| Url::parse("http://localhost:5050").unwrap());
 
 pub static XMTP_PRODUCTION_PAYER: LazyLock<Url> = LazyLock::new(|| Url::parse("").unwrap());
 pub static XMTP_DEV_PAYER: LazyLock<Url> =
