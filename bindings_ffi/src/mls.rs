@@ -16,6 +16,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -1072,6 +1073,8 @@ impl FfiConversations {
         FfiStreamCloser::new(handle)
     }
 
+    /// Get notified when there is a new consent update either locally or is synced from another device
+    /// allowing the user to re-render the new state appropriately
     pub async fn stream_consent(&self, callback: Arc<dyn FfiConsentCallback>) -> FfiStreamCloser {
         let handle =
             RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
@@ -1083,6 +1086,25 @@ impl FfiConversations {
 
         FfiStreamCloser::new(handle)
     }
+
+    /// Get notified when a preference changes either locally or is synced from another device
+    /// allowing the user to re-render the new state appropriately.
+    pub async fn stream_preferences(
+        &self,
+        callback: Arc<dyn FfiPreferenceCallback>,
+    ) -> FfiStreamCloser {
+        let handle = RustXmtpClient::stream_preferences_with_callback(
+            self.inner_client.clone(),
+            move |msg| match msg {
+                Ok(m) => callback.on_preference_update(
+                    m.into_iter().filter_map(|v| v.try_into().ok()).collect(),
+                ),
+                Err(e) => callback.on_error(e.into()),
+            },
+        );
+
+        FfiStreamCloser::new(handle)
+    }
 }
 
 impl From<FfiConversationType> for ConversationType {
@@ -1091,6 +1113,20 @@ impl From<FfiConversationType> for ConversationType {
             FfiConversationType::Dm => ConversationType::Dm,
             FfiConversationType::Group => ConversationType::Group,
             FfiConversationType::Sync => ConversationType::Sync,
+        }
+    }
+}
+
+impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
+    type Error = GenericError;
+    fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
+        match value {
+            UserPreferenceUpdate::HmacKeyUpdate { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            // These are filtered out in the stream and should not be here
+            // We're keeping preference update and consent streams separate right now.
+            UserPreferenceUpdate::ConsentUpdate(_) => Err(GenericError::Generic {
+                err: "Consent updates should be filtered out.".to_string(),
+            }),
         }
     }
 }
@@ -1755,6 +1791,17 @@ pub trait FfiConsentCallback: Send + Sync {
     fn on_error(&self, error: FfiSubscribeError);
 }
 
+#[uniffi::export(with_foreign)]
+pub trait FfiPreferenceCallback: Send + Sync {
+    fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
+    fn on_error(&self, error: FfiSubscribeError);
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiPreferenceUpdate {
+    HMAC { key: Vec<u8> },
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversationMetadata {
     inner: Arc<GroupMetadata>,
@@ -1818,7 +1865,10 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiXmtpClient};
+    use super::{
+        create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
+        FfiPreferenceUpdate, FfiXmtpClient,
+    };
     use crate::{
         get_inbox_id_for_address, inbox_owner::SigningError, FfiConsent, FfiConsentEntityType,
         FfiConsentState, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
@@ -1827,12 +1877,9 @@ mod tests {
         FfiPermissionPolicySet, FfiPermissionUpdateType, FfiSubscribeError,
     };
     use ethers::utils::hex;
-    use std::{
-        sync::{
-            atomic::{AtomicU32, Ordering},
-            Arc, Mutex,
-        },
-        time::{Duration, Instant},
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
     };
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_common::tmp_path;
@@ -1887,6 +1934,7 @@ mod tests {
         messages: Mutex<Vec<FfiMessage>>,
         conversations: Mutex<Vec<Arc<FfiConversation>>>,
         consent_updates: Mutex<Vec<FfiConsent>>,
+        preference_updates: Mutex<Vec<FfiPreferenceUpdate>>,
         notify: Notify,
         inbox_id: Option<String>,
         installation_id: Option<String>,
@@ -1965,6 +2013,23 @@ mod tests {
             );
             let mut consent_updates = self.consent_updates.lock().unwrap();
             consent_updates.append(&mut consent);
+            self.notify.notify_one();
+        }
+
+        fn on_error(&self, error: FfiSubscribeError) {
+            log::error!("{}", error)
+        }
+    }
+
+    impl FfiPreferenceCallback for RustStreamCallback {
+        fn on_preference_update(&self, mut preference: Vec<super::FfiPreferenceUpdate>) {
+            log::debug!(
+                inbox_id = self.inbox_id,
+                installation_id = self.installation_id,
+                "received consent update"
+            );
+            let mut preference_updates = self.preference_updates.lock().unwrap();
+            preference_updates.append(&mut preference);
             self.notify.notify_one();
         }
 
@@ -4231,23 +4296,17 @@ mod tests {
         let result = stream_a_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
-        let start = Instant::now();
-        loop {
-            // update the sync group's messages to pipe them into the events
+        wait_for_ok(|| async {
             alix_b
                 .conversations()
                 .sync_all_conversations(None)
                 .await
                 .unwrap();
 
-            if stream_b_callback.wait_for_delivery(Some(1)).await.is_ok() {
-                break;
-            }
-
-            if start.elapsed() > Duration::from_secs(5) {
-                panic!("Timed out while waiting for alix_b consent updates.");
-            }
-        }
+            stream_b_callback.wait_for_delivery(Some(1)).await
+        })
+        .await
+        .unwrap();
 
         // two outgoing consent updates
         assert_eq!(stream_a_callback.consent_updates_count(), 2);
@@ -4256,6 +4315,35 @@ mod tests {
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_preferences() {
+        let wallet = generate_local_wallet();
+        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let stream_a_callback = Arc::new(RustStreamCallback::default());
+
+        let a_stream = alix_a
+            .conversations()
+            .stream_preferences(stream_a_callback.clone())
+            .await;
+
+        let _alix_b = new_test_client_with_wallet_and_history(wallet).await;
+
+        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
+        assert!(result.is_ok());
+
+        let update = {
+            let mut a_updates = stream_a_callback.preference_updates.lock().unwrap();
+            assert_eq!(a_updates.len(), 1);
+
+            a_updates.pop().unwrap()
+        };
+
+        // We got the HMAC update
+        assert!(matches!(update, FfiPreferenceUpdate::HMAC { .. }));
+
+        a_stream.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
