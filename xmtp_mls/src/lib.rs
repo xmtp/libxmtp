@@ -20,10 +20,10 @@ pub mod verified_key_package_v2;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
-use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use storage::{DuplicateItem, StorageError};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
@@ -33,7 +33,7 @@ pub use xmtp_proto::api_client::trait_impls::*;
 #[derive(Debug)]
 pub struct GroupCommitLock {
     // Storage for group-specific semaphores
-    locks: Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>,
+    locks: Mutex<HashMap<Vec<u8>, Arc<Semaphore>>>,
 }
 
 impl Default for GroupCommitLock {
@@ -50,17 +50,47 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<Arc<Mutex<()>>, GroupError> {
-        let mutex = {
+    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
+        let semaphore = {
             let mut locks = self.locks.lock();
             locks
+                .unwrap()
                 .entry(group_id)
-                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .or_insert_with(|| Arc::new(Semaphore::new(1)))
                 .clone()
         };
 
-        Ok(mutex)
+        let permit = semaphore.clone().acquire_owned().await?;
+        Ok(SemaphoreGuard {
+            _permit: permit,
+            _semaphore: semaphore,
+        })
     }
+
+    /// Get or create a semaphore for a specific group and acquire it synchronously
+    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
+        let semaphore = {
+            let locks = self.locks.lock();
+            locks
+                .unwrap()
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                .clone()
+        };
+
+        // Synchronously acquire the permit
+        let permit = semaphore.clone().try_acquire_owned()?;
+        Ok(SemaphoreGuard {
+            _permit: permit,
+            _semaphore: semaphore, // semaphore is now valid because we cloned it earlier
+        })
+    }
+}
+
+/// A guard that releases the semaphore when dropped
+pub struct SemaphoreGuard {
+    _permit: OwnedSemaphorePermit,
+    _semaphore: Arc<Semaphore>,
 }
 
 // Static instance of `GroupCommitLock`
