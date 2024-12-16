@@ -132,6 +132,18 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return encoded
 	}
 
+	public func prepareMessage(encodedContent: EncodedContent) async throws
+		-> String
+	{
+		if try consentState() == .unknown {
+			try await updateConsentState(state: .allowed)
+		}
+
+		let messageId = try ffiConversation.sendOptimistic(
+			contentBytes: encodedContent.serializedData())
+		return messageId.toHex
+	}
+
 	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
 		async throws -> String
 	{
