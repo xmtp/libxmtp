@@ -72,6 +72,13 @@ sealed class Conversation {
         }
     }
 
+    fun prepareMessage(encodedContent: EncodedContent): String {
+        return when (this) {
+            is Group -> group.prepareMessage(encodedContent)
+            is Dm -> dm.prepareMessage(encodedContent)
+        }
+    }
+
     suspend fun <T> send(content: T, options: SendOptions? = null): String {
         return when (this) {
             is Group -> group.send(content = content, options = options)
