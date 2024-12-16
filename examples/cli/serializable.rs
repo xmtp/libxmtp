@@ -35,7 +35,8 @@ impl SerializableGroup {
                     .mls_provider()
                     .expect("MLS Provider could not be created"),
             )
-            .expect("could not load metadata");
+            .await
+            .unwrap();
         let permissions = group.permissions().expect("could not load permissions");
 
         Self {

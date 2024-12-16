@@ -161,7 +161,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
+  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = MlsGroup::new(
       self.inner_client.clone(),
@@ -171,6 +171,7 @@ impl Conversation {
     let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let conversation_type = group
       .conversation_type(&provider)
+      .await
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
@@ -604,7 +605,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn group_metadata(&self) -> Result<GroupMetadata> {
+  pub async fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -613,6 +614,7 @@ impl Conversation {
 
     let metadata = group
       .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })

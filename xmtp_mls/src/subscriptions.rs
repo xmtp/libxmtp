@@ -344,7 +344,7 @@ where
             }
             WelcomeOrGroup::Group(group) => group?,
         };
-        let metadata = group.metadata(&provider)?;
+        let metadata = group.metadata(&provider).await?;
         Ok((metadata, group))
     }
 }

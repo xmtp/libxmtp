@@ -194,6 +194,7 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let conversation_type = group
       .conversation_type(&provider)
+      .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
       ConversationType::Group => None,
@@ -528,7 +529,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = groupMetadata)]
-  pub fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
+  pub async fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
     let group = self.to_mls_group();
     let metadata = group
       .metadata(
@@ -536,6 +537,7 @@ impl Conversation {
           .mls_provider()
           .map_err(|e| JsError::new(&format!("{e}")))?,
       )
+      .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(GroupMetadata { inner: metadata })

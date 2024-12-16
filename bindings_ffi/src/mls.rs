@@ -1268,13 +1268,13 @@ impl FfiConversation {
         Ok(())
     }
 
-    pub fn find_messages(
+    pub async fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type()? {
+        let kind = match self.conversation_type().await? {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => Some(GroupMessageKind::Application),
             FfiConversationType::Sync => None,
@@ -1544,9 +1544,9 @@ impl FfiConversation {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
-    pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
+    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let metadata = self.inner.metadata(&provider)?;
+        let metadata = self.inner.metadata(&provider).await?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1556,9 +1556,9 @@ impl FfiConversation {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
 
-    pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
+    pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let conversation_type = self.inner.conversation_type(&provider)?;
+        let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
     }
 }
