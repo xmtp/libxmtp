@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use color_eyre::eyre;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
@@ -56,7 +57,7 @@ pub struct Generate {
     #[arg(long, short)]
     pub amount: usize,
     /// Specify amount of random identities to invite to group
-    #[arg(long, short)]
+    #[arg(long)]
     pub invite: Option<usize>,
     #[command(flatten)]
     pub message_opts: MessageGenerateOpts,
@@ -193,6 +194,76 @@ pub struct BackendOpts {
         conflicts_with = "constant-backend"
     )]
     pub url: Option<url::Url>,
+    #[arg(
+        short,
+        long,
+        group = "custom-backend",
+        conflicts_with = "constant-backend"
+    )]
+    pub payer_url: Option<url::Url>,
+    /// Enable the decentralization backend
+    #[arg(short, long)]
+    pub d14n: bool,
+}
+
+impl BackendOpts {
+    pub fn payer_url(&self) -> eyre::Result<url::Url> {
+        use BackendKind::*;
+
+        if let Some(p) = &self.payer_url {
+            return Ok(p.clone());
+        }
+
+        match (self.backend, self.d14n) {
+            (Dev, false) => eyre::bail!("No payer for V3"),
+            (Production, false) => eyre::bail!("No payer for V3"),
+            (Local, false) => eyre::bail!("No payer for V3"),
+            (Dev, true) => Ok((*crate::constants::XMTP_DEV_PAYER).clone()),
+            (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_PAYER).clone()),
+            (Local, true) => Ok((*crate::constants::XMTP_LOCAL_PAYER).clone()),
+        }
+    }
+
+    pub fn network_url(&self) -> url::Url {
+        use BackendKind::*;
+
+        if let Some(n) = &self.url {
+            return n.clone();
+        }
+
+        match (self.backend, self.d14n) {
+            (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
+            (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
+            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
+            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
+            (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
+        }
+    }
+
+    pub async fn connect(&self) -> eyre::Result<Box<dyn xmtp_mls::XmtpApi>> {
+        let network = self.network_url();
+        let is_secure = network.scheme() == "https";
+
+        if self.d14n {
+            let payer = self.payer_url()?;
+            trace!(url = %network, payer = %payer, is_secure, "create grpc");
+
+            Ok(Box::new(
+                xmtp_api_grpc::replication_client::ClientV4::create(
+                    network.as_str().to_string(),
+                    payer.as_str().to_string(),
+                    is_secure,
+                )
+                .await?,
+            ))
+        } else {
+            trace!(url = %network, is_secure, "create grpc");
+            Ok(Box::new(
+                crate::GrpcClient::create(network.as_str().to_string(), is_secure).await?,
+            ))
+        }
+    }
 }
 
 impl<'a> From<&'a BackendOpts> for u64 {
@@ -202,10 +273,13 @@ impl<'a> From<&'a BackendOpts> for u64 {
         if let Some(ref url) = value.url {
             xxh3::xxh3_64(url.as_str().as_bytes())
         } else {
-            match value.backend {
-                Production => 2,
-                Dev => 1,
-                Local => 0,
+            match (value.backend, value.d14n) {
+                (Production, false) => 2,
+                (Dev, false) => 1,
+                (Local, false) => 0,
+                (Production, true) => 5,
+                (Dev, true) => 4,
+                (Local, true) => 3,
             }
         }
     }
@@ -219,8 +293,10 @@ impl From<BackendOpts> for u64 {
 
 impl From<BackendOpts> for url::Url {
     fn from(value: BackendOpts) -> Self {
-        let BackendOpts { backend, url } = value;
-        url.unwrap_or(backend.into())
+        let BackendOpts {
+            backend, url, d14n, ..
+        } = value;
+        url.unwrap_or(backend.to_network_url(d14n))
     }
 }
 
@@ -230,6 +306,20 @@ pub enum BackendKind {
     Production,
     #[default]
     Local,
+}
+
+impl BackendKind {
+    fn to_network_url(self, d14n: bool) -> url::Url {
+        use BackendKind::*;
+        match (self, d14n) {
+            (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
+            (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
+            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
+            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
+            (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
+        }
+    }
 }
 
 impl From<BackendKind> for url::Url {
