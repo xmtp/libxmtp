@@ -19,13 +19,12 @@ bench = [
     "indicatif",
     "tracing-subscriber",
     "anyhow",
-    "tracing-flame",
-    "once_cell",
     "dep:xmtp_api_grpc",
     "criterion",
     "dep:fdlimit",
     "dep:ethers",
     "dep:const_format",
+    "xmtp_common/bench"
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -40,7 +39,7 @@ test-utils = [
     "xmtp_api_grpc/test-utils",
     "dep:const_format",
     "mockall",
-    "xmtp_common/test-utils"
+    "xmtp_common/test-utils",
 ]
 update-schema = ["toml"]
 
@@ -69,8 +68,8 @@ tokio-stream = { version = "0.1", default-features = false, features = [
 ] }
 tracing.workspace = true
 trait-variant.workspace = true
-zeroize.workspace = true
 xmtp_common.workspace = true
+zeroize.workspace = true
 
 # XMTP/Local
 xmtp_content_types = { path = "../xmtp_content_types" }
@@ -89,15 +88,10 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
-criterion = { version = "0.5", features = [
-    "html_reports",
-    "async_tokio",
-], optional = true }
+criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 mockall = { version = "0.13.1", optional = true }
-once_cell = { version = "1.19", optional = true }
-tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",
@@ -133,10 +127,10 @@ diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
 ] }
-diesel-wasm-sqlite = { workspace = true }
 getrandom = { workspace = true, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
+sqlite-web = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
@@ -147,10 +141,10 @@ anyhow.workspace = true
 const_format.workspace = true
 mockall = "0.13.1"
 openmls_basic_credential.workspace = true
+wasm-bindgen-test.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"]}
-wasm-bindgen-test.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -169,12 +163,9 @@ xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 console_error_panic_hook = { version = "0.1" }
-diesel-wasm-sqlite = { workspace = true, features = [
-    "unsafe-debug-query",
-    "r2d2",
-] }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
+sqlite-web = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true

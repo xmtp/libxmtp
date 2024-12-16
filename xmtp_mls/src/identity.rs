@@ -82,6 +82,7 @@ impl IdentityStrategy {
 
     /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
     /// If an Identity is not found in the local store, creates a new one.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(
         inbox_id: InboxId,
         address: String,
@@ -106,6 +107,7 @@ impl IdentityStrategy {
      * the inbox_id configured on the strategy.
      *
      **/
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -131,6 +133,12 @@ impl IdentityStrategy {
                 legacy_signed_private_key,
             } => {
                 if let Some(stored_identity) = stored_identity {
+                    tracing::debug!(
+                        installation_id =
+                            hex::encode(stored_identity.installation_keys.public_bytes()),
+                        inbox_id = stored_identity.inbox_id,
+                        "Found existing identity in store"
+                    );
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
                             id: inbox_id.clone(),
@@ -258,6 +266,7 @@ impl Identity {
     /// If a legacy key is provided, it will be used to sign the identity update and no wallet signature is needed.
     ///
     /// If no legacy key is provided, a wallet signature is always required.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
         address: String,

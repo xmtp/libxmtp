@@ -65,6 +65,7 @@ impl<ApiClient, V> Client<ApiClient, V> {
 }
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V> {
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(strategy: IdentityStrategy) -> Self {
         Self {
             api_client: None,
@@ -101,7 +102,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         self.app_version = Some(version);
         self
     }
-
+    #[tracing::instrument(level = "trace", skip_all)]
     pub fn scw_signature_verifier(mut self, verifier: V) -> Self {
         self.scw_verifier = Some(verifier);
         self
@@ -125,6 +126,7 @@ where
     ApiClient: XmtpApi + 'static + Send + Sync,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
         let (mut builder, api_client) = inner_build_api_client(self)?;
         builder = builder.scw_signature_verifier(RemoteSignatureVerifier::new(api_client.clone()));
@@ -158,6 +160,7 @@ where
     Ok((builder, Arc::new(api_client)))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn inner_build<C, V>(
     client: ClientBuilder<C, V>,
     api_client: Arc<C>,
@@ -197,7 +200,6 @@ where
         installation_id = hex::encode(identity.installation_keys.public_bytes()),
         "Initialized identity"
     );
-
     // get sequence_id from identity updates and loaded into the DB
     load_identity_updates(
         &api_client_wrapper,

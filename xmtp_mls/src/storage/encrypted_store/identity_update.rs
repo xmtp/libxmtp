@@ -9,7 +9,7 @@ use super::{
 use diesel::{dsl::max, prelude::*};
 
 #[cfg(target_arch = "wasm32")]
-use diesel_wasm_sqlite::dsl::RunQueryDsl;
+use sqlite_web::dsl::RunQueryDsl;
 
 use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
