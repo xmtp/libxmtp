@@ -21,10 +21,10 @@ mod store;
 /// Types shared between App Functions
 mod types;
 
+use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
 use std::{fs, path::PathBuf, sync::Arc};
-use clap::CommandFactory;
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::{generate_inbox_id, unverified::UnverifiedSignature};
