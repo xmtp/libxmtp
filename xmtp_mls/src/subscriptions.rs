@@ -113,6 +113,34 @@ impl<C> LocalEvents<C> {
             _ => None,
         }
     }
+
+    fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
+        use LocalEvents::*;
+
+        match self {
+            OutgoingPreferenceUpdates(updates) => {
+                let updates = updates
+                    .into_iter()
+                    .filter_map(|pu| match pu {
+                        UserPreferenceUpdate::ConsentUpdate(_) => None,
+                        _ => Some(pu),
+                    })
+                    .collect();
+                Some(updates)
+            }
+            IncomingPreferenceUpdate(updates) => {
+                let updates = updates
+                    .into_iter()
+                    .filter_map(|pu| match pu {
+                        UserPreferenceUpdate::ConsentUpdate(_) => None,
+                        _ => Some(pu),
+                    })
+                    .collect();
+                Some(updates)
+            }
+            _ => None,
+        }
+    }
 }
 
 pub(crate) trait StreamMessages<C> {
@@ -120,6 +148,9 @@ pub(crate) trait StreamMessages<C> {
     fn stream_consent_updates(
         self,
     ) -> impl Stream<Item = Result<Vec<StoredConsentRecord>, SubscribeError>>;
+    fn stream_preference_updates(
+        self,
+    ) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>, SubscribeError>>;
 }
 
 impl<C> StreamMessages<C> for broadcast::Receiver<LocalEvents<C>>
@@ -141,6 +172,16 @@ where
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::consent_filter)
+                .map(Result::Ok)
+        })
+    }
+
+    fn stream_preference_updates(
+        self,
+    ) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>, SubscribeError>> {
+        BroadcastStream::new(self).filter_map(|event| async {
+            xmtp_common::optify!(event, "Missed message due to event queue lag")
+                .and_then(LocalEvents::preference_filter)
                 .map(Result::Ok)
         })
     }
@@ -511,6 +552,26 @@ where
         crate::spawn(Some(rx), async move {
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_consent_updates();
+
+            futures::pin_mut!(stream);
+            let _ = tx.send(());
+            while let Some(message) = stream.next().await {
+                callback(message)
+            }
+            tracing::debug!("`stream_consent` stream ended, dropping stream");
+            Ok::<_, ClientError>(())
+        })
+    }
+
+    pub fn stream_preferences_with_callback(
+        client: Arc<Client<ApiClient, V>>,
+        mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>, SubscribeError>) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
+        let (tx, rx) = oneshot::channel();
+
+        crate::spawn(Some(rx), async move {
+            let receiver = client.local_events.subscribe();
+            let stream = receiver.stream_preference_updates();
 
             futures::pin_mut!(stream);
             let _ = tx.send(());
