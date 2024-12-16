@@ -296,7 +296,7 @@ impl From<BackendOpts> for url::Url {
         let BackendOpts {
             backend, url, d14n, ..
         } = value;
-        url.unwrap_or(backend.to_url(d14n))
+        url.unwrap_or(backend.to_network_url(d14n))
     }
 }
 
