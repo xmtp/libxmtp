@@ -42,7 +42,7 @@ pub use sqlcipher_connection::EncryptedConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
-pub use diesel_wasm_sqlite::{
+pub use sqlite_web::{
     connection::WasmSqliteConnection as RawDbConnection, WasmSqlite as Sqlite,
 };
 
