@@ -29,7 +29,7 @@ impl UserPreferenceUpdate {
             .iter()
             .map(bincode::serialize)
             .collect::<Result<Vec<_>, _>>()?;
-        let update_proto = UserPreferenceUpdateProto { content: updates };
+        let update_proto = UserPreferenceUpdateProto { contents: updates };
         let content_bytes = serde_json::to_vec(&update_proto)?;
         sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
@@ -50,7 +50,7 @@ impl UserPreferenceUpdate {
     ) -> Result<Vec<Self>, StorageError> {
         let conn = provider.conn_ref();
 
-        let proto_content = update_proto.content;
+        let proto_content = update_proto.contents;
 
         let mut updates = Vec::with_capacity(proto_content.len());
         let mut consent_updates = vec![];
