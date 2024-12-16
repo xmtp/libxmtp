@@ -7,8 +7,8 @@ use std::{
 };
 use tokio::sync::{Mutex, MutexGuard};
 
-pub static MLS_COMMIT_LOCK: LazyLock<parking_lot::Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>> =
-    LazyLock::new(parking_lot::Mutex::default);
+type CommitLock = parking_lot::Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>;
+pub static MLS_COMMIT_LOCK: LazyLock<CommitLock> = LazyLock::new(parking_lot::Mutex::default);
 
 pub struct SerialOpenMlsGroup<'a> {
     group: &'a mut OpenMlsGroup,
@@ -25,7 +25,7 @@ impl Deref for SerialOpenMlsGroup<'_> {
 
 impl DerefMut for SerialOpenMlsGroup<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.group
+        self.group
     }
 }
 
