@@ -34,7 +34,7 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -206,10 +206,10 @@ pub enum GroupError {
     IntentNotCommitted,
     #[error(transparent)]
     ProcessIntent(#[from] ProcessIntentError),
-    #[error(transparent)]
-    LockUnavailable(#[from] tokio::sync::AcquireError),
-    #[error(transparent)]
-    LockFailedToAcquire(#[from] tokio::sync::TryAcquireError),
+    #[error("Failed to load lock")]
+    LockUnavailable,
+    #[error("Failed to acquire semaphore lock")]
+    LockFailedToAcquire,
 }
 
 impl RetryableError for GroupError {
@@ -236,8 +236,8 @@ impl RetryableError for GroupError {
             Self::MessageHistory(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable(_) => true,
-            Self::LockFailedToAcquire(_) => true,
+            Self::LockUnavailable => true,
+            Self::LockFailedToAcquire => true,
             Self::SyncFailedToWait => true,
             Self::GroupNotFound
             | Self::GroupMetadata(_)

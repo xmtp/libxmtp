@@ -52,34 +52,52 @@ impl GroupCommitLock {
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
     pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
         let semaphore = {
-            let mut locks = self.locks.lock();
-            locks
-                .unwrap()
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                .clone()
+            match self.locks.lock() {
+                Ok(mut locks) => locks
+                    .entry(group_id)
+                    .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                    .clone(),
+                Err(err) => {
+                    eprintln!("Failed to lock the mutex: {}", err);
+                    return Err(GroupError::LockUnavailable);
+                }
+            }
         };
 
-        let permit = semaphore.clone().acquire_owned().await?;
+        let semaphore_clone = semaphore.clone();
+        let permit = match semaphore.acquire_owned().await {
+            Ok(permit) => permit,
+            Err(err) => {
+                eprintln!("Failed to acquire semaphore permit: {}", err);
+                return Err(GroupError::LockFailedToAcquire);
+            }
+        };
         Ok(SemaphoreGuard {
             _permit: permit,
-            _semaphore: semaphore,
+            _semaphore: semaphore_clone,
         })
     }
 
     /// Get or create a semaphore for a specific group and acquire it synchronously
     pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
         let semaphore = {
-            let locks = self.locks.lock();
-            locks
-                .unwrap()
-                .entry(group_id)
-                .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                .clone()
+            match self.locks.lock() {
+                Ok(mut locks) => locks
+                    .entry(group_id)
+                    .or_insert_with(|| Arc::new(Semaphore::new(1)))
+                    .clone(),
+                Err(err) => {
+                    eprintln!("Failed to lock the mutex: {}", err);
+                    return Err(GroupError::LockUnavailable);
+                }
+            }
         };
 
         // Synchronously acquire the permit
-        let permit = semaphore.clone().try_acquire_owned()?;
+        let permit = semaphore
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| GroupError::LockUnavailable)?;
         Ok(SemaphoreGuard {
             _permit: permit,
             _semaphore: semaphore, // semaphore is now valid because we cloned it earlier
