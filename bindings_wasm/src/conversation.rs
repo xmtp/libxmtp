@@ -6,10 +6,13 @@ use xmtp_mls::storage::group::ConversationType;
 use crate::client::RustXmtpClient;
 use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
+use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
+  group_mutable_metadata::MetadataField as XmtpMetadataField,
+  intents::PermissionUpdateType as XmtpPermissionUpdateType,
   members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
 use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs};
@@ -542,5 +545,23 @@ impl Conversation {
     group
       .dm_inbox_id()
       .map_err(|e| JsError::new(&format!("{e}")))
+  }
+
+  #[wasm_bindgen(js_name = updatePermissionPolicy)]
+  pub async fn update_permission_policy(
+    &self,
+    permission_update_type: PermissionUpdateType,
+    permission_policy_option: PermissionPolicy,
+    metadata_field: Option<MetadataField>,
+  ) -> Result<(), JsError> {
+    self
+      .to_mls_group()
+      .update_permission_policy(
+        XmtpPermissionUpdateType::from(&permission_update_type),
+        permission_policy_option.try_into()?,
+        metadata_field.map(|field| XmtpMetadataField::from(&field)),
+      )
+      .await
+      .map_err(Into::into)
   }
 }

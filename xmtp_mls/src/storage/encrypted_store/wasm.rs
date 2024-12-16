@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use diesel::{connection::AnsiTransactionManager, prelude::*};
-pub use diesel_wasm_sqlite::connection::WasmSqliteConnection as SqliteConnection;
 use parking_lot::Mutex;
+pub use sqlite_web::connection::WasmSqliteConnection as SqliteConnection;
 
 use super::{db_connection::DbConnectionPrivate, StorageError, StorageOption, XmtpDb};
 
@@ -26,7 +26,7 @@ impl std::fmt::Debug for WasmDb {
 impl WasmDb {
     pub async fn new(opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
-        diesel_wasm_sqlite::init_sqlite().await;
+        sqlite_web::init_sqlite().await;
         let conn = match opts {
             Ephemeral => SqliteConnection::establish(":memory:"),
             Persistent(ref db_path) => SqliteConnection::establish(db_path),

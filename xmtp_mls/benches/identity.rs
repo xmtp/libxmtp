@@ -1,6 +1,7 @@
 use crate::tracing::Instrument;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use tokio::runtime::{Builder, Runtime};
+use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
@@ -8,8 +9,7 @@ use xmtp_id::{
     },
     InboxOwner,
 };
-use xmtp_mls::utils::bench::{bench_async_setup, BenchClient, BENCH_ROOT_SPAN};
-use xmtp_mls::utils::bench::{clients, init_logging};
+use xmtp_mls::utils::bench::{clients, BenchClient};
 
 #[macro_use]
 extern crate tracing;
@@ -38,7 +38,7 @@ async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> Signat
 }
 
 fn register_identity_eoa(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
 
     let runtime = setup();
 

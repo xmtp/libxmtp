@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.29
+
+- Added support for custom permission policy sets
+
 ## 0.0.28
 
 - Removed `is_installation_authorized` and `is_address_authorized` from `Client`
