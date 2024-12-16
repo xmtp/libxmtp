@@ -5,15 +5,14 @@ use std::{
     ops::{Deref, DerefMut},
     sync::{Arc, LazyLock},
 };
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 type CommitLock = parking_lot::Mutex<HashMap<Vec<u8>, Arc<Mutex<()>>>>;
 pub static MLS_COMMIT_LOCK: LazyLock<CommitLock> = LazyLock::new(parking_lot::Mutex::default);
 
 pub struct SerialOpenMlsGroup<'a> {
     group: &'a mut OpenMlsGroup,
-    _lock: MutexGuard<'a, ()>,
-    _mutex: Arc<Mutex<()>>,
+    _lock: OwnedMutexGuard<()>,
 }
 
 impl Deref for SerialOpenMlsGroup<'_> {
@@ -46,16 +45,11 @@ impl OpenMlsLock for OpenMlsGroup {
             .clone();
 
         // this may block
-        let lock = mutex.lock().await;
-        let lock = unsafe {
-            // let the borrow checker know that this guard's mutex is going to be owned by the struct it's returning
-            std::mem::transmute::<MutexGuard<'_, ()>, MutexGuard<'a, ()>>(lock)
-        };
+        let lock = mutex.lock_owned().await;
 
         SerialOpenMlsGroup {
             group: self,
             _lock: lock,
-            _mutex: mutex,
         }
     }
 
@@ -69,16 +63,11 @@ impl OpenMlsLock for OpenMlsGroup {
             .clone();
 
         // this may block
-        let lock = mutex.blocking_lock();
-        let lock = unsafe {
-            // let the borrow checker know that this guard's mutex is going to be owned by the struct it's returning
-            std::mem::transmute::<MutexGuard<'_, ()>, MutexGuard<'a, ()>>(lock)
-        };
+        let lock = mutex.blocking_lock_owned();
 
         SerialOpenMlsGroup {
             group: self,
             _lock: lock,
-            _mutex: mutex,
         }
     }
 }
