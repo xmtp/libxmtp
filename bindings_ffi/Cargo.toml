@@ -24,6 +24,11 @@ xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
 xmtp_common.workspace = true
 
+# Bench
+criterion = { workspace = true, optional = true }
+fdlimit = { version = "0.3", optional = true}
+
+
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2"
 
@@ -47,3 +52,12 @@ uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+
+[features]
+bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
+
+[[bench]]
+harness = false
+name = "create_client"
+required-features = ["bench"]
+

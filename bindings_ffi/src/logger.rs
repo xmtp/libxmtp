@@ -91,6 +91,6 @@ static LOGGER_INIT: Once = Once::new();
 pub fn init_logger() {
     LOGGER_INIT.call_once(|| {
         let native_layer = native_layer();
-        tracing_subscriber::registry().with(native_layer).init()
+        let _ = tracing_subscriber::registry().with(native_layer).try_init();
     });
 }
