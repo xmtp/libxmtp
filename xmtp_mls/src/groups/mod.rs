@@ -204,10 +204,6 @@ pub enum GroupError {
     IntentNotCommitted,
     #[error(transparent)]
     ProcessIntent(#[from] ProcessIntentError),
-    #[error(transparent)]
-    LockUnavailable(#[from] tokio::sync::AcquireError),
-    #[error(transparent)]
-    LockFailedToAcquire(#[from] tokio::sync::TryAcquireError),
 }
 
 impl RetryableError for GroupError {
@@ -234,8 +230,6 @@ impl RetryableError for GroupError {
             Self::MessageHistory(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable(_) => true,
-            Self::LockFailedToAcquire(_) => true,
             Self::SyncFailedToWait => true,
             Self::GroupNotFound
             | Self::GroupMetadata(_)
