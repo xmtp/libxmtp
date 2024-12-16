@@ -16,6 +16,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -1088,13 +1089,15 @@ impl FfiConversations {
         &self,
         callback: Arc<dyn FfiPreferenceCallback>,
     ) -> FfiStreamCloser {
-        let handle =
-            RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
-                match msg {
-                    Ok(m) => callback.on_preference_update(m.into_iter().map(Into::into).collect()),
-                    Err(e) => callback.on_error(e.into()),
-                }
-            });
+        let handle = RustXmtpClient::stream_preferences_with_callback(
+            self.inner_client.clone(),
+            move |msg| match msg {
+                Ok(m) => callback.on_preference_update(
+                    m.into_iter().filter_map(|v| v.try_into().ok()).collect(),
+                ),
+                Err(e) => callback.on_error(e.into()),
+            },
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -1106,6 +1109,20 @@ impl From<FfiConversationType> for ConversationType {
             FfiConversationType::Dm => ConversationType::Dm,
             FfiConversationType::Group => ConversationType::Group,
             FfiConversationType::Sync => ConversationType::Sync,
+        }
+    }
+}
+
+impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
+    type Error = GenericError;
+    fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
+        match value {
+            UserPreferenceUpdate::HmacKeyUpdate { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            // These are filtered out in the stream and should not be here
+            // We're keeping preference update and consent streams separate right now.
+            UserPreferenceUpdate::ConsentUpdate(_) => Err(GenericError::Generic {
+                err: "Consent updates should be filtered out.".to_string(),
+            }),
         }
     }
 }
