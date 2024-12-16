@@ -14,6 +14,7 @@ on:
       - "xmtp_mls/**"
       - "xmtp_proto/**"
       - "xmtp_v2/**"
+      - "xmtp_debug/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
