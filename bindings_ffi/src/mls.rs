@@ -1083,6 +1083,21 @@ impl FfiConversations {
 
         FfiStreamCloser::new(handle)
     }
+
+    pub async fn stream_preferences(
+        &self,
+        callback: Arc<dyn FfiPreferenceCallback>,
+    ) -> FfiStreamCloser {
+        let handle =
+            RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
+                match msg {
+                    Ok(m) => callback.on_preference_update(m.into_iter().map(Into::into).collect()),
+                    Err(e) => callback.on_error(e.into()),
+                }
+            });
+
+        FfiStreamCloser::new(handle)
+    }
 }
 
 impl From<FfiConversationType> for ConversationType {
@@ -1753,6 +1768,17 @@ pub trait FfiConversationCallback: Send + Sync {
 pub trait FfiConsentCallback: Send + Sync {
     fn on_consent_update(&self, consent: Vec<FfiConsent>);
     fn on_error(&self, error: FfiSubscribeError);
+}
+
+#[uniffi::export(with_foreign)]
+pub trait FfiPreferenceCallback: Send + Sync {
+    fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
+    fn on_error(&self, error: FfiSubscribeError);
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiPreferenceUpdate {
+    HMAC { key: Vec<u8> },
 }
 
 #[derive(uniffi::Object)]
