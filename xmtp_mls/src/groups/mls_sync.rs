@@ -1301,8 +1301,9 @@ where
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
-        let mls_group = self.load_mls_group(provider)?;
-        let existing_group_membership = extract_group_membership(mls_group.extensions())?;
+        let mut mls_group = self.load_mls_group(provider)?;
+        let locked_mls_group = mls_group.lock().await;
+        let existing_group_membership = extract_group_membership(locked_mls_group.extensions())?;
 
         // TODO:nm prevent querying for updates on members who are being removed
         let mut inbox_ids = existing_group_membership.inbox_ids();
