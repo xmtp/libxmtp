@@ -5,6 +5,7 @@ use super::{
         Installation, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
+    serial::SerialOpenMlsGroup,
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, IntentError, MlsGroup, ScopedGroupClient,
 };
@@ -977,6 +978,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), GroupError> {
         let mut openmls_group = self.load_mls_group(provider)?;
+        let mut locked_openmls_group = openmls_group.lock().await;
 
         let intents = provider.conn_ref().find_group_intents(
             self.group_id.clone(),
@@ -988,7 +990,7 @@ where
             let result = retry_async!(
                 Retry::default(),
                 (async {
-                    self.get_publish_intent_data(provider, &mut openmls_group, &intent)
+                    self.get_publish_intent_data(provider, &mut locked_openmls_group, &intent)
                         .await
                 })
             );
@@ -1028,7 +1030,7 @@ where
                         sha256(payload_slice),
                         post_commit_action,
                         staged_commit,
-                        openmls_group.epoch().as_u64() as i64,
+                        locked_openmls_group.epoch().as_u64() as i64,
                     )?;
                     tracing::debug!(
                         inbox_id = self.client.inbox_id(),
@@ -1082,7 +1084,7 @@ where
     async fn get_publish_intent_data(
         &self,
         provider: &XmtpOpenMlsProvider,
-        openmls_group: &mut OpenMlsGroup,
+        openmls_group: &mut SerialOpenMlsGroup<'_>,
         intent: &StoredGroupIntent,
     ) -> Result<Option<PublishIntentData>, GroupError> {
         match intent.kind {
