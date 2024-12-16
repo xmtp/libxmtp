@@ -1312,24 +1312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diesel-wasm-sqlite"
-version = "0.0.1"
-source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#7f0f938aa4d49ed7bfe5624d086e7f6583805419"
-dependencies = [
- "diesel",
- "diesel_derives",
- "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "talc",
- "thiserror 2.0.6",
- "tokio",
- "tracing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "diesel_derives"
 version = "2.2.0"
 source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
@@ -5513,6 +5495,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlite-web"
+version = "0.0.1"
+source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#0aa53058cbf3a1044e79cb6dd68a91c857308059"
+dependencies = [
+ "diesel",
+ "diesel_derives",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "talc",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7401,7 +7401,6 @@ dependencies = [
  "criterion",
  "ctor",
  "diesel",
- "diesel-wasm-sqlite",
  "diesel_migrations",
  "dyn-clone",
  "ethers",
@@ -7430,6 +7429,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
+ "sqlite-web",
  "tempfile",
  "thiserror 2.0.6",
  "tls_codec",
