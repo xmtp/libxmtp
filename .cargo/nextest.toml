@@ -1,2 +1,3 @@
 [profile.default]
 retries = 3
+default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"

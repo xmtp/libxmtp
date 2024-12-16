@@ -57,10 +57,7 @@ async fn new_client_inner(
     wallet: &LocalWallet,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {
-    let url = url::Url::from(network.clone());
-    let is_secure = url.scheme() == "https";
-    trace!(url = %url, is_secure, "create grpc");
-    let api = crate::GrpcClient::create(url.as_str().to_string(), is_secure).await?;
+    let api = network.connect().await?;
 
     let nonce = 1;
     let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
@@ -125,9 +122,7 @@ async fn existing_client_inner(
     network: &args::BackendOpts,
     db_path: PathBuf,
 ) -> Result<crate::DbgClient> {
-    let url = url::Url::from(network.clone());
-    let is_secure = url.scheme() == "https";
-    let api = crate::GrpcClient::create(url.as_str().to_string(), is_secure).await?;
+    let api = network.connect().await?;
 
     let store = EncryptedMessageStore::new(
         StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),

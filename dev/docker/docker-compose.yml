@@ -69,13 +69,13 @@ services:
     # note: the SHA here is tied to the XTMPD_CONTRACTS_*_ADDRESSes
     # if you bump the version of anvil-xmtpd you will have to change the contracts
     # you can find them inside the anvil-xmtpd image via `docker exec libxmtp-chain-1 cat contracts.env`
-    image: ghcr.io/xmtp/anvil-xmtpd:sha-0b3421b
+    image: ghcr.io/xmtp/anvil-xmtpd:sha-10808fb
     command: ["--host", "0.0.0.0"]
 
   repnode:
     platform: linux/amd64
     # note: avoid using :latest while xmtpd is under development to avoid breaking changes
-    image: ghcr.io/xmtp/xmtpd:sha-0b3421b
+    image: ghcr.io/xmtp/xmtpd:sha-10808fb
     environment:
       XMTPD_DB_WRITER_CONNECTION_STRING: "postgres://postgres:xmtp@replicationdb:5432/postgres?sslmode=disable"
       XMTPD_CONTRACTS_RPC_URL: "http://chain:8545"
@@ -84,9 +84,11 @@ services:
       XMTPD_CONTRACTS_IDENTITY_UPDATES_ADDRESS: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
       XMTPD_SIGNER_PRIVATE_KEY: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
       XMTPD_PAYER_PRIVATE_KEY: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
-      XMTPD_MLS_VALIDATION_GRPC_ADDRESS: "validation:50051"
+      XMTPD_MLS_VALIDATION_GRPC_ADDRESS: "http://validation:50051"
       XMTPD_PAYER_ENABLE: true
       XMTPD_REPLICATION_ENABLE: true
+      XMTPD_INDEXER_ENABLE: true
+      XMTPD_SYNC_ENABLE: true
     depends_on:
       chain:
         condition: service_started

@@ -21,6 +21,7 @@ mod store;
 /// Types shared between App Functions
 mod types;
 
+use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
 use std::{fs, path::PathBuf, sync::Arc};
@@ -94,6 +95,11 @@ impl App {
             ..
         } = opts;
         debug!(fdlimit = get_fdlimit());
+
+        if cmd.is_none() && !clear {
+            AppOpts::command().print_help()?;
+            eyre::bail!("No subcommand was specified");
+        }
 
         if let Some(cmd) = cmd {
             match cmd {
