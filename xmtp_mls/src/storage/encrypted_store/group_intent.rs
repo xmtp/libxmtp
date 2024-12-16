@@ -202,11 +202,7 @@ impl DbConnection {
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
                 // ToPublish
-                .filter(
-                    dsl::state
-                        .eq(IntentState::ToPublish)
-                        .or(dsl::state.eq(IntentState::Published)),
-                )
+                .filter(dsl::state.eq(IntentState::ToPublish))
                 .set((
                     dsl::state.eq(IntentState::Published),
                     dsl::payload_hash.eq(payload_hash),
