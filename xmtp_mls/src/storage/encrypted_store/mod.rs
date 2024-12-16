@@ -106,6 +106,7 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::Na
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
     /// Created a new store
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
         Self::new_database(opts, Some(enc_key))
     }
@@ -116,6 +117,7 @@ impl EncryptedMessageStore {
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
+    #[tracing::instrument(level = "trace", skip_all)]
     fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
@@ -170,6 +172,7 @@ pub mod private {
     where
         Db: XmtpDb,
     {
+        #[tracing::instrument(level = "trace", skip_all)]
         pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
             self.db.conn()?.raw_query(|conn| {

@@ -19,13 +19,12 @@ bench = [
     "indicatif",
     "tracing-subscriber",
     "anyhow",
-    "tracing-flame",
-    "once_cell",
     "dep:xmtp_api_grpc",
     "criterion",
     "dep:fdlimit",
     "dep:ethers",
     "dep:const_format",
+    "xmtp_common/bench"
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -89,15 +88,10 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
-criterion = { version = "0.5", features = [
-    "html_reports",
-    "async_tokio",
-], optional = true }
+criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 mockall = { version = "0.13.1", optional = true }
-once_cell = { version = "1.19", optional = true }
-tracing-flame = { version = "0.2", optional = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",

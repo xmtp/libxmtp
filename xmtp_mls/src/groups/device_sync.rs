@@ -1,18 +1,19 @@
 use super::{GroupError, MlsGroup};
-use crate::configuration::NS_IN_HOUR;
-use crate::storage::group::{ConversationType, GroupQueryArgs};
-use crate::storage::group_message::MsgQueryArgs;
-use crate::storage::DbConnection;
-use crate::subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage};
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+#[cfg(any(test, feature = "test-utils"))]
+pub use crate::utils::WorkerHandle;
 use crate::{
     client::ClientError,
+    configuration::NS_IN_HOUR,
     storage::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
+        group::{ConversationType, GroupQueryArgs},
+        group_message::MsgQueryArgs,
         group_message::{GroupMessageKind, StoredGroupMessage},
-        StorageError,
+        DbConnection, StorageError,
     },
+    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
 use aes_gcm::aead::generic_array::GenericArray;
@@ -24,14 +25,9 @@ use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{Notify, OnceCell};
-use tokio::time::error::Elapsed;
-use tokio::time::timeout;
+use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
 use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
@@ -119,17 +115,6 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-impl<ApiClient, V> Client<ApiClient, V> {
-    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
-        self.sync_worker_handle.lock().clone()
-    }
-
-    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
-        *self.sync_worker_handle.lock() = Some(handle);
-    }
-}
-
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -163,54 +148,7 @@ pub struct SyncWorker<ApiClient, V> {
 
     // Number of events processed
     #[cfg(any(test, feature = "test-utils"))]
-    handle: Arc<WorkerHandle>,
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-pub struct WorkerHandle {
-    processed: AtomicUsize,
-    notify: Notify,
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-impl WorkerHandle {
-    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Elapsed> {
-        timeout(Duration::from_secs(3), async {
-            while count > 0 {
-                self.notify.notified().await;
-                count -= 1;
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn wait_for_processed_count(&self, expected: usize) -> Result<(), Elapsed> {
-        timeout(Duration::from_secs(3), async {
-            while self.processed.load(Ordering::SeqCst) < expected {
-                self.notify.notified().await;
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn block_for_num_events<Fut>(&self, num_events: usize, op: Fut) -> Result<(), Elapsed>
-    where
-        Fut: Future<Output = ()>,
-    {
-        let processed_count = self.processed_count();
-        op.await;
-        self.wait_for_processed_count(processed_count + num_events)
-            .await?;
-        Ok(())
-    }
-
-    pub fn processed_count(&self) -> usize {
-        self.processed.load(Ordering::SeqCst)
-    }
+    handle: std::sync::Arc<WorkerHandle>,
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -251,8 +189,7 @@ where
 
             #[cfg(any(test, feature = "test-utils"))]
             {
-                self.handle.processed.fetch_add(1, Ordering::SeqCst);
-                self.handle.notify.notify_waiters();
+                self.handle.increment();
             }
         }
         Ok(())
@@ -380,10 +317,7 @@ where
             retry,
 
             #[cfg(any(test, feature = "test-utils"))]
-            handle: Arc::new(WorkerHandle {
-                processed: AtomicUsize::new(0),
-                notify: Notify::new(),
-            }),
+            handle: std::sync::Arc::new(Default::default()),
         }
     }
 
