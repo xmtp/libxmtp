@@ -14,6 +14,8 @@ xmtp_cryptography.workspace = true
 
 parking_lot = { workspace = true, optional  = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter", "ansi", "json"], optional = true }
+once_cell = { workspace = true, optional = true }
+tracing-flame = { version = "0.2", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
@@ -36,3 +38,4 @@ tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread", "sy
 
 [features]
 test-utils = ["dep:parking_lot", "dep:tracing-subscriber", "dep:tracing-wasm", "dep:console_error_panic_hook"]
+bench = ["test-utils", "dep:tracing-subscriber", "dep:once_cell", "dep:tracing-flame"]

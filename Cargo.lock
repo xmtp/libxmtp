@@ -1312,24 +1312,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diesel-wasm-sqlite"
-version = "0.0.1"
-source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#7f0f938aa4d49ed7bfe5624d086e7f6583805419"
-dependencies = [
- "diesel",
- "diesel_derives",
- "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "talc",
- "thiserror 2.0.6",
- "tokio",
- "tracing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "diesel_derives"
 version = "2.2.0"
 source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
@@ -3229,7 +3211,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4655,9 +4637,9 @@ dependencies = [
 
 [[package]]
 name = "redb"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84b1de48a7cf7ba193e81e078d17ee2b786236eed1d3f7c60f8a09545efc4925"
+checksum = "a7c2a94325f9c5826b17c42af11067230f503747f870117a28180e85696e21ba"
 dependencies = [
  "libc",
 ]
@@ -5510,6 +5492,24 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der 0.7.9",
+]
+
+[[package]]
+name = "sqlite-web"
+version = "0.0.1"
+source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#0aa53058cbf3a1044e79cb6dd68a91c857308059"
+dependencies = [
+ "diesel",
+ "diesel_derives",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "talc",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -6899,7 +6899,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -7299,11 +7299,13 @@ dependencies = [
  "getrandom",
  "gloo-timers 0.3.0",
  "js-sys",
+ "once_cell",
  "parking_lot 0.12.3",
  "rand",
  "thiserror 2.0.6",
  "tokio",
  "tracing",
+ "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
  "wasm-bindgen-futures",
@@ -7401,7 +7403,6 @@ dependencies = [
  "criterion",
  "ctor",
  "diesel",
- "diesel-wasm-sqlite",
  "diesel_migrations",
  "dyn-clone",
  "ethers",
@@ -7416,7 +7417,6 @@ dependencies = [
  "libsqlite3-sys",
  "mockall",
  "mockito",
- "once_cell",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -7430,6 +7430,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
+ "sqlite-web",
  "tempfile",
  "thiserror 2.0.6",
  "tls_codec",
@@ -7437,7 +7438,6 @@ dependencies = [
  "tokio-stream",
  "toml 0.8.19",
  "tracing",
- "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
  "trait-variant",
@@ -7505,7 +7505,9 @@ dependencies = [
 name = "xmtpv3"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "ethers",
+ "fdlimit",
  "futures",
  "paranoid-android",
  "parking_lot 0.12.3",

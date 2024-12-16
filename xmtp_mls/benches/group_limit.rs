@@ -6,13 +6,11 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{trace_span, Instrument};
+use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
 use xmtp_mls::{
     builder::ClientBuilder,
     groups::GroupMetadataOptions,
-    utils::bench::{
-        bench_async_setup, create_identities_if_dont_exist, init_logging, BenchClient, Identity,
-        BENCH_ROOT_SPAN,
-    },
+    utils::bench::{create_identities_if_dont_exist, BenchClient, Identity},
 };
 
 pub const IDENTITY_SAMPLES: [usize; 9] = [10, 20, 40, 80, 100, 200, 300, 400, 450];
@@ -50,7 +48,7 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
 }
 
 fn add_to_empty_group(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("add_to_empty_group");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
@@ -88,7 +86,7 @@ fn add_to_empty_group(c: &mut Criterion) {
 }
 
 fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("add_to_empty_group_by_inbox_id");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
@@ -130,7 +128,7 @@ fn add_to_empty_group_by_inbox_id(c: &mut Criterion) {
 }
 
 fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("add_to_100_member_group_by_inbox_id");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
@@ -188,7 +186,7 @@ fn add_to_100_member_group_by_inbox_id(c: &mut Criterion) {
 }
 
 fn remove_all_members_from_group(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("remove_all_members_from_group");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
@@ -233,7 +231,7 @@ fn remove_all_members_from_group(c: &mut Criterion) {
 }
 
 fn remove_half_members_from_group(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("remove_half_members_from_group");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
@@ -281,7 +279,7 @@ fn remove_half_members_from_group(c: &mut Criterion) {
 }
 
 fn add_1_member_to_group(c: &mut Criterion) {
-    init_logging();
+    bench::logger();
     let mut benchmark_group = c.benchmark_group("add_1_member_to_group");
     benchmark_group.sample_size(SAMPLE_SIZE);
 

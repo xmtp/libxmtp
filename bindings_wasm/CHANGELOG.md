@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.8
+
+- Added support for custom permission policy sets
+
 ## 0.0.7
 
 - Moved `verify_signed_with_public_key` out of `Client`
