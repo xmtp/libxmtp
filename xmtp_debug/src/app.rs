@@ -24,6 +24,7 @@ mod types;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
 use std::{fs, path::PathBuf, sync::Arc};
+use clap::CommandFactory;
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::{generate_inbox_id, unverified::UnverifiedSignature};
@@ -94,6 +95,11 @@ impl App {
             ..
         } = opts;
         debug!(fdlimit = get_fdlimit());
+
+        if cmd.is_none() && !clear {
+            AppOpts::command().print_help()?;
+            eyre::bail!("No subcommand was specified");
+        }
 
         if let Some(cmd) = cmd {
             match cmd {
