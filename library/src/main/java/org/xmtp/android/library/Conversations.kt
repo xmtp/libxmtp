@@ -129,7 +129,8 @@ data class Conversations(
 
     // Sync all new and existing conversations data from the network
     suspend fun syncAllConversations(): UInt {
-        return ffiConversations.syncAllConversations()
+        // TODO: add consentState here
+        return ffiConversations.syncAllConversations(null)
     }
 
     suspend fun newConversation(peerAddress: String): Conversation {
