@@ -61,7 +61,9 @@ describe('Conversations', () => {
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
     expect((await group.groupMetadata()).conversationType()).toBe('group')
-    expect((await group.groupMetadata()).creatorInboxId()).toBe(client1.inboxId())
+    expect((await group.groupMetadata()).creatorInboxId()).toBe(
+      client1.inboxId()
+    )
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
@@ -205,7 +207,9 @@ describe('Conversations', () => {
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
     expect((await group.groupMetadata()).conversationType()).toBe('dm')
-    expect((await group.groupMetadata()).creatorInboxId()).toBe(client1.inboxId())
+    expect((await group.groupMetadata()).creatorInboxId()).toBe(
+      client1.inboxId()
+    )
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
