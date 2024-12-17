@@ -38,6 +38,7 @@ use tokio::sync::Mutex;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
+pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
@@ -55,11 +56,12 @@ use self::{
 use self::{
     group_metadata::{GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::StorageError;
+use std::{collections::HashSet, sync::Arc};
 use xmtp_common::time::now_ns;
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -89,18 +91,13 @@ use crate::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
         group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        sql_key_store,
+        sql_key_store, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Store, MLS_COMMIT_LOCK,
+    Store,
 };
-use std::future::Future;
-use std::{collections::HashSet, sync::Arc};
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::{InboxId, InboxIdRef};
-
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
@@ -206,10 +203,6 @@ pub enum GroupError {
     IntentNotCommitted,
     #[error(transparent)]
     ProcessIntent(#[from] ProcessIntentError),
-    #[error("Failed to load lock")]
-    LockUnavailable,
-    #[error("Failed to acquire semaphore lock")]
-    LockFailedToAcquire,
 }
 
 impl RetryableError for GroupError {
@@ -236,8 +229,6 @@ impl RetryableError for GroupError {
             Self::MessageHistory(err) => err.is_retryable(),
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable => true,
-            Self::LockFailedToAcquire => true,
             Self::SyncFailedToWait => true,
             Self::GroupNotFound
             | Self::GroupMetadata(_)
@@ -341,55 +332,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) fn load_mls_group_with_lock<F, R>(
+    pub(crate) fn load_mls_group(
         &self,
         provider: impl OpenMlsProvider,
-        operation: F,
-    ) -> Result<R, GroupError>
-    where
-        F: FnOnce(OpenMlsGroup) -> Result<R, GroupError>,
-    {
-        // Get the group ID for locking
-        let group_id = self.group_id.clone();
-
-        // Acquire the lock synchronously using blocking_lock
-        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone());
-        // Load the MLS group
+    ) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(|_| GroupError::GroupNotFound)?
                 .ok_or(GroupError::GroupNotFound)?;
 
-        // Perform the operation with the MLS group
-        operation(mls_group)
-    }
-
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        operation: F,
-    ) -> Result<R, E>
-    where
-        F: FnOnce(OpenMlsGroup) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E: From<GroupMessageProcessingError> + From<crate::StorageError>,
-    {
-        // Get the group ID for locking
-        let group_id = self.group_id.clone();
-
-        // Acquire the lock asynchronously
-        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
-
-        // Load the MLS group
-        let mls_group =
-            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(crate::StorageError::from)?
-                .ok_or(crate::StorageError::NotFound("Group Not Found".into()))?;
-
-        // Perform the operation with the MLS group
-        operation(mls_group).await.map_err(Into::into)
+        Ok(mls_group)
     }
 
     // Create a new group and save it to the DB
@@ -896,7 +848,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -914,7 +866,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
@@ -936,7 +888,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
-    pub fn group_name(&self, provider: &XmtpOpenMlsProvider) -> Result<String, GroupError> {
+    pub fn group_name(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
@@ -955,7 +907,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_description: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -965,7 +917,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
-    pub fn group_description(&self, provider: &XmtpOpenMlsProvider) -> Result<String, GroupError> {
+    pub fn group_description(&self, provider: impl OpenMlsProvider) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
             .attributes
@@ -984,7 +936,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -998,7 +950,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
@@ -1017,7 +969,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         pinned_frame_url: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_data: Vec<u8> =
@@ -1029,7 +981,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub fn group_pinned_frame_url(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         match mutable_metadata
@@ -1044,7 +996,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
-    pub fn admin_list(&self, provider: &XmtpOpenMlsProvider) -> Result<Vec<String>, GroupError> {
+    pub fn admin_list(&self, provider: impl OpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list)
     }
@@ -1052,7 +1004,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     pub fn super_admin_list(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.super_admin_list)
@@ -1062,7 +1014,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn is_admin(
         &self,
         inbox_id: String,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.admin_list.contains(&inbox_id))
@@ -1072,18 +1024,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn is_super_admin(
         &self,
         inbox_id: String,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<bool, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
-    pub async fn conversation_type(
+    pub fn conversation_type(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<ConversationType, GroupError> {
-        let metadata = self.metadata(provider).await?;
+        let metadata = self.metadata(provider)?;
         Ok(metadata.conversation_type)
     }
 
@@ -1094,7 +1046,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         inbox_id: String,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
+        if self.metadata(&provider)?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
         }
         let intent_action_type = match action_type {
@@ -1175,40 +1127,35 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
-    /// Checks if the current user is active in the group.
+    /// Checks if the the current user is active in the group.
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
-    pub fn is_active(&self, provider: &XmtpOpenMlsProvider) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
+    pub fn is_active(&self, provider: impl OpenMlsProvider) -> Result<bool, GroupError> {
+        let mls_group = self.load_mls_group(provider)?;
+        Ok(mls_group.is_active())
     }
 
     /// Get the `GroupMetadata` of the group.
-    pub async fn metadata(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(provider, |mls_group| {
-            futures::future::ready(extract_group_metadata(&mls_group).map_err(Into::into))
-        })
-        .await
+    pub fn metadata(&self, provider: impl OpenMlsProvider) -> Result<GroupMetadata, GroupError> {
+        let mls_group = self.load_mls_group(provider)?;
+        Ok(extract_group_metadata(&mls_group)?)
     }
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl OpenMlsProvider,
     ) -> Result<GroupMutableMetadata, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group| {
-            Ok(GroupMutableMetadata::try_from(&mls_group)?)
-        })
+        let mls_group = &self.load_mls_group(provider)?;
+
+        Ok(mls_group.try_into()?)
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let provider = self.mls_provider()?;
+        let mls_group = self.load_mls_group(&provider)?;
 
-        self.load_mls_group_with_lock(&provider, |mls_group| {
-            Ok(extract_group_permissions(&mls_group)?)
-        })
+        Ok(extract_group_permissions(&mls_group)?)
     }
 
     /// Used for testing that dm group validation works as expected.
@@ -1660,6 +1607,7 @@ pub(crate) mod tests {
 
     use diesel::connection::SimpleConnection;
     use futures::future::join_all;
+    use openmls::prelude::Member;
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -1856,7 +1804,7 @@ pub(crate) mod tests {
 
         // Verify bola can see the group name
         let bola_group_name = bola_group
-            .group_name(&bola_group.mls_provider().unwrap())
+            .group_name(bola_group.mls_provider().unwrap())
             .unwrap();
         assert_eq!(bola_group_name, "");
 
@@ -1928,19 +1876,15 @@ pub(crate) mod tests {
 
         // Check Amal's MLS group state.
         let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
-        let amal_members_len = amal_group
-            .load_mls_group_with_lock(&amal_db, |mls_group| Ok(mls_group.members().count()))
-            .unwrap();
-
-        assert_eq!(amal_members_len, 3);
+        let amal_mls_group = amal_group.load_mls_group(&amal_db).unwrap();
+        let amal_members: Vec<Member> = amal_mls_group.members().collect();
+        assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
         let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
-        let bola_members_len = bola_group
-            .load_mls_group_with_lock(&bola_db, |mls_group| Ok(mls_group.members().count()))
-            .unwrap();
-
-        assert_eq!(bola_members_len, 3);
+        let bola_mls_group = bola_group.load_mls_group(&bola_db).unwrap();
+        let bola_members: Vec<Member> = bola_mls_group.members().collect();
+        assert_eq!(bola_members.len(), 3);
 
         let amal_uncommitted_intents = amal_db
             .conn_ref()
@@ -2000,26 +1944,19 @@ pub(crate) mod tests {
                 .unwrap();
             let provider = alix.mls_provider().unwrap();
             // Doctor the group membership
-            let mut mls_group = alix_group
-                .load_mls_group_with_lock(&provider, |mut mls_group| {
-                    let mut existing_extensions = mls_group.extensions().clone();
-                    let mut group_membership = GroupMembership::new();
-                    group_membership.add("deadbeef".to_string(), 1);
-                    existing_extensions
-                        .add_or_replace(build_group_membership_extension(&group_membership));
-
-                    mls_group
-                        .update_group_context_extensions(
-                            &provider,
-                            existing_extensions.clone(),
-                            &alix.identity().installation_keys,
-                        )
-                        .unwrap();
-                    mls_group.merge_pending_commit(&provider).unwrap();
-
-                    Ok(mls_group) // Return the updated group if necessary
-                })
+            let mut mls_group = alix_group.load_mls_group(&provider).unwrap();
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("deadbeef".to_string(), 1);
+            existing_extensions.add_or_replace(build_group_membership_extension(&group_membership));
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
                 .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
             // Now add bo to the group
             force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
@@ -2141,13 +2078,9 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 2);
 
         let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
-        let pending_commit_is_none = group
-            .load_mls_group_with_lock(&provider, |mls_group| {
-                Ok(mls_group.pending_commit().is_none())
-            })
-            .unwrap();
-
-        assert!(pending_commit_is_none);
+        let mls_group = group.load_mls_group(&provider).unwrap();
+        let pending_commit = mls_group.pending_commit();
+        assert!(pending_commit.is_none());
 
         group.send_message(b"hello").await.expect("send message");
 
@@ -2229,7 +2162,7 @@ pub(crate) mod tests {
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
         assert!(!bola_group
-            .is_active(&bola_group.mls_provider().unwrap())
+            .is_active(bola_group.mls_provider().unwrap())
             .unwrap())
     }
 
@@ -2322,12 +2255,8 @@ pub(crate) mod tests {
         assert!(new_installations_were_added.is_ok());
 
         group.sync().await.unwrap();
-        let num_members = group
-            .load_mls_group_with_lock(&provider, |mls_group| {
-                Ok(mls_group.members().collect::<Vec<_>>().len())
-            })
-            .unwrap();
-
+        let mls_group = group.load_mls_group(&provider).unwrap();
+        let num_members = mls_group.members().collect::<Vec<_>>().len();
         assert_eq!(num_members, 3);
     }
 
@@ -2424,7 +2353,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -2487,7 +2416,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata.attributes.len().eq(&4));
         assert!(group_mutable_metadata
@@ -2510,7 +2439,7 @@ pub(crate) mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -2529,7 +2458,7 @@ pub(crate) mod tests {
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -2540,7 +2469,7 @@ pub(crate) mod tests {
         // Verify bola group sees update
         bola_group.sync().await.unwrap();
         let binding = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -2557,7 +2486,7 @@ pub(crate) mod tests {
         // Verify bola group does not see an update
         bola_group.sync().await.unwrap();
         let binding = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -2578,7 +2507,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -2595,7 +2524,7 @@ pub(crate) mod tests {
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_image_url: &String = binding
             .attributes
@@ -2616,7 +2545,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -2633,7 +2562,7 @@ pub(crate) mod tests {
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_pinned_frame_url: &String = binding
             .attributes
@@ -2656,7 +2585,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -2677,7 +2606,7 @@ pub(crate) mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata
             .attributes
@@ -2694,7 +2623,7 @@ pub(crate) mod tests {
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         let amal_group_name: &String = binding
             .attributes
@@ -2705,7 +2634,7 @@ pub(crate) mod tests {
         // Verify bola group sees update
         bola_group.sync().await.unwrap();
         let binding = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -2722,7 +2651,7 @@ pub(crate) mod tests {
         // Verify amal group sees an update
         amal_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -2789,13 +2718,13 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         assert_eq!(
             bola_group
-                .admin_list(&bola_group.mls_provider().unwrap())
+                .admin_list(bola_group.mls_provider().unwrap())
                 .unwrap()
                 .len(),
             1
         );
         assert!(bola_group
-            .admin_list(&bola_group.mls_provider().unwrap())
+            .admin_list(bola_group.mls_provider().unwrap())
             .unwrap()
             .contains(&bola.inbox_id().to_string()));
 
@@ -2826,13 +2755,13 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         assert_eq!(
             bola_group
-                .admin_list(&bola_group.mls_provider().unwrap())
+                .admin_list(bola_group.mls_provider().unwrap())
                 .unwrap()
                 .len(),
             0
         );
         assert!(!bola_group
-            .admin_list(&bola_group.mls_provider().unwrap())
+            .admin_list(bola_group.mls_provider().unwrap())
             .unwrap()
             .contains(&bola.inbox_id().to_string()));
 
@@ -3110,14 +3039,13 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
 
         let mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert_eq!(mutable_metadata.super_admin_list.len(), 1);
         assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
         let protected_metadata: GroupMetadata = amal_group
-            .metadata(&amal_group.mls_provider().unwrap())
-            .await
+            .metadata(amal_group.mls_provider().unwrap())
             .unwrap();
         assert_eq!(
             protected_metadata.conversation_type,
@@ -3157,7 +3085,7 @@ pub(crate) mod tests {
             .unwrap();
         amal_group.sync().await.unwrap();
         let name = amal_group
-            .group_name(&amal_group.mls_provider().unwrap())
+            .group_name(amal_group.mls_provider().unwrap())
             .unwrap();
         assert_eq!(name, "Name Update 1");
 
@@ -3178,7 +3106,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
         bola_group.sync().await.unwrap();
         let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .mutable_metadata(amal_group.mls_provider().unwrap())
             .expect("msg");
         let amal_group_name: &String = binding
             .attributes
@@ -3186,7 +3114,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(amal_group_name, "Name Update 2");
         let binding = bola_group
-            .mutable_metadata(&bola_group.mls_provider().unwrap())
+            .mutable_metadata(bola_group.mls_provider().unwrap())
             .expect("msg");
         let bola_group_name: &String = binding
             .attributes
@@ -3397,16 +3325,16 @@ pub(crate) mod tests {
         amal_dm.sync().await.unwrap();
         bola_dm.sync().await.unwrap();
         let is_amal_admin = amal_dm
-            .is_admin(amal.inbox_id().to_string(), &amal.mls_provider().unwrap())
+            .is_admin(amal.inbox_id().to_string(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_admin = amal_dm
-            .is_admin(bola.inbox_id().to_string(), &bola.mls_provider().unwrap())
+            .is_admin(bola.inbox_id().to_string(), bola.mls_provider().unwrap())
             .unwrap();
         let is_amal_super_admin = amal_dm
-            .is_super_admin(amal.inbox_id().to_string(), &amal.mls_provider().unwrap())
+            .is_super_admin(amal.inbox_id().to_string(), amal.mls_provider().unwrap())
             .unwrap();
         let is_bola_super_admin = amal_dm
-            .is_super_admin(bola.inbox_id().to_string(), &bola.mls_provider().unwrap())
+            .is_super_admin(bola.inbox_id().to_string(), bola.mls_provider().unwrap())
             .unwrap();
         assert!(!is_amal_admin);
         assert!(!is_bola_admin);
@@ -3728,8 +3656,9 @@ pub(crate) mod tests {
             panic!("wrong message format")
         };
         let provider = client.mls_provider().unwrap();
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
         let process_result = group
-            .process_message(&provider, &first_message, false)
+            .process_message(&mut openmls_group, &provider, &first_message, false)
             .await;
 
         assert_err!(
@@ -3873,11 +3802,14 @@ pub(crate) mod tests {
             None,
         )
         .unwrap();
-        assert!(valid_dm_group
-            .load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group| {
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            })
-            .is_ok());
+        assert!(validate_dm_group(
+            &client,
+            &valid_dm_group
+                .load_mls_group(client.mls_provider().unwrap())
+                .unwrap(),
+            added_by_inbox
+        )
+        .is_ok());
 
         // Test case 2: Invalid conversation type
         let invalid_protected_metadata =
@@ -3892,11 +3824,10 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(matches!(
-            invalid_type_group.load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group|
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            ),
+            validate_dm_group(&client, &invalid_type_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid conversation type")
         ));
+
         // Test case 3: Missing DmMembers
         // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
 
@@ -3914,9 +3845,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(matches!(
-            mismatched_dm_members_group.load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group|
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            ),
+            validate_dm_group(&client, &mismatched_dm_members_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("DM members do not match expected inboxes")
         ));
 
@@ -3936,9 +3865,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(matches!(
-            non_empty_admin_list_group.load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group|
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            ),
+            validate_dm_group(&client, &non_empty_admin_list_group.load_mls_group(client.mls_provider().unwrap()).unwrap(), added_by_inbox),
             Err(GroupError::Generic(msg)) if msg.contains("DM group must have empty admin and super admin lists")
         ));
 
@@ -3957,9 +3884,11 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert!(matches!(
-            invalid_permissions_group.load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group|
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            ),
+                validate_dm_group(
+                    &client,
+                    &invalid_permissions_group.load_mls_group(client.mls_provider().unwrap()).unwrap(),
+                    added_by_inbox
+                ),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
         ));
     }

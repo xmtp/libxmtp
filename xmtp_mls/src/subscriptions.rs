@@ -385,7 +385,7 @@ where
             }
             WelcomeOrGroup::Group(group) => group?,
         };
-        let metadata = group.metadata(&provider).await?;
+        let metadata = group.metadata(provider)?;
         Ok((metadata, group))
     }
 }
@@ -658,11 +658,11 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_groups = bob
+        let bob_group = bob
             .sync_welcomes(&bob.mls_provider().unwrap())
             .await
             .unwrap();
-        let bob_group = bob_groups.first().unwrap();
+        let bob_group = bob_group.first().unwrap();
 
         let notify = Delivery::new(None);
         let notify_ptr = notify.clone();
@@ -968,7 +968,6 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

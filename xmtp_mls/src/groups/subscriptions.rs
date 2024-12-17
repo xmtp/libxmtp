@@ -48,14 +48,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     self.context()
                         .store()
                         .transaction_async(provider, |provider| async move {
+                            let mut openmls_group = self.load_mls_group(provider)?;
+
+                            // Attempt processing immediately, but fail if the message is not an Application Message
+                            // Returning an error should roll back the DB tx
                             tracing::info!(
                                 inbox_id = self.client.inbox_id(),
                                 group_id = hex::encode(&self.group_id),
+                                current_epoch = openmls_group.epoch().as_u64(),
                                 msg_id = msgv1.id,
-                                "current epoch for [{}] in process_stream_entry()",
+                                "current epoch for [{}] in process_stream_entry() is Epoch: [{}]",
                                 client_id,
+                                openmls_group.epoch()
                             );
-                            self.process_message(provider, msgv1, false)
+
+                            self.process_message(&mut openmls_group, provider, msgv1, false)
                                 .await
                                 // NOTE: We want to make sure we retry an error in process_message
                                 .map_err(SubscribeError::ReceiveGroup)

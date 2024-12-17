@@ -865,10 +865,9 @@ pub(crate) mod tests {
         };
 
         let provider = group.client.mls_provider().unwrap();
-        let decrypted_message = group
-            .load_mls_group_with_lock(&provider, |mut mls_group| {
-                Ok(mls_group.process_message(&provider, mls_message).unwrap())
-            })
+        let mut openmls_group = group.load_mls_group(&provider).unwrap();
+        let decrypted_message = openmls_group
+            .process_message(&provider, mls_message)
             .unwrap();
 
         let staged_commit = match decrypted_message.into_content() {
