@@ -80,7 +80,8 @@ public actor Conversations {
 		try await ffiConversations.sync()
 	}
 	public func syncAllConversations() async throws -> UInt32 {
-		return try await ffiConversations.syncAllConversations()
+        // TODO: add consent state here
+        return try await ffiConversations.syncAllConversations(consentState: nil)
 	}
 
 	public func listGroups(
