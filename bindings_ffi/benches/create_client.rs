@@ -6,7 +6,10 @@
 use crate::tracing::Instrument;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use tokio::runtime::{Builder, Runtime};
-use xmtp_common::{bench::BENCH_ROOT_SPAN, tmp_path};
+use xmtp_common::{
+    bench::{bench_async_setup, BENCH_ROOT_SPAN},
+    tmp_path,
+};
 use xmtp_id::InboxOwner;
 use xmtp_mls::utils::test::HISTORY_SYNC_URL;
 use xmtpv3::generate_inbox_id;
@@ -43,30 +46,32 @@ fn create_ffi_client(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("create_client");
 
     // benchmark_group.sample_size(10);
-    benchmark_group.sampling_mode(criterion::SamplingMode::Flat);
     benchmark_group.bench_function("create_ffi_client", |b| {
         let span = trace_span!(BENCH_ROOT_SPAN);
         b.to_async(&runtime).iter_batched(
             || {
-                let wallet = xmtp_cryptography::utils::generate_local_wallet();
-                let nonce = 1;
-                let inbox_id = generate_inbox_id(wallet.get_address(), nonce).unwrap();
-                let path = tmp_path();
-                let (network, is_secure) = network_url();
-                (
-                    inbox_id,
-                    wallet.get_address(),
-                    nonce,
-                    path,
-                    network,
-                    is_secure,
-                    span.clone(),
-                )
+                bench_async_setup(|| async {
+                    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+                    let nonce = 1;
+                    let inbox_id = generate_inbox_id(wallet.get_address(), nonce).unwrap();
+                    let path = tmp_path();
+                    let (url, is_secure) = network_url();
+                    let api = xmtpv3::mls::connect_to_backend(url, is_secure)
+                        .await
+                        .unwrap();
+                    (
+                        api,
+                        inbox_id,
+                        wallet.get_address(),
+                        nonce,
+                        path,
+                        span.clone(),
+                    )
+                })
             },
-            |(inbox_id, address, nonce, path, network, is_secure, span)| async move {
+            |(api, inbox_id, address, nonce, path, span)| async move {
                 xmtpv3::mls::create_client(
-                    network,
-                    is_secure,
+                    api,
                     Some(path),
                     Some(vec![0u8; 32]),
                     &inbox_id,
@@ -98,29 +103,44 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let inbox_id = generate_inbox_id(wallet.get_address(), nonce).unwrap();
     let address = wallet.get_address();
     let path = tmp_path();
+    let (url, is_secure) = network_url();
+    let api = runtime.block_on(async {
+        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure)
+            .await
+            .unwrap();
+        xmtpv3::mls::create_client(
+            api.clone(),
+            Some(path.clone()),
+            Some(vec![0u8; 32]),
+            &inbox_id.clone(),
+            address.clone(),
+            nonce,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
+        .unwrap();
+        api
+    });
 
     // benchmark_group.sample_size(10);
-    benchmark_group.sampling_mode(criterion::SamplingMode::Flat);
     benchmark_group.bench_function("cached_create_ffi_client", |b| {
         let span = trace_span!(BENCH_ROOT_SPAN);
         b.to_async(&runtime).iter_batched(
             || {
-                let (network, is_secure) = network_url();
                 (
+                    api.clone(),
                     inbox_id.clone(),
                     address.clone(),
                     nonce,
                     path.clone(),
                     HISTORY_SYNC_URL.to_string(),
-                    network,
-                    is_secure,
                     span.clone(),
                 )
             },
-            |(inbox_id, address, nonce, path, history_sync, network, is_secure, span)| async move {
+            |(api, inbox_id, address, nonce, path, history_sync, span)| async move {
                 xmtpv3::mls::create_client(
-                    network,
-                    is_secure,
+                    api,
                     Some(path),
                     Some(vec![0u8; 32]),
                     &inbox_id,
