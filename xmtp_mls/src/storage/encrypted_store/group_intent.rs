@@ -214,10 +214,22 @@ impl DbConnection {
         })?;
 
         match res {
-            // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound(format!(
-                "ToPublish intent {intent_id} for publish"
-            ))),
+            // If nothing matched the query, check if its already published, otherwise return an error. Either ID or state was wrong
+            0 => {
+                let already_published = self.raw_query(|conn| {
+                    dsl::group_intents
+                        .filter(dsl::id.eq(intent_id))
+                        .first::<StoredGroupIntent>(conn)
+                });
+
+                if already_published.is_ok() {
+                    Ok(())
+                } else {
+                    Err(StorageError::NotFound(format!(
+                        "Published intent {intent_id} for commit"
+                    )))
+                }
+            }
             _ => Ok(()),
         }
     }
