@@ -93,7 +93,7 @@ mod tests {
     use super::*;
     use crate::{
         builder::ClientBuilder,
-        groups::scoped_client::LocalScopedGroupClient,
+        groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
     };
     use crypto_utils::generate_local_wallet;
