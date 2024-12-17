@@ -94,7 +94,7 @@ class GroupTest {
         assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
-        assert(!alixGroup.isCreator())
+        assert(!runBlocking { alixGroup.isCreator() })
     }
 
     @Test
@@ -160,7 +160,7 @@ class GroupTest {
         assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
         // can not fetch creator ID. See https://github.com/xmtp/libxmtp/issues/788
 //       assert(boGroup.isCreator())
-        assert(!alixGroup.isCreator())
+        assert(!runBlocking { alixGroup.isCreator() })
     }
 
     @Test
@@ -319,11 +319,11 @@ class GroupTest {
     fun testMessageTimeIsCorrect() {
         val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.address)) }
         runBlocking { alixGroup.send("Hello") }
-        assertEquals(alixGroup.messages().size, 2)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
         runBlocking { alixGroup.sync() }
-        val message2 = alixGroup.messages().last()
+        val message2 = runBlocking { alixGroup.messages().last() }
         runBlocking { alixGroup.sync() }
-        val message3 = alixGroup.messages().last()
+        val message3 = runBlocking { alixGroup.messages().last() }
         assertEquals(message3.id, message2.id)
         assertEquals(message3.sent.time, message2.sent.time)
     }
@@ -454,7 +454,7 @@ class GroupTest {
             boGroup.sync()
         }
 
-        val boMessages1 = boGroup.messages()
+        val boMessages1 = runBlocking { boGroup.messages() }
         assertEquals(boMessages1.size, firstMsgCheck)
 
         runBlocking {
@@ -463,14 +463,14 @@ class GroupTest {
             alixGroup.sync()
         }
         Thread.sleep(1000)
-        val alixMessages = alixGroup.messages()
+        val alixMessages = runBlocking { alixGroup.messages() }
         assertEquals(alixMessages.size, secondMsgCheck)
         runBlocking {
             alixGroup.send("hello4")
             boGroup.sync()
         }
 
-        val boMessages2 = boGroup.messages()
+        val boMessages2 = runBlocking { boGroup.messages() }
         assertEquals(boMessages2.size, secondMsgCheck)
 
         Thread.sleep(1000)
@@ -527,16 +527,19 @@ class GroupTest {
         runBlocking { group.send("howdy") }
         val messageId = runBlocking { group.send("gm") }
         runBlocking { group.sync() }
-        assertEquals(group.messages().first().body, "gm")
-        assertEquals(group.messages().first().id, messageId)
-        assertEquals(group.messages().first().deliveryStatus, MessageDeliveryStatus.PUBLISHED)
-        assertEquals(group.messages().size, 3)
+        assertEquals(runBlocking { group.messages() }.first().body, "gm")
+        assertEquals(runBlocking { group.messages() }.first().id, messageId)
+        assertEquals(
+            runBlocking { group.messages() }.first().deliveryStatus,
+            MessageDeliveryStatus.PUBLISHED
+        )
+        assertEquals(runBlocking { group.messages() }.size, 3)
 
         runBlocking { alixClient.conversations.sync() }
         val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
-        assertEquals(sameGroup.messages().size, 2)
-        assertEquals(sameGroup.messages().first().body, "gm")
+        assertEquals(runBlocking { sameGroup.messages() }.size, 2)
+        assertEquals(runBlocking { sameGroup.messages() }.first().body, "gm")
     }
 
     @Test
@@ -547,17 +550,29 @@ class GroupTest {
             group.send("gm")
         }
 
-        assertEquals(group.messages().size, 3)
-        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
+        assertEquals(runBlocking { group.messages() }.size, 3)
+        assertEquals(
+            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            3
+        )
         runBlocking { group.sync() }
-        assertEquals(group.messages().size, 3)
-        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
-        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
+        assertEquals(runBlocking { group.messages() }.size, 3)
+        assertEquals(
+            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
+            0
+        )
+        assertEquals(
+            runBlocking { group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            3
+        )
 
         runBlocking { alixClient.conversations.sync() }
         val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
-        assertEquals(sameGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
+        assertEquals(
+            runBlocking { sameGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            2
+        )
     }
 
     @Test
@@ -568,20 +583,20 @@ class GroupTest {
             group.send("gm")
         }
         val message = boClient.findMessage(messageId)
-        assertEquals(group.messages().size, 3)
-        assertEquals(group.messages(afterNs = message?.sentAtNs).size, 0)
+        assertEquals(runBlocking { group.messages() }.size, 3)
+        assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 0)
         runBlocking {
             group.send("howdy")
             group.send("gm")
         }
-        assertEquals(group.messages().size, 5)
-        assertEquals(group.messages(afterNs = message?.sentAtNs).size, 2)
+        assertEquals(runBlocking { group.messages() }.size, 5)
+        assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 2)
 
         runBlocking { alixClient.conversations.sync() }
         val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
-        assertEquals(sameGroup.messages().size, 4)
-        assertEquals(sameGroup.messages(afterNs = message?.sentAtNs).size, 2)
+        assertEquals(runBlocking { sameGroup.messages() }.size, 4)
+        assertEquals(runBlocking { sameGroup.messages(afterNs = message?.sentAtNs) }.size, 2)
     }
 
     @Test
@@ -591,7 +606,7 @@ class GroupTest {
         val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
         runBlocking { group.send("gm") }
         runBlocking { group.sync() }
-        val messageToReact = group.messages()[0]
+        val messageToReact = runBlocking { group.messages() }[0]
 
         val reaction = Reaction(
             reference = messageToReact.id,
@@ -608,7 +623,7 @@ class GroupTest {
         }
         runBlocking { group.sync() }
 
-        val messages = group.messages()
+        val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 3)
         val content: Reaction? = messages.first().content()
         assertEquals("U+1F603", content?.content)
@@ -874,20 +889,32 @@ class GroupTest {
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
         val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.ALLOWED) }
-        assertEquals(alixGroup.messages().size, 1)
-        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 0)
-        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 1)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
+        assertEquals(
+            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            0
+        )
+        assertEquals(
+            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
+            1
+        )
 
         runBlocking {
             alixGroup.publishMessages()
             alixGroup.sync()
         }
 
-        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 1)
-        assertEquals(alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
-        assertEquals(alixGroup.messages().size, 1)
+        assertEquals(
+            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            1
+        )
+        assertEquals(
+            runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
+            0
+        )
+        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
 
-        val message = alixGroup.messages().first()
+        val message = runBlocking { alixGroup.messages() }.first()
 
         assertEquals(preparedMessageId, message.id)
     }
@@ -913,8 +940,8 @@ class GroupTest {
         val alixGroup2: Group = alixClient.findGroup(boGroup2.id)!!
         var numGroups: UInt?
 
-        assertEquals(alixGroup.messages().size, 0)
-        assertEquals(alixGroup2.messages().size, 0)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 0)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 0)
 
         runBlocking {
             boGroup.send("hi")
@@ -922,8 +949,8 @@ class GroupTest {
             numGroups = alixClient.conversations.syncAllConversations()
         }
 
-        assertEquals(alixGroup.messages().size, 1)
-        assertEquals(alixGroup2.messages().size, 1)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 1)
         assertEquals(numGroups, 3u)
 
         runBlocking {
@@ -936,8 +963,8 @@ class GroupTest {
             Thread.sleep(2000)
         }
 
-        assertEquals(alixGroup.messages().size, 3)
-        assertEquals(alixGroup2.messages().size, 2)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 3)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 2)
         // First syncAllGroups after remove includes the group you're removed from
         assertEquals(numGroups, 3u)
 

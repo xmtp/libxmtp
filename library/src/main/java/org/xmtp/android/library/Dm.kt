@@ -35,8 +35,9 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
     val peerInboxId: String
         get() = libXMTPGroup.dmPeerInboxId()
 
-    private val metadata: FfiConversationMetadata
-        get() = libXMTPGroup.groupMetadata()
+    private suspend fun metadata(): FfiConversationMetadata {
+        return libXMTPGroup.groupMetadata()
+    }
 
     suspend fun send(text: String): String {
         return send(encodeContent(content = text, options = null))
@@ -102,7 +103,7 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
         libXMTPGroup.sync()
     }
 
-    fun messages(
+    suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,
@@ -135,12 +136,12 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
         return Message(client, message)
     }
 
-    fun creatorInboxId(): String {
-        return metadata.creatorInboxId()
+    suspend fun creatorInboxId(): String {
+        return metadata().creatorInboxId()
     }
 
-    fun isCreator(): Boolean {
-        return metadata.creatorInboxId() == client.inboxId
+    suspend fun isCreator(): Boolean {
+        return metadata().creatorInboxId() == client.inboxId
     }
 
     suspend fun members(): List<Member> {

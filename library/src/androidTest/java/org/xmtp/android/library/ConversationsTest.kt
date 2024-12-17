@@ -49,8 +49,8 @@ class ConversationsTest {
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
         val dm = runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
 
-        val sameDm = boClient.findConversationByTopic(dm.topic)
-        val sameGroup = boClient.findConversationByTopic(group.topic)
+        val sameDm = runBlocking { boClient.findConversationByTopic(dm.topic) }
+        val sameGroup = runBlocking { boClient.findConversationByTopic(group.topic) }
         assertEquals(group.id, sameGroup?.id)
         assertEquals(dm.id, sameDm?.id)
     }
@@ -110,6 +110,28 @@ class ConversationsTest {
         assertEquals(conversationsOrdered.size, 3)
         assertEquals(conversations.map { it.id }, listOf(dm.id, group1.id, group2.id))
         assertEquals(conversationsOrdered.map { it.id }, listOf(group2.id, dm.id, group1.id))
+    }
+
+    @Test
+    fun testsCanSyncAllConversationsFiltered() {
+        runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
+        val group =
+            runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
+        assertEquals(runBlocking { boClient.conversations.syncAllConversations() }.toInt(), 2)
+        assertEquals(
+            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.ALLOWED) }.toInt(),
+            2
+        )
+        runBlocking { group.updateConsentState(ConsentState.DENIED) }
+        assertEquals(
+            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.ALLOWED) }.toInt(),
+            1
+        )
+        assertEquals(
+            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.DENIED) }.toInt(),
+            1
+        )
+        assertEquals(runBlocking { boClient.conversations.syncAllConversations() }.toInt(), 2)
     }
 
     @Test

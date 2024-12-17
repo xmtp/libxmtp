@@ -10,6 +10,7 @@ import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiDeviceSyncKind
 import uniffi.xmtpv3.FfiSignatureRequest
 import uniffi.xmtpv3.FfiXmtpClient
+import uniffi.xmtpv3.connectToBackend
 import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForAddress
@@ -88,8 +89,7 @@ class Client() {
             val dbPath = directoryFile.absolutePath + "/$alias.db3"
 
             val ffiClient = createClient(
-                host = api.env.getUrl(),
-                isSecure = api.isSecure,
+                api = connectToBackend(api.env.getUrl(), api.isSecure),
                 db = dbPath,
                 encryptionKey = null,
                 accountAddress = accountAddress.lowercase(),
@@ -197,8 +197,7 @@ class Client() {
         dbPath = directoryFile.absolutePath + "/$alias.db3"
 
         val ffiClient = createClient(
-            host = options.api.env.getUrl(),
-            isSecure = options.api.isSecure,
+            api = connectToBackend(options.api.env.getUrl(), options.api.isSecure),
             db = dbPath,
             encryptionKey = options.dbEncryptionKey,
             accountAddress = accountAddress.lowercase(),
@@ -294,7 +293,7 @@ class Client() {
         }
     }
 
-    fun findConversation(conversationId: String): Conversation? {
+    suspend fun findConversation(conversationId: String): Conversation? {
         return try {
             val conversation = ffiClient.conversation(conversationId.hexToByteArray())
             when (conversation.conversationType()) {
@@ -307,7 +306,7 @@ class Client() {
         }
     }
 
-    fun findConversationByTopic(topic: String): Conversation? {
+    suspend fun findConversationByTopic(topic: String): Conversation? {
         val regex = """/xmtp/mls/1/g-(.*?)/proto""".toRegex()
         val matchResult = regex.find(topic)
         val conversationId = matchResult?.groupValues?.get(1) ?: ""

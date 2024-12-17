@@ -107,7 +107,7 @@ sealed class Conversation {
         }
     }
 
-    fun messages(
+    suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,

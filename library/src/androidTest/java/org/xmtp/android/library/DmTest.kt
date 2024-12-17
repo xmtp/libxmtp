@@ -195,16 +195,19 @@ class DmTest {
         runBlocking { dm.send("howdy") }
         val messageId = runBlocking { dm.send("gm") }
         runBlocking { dm.sync() }
-        assertEquals(dm.messages().first().body, "gm")
-        assertEquals(dm.messages().first().id, messageId)
-        assertEquals(dm.messages().first().deliveryStatus, MessageDeliveryStatus.PUBLISHED)
-        assertEquals(dm.messages().size, 2)
+        assertEquals(runBlocking { dm.messages() }.first().body, "gm")
+        assertEquals(runBlocking { dm.messages() }.first().id, messageId)
+        assertEquals(
+            runBlocking { dm.messages() }.first().deliveryStatus,
+            MessageDeliveryStatus.PUBLISHED
+        )
+        assertEquals(runBlocking { dm.messages() }.size, 2)
 
         runBlocking { alixClient.conversations.sync() }
         val sameDm = runBlocking { alixClient.conversations.listDms().last() }
         runBlocking { sameDm.sync() }
-        assertEquals(sameDm.messages().size, 2)
-        assertEquals(sameDm.messages().first().body, "gm")
+        assertEquals(runBlocking { sameDm.messages() }.size, 2)
+        assertEquals(runBlocking { sameDm.messages() }.first().body, "gm")
     }
 
     @Test
@@ -215,17 +218,29 @@ class DmTest {
             dm.send("gm")
         }
 
-        assertEquals(dm.messages().size, 2)
-        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
+        assertEquals(runBlocking { dm.messages() }.size, 2)
+        assertEquals(
+            runBlocking { dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            2
+        )
         runBlocking { dm.sync() }
-        assertEquals(dm.messages().size, 2)
-        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
-        assertEquals(dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
+        assertEquals(runBlocking { dm.messages() }.size, 2)
+        assertEquals(
+            runBlocking { dm.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
+            0
+        )
+        assertEquals(
+            runBlocking { dm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            2
+        )
 
         runBlocking { alixClient.conversations.sync() }
         val sameDm = runBlocking { alixClient.conversations.listDms().last() }
         runBlocking { sameDm.sync() }
-        assertEquals(sameDm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
+        assertEquals(
+            runBlocking { sameDm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
+            2
+        )
     }
 
     @Test
@@ -235,7 +250,7 @@ class DmTest {
         val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
         runBlocking { dm.send("gm") }
         runBlocking { dm.sync() }
-        val messageToReact = dm.messages()[0]
+        val messageToReact = runBlocking { dm.messages() }[0]
 
         val reaction = Reaction(
             reference = messageToReact.id,
@@ -252,7 +267,7 @@ class DmTest {
         }
         runBlocking { dm.sync() }
 
-        val messages = dm.messages()
+        val messages = runBlocking { dm.messages() }
         assertEquals(messages.size, 2)
         val content: Reaction? = messages.first().content()
         assertEquals("U+1F603", content?.content)

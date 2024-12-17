@@ -37,8 +37,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
     val createdAt: Date
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
 
-    private val metadata: FfiConversationMetadata
-        get() = libXMTPGroup.groupMetadata()
+    private suspend fun metadata(): FfiConversationMetadata {
+        return libXMTPGroup.groupMetadata()
+    }
 
     private val permissions: FfiGroupPermissions
         get() = libXMTPGroup.groupPermissions()
@@ -119,7 +120,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
         libXMTPGroup.sync()
     }
 
-    fun messages(
+    suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
         afterNs: Long? = null,
@@ -173,12 +174,12 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
         return PermissionPolicySet.fromFfiPermissionPolicySet(permissions.policySet())
     }
 
-    fun creatorInboxId(): String {
-        return metadata.creatorInboxId()
+    suspend fun creatorInboxId(): String {
+        return metadata().creatorInboxId()
     }
 
-    fun isCreator(): Boolean {
-        return metadata.creatorInboxId() == client.inboxId
+    suspend fun isCreator(): Boolean {
+        return metadata().creatorInboxId() == client.inboxId
     }
 
     suspend fun addMembers(addresses: List<String>) {

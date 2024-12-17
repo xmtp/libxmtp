@@ -58,7 +58,7 @@ class GroupUpdatedTest {
                 )
             )
         }
-        val messages = group.messages()
+        val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         val content: GroupUpdated? = messages.first().content()
         assertEquals(
@@ -80,11 +80,11 @@ class GroupUpdatedTest {
                 )
             )
         }
-        val messages = group.messages()
+        val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         assertEquals(runBlocking { group.members().size }, 3)
         runBlocking { group.removeMembers(listOf(caro.walletAddress)) }
-        val updatedMessages = group.messages()
+        val updatedMessages = runBlocking { group.messages() }
         assertEquals(updatedMessages.size, 2)
         assertEquals(runBlocking { group.members().size }, 2)
         val content: GroupUpdated? = updatedMessages.first().content()
@@ -110,7 +110,7 @@ class GroupUpdatedTest {
                 )
             )
         }
-        val messages = group.messages()
+        val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         assertEquals(runBlocking { group.members().size }, 3)
         runBlocking {
@@ -120,7 +120,7 @@ class GroupUpdatedTest {
             )
             group.sync()
         }
-        val updatedMessages = group.messages()
+        val updatedMessages = runBlocking { group.messages() }
         assertEquals(updatedMessages.size, 1)
     }
 
@@ -134,7 +134,7 @@ class GroupUpdatedTest {
                 )
             )
         }
-        val messages = group.messages()
+        val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         assert(messages.first().fallbackContent.isBlank())
     }
@@ -152,7 +152,7 @@ class GroupUpdatedTest {
                 groupName = "Start Name"
             )
         }
-        var messages = group.messages()
+        var messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         runBlocking {
             group.updateGroupName("Group Name")

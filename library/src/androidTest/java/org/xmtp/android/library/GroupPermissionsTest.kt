@@ -56,7 +56,7 @@ class GroupPermissionsTest {
 
         assert(!boGroup.isAdmin(boClient.inboxId))
         assert(boGroup.isSuperAdmin(boClient.inboxId))
-        assert(!alixGroup.isCreator())
+        assert(!runBlocking { alixGroup.isCreator() })
         assert(!alixGroup.isAdmin(alixClient.inboxId))
         assert(!alixGroup.isSuperAdmin(alixClient.inboxId))
 
@@ -74,13 +74,21 @@ class GroupPermissionsTest {
 
     @Test
     fun testGroupCanUpdateAdminList() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ADMIN_ONLY) }
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ADMIN_ONLY
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
         assert(!boGroup.isAdmin(boClient.inboxId))
         assert(boGroup.isSuperAdmin(boClient.inboxId))
-        assert(!alixGroup.isCreator())
+        assert(!runBlocking { alixGroup.isCreator() })
         assert(!alixGroup.isAdmin(alixClient.inboxId))
         assert(!alixGroup.isSuperAdmin(alixClient.inboxId))
 
@@ -168,7 +176,15 @@ class GroupPermissionsTest {
 
     @Test
     fun testGroupCanUpdateSuperAdminList() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ADMIN_ONLY) }
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ADMIN_ONLY
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -209,7 +225,15 @@ class GroupPermissionsTest {
 
     @Test
     fun testGroupMembersAndPermissionLevel() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ADMIN_ONLY) }
+        val group = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ADMIN_ONLY
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -258,7 +282,15 @@ class GroupPermissionsTest {
 
     @Test
     fun testCanCommitAfterInvalidPermissionsCommit() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ALL_MEMBERS) }
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ALL_MEMBERS
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -289,7 +321,15 @@ class GroupPermissionsTest {
 
     @Test
     fun testCanUpdatePermissions() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ADMIN_ONLY) }
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ADMIN_ONLY
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -305,7 +345,10 @@ class GroupPermissionsTest {
             alixGroup.sync()
             boGroup.sync()
         }
-        assertEquals(boGroup.permissionPolicySet().updateGroupDescriptionPolicy, PermissionOption.Admin)
+        assertEquals(
+            boGroup.permissionPolicySet().updateGroupDescriptionPolicy,
+            PermissionOption.Admin
+        )
 
         // Update group name permissions so Alix can update
         runBlocking {
@@ -313,7 +356,10 @@ class GroupPermissionsTest {
             boGroup.sync()
             alixGroup.sync()
         }
-        assertEquals(boGroup.permissionPolicySet().updateGroupDescriptionPolicy, PermissionOption.Allow)
+        assertEquals(
+            boGroup.permissionPolicySet().updateGroupDescriptionPolicy,
+            PermissionOption.Allow
+        )
 
         // Verify that alix can now update group name
         runBlocking {
@@ -327,7 +373,15 @@ class GroupPermissionsTest {
 
     @Test
     fun testCanUpdatePinnedFrameUrl() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress, caro.walletAddress), GroupPermissionPreconfiguration.ADMIN_ONLY) }
+        val boGroup = runBlocking {
+            boClient.conversations.newGroup(
+                listOf(
+                    alix.walletAddress,
+                    caro.walletAddress
+                ),
+                GroupPermissionPreconfiguration.ADMIN_ONLY
+            )
+        }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -343,7 +397,10 @@ class GroupPermissionsTest {
             alixGroup.sync()
             boGroup.sync()
         }
-        assertEquals(boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy, PermissionOption.Admin)
+        assertEquals(
+            boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
+            PermissionOption.Admin
+        )
 
         // Update group name permissions so Alix can update
         runBlocking {
@@ -351,7 +408,10 @@ class GroupPermissionsTest {
             boGroup.sync()
             alixGroup.sync()
         }
-        assertEquals(boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy, PermissionOption.Allow)
+        assertEquals(
+            boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
+            PermissionOption.Allow
+        )
 
         // Verify that alix can now update group name
         runBlocking {

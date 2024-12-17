@@ -177,26 +177,26 @@ class SmartContractWalletTest {
         runBlocking { boGroup.send("howdy") }
         val messageId = runBlocking { boGroup.send("gm") }
         runBlocking { boGroup.sync() }
-        assertEquals(boGroup.messages().first().body, "gm")
-        assertEquals(boGroup.messages().first().id, messageId)
+        assertEquals(runBlocking { boGroup.messages() }.first().body, "gm")
+        assertEquals(runBlocking { boGroup.messages() }.first().id, messageId)
         assertEquals(
-            boGroup.messages().first().deliveryStatus,
+            runBlocking { boGroup.messages() }.first().deliveryStatus,
             Message.MessageDeliveryStatus.PUBLISHED
         )
-        assertEquals(boGroup.messages().size, 3)
+        assertEquals(runBlocking { boGroup.messages() }.size, 3)
 
         runBlocking { davonSCWClient.conversations.sync() }
         val davonGroup = runBlocking { davonSCWClient.conversations.listGroups().last() }
         runBlocking { davonGroup.sync() }
-        assertEquals(davonGroup.messages().size, 2)
-        assertEquals(davonGroup.messages().first().body, "gm")
+        assertEquals(runBlocking { davonGroup.messages() }.size, 2)
+        assertEquals(runBlocking { davonGroup.messages() }.first().body, "gm")
         runBlocking { davonGroup.send("from davon") }
 
         runBlocking { eriSCWClient.conversations.sync() }
         val eriGroup = runBlocking { davonSCWClient.findGroup(davonGroup.id) }
         runBlocking { eriGroup?.sync() }
-        assertEquals(eriGroup?.messages()?.size, 3)
-        assertEquals(eriGroup?.messages()?.first()?.body, "from davon")
+        assertEquals(runBlocking { eriGroup?.messages() }?.size, 3)
+        assertEquals(runBlocking { eriGroup?.messages() }?.first()?.body, "from davon")
         runBlocking { eriGroup?.send("from eri") }
     }
 
