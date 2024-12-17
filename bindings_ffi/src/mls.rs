@@ -2091,6 +2091,9 @@ mod tests {
         .await
         .unwrap();
 
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
         register_client(&ffi_inbox_owner, &client).await;
         client
     }
@@ -2572,6 +2575,8 @@ mod tests {
     async fn test_can_stream_group_messages_for_updates() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bo_provider = bo.inner_client.mls_provider().unwrap();
 
         // Stream all group messages
         let message_callbacks = Arc::new(RustStreamCallback::default());
@@ -2604,14 +2609,21 @@ mod tests {
             .unwrap();
         let bo_group = &bo_groups[0];
         bo_group.sync().await.unwrap();
+
+        // alix published + processed group creation and name update
+        assert_eq!(alix_provider.conn_ref().intents_published(), 2);
+        assert_eq!(alix_provider.conn_ref().intents_deleted(), 2);
+
         bo_group
             .update_group_name("Old Name2".to_string())
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(alix_provider.conn_ref().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -2619,6 +2631,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -2627,6 +2640,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
         assert_eq!(message_callbacks.message_count(), 6);
 
