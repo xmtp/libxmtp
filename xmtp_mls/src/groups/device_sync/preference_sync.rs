@@ -93,6 +93,7 @@ mod tests {
     use super::*;
     use crate::{
         builder::ClientBuilder,
+        groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
     };
     use crypto_utils::generate_local_wallet;
@@ -158,5 +159,13 @@ mod tests {
         let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
+
+        amal_a
+            .revoke_installations(vec![amal_b.installation_id().to_vec()])
+            .await
+            .unwrap();
+
+        let new_pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
+        assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

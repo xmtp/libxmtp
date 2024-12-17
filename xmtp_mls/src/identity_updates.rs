@@ -1,4 +1,6 @@
-use crate::storage::association_state::StoredAssociationState;
+use crate::storage::{
+    association_state::StoredAssociationState, user_preferences::StoredUserPreferences,
+};
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -349,6 +351,10 @@ where
                 installation_id.into(),
             )
         }
+
+        // Cycle the HMAC key
+        let conn = self.store().conn()?;
+        StoredUserPreferences::new_hmac_key(&conn, &self.local_events)?;
 
         Ok(builder.build())
     }
