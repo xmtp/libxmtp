@@ -617,23 +617,8 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // FIXME:insipx we run into an issue where the reqwest::post().send() request
-        // blocks the executor and we cannot progress the runtime if we dont `tokio::spawn` this.
-        // A solution might be to use `hyper` instead, and implement a custom connection pool with
-        // `deadpool`. This is a bit more work but shouldn't be too complicated since
-        // we're only using `post` requests. It would be nice for all streams to work
-        // w/o spawning a separate task.
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        let bob_ptr = bob.clone();
-        crate::spawn(None, async move {
-            let bob_stream = bob_ptr.stream_conversations(None).await.unwrap();
-            futures::pin_mut!(bob_stream);
-            while let Some(item) = bob_stream.next().await {
-                let _ = tx.send(item);
-            }
-        });
-
+        let stream = bob.stream_conversations(None).await.unwrap();
+        futures::pin_mut!(stream);
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
@@ -644,7 +629,7 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_messages() {
         xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -665,33 +650,16 @@ pub(crate) mod tests {
             .unwrap();
         let bob_group = bob_group.first().unwrap();
 
-        let notify = Delivery::new(None);
-        let notify_ptr = notify.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::spawn(None, async move {
-            let stream = alice_group.stream().await.unwrap();
-            futures::pin_mut!(stream);
-            while let Some(item) = stream.next().await {
-                let _ = tx.send(item);
-                notify_ptr.notify_one();
-            }
-        });
-
-        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        // let stream = alice_group.stream().await.unwrap();
+        let stream = alice_group.stream().await.unwrap();
         futures::pin_mut!(stream);
         bob_group.send_message(b"hello").await.unwrap();
-        tracing::debug!("Bob Sent Message!, waiting for delivery");
-        // notify.wait_for_delivery().await.unwrap();
+
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
-        // notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
-
-        // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
