@@ -54,14 +54,14 @@ describe('Conversations', () => {
       updateGroupPinnedFrameUrlPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect(group.findMessages().length).toBe(1)
+    expect((await group.findMessages()).length).toBe(1)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
-    expect(group.groupMetadata().conversationType()).toBe('group')
-    expect(group.groupMetadata().creatorInboxId()).toBe(client1.inboxId())
+    expect((await group.groupMetadata()).conversationType()).toBe('group')
+    expect((await group.groupMetadata()).creatorInboxId()).toBe(client1.inboxId())
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
@@ -198,14 +198,14 @@ describe('Conversations', () => {
       updateGroupPinnedFrameUrlPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect(group.findMessages().length).toBe(0)
+    expect((await group.findMessages()).length).toBe(0)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
     expect(memberInboxIds).toContain(client1.inboxId())
     expect(memberInboxIds).toContain(client2.inboxId())
-    expect(group.groupMetadata().conversationType()).toBe('dm')
-    expect(group.groupMetadata().creatorInboxId()).toBe(client1.inboxId())
+    expect((await group.groupMetadata()).conversationType()).toBe('dm')
+    expect((await group.groupMetadata()).creatorInboxId()).toBe(client1.inboxId())
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
