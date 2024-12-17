@@ -29,9 +29,9 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 	public func isCreator() async throws -> Bool {
 		switch self {
 		case let .group(group):
-			return try group.isCreator()
+			return try await group.isCreator()
 		case let .dm(dm):
-			return try dm.isCreator()
+			return try await dm.isCreator()
 		}
 	}
 

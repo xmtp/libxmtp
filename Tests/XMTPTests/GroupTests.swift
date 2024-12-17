@@ -179,12 +179,12 @@ class GroupTests: XCTestCase {
 	func testCanListGroupsFiltered() async throws {
 		let fixtures = try await fixtures()
 
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+		let _ = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caro.walletAddress)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caro.walletAddress
 		])
-		let group2 = try await fixtures.boClient.conversations.newGroup(with: [
+		let _ = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.caro.walletAddress
 		])
 
@@ -230,9 +230,9 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(conversationsOrdered.count, 2)
 
 		XCTAssertEqual(
-			try conversations.map { try $0.id }, [group1.id, group2.id])
+			conversations.map { $0.id }, [group1.id, group2.id])
 		XCTAssertEqual(
-			try conversationsOrdered.map { try $0.id },
+			conversationsOrdered.map { $0.id },
 			[group2.id, group1.id])
 	}
 

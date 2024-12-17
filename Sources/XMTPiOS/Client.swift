@@ -204,8 +204,9 @@ public final class Client {
 		let dbURL = directoryURL.appendingPathComponent(alias).path
 
 		let ffiClient = try await LibXMTP.createClient(
-			host: options.api.env.url,
-			isSecure: options.api.env.isSecure == true,
+			api: connectToBackend(
+				host: options.api.env.url,
+				isSecure: options.api.env.isSecure == true),
 			db: dbURL,
 			encryptionKey: options.dbEncryptionKey,
 			inboxId: inboxId,
@@ -297,8 +298,9 @@ public final class Client {
 		let dbURL = directoryURL.appendingPathComponent(alias).path
 
 		let ffiClient = try await LibXMTP.createClient(
-			host: api.env.url,
-			isSecure: api.env.isSecure == true,
+			api: connectToBackend(
+				host: api.env.url,
+				isSecure: api.env.isSecure == true),
 			db: dbURL,
 			encryptionKey: nil,
 			inboxId: inboxId,
@@ -448,18 +450,18 @@ public final class Client {
 		}
 	}
 
-	public func findConversation(conversationId: String) throws -> Conversation?
+	public func findConversation(conversationId: String) async throws -> Conversation?
 	{
 		do {
 			let conversation = try ffiClient.conversation(
 				conversationId: conversationId.hexToData)
-			return try conversation.toConversation(client: self)
+			return try await conversation.toConversation(client: self)
 		} catch {
 			return nil
 		}
 	}
 
-	public func findConversationByTopic(topic: String) throws -> Conversation? {
+	public func findConversationByTopic(topic: String) async throws -> Conversation? {
 		do {
 			let regexPattern = #"/xmtp/mls/1/g-(.*?)/proto"#
 			if let regex = try? NSRegularExpression(pattern: regexPattern) {
@@ -471,7 +473,7 @@ public final class Client {
 						with: match.range(at: 1))
 					let conversation = try ffiClient.conversation(
 						conversationId: conversationId.hexToData)
-					return try conversation.toConversation(client: self)
+					return try await conversation.toConversation(client: self)
 				}
 			}
 		} catch {

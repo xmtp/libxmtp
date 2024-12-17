@@ -39,7 +39,8 @@ class GroupPermissionTests: XCTestCase {
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssertTrue(
 			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
-		XCTAssertFalse(try alixGroup.isCreator())
+        let isAlixGroupCreator = try await alixGroup.isCreator()
+		XCTAssertFalse(isAlixGroupCreator)
 		XCTAssertFalse(
 			try alixGroup.isAdmin(inboxId: fixtures.alixClient.inboxID))
 		XCTAssertFalse(
@@ -67,7 +68,8 @@ class GroupPermissionTests: XCTestCase {
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssertTrue(
 			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
-		XCTAssertFalse(try alixGroup.isCreator())
+        let isAlixGroupCreator = try await alixGroup.isCreator()
+        XCTAssertFalse(isAlixGroupCreator)
 		XCTAssertFalse(
 			try alixGroup.isAdmin(inboxId: fixtures.alixClient.inboxID))
 		XCTAssertFalse(

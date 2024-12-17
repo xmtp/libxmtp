@@ -14,8 +14,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		Topic.groupMessage(id).description
 	}
 
-	func metadata() throws -> FfiConversationMetadata {
-		return try ffiConversation.groupMetadata()
+	func metadata() async throws -> FfiConversationMetadata {
+		return try await ffiConversation.groupMetadata()
 	}
 
 	public func sync() async throws {
@@ -30,12 +30,12 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		id.hash(into: &hasher)
 	}
 
-	public func isCreator() throws -> Bool {
-		return try metadata().creatorInboxId() == client.inboxID
+	public func isCreator() async throws -> Bool {
+		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
-	public func creatorInboxId() throws -> String {
-		return try metadata().creatorInboxId()
+	public func creatorInboxId() async throws -> String {
+		return try await metadata().creatorInboxId()
 	}
 
 	public func addedByInboxId() throws -> String {
@@ -253,7 +253,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiConversation.findMessages(opts: options).compactMap {
+		return try await ffiConversation.findMessages(opts: options).compactMap {
 			ffiMessage in
 			return Message(client: self.client, ffiMessage: ffiMessage)
 				.decodeOrNull()

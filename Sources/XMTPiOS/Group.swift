@@ -36,8 +36,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		Topic.groupMessage(id).description
 	}
 
-	func metadata() throws -> FfiConversationMetadata {
-		return try ffiGroup.groupMetadata()
+	func metadata() async throws -> FfiConversationMetadata {
+		return try await ffiGroup.groupMetadata()
 	}
 
 	func permissions() throws -> FfiGroupPermissions {
@@ -60,8 +60,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.isActive()
 	}
 
-	public func isCreator() throws -> Bool {
-		return try metadata().creatorInboxId() == client.inboxID
+	public func isCreator() async throws -> Bool {
+		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
 	public func isAdmin(inboxId: String) throws -> Bool {
@@ -101,8 +101,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try permissions().policySet())
 	}
 
-	public func creatorInboxId() throws -> String {
-		return try metadata().creatorInboxId()
+	public func creatorInboxId() async throws -> String {
+		return try await metadata().creatorInboxId()
 	}
 
 	public func addedByInboxId() throws -> String {
@@ -451,7 +451,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		options.direction = direction
 
-		return try ffiGroup.findMessages(opts: options).compactMap {
+		return try await ffiGroup.findMessages(opts: options).compactMap {
 			ffiMessage in
 			return Message(client: self.client, ffiMessage: ffiMessage)
 				.decodeOrNull()

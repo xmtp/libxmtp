@@ -79,9 +79,11 @@ public actor Conversations {
 	public func sync() async throws {
 		try await ffiConversations.sync()
 	}
-	public func syncAllConversations() async throws -> UInt32 {
-        // TODO: add consent state here
-        return try await ffiConversations.syncAllConversations(consentState: nil)
+	public func syncAllConversations(consentState: ConsentState? = nil)
+		async throws -> UInt32
+	{
+		return try await ffiConversations.syncAllConversations(
+			consentState: consentState?.toFFI)
 	}
 
 	public func listGroups(
@@ -105,7 +107,7 @@ public actor Conversations {
 		let conversations = try await ffiConversations.listGroups(
 			opts: options)
 
-		let sortedConversations = try sortConversations(
+		let sortedConversations = try await sortConversations(
 			conversations, order: order)
 
 		return sortedConversations.map {
@@ -134,7 +136,7 @@ public actor Conversations {
 		let conversations = try await ffiConversations.listDms(
 			opts: options)
 
-		let sortedConversations = try sortConversations(
+		let sortedConversations = try await sortConversations(
 			conversations, order: order)
 
 		return sortedConversations.map {
@@ -160,36 +162,42 @@ public actor Conversations {
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		let conversations = try await ffiConversations.list(
+		let ffiConversations = try await ffiConversations.list(
 			opts: options)
 
-		let sortedConversations = try sortConversations(
-			conversations, order: order)
+		let sortedConversations = try await sortConversations(
+            ffiConversations, order: order)
+        
+        var conversations: [Conversation] = []
+        for sortedConversation in sortedConversations {
+            let conversation = try await sortedConversation.toConversation(client: client)
+            conversations.append(conversation)
+        }
 
-		return try sortedConversations.map {
-			try $0.toConversation(client: client)
-		}
+		return conversations
 	}
 
 	private func sortConversations(
 		_ conversations: [FfiConversation],
 		order: ConversationOrder
-	) throws -> [FfiConversation] {
+	) async throws -> [FfiConversation] {
 		switch order {
 		case .lastMessage:
-			let conversationWithTimestamp: [(FfiConversation, Int64?)] =
-				try conversations.map { conversation in
-					let message = try conversation.findMessages(
-						opts: FfiListMessagesOptions(
-							sentBeforeNs: nil,
-							sentAfterNs: nil,
-							limit: 1,
-							deliveryStatus: nil,
-							direction: .descending
-						)
-					).first
-					return (conversation, message?.sentAtNs)
-				}
+			var conversationWithTimestamp: [(FfiConversation, Int64?)] = []
+
+			for conversation in conversations {
+				let message = try await conversation.findMessages(
+					opts: FfiListMessagesOptions(
+						sentBeforeNs: nil,
+						sentAfterNs: nil,
+						limit: 1,
+						deliveryStatus: nil,
+						direction: .descending
+					)
+				).first
+				conversationWithTimestamp.append(
+					(conversation, message?.sentAtNs))
+			}
 
 			let sortedTuples = conversationWithTimestamp.sorted { (lhs, rhs) in
 				(lhs.1 ?? 0) > (rhs.1 ?? 0)
@@ -207,41 +215,45 @@ public actor Conversations {
 			let ffiStreamActor = FfiStreamActor()
 			let conversationCallback = ConversationStreamCallback {
 				conversation in
-				guard !Task.isCancelled else {
-					continuation.finish()
-					return
-				}
-				do {
-					let conversationType = try conversation.conversationType()
-					if conversationType == .dm {
-						continuation.yield(
-							Conversation.dm(
-								conversation.dmFromFFI(client: self.client))
-						)
-					} else if conversationType == .group {
-						continuation.yield(
-							Conversation.group(
-								conversation.groupFromFFI(client: self.client))
-						)
+				Task {
+					guard !Task.isCancelled else {
+						continuation.finish()
+						return
 					}
-				} catch {
-					// Do nothing if the conversation type is neither a group or dm
+					do {
+						let conversationType =
+							try await conversation.conversationType()
+						if conversationType == .dm {
+							continuation.yield(
+								Conversation.dm(
+									conversation.dmFromFFI(client: self.client))
+							)
+						} else if conversationType == .group {
+							continuation.yield(
+								Conversation.group(
+									conversation.groupFromFFI(
+										client: self.client))
+							)
+						}
+					} catch {
+						print("Error processing conversation type: \(error)")
+					}
 				}
 			}
 
 			let task = Task {
 				let stream: FfiStreamCloser
-					switch type {
-					case .groups:
-						stream = await ffiConversations.streamGroups(
-							callback: conversationCallback)
-					case .all:
-						stream = await ffiConversations.stream(
-							callback: conversationCallback)
-					case .dms:
-						stream = await ffiConversations.streamDms(
-							callback: conversationCallback)
-					}
+				switch type {
+				case .groups:
+					stream = await ffiConversations.streamGroups(
+						callback: conversationCallback)
+				case .all:
+					stream = await ffiConversations.stream(
+						callback: conversationCallback)
+				case .dms:
+					stream = await ffiConversations.streamDms(
+						callback: conversationCallback)
+				}
 				await ffiStreamActor.setFfiStream(stream)
 				continuation.onTermination = { @Sendable reason in
 					Task {
@@ -268,7 +280,9 @@ public actor Conversations {
 		if !canMessage {
 			throw ConversationError.memberNotRegistered([peerAddress])
 		}
-		if let existingDm = try await client.findDmByAddress(address: peerAddress) {
+		if let existingDm = try await client.findDmByAddress(
+			address: peerAddress)
+		{
 			return existingDm
 		}
 
@@ -385,20 +399,20 @@ public actor Conversations {
 
 			let task = Task {
 				let stream: FfiStreamCloser
-					switch type {
-					case .groups:
-						stream = await ffiConversations.streamAllGroupMessages(
-							messageCallback: messageCallback
-						)
-					case .dms:
-						stream = await ffiConversations.streamAllDmMessages(
-							messageCallback: messageCallback
-						)
-					case .all:
-						stream = await ffiConversations.streamAllMessages(
-							messageCallback: messageCallback
-						)
-					}
+				switch type {
+				case .groups:
+					stream = await ffiConversations.streamAllGroupMessages(
+						messageCallback: messageCallback
+					)
+				case .dms:
+					stream = await ffiConversations.streamAllDmMessages(
+						messageCallback: messageCallback
+					)
+				case .all:
+					stream = await ffiConversations.streamAllMessages(
+						messageCallback: messageCallback
+					)
+				}
 				await ffiStreamActor.setFfiStream(stream)
 			}
 
@@ -417,7 +431,7 @@ public actor Conversations {
 		let conversation =
 			try await ffiConversations
 			.processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
-		return try conversation.toConversation(client: client)
+		return try await conversation.toConversation(client: client)
 	}
 
 	public func newConversation(

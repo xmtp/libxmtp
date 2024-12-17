@@ -10,8 +10,8 @@ extension FfiConversation {
 		Dm(ffiConversation: self, client: client)
 	}
 
-	func toConversation(client: Client) throws -> Conversation {
-		if try conversationType() == .dm {
+	func toConversation(client: Client) async throws -> Conversation {
+		if try await conversationType() == .dm {
 			return Conversation.dm(self.dmFromFFI(client: client))
 		} else {
 			return Conversation.group(self.groupFromFFI(client: client))

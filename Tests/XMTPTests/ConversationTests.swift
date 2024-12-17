@@ -16,9 +16,9 @@ class ConversationTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caro.walletAddress)
 
-		let sameDm = try fixtures.boClient.findConversationByTopic(
+		let sameDm = try await fixtures.boClient.findConversationByTopic(
 			topic: dm.topic)
-		let sameGroup = try fixtures.boClient.findConversationByTopic(
+		let sameGroup = try await fixtures.boClient.findConversationByTopic(
 			topic: group.topic)
 
 		XCTAssertEqual(group.id, sameGroup?.id)
@@ -75,6 +75,34 @@ class ConversationTests: XCTestCase {
 			.list(consentState: .allowed).count
 		let convoCountDenied = try await fixtures.boClient.conversations
 			.list(consentState: .denied).count
+
+		XCTAssertEqual(convoCountAllowed, 1)
+		XCTAssertEqual(convoCountDenied, 1)
+	}
+	
+	func testCanSyncAllConversationsFiltered() async throws {
+		let fixtures = try await fixtures()
+
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caro.walletAddress)
+		let group = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.caro.walletAddress
+		])
+
+		let convoCount = try await fixtures.boClient.conversations
+			.syncAllConversations()
+		let convoCountConsent = try await fixtures.boClient.conversations
+			.syncAllConversations(consentState: .allowed)
+
+		XCTAssertEqual(convoCount, 2)
+		XCTAssertEqual(convoCountConsent, 2)
+
+		try await group.updateConsentState(state: .denied)
+
+		let convoCountAllowed = try await fixtures.boClient.conversations
+			.syncAllConversations(consentState: .allowed)
+		let convoCountDenied = try await fixtures.boClient.conversations
+			.syncAllConversations(consentState: .denied)
 
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
@@ -182,7 +210,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(try dm.consentState(), .denied)
 
 		try await fixtures.boClient.conversations.sync()
-		let boDm = try fixtures.boClient.findConversation(conversationId: dm.id)
+		let boDm = try await fixtures.boClient.findConversation(conversationId: dm.id)
 
 		var alixClient2 = try await Client.create(
 			account: alix,
@@ -204,7 +232,7 @@ class ConversationTests: XCTestCase {
 		try await alixClient2.conversations.syncAllConversations()
 		sleep(2)
 
-		if let dm2 = try alixClient2.findConversation(conversationId: dm.id) {
+		if let dm2 = try await alixClient2.findConversation(conversationId: dm.id) {
 			XCTAssertEqual(try dm2.consentState(), .denied)
 
 			try await alixClient2.preferences.setConsentState(
