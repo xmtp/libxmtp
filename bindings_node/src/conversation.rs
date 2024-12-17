@@ -161,7 +161,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
+  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = MlsGroup::new(
       self.inner_client.clone(),
@@ -171,6 +171,7 @@ impl Conversation {
     let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let conversation_type = group
       .conversation_type(&provider)
+      .await
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
@@ -250,7 +251,7 @@ impl Conversation {
     );
 
     let admin_list = group
-      .admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(admin_list)
@@ -265,7 +266,7 @@ impl Conversation {
     );
 
     let super_admin_list = group
-      .super_admin_list(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .super_admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(super_admin_list)
@@ -451,7 +452,7 @@ impl Conversation {
     );
 
     let group_name = group
-      .group_name(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_name(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_name)
@@ -482,7 +483,7 @@ impl Conversation {
     );
 
     let group_image_url_square = group
-      .group_image_url_square(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_image_url_square(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_image_url_square)
@@ -513,7 +514,7 @@ impl Conversation {
     );
 
     let group_description = group
-      .group_description(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_description(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_description)
@@ -544,7 +545,7 @@ impl Conversation {
     );
 
     let group_pinned_frame_url = group
-      .group_pinned_frame_url(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .group_pinned_frame_url(&group.mls_provider().map_err(ErrorWrapper::from)?)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group_pinned_frame_url)
@@ -587,7 +588,7 @@ impl Conversation {
 
     Ok(
       group
-        .is_active(group.mls_provider().map_err(ErrorWrapper::from)?)
+        .is_active(&group.mls_provider().map_err(ErrorWrapper::from)?)
         .map_err(ErrorWrapper::from)?,
     )
   }
@@ -604,7 +605,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn group_metadata(&self) -> Result<GroupMetadata> {
+  pub async fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -612,7 +613,8 @@ impl Conversation {
     );
 
     let metadata = group
-      .metadata(group.mls_provider().map_err(ErrorWrapper::from)?)
+      .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
+      .await
       .map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })

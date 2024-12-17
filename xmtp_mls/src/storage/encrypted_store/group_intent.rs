@@ -15,7 +15,7 @@ use super::{
     Sqlite,
 };
 use crate::{
-    groups::{intents::SendMessageIntentData, IntentError},
+    groups::intents::{IntentError, SendMessageIntentData},
     impl_fetch, impl_store,
     storage::StorageError,
     utils::id::calculate_message_id,

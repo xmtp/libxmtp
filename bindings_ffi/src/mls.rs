@@ -1317,13 +1317,13 @@ impl FfiConversation {
         Ok(())
     }
 
-    pub fn find_messages(
+    pub async fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type()? {
+        let kind = match self.conversation_type().await? {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => Some(GroupMessageKind::Application),
             FfiConversationType::Sync => None,
@@ -1445,7 +1445,7 @@ impl FfiConversation {
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
         let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_image_url_square(provider)?)
+        Ok(self.inner.group_image_url_square(&provider)?)
     }
 
     pub async fn update_group_description(
@@ -1461,7 +1461,7 @@ impl FfiConversation {
 
     pub fn group_description(&self) -> Result<String, GenericError> {
         let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_description(provider)?)
+        Ok(self.inner.group_description(&provider)?)
     }
 
     pub async fn update_group_pinned_frame_url(
@@ -1593,9 +1593,9 @@ impl FfiConversation {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
-    pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
+    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let metadata = self.inner.metadata(provider)?;
+        let metadata = self.inner.metadata(&provider).await?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -1605,9 +1605,9 @@ impl FfiConversation {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
 
-    pub fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
+    pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let conversation_type = self.inner.conversation_type(&provider)?;
+        let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
     }
 }
@@ -2104,6 +2104,9 @@ mod tests {
         .await
         .unwrap();
 
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
         register_client(&ffi_inbox_owner, &client).await;
         client
     }
@@ -2595,6 +2598,8 @@ mod tests {
     async fn test_can_stream_group_messages_for_updates() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bo_provider = bo.inner_client.mls_provider().unwrap();
 
         // Stream all group messages
         let message_callbacks = Arc::new(RustStreamCallback::default());
@@ -2627,14 +2632,21 @@ mod tests {
             .unwrap();
         let bo_group = &bo_groups[0];
         bo_group.sync().await.unwrap();
+
+        // alix published + processed group creation and name update
+        assert_eq!(alix_provider.conn_ref().intents_published(), 2);
+        assert_eq!(alix_provider.conn_ref().intents_deleted(), 2);
+
         bo_group
             .update_group_name("Old Name2".to_string())
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(alix_provider.conn_ref().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -2642,6 +2654,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -2650,6 +2663,8 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
+        assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
         assert_eq!(message_callbacks.message_count(), 6);
 
@@ -2693,9 +2708,11 @@ mod tests {
 
         let bo_messages1 = bo_group1
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_messages5 = bo_group5
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages1.len(), 0);
         assert_eq!(bo_messages5.len(), 0);
@@ -2707,9 +2724,11 @@ mod tests {
 
         let bo_messages1 = bo_group1
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_messages5 = bo_group5
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages1.len(), 1);
         assert_eq!(bo_messages5.len(), 1);
@@ -2828,11 +2847,13 @@ mod tests {
         alix_group.sync().await.unwrap();
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
 
         bo_group.sync().await.unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages.len(), 9);
         assert_eq!(alix_messages.len(), 10);
@@ -3016,15 +3037,19 @@ mod tests {
         // Get the message count for all the clients
         let caro_messages = caro_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo2_messages = bo2_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
 
         assert_eq!(caro_messages.len(), 5);
@@ -3080,9 +3105,11 @@ mod tests {
 
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
 
         let alix_can_see_bo_message = alix_messages
@@ -3189,6 +3216,7 @@ mod tests {
 
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages.len(), 0);
 
@@ -3204,8 +3232,12 @@ mod tests {
 
         let bo_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
-        assert!(bo_messages.first().unwrap().kind == FfiConversationMessageKind::MembershipChange);
+        assert_eq!(
+            bo_messages.first().unwrap().kind,
+            FfiConversationMessageKind::MembershipChange
+        );
         assert_eq!(bo_messages.len(), 1);
 
         let bo_members = bo_group.list_members().await.unwrap();
@@ -3263,6 +3295,7 @@ mod tests {
 
         let bo_messages1 = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages1.len(), first_msg_check);
 
@@ -3275,6 +3308,7 @@ mod tests {
 
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(alix_messages.len(), second_msg_check);
 
@@ -3284,6 +3318,7 @@ mod tests {
 
         let bo_messages2 = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(bo_messages2.len(), second_msg_check);
         assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
@@ -4529,15 +4564,19 @@ mod tests {
         // Get messages for both participants in both conversations
         let alix_dm_messages = alix_dm
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_dm_messages = bo_dm
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let alix_group_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_group_messages = bo_group
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
 
         // Verify DM messages
@@ -4658,6 +4697,7 @@ mod tests {
             .await
             .unwrap()[0]
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         let bo_dm_messages = client_b
             .conversations()
@@ -4665,6 +4705,7 @@ mod tests {
             .await
             .unwrap()[0]
             .find_messages(FfiListMessagesOptions::default())
+            .await
             .unwrap();
         assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());

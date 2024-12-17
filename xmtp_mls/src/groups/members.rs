@@ -40,9 +40,9 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
-        let openmls_group = self.load_mls_group(provider)?;
-        // TODO: Replace with try_into from extensions
-        let group_membership = extract_group_membership(openmls_group.extensions())?;
+        let group_membership = self.load_mls_group_with_lock(provider, |mls_group| {
+            Ok(extract_group_membership(mls_group.extensions())?)
+        })?;
         let requests = group_membership
             .members
             .into_iter()

@@ -38,7 +38,7 @@ pub fn logger() {
                 .from_env_lossy()
         };
 
-        tracing_subscriber::registry()
+        let _ = tracing_subscriber::registry()
             // structured JSON logger only if STRUCTURED=true
             .with(is_structured.then(|| {
                 tracing_subscriber::fmt::layer()
@@ -61,7 +61,7 @@ pub fn logger() {
                     })
                     .with_filter(filter())
             }))
-            .init();
+            .try_init();
     });
 }
 
