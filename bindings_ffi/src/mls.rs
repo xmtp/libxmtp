@@ -2640,6 +2640,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
         assert_eq!(message_callbacks.message_count(), 6);
