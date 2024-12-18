@@ -3,7 +3,7 @@
 use crate::util::GrpcResponse;
 use futures::{
     stream::{self, Stream, StreamExt},
-    Future, FutureExt,
+    Future,
 };
 use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -16,90 +16,113 @@ pub(crate) struct SubscriptionItem<T> {
     pub result: T,
 }
 
-enum HttpPostStream<F>
-where
-    F: Future<Output = Result<Response, reqwest::Error>>,
-{
-    NotStarted(F),
-    // NotStarted(Box<dyn Future<Output = Result<Response, Error>>>),
-    Started(Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin + Send>>),
+#[cfg(target_arch = "wasm32")]
+pub type BytesStream = stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>;
+
+// #[cfg(not(target_arch = "wasm32"))]
+// pub type BytesStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type BytesStream = stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>;
+
+pin_project_lite::pin_project! {
+    #[project = PostStreamProject]
+    enum HttpPostStream<F, R> {
+        NotStarted{#[pin] fut: F},
+        // `Reqwest::bytes_stream` returns `impl Stream` rather than a type generic,
+        // so we can't use a type generic here
+        // this makes wasm a bit tricky.
+        Started {
+            #[pin] http: BytesStream,
+            remaining: Vec<u8>,
+            _marker: PhantomData<R>,
+        },
+    }
 }
 
-impl<F> Stream for HttpPostStream<F>
+impl<F, R> Stream for HttpPostStream<F, R>
 where
-    F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
+    F: Future<Output = Result<Response, reqwest::Error>>,
+    for<'de> R: Send + Deserialize<'de>,
 {
-    type Item = Result<bytes::Bytes, reqwest::Error>;
+    type Item = Result<R, Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use futures::task::Poll::*;
-        use HttpPostStream::*;
-        match self.as_mut().get_mut() {
-            NotStarted(ref mut f) => match f.poll_unpin(cx) {
+        match self.as_mut().project() {
+            PostStreamProject::NotStarted { fut } => match fut.poll(cx) {
                 Ready(response) => {
                     let s = response.unwrap().bytes_stream();
-                    self.set(Self::Started(Box::pin(s.boxed())));
-                    self.poll_next(cx)
+                    self.set(Self::started(s));
+                    self.as_mut().poll_next(cx)
                 }
-                Pending => Pending,
+                Pending => {
+                    cx.waker().wake_by_ref();
+                    Pending
+                }
             },
-            Started(s) => s.poll_next_unpin(cx),
+            PostStreamProject::Started {
+                ref mut http,
+                ref mut remaining,
+                ..
+            } => {
+                let mut pinned = std::pin::pin!(http);
+                let next = pinned.as_mut().poll_next(cx);
+                Self::on_bytes(next, remaining, cx)
+            }
         }
     }
 }
 
-struct GrpcHttpStream<F, R>
+impl<F, R> HttpPostStream<F, R>
+where
+    R: Send,
+{
+    #[cfg(not(target_arch = "wasm32"))]
+    fn started(
+        http: impl Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
+    ) -> Self {
+        Self::Started {
+            http: http.boxed(),
+            remaining: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn started(http: impl Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static) -> Self {
+        Self::Started {
+            http: http.boxed_local(),
+            remaining: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<F, R> HttpPostStream<F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
+    for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
 {
-    http: HttpPostStream<F>,
-    remaining: Vec<u8>,
-    _marker: PhantomData<R>,
-}
-
-impl<F, R> GrpcHttpStream<F, R>
-where
-    F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
-    R: DeserializeOwned + Send + std::fmt::Debug + Unpin + 'static,
-{
-    fn new(request: F) -> Self
-    where
-        F: Future<Output = Result<Response, reqwest::Error>>,
-    {
-        let mut http = HttpPostStream::NotStarted(request);
-        // we need to poll the future once to establish the initial POST request
-        // it will almost always be pending
-        let _ = http.next().now_or_never();
-        Self {
-            http,
-            remaining: vec![],
-            _marker: PhantomData::<R>,
-        }
+    fn new(request: F) -> Self {
+        Self::NotStarted { fut: request }
     }
-}
 
-impl<F, R> Stream for GrpcHttpStream<F, R>
-where
-    F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
-    R: DeserializeOwned + Send + std::fmt::Debug + Unpin + 'static,
-{
-    type Item = Result<R, Error>;
-
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
+    fn on_bytes(
+        p: Poll<Option<Result<bytes::Bytes, reqwest::Error>>>,
+        remaining: &mut Vec<u8>,
         cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    ) -> Poll<Option<<Self as Stream>::Item>> {
         use futures::task::Poll::*;
-        let this = self.get_mut();
-        match this.http.poll_next_unpin(cx) {
+        match p {
             Ready(Some(bytes)) => {
                 let bytes = bytes.map_err(|e| {
                     Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string())
                 })?;
-                let bytes = &[this.remaining.as_ref(), bytes.as_ref()].concat();
+                let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
                 let de = Deserializer::from_slice(bytes);
                 let mut stream = de.into_iter::<GrpcResponse<R>>();
                 'messages: loop {
@@ -113,8 +136,7 @@ where
                         }
                         Some(Err(e)) => {
                             if e.is_eof() {
-                                this.remaining = (&**bytes)[stream.byte_offset()..].to_vec();
-                                tracing::info!("PENDING");
+                                *remaining = (&**bytes)[stream.byte_offset()..].to_vec();
                                 return Pending;
                             } else {
                                 Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
@@ -133,13 +155,45 @@ where
             }
         }
     }
+    /*
+    fn on_request(
+        self: &mut Pin<&mut Self>,
+        p: Poll<Result<reqwest::Response, reqwest::Error>>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<<Self as Stream>::Item>> {
+        use futures::task::Poll::*;
+        match p {
+            Ready(response) => {
+                let s = response.unwrap().bytes_stream();
+                self.set(Self::started(s));
+                self.as_mut().poll_next(cx)
+            }
+            Pending => Pending,
+        }
+    }
+    */
+}
+
+impl<F, R> HttpPostStream<F, R>
+where
+    F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
+    for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
+{
+    /// Establish the initial HTTP Stream connection
+    fn establish(&mut self) -> () {
+        // we need to poll the future once to progress the future state &
+        // establish the initial POST request.
+        // It should always be pending
+        let noop_waker = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&noop_waker);
+        // let mut this = Pin::new(self);
+        let mut this = Pin::new(self);
+        let _ = this.poll_next_unpin(&mut cx);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn create_grpc_stream<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
->(
+pub fn create_grpc_stream<T: Serialize + Send + 'static, R: DeserializeOwned + Send + 'static>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
@@ -148,25 +202,29 @@ pub fn create_grpc_stream<
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_grpc_stream<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + Unpin + 'static,
->(
+pub fn create_grpc_stream<T, R>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> stream::BoxStream<'static, Result<R, Error>> {
+) -> stream::BoxStream<'static, Result<R, Error>>
+where
+    T: Serialize + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
     create_grpc_stream_inner(request, endpoint, http_client).boxed()
 }
 
-pub fn create_grpc_stream_inner<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + Unpin + 'static,
->(
+fn create_grpc_stream_inner<T, R>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> impl Stream<Item = Result<R, Error>> {
+) -> impl Stream<Item = Result<R, Error>>
+where
+    T: Serialize + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
     let request = http_client.post(endpoint).json(&request).send();
-    GrpcHttpStream::new(request)
+    let mut http = HttpPostStream::new(request);
+    http.establish();
+    http
 }
