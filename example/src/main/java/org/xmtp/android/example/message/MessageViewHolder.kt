@@ -28,7 +28,7 @@ class MessageViewHolder(
     @SuppressLint("SetTextI18n")
     fun bind(item: ConversationDetailViewModel.MessageListItem.Message) {
         val isFromMe =
-            ClientManager.client.address.lowercase() == item.message.senderAddress.lowercase()
+            ClientManager.client.address.lowercase() == item.message.senderInboxId.lowercase()
         val params = binding.messageContainer.layoutParams as ConstraintLayout.LayoutParams
         if (isFromMe) {
             params.rightToRight = PARENT_ID

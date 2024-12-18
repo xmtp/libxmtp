@@ -52,7 +52,7 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
                 client = client,
                 topic = Topic.groupMessage(convoId).description,
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
-                senderAddress = senderInboxId,
+                senderInboxId = senderInboxId,
                 sent = sentAt,
                 sentNs = sentAtNs,
                 deliveryStatus = deliveryStatus

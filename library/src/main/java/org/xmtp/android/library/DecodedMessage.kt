@@ -10,7 +10,7 @@ data class DecodedMessage(
     val client: Client,
     var topic: String,
     var encodedContent: Content.EncodedContent,
-    var senderAddress: String,
+    var senderInboxId: String,
     var sent: Date,
     var sentNs: Long,
     var deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.PUBLISHED

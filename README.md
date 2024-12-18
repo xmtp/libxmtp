@@ -69,7 +69,7 @@ conversation.send(text = "gm")
 
 // Listen for new messages in the conversation
 conversation.streamMessages().collect {
-    print("${it.senderAddress}: ${it.body}")
+    print("${it.senderInboxId}: ${it.body}")
 }
 ```
 
@@ -199,17 +199,17 @@ val nextPage = conversation.messages(limit = 25, beforeNs = messages[0].sentNs)
 
 You can listen for any new messages (incoming or outgoing) in a conversation by calling `conversation.streamMessages()`.
 
-A successfully received message (that makes it through the decoding and decryption without throwing) can be trusted to be authentic. Authentic means that it was sent by the owner of the `message.senderAddress` account and that it wasn't modified in transit. The `message.sent` timestamp can be trusted to have been set by the sender.
+A successfully received message (that makes it through the decoding and decryption without throwing) can be trusted to be authentic. Authentic means that it was sent by the owner of the `message.senderInboxId` account and that it wasn't modified in transit. The `message.sent` timestamp can be trusted to have been set by the sender.
 
 The flow returned by the `stream` methods is an asynchronous data stream that sequentially emits values and completes normally or with an exception.
 
 ```kotlin
 conversation.streamMessages().collect {
-    if (it.senderAddress == client.address) {
+    if (it.senderInboxId == client.address) {
         // This message was sent from me
     }
 
-    print("New message from ${it.senderAddress}: ${it.body}")
+    print("New message from ${it.senderInboxId}: ${it.body}")
 }
 ```
 
