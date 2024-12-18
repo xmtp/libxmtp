@@ -1,5 +1,5 @@
 ALTER TABLE groups ADD COLUMN dm_id TEXT;
-ALTER TABLE groups ADD COLUMN last_message_ns BIGINT;
+ALTER TABLE groups ADD COLUMN last_message_ns BIGINT NOT NULL DEFAULT (created_at_ns);
 
 -- Fill the dm_id column
 UPDATE groups

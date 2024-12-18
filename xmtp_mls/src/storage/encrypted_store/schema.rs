@@ -56,7 +56,7 @@ diesel::table! {
         rotated_at_ns -> BigInt,
         conversation_type -> Integer,
         dm_id -> Nullable<Text>,
-        last_message_ns -> Nullable<BigInt>,
+        last_message_ns -> BigInt,
     }
 }
 

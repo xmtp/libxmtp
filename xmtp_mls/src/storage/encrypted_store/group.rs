@@ -16,6 +16,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 
 pub type ID = Vec<u8>;
 
@@ -36,14 +37,14 @@ pub struct StoredGroup {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The inbox_id of the DM target
-    pub dm_id: Option<String>,
-    /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
-    pub last_message_ns: Option<i64>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     pub conversation_type: ConversationType,
+    /// The inbox_id of the DM target
+    pub dm_id: Option<String>,
+    /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
+    pub last_message_ns: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -70,7 +71,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_id,
-            last_message_ns: None,
+            last_message_ns: now_ns(),
         }
     }
 
@@ -95,7 +96,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: dm_id,
-            last_message_ns: None,
+            last_message_ns: now_ns(),
         }
     }
 
@@ -116,7 +117,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: None,
-            last_message_ns: None,
+            last_message_ns: now_ns(),
         }
     }
 }
