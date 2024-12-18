@@ -174,6 +174,54 @@ pub async fn get_inbox_id_for_address(
     Ok(results.get(&account_address).cloned())
 }
 
+pub async fn is_installation_authorized(
+    host: String,
+    inbox_id: String,
+    installation_id: Vec<u8>,
+) -> Result<bool, GenericError> {
+    is_member_of_association_state(
+        &host,
+        &inbox_id,
+        &MemberIdentifier::Installation(installation_id.to_vec()),
+    )
+    .await
+}
+
+pub async fn is_address_authorized(
+    host: String,
+    inbox_id: String,
+    address: String,
+) -> Result<bool, GenericError> {
+    is_member_of_association_state(
+        &host,
+        &inbox_id,
+        &MemberIdentifier::Address(address.to_lowercase()),
+    )
+    .await
+}
+
+async fn is_member_of_association_state(
+    host: &str,
+    inbox_id: &str,
+    identifier: &MemberIdentifier,
+) -> Result<bool, GenericError> {
+    let api_client = TonicApiClient::create(host, true)
+        .await
+        .map_err(GenericError::from)?;
+    let api_client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+
+    let is_member = xmtp_mls::identity_updates::is_member_of_association_state(
+        &api_client,
+        inbox_id,
+        identifier,
+        None,
+    )
+    .await
+    .map_err(GenericError::from)?;
+
+    Ok(is_member)
+}
+
 #[allow(unused)]
 #[uniffi::export]
 pub fn generate_inbox_id(account_address: String, nonce: u64) -> Result<String, GenericError> {
