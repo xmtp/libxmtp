@@ -2128,8 +2128,9 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
-            false,
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             client.account_address.clone(),
         )
         .await
