@@ -466,7 +466,7 @@ impl ClientV4 {
     async fn query_v4_envelopes(
         &self,
         topics: Vec<Vec<u8>>,
-        limit: u32
+        limit: u32,
     ) -> Result<Vec<Vec<OriginatorEnvelope>>, Error> {
         let requests = topics.iter().map(|topic| async {
             let client = &mut self.client.clone();
