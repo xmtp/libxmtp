@@ -37,7 +37,9 @@ pub struct StoredGroup {
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
     /// The inbox_id of the DM target
-    pub dm_inbox_id: Option<String>,
+    pub dm_id: Option<String>,
+    /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
+    pub last_message_ns: Option<i64>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
@@ -56,7 +58,7 @@ impl StoredGroup {
         added_by_inbox_id: String,
         welcome_id: i64,
         conversation_type: ConversationType,
-        dm_inbox_id: Option<String>,
+        dm_id: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -67,7 +69,8 @@ impl StoredGroup {
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
-            dm_inbox_id,
+            dm_id,
+            last_message_ns: None,
         }
     }
 
@@ -77,21 +80,22 @@ impl StoredGroup {
         created_at_ns: i64,
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
-        dm_inbox_id: Option<String>,
+        dm_id: Option<String>,
     ) -> Self {
         Self {
             id,
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
-            conversation_type: match dm_inbox_id {
+            conversation_type: match dm_id {
                 Some(_) => ConversationType::Dm,
                 None => ConversationType::Group,
             },
             added_by_inbox_id,
             welcome_id: None,
             rotated_at_ns: 0,
-            dm_inbox_id,
+            dm_id: dm_id,
+            last_message_ns: None,
         }
     }
 
@@ -111,7 +115,8 @@ impl StoredGroup {
             added_by_inbox_id: "".into(),
             welcome_id: None,
             rotated_at_ns: 0,
-            dm_inbox_id: None,
+            dm_id: None,
+            last_message_ns: None,
         }
     }
 }
