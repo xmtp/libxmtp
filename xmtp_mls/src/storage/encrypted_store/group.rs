@@ -120,6 +120,14 @@ impl StoredGroup {
             last_message_ns: now_ns(),
         }
     }
+
+    pub fn dm_id(inbox_ids: [&str; 2]) -> String {
+        let inbox_ids:  = inbox_ids
+            .into_iter()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
+        format!("dm:{}", inbox_ids.join(":"))
+    }
 }
 
 #[derive(Debug, Default)]

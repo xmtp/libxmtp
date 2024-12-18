@@ -475,12 +475,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
+
         let stored_group = StoredGroup::new(
             group_id.clone(),
             now_ns(),
             membership_state,
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(StoredGroup::dm_id([&dm_target_inbox_id, client.inbox_id()])),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -1128,7 +1129,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group = conn
             .find_group(self.group_id.clone())?
             .ok_or(GroupError::GroupNotFound)?;
-        group.dm_inbox_id.ok_or(GroupError::GroupNotFound)
+        let inbox_id = self.client.inbox_id();
+        // drop the "dm:"
+        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?[3..];
+
+        // If my inbox id is the first half, return the second half, otherwise return first half
+        let target_inbox = if dm_id[..inbox_id.len()] == *inbox_id {
+            // + 1 because there is a colon (:)
+            &dm_id[(inbox_id.len() + 1)..]
+        } else {
+            &dm_id[..inbox_id.len()]
+        };
+
+        return Ok(target_inbox.to_string());
     }
 
     /// Find the `consent_state` of the group
