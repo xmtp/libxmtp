@@ -95,7 +95,7 @@ impl StoredGroup {
             added_by_inbox_id,
             welcome_id: None,
             rotated_at_ns: 0,
-            dm_id: dm_id,
+            dm_id,
             last_message_ns: now_ns(),
         }
     }
@@ -629,7 +629,7 @@ pub(crate) mod tests {
         let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        let dm_inbox_id = Some("placeholder_inbox_id".to_string());
+        let dm_inbox_id = Some(DmId::from_ids(["placeholder_inbox_id"; 2]));
         StoredGroup::new(
             id,
             created_at_ns,
