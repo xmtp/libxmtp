@@ -1,7 +1,21 @@
 ALTER TABLE groups ADD COLUMN dm_id TEXT;
 ALTER TABLE groups ADD COLUMN last_message_ns BIGINT;
 
--- Create a trigger to auto-update group table on insert;
+-- Fill the dm_id column
+UPDATE groups
+SET dm_id = 'dm:' ||
+    LOWER(
+        CASE
+            WHEN LOWER((SELECT inbox_id FROM identity)) < LOWER(dm_inbox_id)
+            THEN (SELECT inbox_id FROM identity) || ':' || dm_inbox_id
+            ELSE dm_inbox_id || ':' || (SELECT inbox_id FROM identity)
+        END
+    )
+WHERE dm_inbox_id IS NOT NULL;
+
+ALTER TABLE groups REMOVE COLUMN dm_inbox_id;
+
+-- Create a trigger to auto-update group table on insert
 CREATE TRIGGER msg_iserted
 AFTER INSERT ON group_messages
 BEGIN
