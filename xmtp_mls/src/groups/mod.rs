@@ -511,15 +511,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let dm_members = metadata.dm_members;
-        let dm_inbox_id = if let Some(dm_members) = &dm_members {
-            if dm_members.member_one_inbox_id == client.inbox_id() {
-                Some(dm_members.member_two_inbox_id.clone())
-            } else {
-                Some(dm_members.member_one_inbox_id.clone())
-            }
-        } else {
-            None
-        };
+        let dm_id =
+            dm_members.map(|m| DmId::from_ids([&m.member_one_inbox_id, &m.member_two_inbox_id]));
+
         let conversation_type = metadata.conversation_type;
 
         let to_store = match conversation_type {
@@ -530,7 +524,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_id,
             ),
             ConversationType::Dm => {
                 validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
@@ -541,7 +535,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     added_by_inbox,
                     welcome_id,
                     conversation_type,
-                    dm_inbox_id,
+                    dm_id,
                 )
             }
             ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -551,7 +545,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_id,
             ),
         };
 
