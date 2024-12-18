@@ -174,6 +174,8 @@ pub async fn get_inbox_id_for_address(
     Ok(results.get(&account_address).cloned())
 }
 
+#[allow(unused)]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn is_installation_authorized(
     host: String,
     inbox_id: String,
@@ -187,6 +189,8 @@ pub async fn is_installation_authorized(
     .await
 }
 
+#[allow(unused)]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn is_address_authorized(
     host: String,
     inbox_id: String,
