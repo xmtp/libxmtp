@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.9
+
+- Fixed issue that resulted in a forked group
+
 ## 0.0.8
 
 - Added support for custom permission policy sets
