@@ -531,6 +531,21 @@ class ClientTests: XCTestCase {
 		let time3 = end3.timeIntervalSince(start3)
 		print("PERF: Built a client with inboxId in \(time3)s")
 
+		// Measure time to build a client with an inboxId and apiClient
+		let start4 = Date()
+		let buildClient3 = try await Client.build(
+			address: fakeWallet.address,
+			options: ClientOptions(
+				api: ClientOptions.Api(env: .dev, isSecure: true),
+				dbEncryptionKey: key
+			),
+			inboxId: client.inboxID,
+			apiClient: client.apiClient
+		)
+		let end4 = Date()
+		let time4 = end4.timeIntervalSince(start4)
+		print("PERF: Built a client with inboxId and apiClient in \(time4)s")
+
 		// Assert performance comparisons
 		XCTAssertTrue(
 			time2 < time1,
@@ -543,6 +558,18 @@ class ClientTests: XCTestCase {
 			time3 < time2,
 			"Building a client with inboxId should be faster than building one without."
 		)
+		XCTAssertTrue(
+			time4 < time1,
+			"Building a client with apiClient should be faster than creating one."
+		)
+		XCTAssertTrue(
+			time4 < time2,
+			"Building a client with apiClient should be faster than building one."
+		)
+		XCTAssertTrue(
+			time4 < time2,
+			"Building a client with apiClient should be faster than building one with inboxId."
+		)
 
 		// Assert that inbox IDs match
 		XCTAssertEqual(
@@ -551,6 +578,10 @@ class ClientTests: XCTestCase {
 		)
 		XCTAssertEqual(
 			client.inboxID, buildClient2.inboxID,
+			"Inbox ID of the created client and second built client should match."
+		)
+		XCTAssertEqual(
+			client.inboxID, buildClient3.inboxID,
 			"Inbox ID of the created client and second built client should match."
 		)
 	}

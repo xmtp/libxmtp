@@ -68,7 +68,7 @@ public struct Message: Identifiable {
 				client: client,
 				topic: Topic.groupMessage(convoId).description,
 				encodedContent: encodedContent,
-				senderAddress: senderInboxId,
+				senderInboxId: senderInboxId,
 				sent: sentAt,
 				sentNs: sentAtNs,
 				deliveryStatus: deliveryStatus

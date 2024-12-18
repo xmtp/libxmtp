@@ -17,12 +17,12 @@ struct MessageTextView: View {
 	var body: some View {
 		VStack {
 			HStack {
-				if message.senderAddress.lowercased() == myAddress.lowercased() {
+				if message.senderInboxId.lowercased() == myAddress.lowercased() {
 					Spacer()
 				}
 				VStack(alignment: .leading) {
-					if isGroup && message.senderAddress.lowercased() != myAddress.lowercased() {
-						Text(message.senderAddress)
+					if isGroup && message.senderInboxId.lowercased() != myAddress.lowercased() {
+						Text(message.senderInboxId)
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
@@ -32,7 +32,7 @@ struct MessageTextView: View {
 					if isDebugging {
 						Text("My Address \(myAddress)")
 							.font(.caption)
-						Text("Sender Address \(message.senderAddress)")
+						Text("Sender Address \(message.senderInboxId)")
 							.font(.caption)
 					}
 				}
@@ -46,7 +46,7 @@ struct MessageTextView: View {
 						isDebugging.toggle()
 					}
 				}
-				if message.senderAddress.lowercased() != myAddress.lowercased() {
+				if message.senderInboxId.lowercased() != myAddress.lowercased() {
 					Spacer()
 				}
 			}
@@ -62,7 +62,7 @@ struct MessageTextView: View {
 	}
 
 	var background: Color {
-		if message.senderAddress.lowercased() == myAddress.lowercased() {
+		if message.senderInboxId.lowercased() == myAddress.lowercased() {
 			return .purple
 		} else {
 			return .secondary.opacity(0.2)
@@ -70,7 +70,7 @@ struct MessageTextView: View {
 	}
 
 	var color: Color {
-		if message.senderAddress.lowercased() == myAddress.lowercased() {
+		if message.senderInboxId.lowercased() == myAddress.lowercased() {
 			return .white
 		} else {
 			return .primary

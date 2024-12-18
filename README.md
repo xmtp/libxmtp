@@ -66,7 +66,7 @@ try await conversation.send("gm")
 // Listen for new messages in the conversation
 Task {
     for await message in try await conversation.streamMessages() {
-        print("\(message.senderAddress): \(message.body)")
+        print("\(message.senderInboxId): \(message.body)")
     }
 }
 ```
@@ -193,7 +193,7 @@ let nextPage = try await conversation.messages(limit: 25, before: messages.first
 
 You can listen for any new messages (incoming or outgoing) in a conversation by calling `conversation.streamMessages()`.
 
-A successfully received message (that makes it through the decoding and decryption without throwing) can be trusted to be authentic. Authentic means that it was sent by the owner of the `message.senderAddress` account and that it wasn't modified in transit. The `message.sent` timestamp can be trusted to have been set by the sender.
+A successfully received message (that makes it through the decoding and decryption without throwing) can be trusted to be authentic. Authentic means that it was sent by the owner of the `message.senderInboxId` account and that it wasn't modified in transit. The `message.sent` timestamp can be trusted to have been set by the sender.
 
 The flow returned by the `stream` methods is an asynchronous data stream that sequentially emits values and completes normally or with an exception.
 
@@ -202,10 +202,10 @@ The flow returned by the `stream` methods is an asynchronous data stream that se
 
 Task {
     for await message in try await conversation.streamMessages() {
-        if message.senderAddress == client.address {
+        if message.senderInboxId == client.address {
             // This message was sent from me
         }
-        print("New message from \(message.senderAddress): \(message.body)")
+        print("New message from \(message.senderInboxId): \(message.body)")
     }
 }
 ```

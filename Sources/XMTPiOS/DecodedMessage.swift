@@ -9,7 +9,7 @@ public struct DecodedMessage: Sendable {
 	public var encodedContent: EncodedContent
 
 	/// The wallet address of the sender of the message
-	public var senderAddress: String
+	public var senderInboxId: String
 
 	/// When the message was sent
 	public var sent: Date
@@ -24,7 +24,7 @@ public struct DecodedMessage: Sendable {
 		client: Client,
 		topic: String,
 		encodedContent: EncodedContent,
-		senderAddress: String,
+		senderInboxId: String,
 		sent: Date,
 		sentNs: Int64,
 		deliveryStatus: MessageDeliveryStatus = .published
@@ -33,7 +33,7 @@ public struct DecodedMessage: Sendable {
 		self.client = client
 		self.topic = topic
 		self.encodedContent = encodedContent
-		self.senderAddress = senderAddress
+		self.senderInboxId = senderInboxId
 		self.sent = sent
 		self.sentNs = sentNs
 		self.deliveryStatus = deliveryStatus
