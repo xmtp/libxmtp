@@ -58,7 +58,10 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::StorageError;
+use crate::storage::{
+    group::{DmId, DmIdExt},
+    StorageError,
+};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -481,7 +484,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             now_ns(),
             membership_state,
             context.inbox_id().to_string(),
-            Some(StoredGroup::dm_id([&dm_target_inbox_id, client.inbox_id()])),
+            Some(DmId::from_ids([&dm_target_inbox_id, client.inbox_id()])),
         );
 
         stored_group.store(provider.conn_ref())?;

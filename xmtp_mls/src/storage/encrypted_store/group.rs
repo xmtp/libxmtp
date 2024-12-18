@@ -42,7 +42,7 @@ pub struct StoredGroup {
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     pub conversation_type: ConversationType,
     /// The inbox_id of the DM target
-    pub dm_id: Option<String>,
+    pub dm_id: Option<DmId>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: i64,
 }
@@ -119,14 +119,6 @@ impl StoredGroup {
             dm_id: None,
             last_message_ns: now_ns(),
         }
-    }
-
-    pub fn dm_id(inbox_ids: [&str; 2]) -> String {
-        let inbox_ids:  = inbox_ids
-            .into_iter()
-            .map(str::to_lowercase)
-            .collect::<Vec<_>>();
-        format!("dm:{}", inbox_ids.join(":"))
     }
 }
 
@@ -351,11 +343,14 @@ impl DbConnection {
 
     pub fn find_dm_group(
         &self,
+        inbox_id: &str,
         target_inbox_id: &str,
     ) -> Result<Option<StoredGroup>, StorageError> {
+        let dm_id = DmId::from_ids([inbox_id, target_inbox_id]);
+
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
-            .filter(dsl::dm_inbox_id.eq(Some(target_inbox_id)));
+            .filter(dsl::dm_id.eq(Some(dm_id)));
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
@@ -555,6 +550,38 @@ impl std::fmt::Display for ConversationType {
     }
 }
 
+pub type DmId = String;
+
+pub trait DmIdExt {
+    fn from_ids(inbox_ids: [&str; 2]) -> Self;
+    fn other_id(&self, other: &str) -> String;
+}
+impl DmIdExt for DmId {
+    fn from_ids(inbox_ids: [&str; 2]) -> Self {
+        let inbox_ids = inbox_ids
+            .into_iter()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
+
+        format!("dm:{}", inbox_ids.join(":"))
+    }
+
+    fn other_id(&self, id: &str) -> String {
+        // drop the "dm:"
+        let dm_id = &self[3..];
+
+        // If my id is the first half, return the second half, otherwise return first half
+        let target_inbox = if dm_id[..id.len()] == *id {
+            // + 1 because there is a colon (:)
+            &dm_id[(id.len() + 1)..]
+        } else {
+            &dm_id[..id.len()]
+        };
+
+        return target_inbox.to_string();
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -726,7 +753,10 @@ pub(crate) mod tests {
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
-            let dm_result = conn.find_dm_group("placeholder_inbox_id").unwrap();
+
+            let dm_result = conn
+                .find_dm_group("placeholder_inbox_id", "placeholder_inbox_id")
+                .unwrap();
             assert!(dm_result.is_some());
 
             // test only dms are returned

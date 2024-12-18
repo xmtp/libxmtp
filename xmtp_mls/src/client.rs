@@ -638,7 +638,7 @@ where
         target_inbox_id: String,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let conn = self.store().conn()?;
-        match conn.find_dm_group(&target_inbox_id)? {
+        match conn.find_dm_group(self.inbox_id(), &target_inbox_id)? {
             Some(dm_group) => Ok(MlsGroup::new(
                 self.clone(),
                 dm_group.id,
