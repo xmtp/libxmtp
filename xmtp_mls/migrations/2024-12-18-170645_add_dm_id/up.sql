@@ -13,7 +13,8 @@ SET dm_id = 'dm:' ||
     )
 WHERE dm_inbox_id IS NOT NULL;
 
-ALTER TABLE groups REMOVE COLUMN dm_inbox_id;
+DROP INDEX IF EXISTS idx_dm_target;
+ALTER TABLE groups DROP COLUMN dm_inbox_id;
 
 -- Create a trigger to auto-update group table on insert
 CREATE TRIGGER msg_iserted
