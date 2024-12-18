@@ -2,6 +2,7 @@ use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
 use prost::Message;
 use thiserror::Error;
 
+use xmtp_id::InboxId;
 use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, DmMembers as DmMembersProto,
     GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto,
@@ -31,14 +32,14 @@ pub struct GroupMetadata {
     pub conversation_type: ConversationType,
     // TODO: Remove this once transition is completed
     pub creator_inbox_id: String,
-    pub dm_members: Option<DmMembers>,
+    pub dm_members: Option<DmMembers<InboxId>>,
 }
 
 impl GroupMetadata {
     pub fn new(
         conversation_type: ConversationType,
         creator_inbox_id: String,
-        dm_members: Option<DmMembers>,
+        dm_members: Option<DmMembers<InboxId>>,
     ) -> Self {
         Self {
             conversation_type,
@@ -130,25 +131,54 @@ impl TryFrom<i32> for ConversationType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DmMembers {
-    pub member_one_inbox_id: String,
-    pub member_two_inbox_id: String,
+pub struct DmMembers<Id: AsRef<str>> {
+    pub member_one_inbox_id: Id,
+    pub member_two_inbox_id: Id,
 }
 
-impl From<DmMembers> for DmMembersProto {
-    fn from(value: DmMembers) -> Self {
+impl<'a> DmMembers<String> {
+    pub fn as_ref(&'a self) -> DmMembers<&'a str> {
+        DmMembers {
+            member_one_inbox_id: &*self.member_one_inbox_id,
+            member_two_inbox_id: &*self.member_two_inbox_id,
+        }
+    }
+}
+
+impl<Id> From<DmMembers<Id>> for DmMembersProto
+where
+    Id: AsRef<str>,
+{
+    fn from(value: DmMembers<Id>) -> Self {
         DmMembersProto {
             dm_member_one: Some(InboxProto {
-                inbox_id: value.member_one_inbox_id.clone(),
+                inbox_id: value.member_one_inbox_id.as_ref().to_string(),
             }),
             dm_member_two: Some(InboxProto {
-                inbox_id: value.member_two_inbox_id.clone(),
+                inbox_id: value.member_two_inbox_id.as_ref().to_string(),
             }),
         }
     }
 }
 
-impl TryFrom<DmMembersProto> for DmMembers {
+impl<Id> From<DmMembers<Id>> for String
+where
+    Id: AsRef<str>,
+{
+    fn from(members: DmMembers<Id>) -> Self {
+        let inbox_ids = [
+            members.member_one_inbox_id.as_ref(),
+            members.member_two_inbox_id.as_ref(),
+        ]
+        .into_iter()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+
+        format!("dm:{}", inbox_ids.join(":"))
+    }
+}
+
+impl TryFrom<DmMembersProto> for DmMembers<InboxId> {
     type Error = GroupMetadataError;
 
     fn try_from(value: DmMembersProto) -> Result<Self, Self::Error> {

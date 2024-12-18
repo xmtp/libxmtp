@@ -36,8 +36,8 @@ use crate::groups::device_sync::WorkerHandle;
 use crate::{
     api::ApiClientWrapper,
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, group_permissions::PolicySet,
-        GroupError, GroupMetadataOptions, MlsGroup,
+        device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
+        group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
@@ -638,7 +638,10 @@ where
         target_inbox_id: String,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let conn = self.store().conn()?;
-        match conn.find_dm_group(self.inbox_id(), &target_inbox_id)? {
+        match conn.find_dm_group(DmMembers {
+            member_one_inbox_id: self.inbox_id(),
+            member_two_inbox_id: &target_inbox_id,
+        })? {
             Some(dm_group) => Ok(MlsGroup::new(
                 self.clone(),
                 dm_group.id,

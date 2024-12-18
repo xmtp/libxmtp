@@ -5,7 +5,9 @@ use super::{
     schema::groups::{self, dsl},
     Sqlite,
 };
-use crate::{impl_fetch, impl_store, DuplicateItem, StorageError};
+use crate::{
+    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
+};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -17,6 +19,7 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
+use xmtp_id::InboxIdRef;
 
 pub type ID = Vec<u8>;
 
@@ -42,7 +45,7 @@ pub struct StoredGroup {
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     pub conversation_type: ConversationType,
     /// The inbox_id of the DM target
-    pub dm_id: Option<DmId>,
+    pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: i64,
 }
@@ -59,7 +62,7 @@ impl StoredGroup {
         added_by_inbox_id: String,
         welcome_id: i64,
         conversation_type: ConversationType,
-        dm_id: Option<String>,
+        dm_members: Option<DmMembers<String>>,
     ) -> Self {
         Self {
             id,
@@ -70,7 +73,7 @@ impl StoredGroup {
             added_by_inbox_id,
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
-            dm_id,
+            dm_id: dm_members.map(String::from),
             last_message_ns: now_ns(),
         }
     }
@@ -81,21 +84,21 @@ impl StoredGroup {
         created_at_ns: i64,
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
-        dm_id: Option<String>,
+        dm_members: Option<DmMembers<String>>,
     ) -> Self {
         Self {
             id,
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
-            conversation_type: match dm_id {
+            conversation_type: match dm_members {
                 Some(_) => ConversationType::Dm,
                 None => ConversationType::Group,
             },
             added_by_inbox_id,
             welcome_id: None,
             rotated_at_ns: 0,
-            dm_id,
+            dm_id: dm_members.map(String::from),
             last_message_ns: now_ns(),
         }
     }
@@ -343,10 +346,9 @@ impl DbConnection {
 
     pub fn find_dm_group(
         &self,
-        inbox_id: &str,
-        target_inbox_id: &str,
+        members: DmMembers<&str>,
     ) -> Result<Option<StoredGroup>, StorageError> {
-        let dm_id = DmId::from_ids([inbox_id, target_inbox_id]);
+        let dm_id = String::from(members.clone());
 
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
@@ -354,10 +356,7 @@ impl DbConnection {
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
-            tracing::info!(
-                "More than one group found for dm_inbox_id {}",
-                target_inbox_id
-            );
+            tracing::info!("More than one group found for dm_inbox_id {members:?}");
         }
 
         Ok(groups.into_iter().next())
@@ -550,23 +549,11 @@ impl std::fmt::Display for ConversationType {
     }
 }
 
-pub type DmId = String;
-
 pub trait DmIdExt {
-    fn from_ids(inbox_ids: [&str; 2]) -> Self;
-    fn other_id(&self, other: &str) -> String;
+    fn other_inbox_id(&self, other: &str) -> String;
 }
-impl DmIdExt for DmId {
-    fn from_ids(inbox_ids: [&str; 2]) -> Self {
-        let inbox_ids = inbox_ids
-            .into_iter()
-            .map(str::to_lowercase)
-            .collect::<Vec<_>>();
-
-        format!("dm:{}", inbox_ids.join(":"))
-    }
-
-    fn other_id(&self, id: &str) -> String {
+impl DmIdExt for String {
+    fn other_inbox_id(&self, id: &str) -> String {
         // drop the "dm:"
         let dm_id = &self[3..];
 
@@ -629,13 +616,16 @@ pub(crate) mod tests {
         let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        let dm_inbox_id = Some(DmId::from_ids(["placeholder_inbox_id"; 2]));
+        let members = DmMembers {
+            member_one_inbox_id: "placeholder_inbox_id_1".to_string(),
+            member_two_inbox_id: "placeholder_inbox_id_2".to_string(),
+        };
         StoredGroup::new(
             id,
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
-            dm_inbox_id,
+            Some(members),
         )
     }
 
@@ -755,7 +745,10 @@ pub(crate) mod tests {
             // test find_dm_group
 
             let dm_result = conn
-                .find_dm_group("placeholder_inbox_id", "placeholder_inbox_id")
+                .find_dm_group(DmMembers {
+                    member_one_inbox_id: "placeholder_inbox_id_1",
+                    member_two_inbox_id: "placeholder_inbox_id_2",
+                })
                 .unwrap();
             assert!(dm_result.is_some());
 

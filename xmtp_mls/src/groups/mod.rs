@@ -58,10 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{
-    group::{DmId, DmIdExt},
-    StorageError,
-};
+use crate::storage::StorageError;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -484,7 +481,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             now_ns(),
             membership_state,
             context.inbox_id().to_string(),
-            Some(DmId::from_ids([&dm_target_inbox_id, client.inbox_id()])),
+            Some(DmMembers {
+                member_one_inbox_id: dm_target_inbox_id,
+                member_two_inbox_id: client.inbox_id().to_string(),
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -511,8 +511,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let dm_members = metadata.dm_members;
-        let dm_id =
-            dm_members.map(|m| DmId::from_ids([&m.member_one_inbox_id, &m.member_two_inbox_id]));
 
         let conversation_type = metadata.conversation_type;
 
@@ -524,7 +522,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_id,
+                dm_members,
             ),
             ConversationType::Dm => {
                 validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
@@ -535,7 +533,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     added_by_inbox,
                     welcome_id,
                     conversation_type,
-                    dm_id,
+                    dm_members,
                 )
             }
             ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -545,7 +543,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_id,
+                dm_members,
             ),
         };
 
@@ -1274,7 +1272,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             now_ns(),
             GroupMembershipState::Allowed, // Use Allowed as default for tests
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(DmMembers {
+                member_one_inbox_id: client.inbox_id().to_string(),
+                member_two_inbox_id: dm_target_inbox_id,
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
