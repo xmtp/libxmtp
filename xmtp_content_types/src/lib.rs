@@ -1,9 +1,9 @@
 pub mod group_updated;
 pub mod membership_change;
 pub mod reaction;
-pub mod reply;
 pub mod read_receipt;
 pub mod remote_attachment;
+pub mod reply;
 pub mod text;
 pub mod transaction_reference;
 

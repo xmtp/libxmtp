@@ -186,6 +186,7 @@ pub struct MsgQueryArgs {
     delivery_status: Option<DeliveryStatus>,
     limit: Option<i64>,
     direction: Option<SortDirection>,
+    content_types: Option<Vec<ContentType>>,
 }
 
 impl MsgQueryArgs {
@@ -243,6 +244,16 @@ impl MsgQueryArgs {
         self.limit = limit;
         self
     }
+
+    pub fn content_types(mut self, content_types: Vec<ContentType>) -> Self {
+        self.content_types = Some(content_types);
+        self
+    }
+
+    pub fn maybe_content_types(mut self, content_types: Option<Vec<ContentType>>) -> Self {
+        self.content_types = content_types;
+        self
+    }
 }
 
 impl DbConnection {
@@ -271,6 +282,10 @@ impl DbConnection {
 
         if let Some(status) = args.delivery_status {
             query = query.filter(dsl::delivery_status.eq(status));
+        }
+
+        if let Some(content_types) = &args.content_types {
+            query = query.filter(dsl::content_type.eq_any(content_types));
         }
 
         query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
@@ -574,6 +589,69 @@ pub(crate) mod tests {
             assert_eq!(messages_desc[1].sent_at_ns, 100_000);
             assert_eq!(messages_desc[2].sent_at_ns, 10_000);
             assert_eq!(messages_desc[3].sent_at_ns, 1_000);
+        })
+        .await
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test)]
+    async fn it_gets_messages_by_content_type() {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(1_000), Some(ContentType::Text)),
+                generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(2_000),
+                    Some(ContentType::GroupMembershipChange),
+                ),
+                generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(3_000),
+                    Some(ContentType::GroupUpdated),
+                ),
+            ];
+            assert_ok!(messages.store(conn));
+
+            // Query for text messages
+            let text_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default().content_types(vec![ContentType::Text]),
+                )
+                .unwrap();
+            assert_eq!(text_messages.len(), 1);
+            assert_eq!(text_messages[0].content_type, ContentType::Text);
+            assert_eq!(text_messages[0].sent_at_ns, 1_000);
+
+            // Query for membership change messages
+            let membership_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default()
+                        .content_types(vec![ContentType::GroupMembershipChange]),
+                )
+                .unwrap();
+            assert_eq!(membership_messages.len(), 1);
+            assert_eq!(
+                membership_messages[0].content_type,
+                ContentType::GroupMembershipChange
+            );
+            assert_eq!(membership_messages[0].sent_at_ns, 2_000);
+
+            // Query for group updated messages
+            let updated_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default().content_types(vec![ContentType::GroupUpdated]),
+                )
+                .unwrap();
+            assert_eq!(updated_messages.len(), 1);
+            assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
+            assert_eq!(updated_messages[0].sent_at_ns, 3_000);
         })
         .await
     }
