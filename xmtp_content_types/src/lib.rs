@@ -30,9 +30,9 @@ pub enum ContentType {
 impl ContentType {
     pub fn from_string(type_id: &str) -> Self {
         match type_id {
-            "text" => Self::Text,
-            "group_membership_change" => Self::GroupMembershipChange,
-            "group_updated" => Self::GroupUpdated,
+            text::TextCodec::TYPE_ID => Self::Text,
+            membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
+            group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
             _ => Self::Unknown,
         }
     }
@@ -40,9 +40,9 @@ impl ContentType {
     pub fn to_string(&self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
-            Self::Text => "text",
-            Self::GroupMembershipChange => "group_membership_change",
-            Self::GroupUpdated => "group_updated",
+            Self::Text => text::TextCodec::TYPE_ID,
+            Self::GroupMembershipChange => membership_change::GroupMembershipChangeCodec::TYPE_ID,
+            Self::GroupUpdated => group_updated::GroupUpdatedCodec::TYPE_ID,
         }
     }
 }
