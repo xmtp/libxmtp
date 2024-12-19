@@ -96,22 +96,26 @@ pub enum ContentType {
     GroupUpdated = 3,
 }
 
-impl ContentType {
-    pub fn from_string(type_id: &str) -> Self {
-        match type_id {
-            text::TextCodec::TYPE_ID => Self::Text,
-            membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
-            group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
-            _ => Self::Unknown,
-        }
-    }
-
-    pub fn to_string(&self) -> &'static str {
-        match self {
+impl std::fmt::Display for ContentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let as_string = match self {
             Self::Unknown => "unknown",
             Self::Text => text::TextCodec::TYPE_ID,
             Self::GroupMembershipChange => membership_change::GroupMembershipChangeCodec::TYPE_ID,
             Self::GroupUpdated => group_updated::GroupUpdatedCodec::TYPE_ID,
+        };
+
+        write!(f, "{}", as_string)
+    }
+}
+
+impl From<String> for ContentType {
+    fn from(type_id: String) -> Self {
+        match type_id.as_str() {
+            text::TextCodec::TYPE_ID => Self::Text,
+            membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
+            group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
+            _ => Self::Unknown,
         }
     }
 }

@@ -967,7 +967,7 @@ where
             sender_installation_id,
             sender_inbox_id,
             delivery_status: DeliveryStatus::Published,
-            content_type: ContentType::from_string(&content_type.type_id),
+            content_type: content_type.type_id.into(),
             version_major: content_type.version_major as i32,
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),

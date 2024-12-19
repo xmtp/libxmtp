@@ -328,6 +328,19 @@ impl Default for QueryableContentFields {
     }
 }
 
+impl From<EncodedContent> for QueryableContentFields {
+    fn from(content: EncodedContent) -> Self {
+        let content_type_id = content.r#type.unwrap_or_default();
+
+        QueryableContentFields {
+            content_type: content_type_id.type_id.into(),
+            version_major: content_type_id.version_major as i32,
+            version_minor: content_type_id.version_minor as i32,
+            authority_id: content_type_id.authority_id.to_string(),
+        }
+    }
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
@@ -727,32 +740,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Helper function to extract queryable content fields from a message
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
-        let default = QueryableContentFields {
-            content_type: ContentType::Unknown,
-            version_major: 0,
-            version_minor: 0,
-            authority_id: "unknown".to_string(),
-        };
-
         // Return early with default if decoding fails or type is missing
-        let content_type_id = match EncodedContent::decode(message)
-            .map_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
-            .ok()
-            .and_then(|content| content.r#type)
-        {
-            Some(type_id) => type_id,
-            None => {
-                tracing::debug!("Message content type is missing");
-                return default;
-            }
-        };
-
-        QueryableContentFields {
-            content_type: ContentType::from_string(&content_type_id.type_id),
-            version_major: content_type_id.version_major as i32,
-            version_minor: content_type_id.version_minor as i32,
-            authority_id: content_type_id.authority_id.to_string(),
-        }
+        EncodedContent::decode(message)
+            .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .map(QueryableContentFields::from)
+            .unwrap_or_default()
     }
 
     /// Prepare a [`IntentKind::SendMessage`] intent, and [`StoredGroupMessage`] on this users XMTP [`Client`].
