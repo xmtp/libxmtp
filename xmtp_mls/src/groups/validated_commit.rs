@@ -210,7 +210,7 @@ pub struct ValidatedCommit {
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_changes: MutableMetadataChanges,
     pub permissions_changed: bool,
-    pub dm_members: Option<DmMembers>,
+    pub dm_members: Option<DmMembers<String>>,
 }
 
 impl ValidatedCommit {

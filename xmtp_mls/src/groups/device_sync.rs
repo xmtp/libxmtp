@@ -492,7 +492,10 @@ where
 
         let messages = provider.conn_ref().get_group_messages(
             &sync_group.group_id,
-            &MsgQueryArgs::default().kind(GroupMessageKind::Application),
+            &MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            },
         )?;
 
         for msg in messages.into_iter().rev() {
@@ -525,8 +528,10 @@ where
         let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
-        let messages = sync_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
+        let messages = sync_group.find_messages(&MsgQueryArgs {
+            kind: Some(GroupMessageKind::Application),
+            ..Default::default()
+        })?;
 
         for msg in messages.into_iter().rev() {
             let Ok(msg_content) =
