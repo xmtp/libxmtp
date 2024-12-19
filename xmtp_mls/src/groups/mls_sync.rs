@@ -44,7 +44,7 @@ use hmac::{Hmac, Mac};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
-    framing::{ContentType, ProtocolMessage},
+    framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
     prelude::{
@@ -67,7 +67,7 @@ use std::{
 use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec, ContentType};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -546,6 +546,7 @@ where
                                          })) => {
                             let message_id =
                                 calculate_message_id(&self.group_id, &content, &idempotency_key);
+                            let queryable_content_fields = Self::extract_queryable_content_fields(&content);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -555,6 +556,10 @@ where
                                 sender_installation_id,
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
+                                content_type: queryable_content_fields.content_type,
+                                version_major: queryable_content_fields.version_major,
+                                version_minor: queryable_content_fields.version_minor,
+                                authority_id: queryable_content_fields.authority_id,
                             }
                                 .store_or_ignore(provider.conn_ref())?
                         }
@@ -583,6 +588,10 @@ where
                                         sender_installation_id,
                                         sender_inbox_id: sender_inbox_id.clone(),
                                         delivery_status: DeliveryStatus::Published,
+                                        content_type: ContentType::Unknown,
+                                        version_major: 0,
+                                        version_minor: 0,
+                                        authority_id: "unknown".to_string(),
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -612,6 +621,10 @@ where
                                         sender_installation_id,
                                         sender_inbox_id,
                                         delivery_status: DeliveryStatus::Published,
+                                        content_type: ContentType::Unknown,
+                                        version_major: 0,
+                                        version_minor: 0,
+                                        authority_id: "unknown".to_string(),
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -712,7 +725,7 @@ where
                 discriminant(&other),
             )),
         }?;
-        if !allow_epoch_increment && message.content_type() == ContentType::Commit {
+        if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
 
@@ -933,7 +946,19 @@ where
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
-
+        let content_type = match encoded_payload.r#type {
+            Some(ct) => ct,
+            None => {
+                tracing::warn!("Missing content type in encoded payload, using default values");
+                // Default content type values
+                xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                    authority_id: "unknown".to_string(),
+                    type_id: "unknown".to_string(),
+                    version_major: 0,
+                    version_minor: 0,
+                }
+            }
+        };
         let msg = StoredGroupMessage {
             id: message_id,
             group_id: group_id.to_vec(),
@@ -943,6 +968,10 @@ where
             sender_installation_id,
             sender_inbox_id,
             delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::from_string(&content_type.type_id),
+            version_major: content_type.version_major as i32,
+            version_minor: content_type.version_minor as i32,
+            authority_id: content_type.authority_id.to_string(),
         };
 
         msg.store_or_ignore(conn)?;
