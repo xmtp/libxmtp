@@ -455,8 +455,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let group = client.get_sync_group(provider.conn_ref())?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
-            let messages = group
-                .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))?;
+            let messages = group.find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })?;
             info!(
                 group_id = group_id_str,
                 messages = messages.len(),

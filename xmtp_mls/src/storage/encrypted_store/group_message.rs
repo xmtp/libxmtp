@@ -116,74 +116,16 @@ impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 #[derive(Default)]
 pub struct MsgQueryArgs {
-    sent_after_ns: Option<i64>,
-    sent_before_ns: Option<i64>,
-    kind: Option<GroupMessageKind>,
-    delivery_status: Option<DeliveryStatus>,
-    limit: Option<i64>,
-    direction: Option<SortDirection>,
-}
-
-impl MsgQueryArgs {
-    pub fn sent_after_ns(mut self, sent_after_ns: i64) -> Self {
-        self.sent_after_ns = Some(sent_after_ns);
-        self
-    }
-    pub fn maybe_sent_after_ns(mut self, sent_after_ns: Option<i64>) -> Self {
-        self.sent_after_ns = sent_after_ns;
-        self
-    }
-
-    pub fn sent_before_ns(mut self, sent_before_ns: i64) -> Self {
-        self.sent_before_ns = Some(sent_before_ns);
-        self
-    }
-    pub fn maybe_sent_before_ns(mut self, sent_before_ns: Option<i64>) -> Self {
-        self.sent_before_ns = sent_before_ns;
-        self
-    }
-
-    pub fn kind(mut self, kind: GroupMessageKind) -> Self {
-        self.kind = Some(kind);
-        self
-    }
-
-    pub fn maybe_kind(mut self, kind: Option<GroupMessageKind>) -> Self {
-        self.kind = kind;
-        self
-    }
-
-    pub fn direction(mut self, direction: SortDirection) -> Self {
-        self.direction = Some(direction);
-        self
-    }
-    pub fn maybe_direction(mut self, direction: Option<SortDirection>) -> Self {
-        self.direction = direction;
-        self
-    }
-
-    pub fn delivery_status(mut self, delivery_status: DeliveryStatus) -> Self {
-        self.delivery_status = Some(delivery_status);
-        self
-    }
-    pub fn maybe_delivery_status(mut self, delivery_status: Option<DeliveryStatus>) -> Self {
-        self.delivery_status = delivery_status;
-        self
-    }
-
-    pub fn limit(mut self, limit: i64) -> Self {
-        self.limit = Some(limit);
-        self
-    }
-    pub fn maybe_limit(mut self, limit: Option<i64>) -> Self {
-        self.limit = limit;
-        self
-    }
+    pub sent_after_ns: Option<i64>,
+    pub sent_before_ns: Option<i64>,
+    pub kind: Option<GroupMessageKind>,
+    pub delivery_status: Option<DeliveryStatus>,
+    pub limit: Option<i64>,
+    pub direction: Option<SortDirection>,
 }
 
 impl DbConnection {
     /// Query for group messages
-    #[allow(clippy::too_many_arguments)]
     pub fn get_group_messages(
         &self,
         group_id: &[u8],
@@ -397,21 +339,35 @@ pub(crate) mod tests {
             let message = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default()
-                        .sent_after_ns(1_000)
-                        .sent_before_ns(100_000),
+                    &MsgQueryArgs {
+                        sent_after_ns: Some(1_000),
+                        sent_before_ns: Some(100_000),
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = conn
-                .get_group_messages(&group.id, &MsgQueryArgs::default().sent_before_ns(100_000))
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        sent_before_ns: Some(100_000),
+                        ..Default::default()
+                    },
+                )
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = conn
-                .get_group_messages(&group.id, &MsgQueryArgs::default().sent_after_ns(10_000))
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        sent_after_ns: Some(10_000),
+                        ..Default::default()
+                    },
+                )
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -449,7 +405,10 @@ pub(crate) mod tests {
             let application_messages = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().kind(GroupMessageKind::Application),
+                    &MsgQueryArgs {
+                        kind: Some(GroupMessageKind::Application),
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
@@ -457,7 +416,10 @@ pub(crate) mod tests {
             let membership_changes = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().kind(GroupMessageKind::MembershipChange),
+                    &MsgQueryArgs {
+                        kind: Some(GroupMessageKind::MembershipChange),
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(membership_changes.len(), 15);
@@ -483,7 +445,10 @@ pub(crate) mod tests {
             let messages_asc = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().direction(SortDirection::Ascending),
+                    &MsgQueryArgs {
+                        direction: Some(SortDirection::Ascending),
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(messages_asc.len(), 4);
@@ -495,7 +460,10 @@ pub(crate) mod tests {
             let messages_desc = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().direction(SortDirection::Descending),
+                    &MsgQueryArgs {
+                        direction: Some(SortDirection::Descending),
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(messages_desc.len(), 4);

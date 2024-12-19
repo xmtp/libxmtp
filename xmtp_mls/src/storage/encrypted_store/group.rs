@@ -350,8 +350,8 @@ impl DbConnection {
         let dm_id = String::from(members);
 
         let query = dsl::groups
-            .order(dsl::created_at_ns.asc())
-            .filter(dsl::dm_id.eq(Some(dm_id)));
+            .filter(dsl::dm_id.eq(Some(dm_id)))
+            .order(dsl::last_message_ns.desc());
 
         let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {

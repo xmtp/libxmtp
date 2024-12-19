@@ -1331,15 +1331,14 @@ impl FfiConversation {
 
         let messages: Vec<FfiMessage> = self
             .inner
-            .find_messages(
-                &MsgQueryArgs::default()
-                    .maybe_sent_before_ns(opts.sent_before_ns)
-                    .maybe_sent_after_ns(opts.sent_after_ns)
-                    .maybe_kind(kind)
-                    .maybe_delivery_status(delivery_status)
-                    .maybe_limit(opts.limit)
-                    .maybe_direction(direction),
-            )?
+            .find_messages(&MsgQueryArgs {
+                sent_before_ns: opts.sent_before_ns,
+                sent_after_ns: opts.sent_after_ns,
+                kind: kind,
+                delivery_status: delivery_status,
+                limit: opts.limit,
+                direction: direction,
+            })?
             .into_iter()
             .map(|msg| msg.into())
             .collect();

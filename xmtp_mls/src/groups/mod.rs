@@ -2297,7 +2297,10 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3295,7 +3298,10 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3835,10 +3841,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3858,10 +3870,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
