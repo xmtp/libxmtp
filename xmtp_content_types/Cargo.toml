@@ -8,7 +8,6 @@ license.workspace = true
 thiserror = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-serde = { workspace = true }
 
 # XMTP/Local
 xmtp_proto = { workspace = true, features = ["convert"] }
@@ -19,4 +18,3 @@ xmtp_common = { workspace = true, features = ['test-utils'] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tonic = { version = "0.12", features = ["transport"] }
-diesel = { workspace = true }

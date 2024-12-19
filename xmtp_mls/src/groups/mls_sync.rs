@@ -13,9 +13,9 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups::device_sync::DeviceSyncContent,
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
+        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
+        intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -25,15 +25,14 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
         user_preferences::StoredUserPreferences,
         StorageError,
     },
-    subscriptions::LocalEvents,
-    subscriptions::SyncMessage,
+    subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
@@ -67,7 +66,7 @@ use std::{
 use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec, ContentType};
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::{

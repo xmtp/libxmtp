@@ -7319,10 +7319,8 @@ dependencies = [
 name = "xmtp_content_types"
 version = "0.1.0"
 dependencies = [
- "diesel",
  "prost",
  "rand",
- "serde",
  "thiserror 2.0.6",
  "tonic",
  "xmtp_common",
