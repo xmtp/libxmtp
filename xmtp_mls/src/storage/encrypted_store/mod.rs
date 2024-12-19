@@ -28,6 +28,7 @@ pub mod schema;
 mod sqlcipher_connection;
 pub mod user_preferences;
 pub mod wallet_addresses;
+mod conversation_list;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 

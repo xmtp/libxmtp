@@ -558,8 +558,15 @@ pub(crate) mod tests {
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
+        // Default behavior: Use `now_ns()` as the creation time
+        generate_group_with_created_at(state, now_ns())
+    }
+
+    pub fn generate_group_with_created_at(
+        state: Option<GroupMembershipState>,
+        created_at_ns: i64,
+    ) -> StoredGroup {
         let id = rand_vec::<24>();
-        let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         StoredGroup::new(
             id,

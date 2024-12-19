@@ -973,6 +973,20 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
+    pub async fn list_conversations(
+        &self,
+        opts: FfiListConversationsOptions,
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+            .list_conversations()?
+            .into_iter()
+            .map(|group| Arc::new(group.into()))
+            .collect();
+
+        Ok(convo_list)
+    }
+
     pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
@@ -1147,6 +1161,12 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
 #[derive(uniffi::Object)]
 pub struct FfiConversation {
     inner: MlsGroup<RustXmtpClient>,
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiConversationListItem {
+    conversation: FfiConversation,
+    last_message: FfiMessage
 }
 
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
