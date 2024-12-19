@@ -12,6 +12,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.GenericException
+import java.io.File
 import java.security.SecureRandom
 import java.util.Date
 import java.util.concurrent.CompletableFuture
@@ -315,19 +316,16 @@ class ClientTest {
                     dbEncryptionKey = key
                 )
             )
-            alixClient.dropLocalDatabaseConnection()
-            alixClient.deleteLocalDatabase()
 
             val alixClient2 = Client().create(
                 account = alixWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
-                    dbEncryptionKey = key
+                    dbEncryptionKey = key,
+                    dbDirectory = context.filesDir.absolutePath.toString()
                 )
             )
-            alixClient2.dropLocalDatabaseConnection()
-            alixClient2.deleteLocalDatabase()
         }
 
         val alixClient3 = runBlocking {
@@ -336,7 +334,8 @@ class ClientTest {
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
-                    dbEncryptionKey = key
+                    dbEncryptionKey = key,
+                    dbDirectory = File(context.filesDir.absolutePath, "xmtp_db3").toPath().toString()
                 )
             )
         }
