@@ -35,7 +35,6 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use xmtp_content_types::ContentType;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -59,7 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::StorageError;
+use crate::storage::{group_message::ContentType, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
