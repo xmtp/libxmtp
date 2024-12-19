@@ -142,11 +142,11 @@ class FakeSCWWallet : SigningKey {
     }
 }
 
-class Fixtures {
+class Fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)) {
     val key = SecureRandom().generateSeed(32)
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val clientOptions = ClientOptions(
-        ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false),
+        api,
         dbEncryptionKey = key,
         appContext = context,
     )
@@ -167,5 +167,5 @@ class Fixtures {
         runBlocking { Client().create(account = caroAccount, options = clientOptions) }
 }
 
-fun fixtures(): Fixtures =
-    Fixtures()
+fun fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)): Fixtures =
+    Fixtures(api)

@@ -36,12 +36,3 @@ jobs:
         with:
           name: lint
           path: 'app/build/reports/library/lint-results-**.html'
-
-      - name: Gradle Android lint example
-        run: ./gradlew :example:lintDebug
-      - uses: actions/upload-artifact@v3
-        name: Upload example lint report
-        if: ${{ failure() }}
-        with:
-          name: lint
-          path: 'app/build/reports/example/lint-results-**.html'
