@@ -223,8 +223,16 @@ impl DbConnection {
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
-            // Filter out sync groups from the main query
             .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
+            // Group by dm_id and grab the latest group (conversation stitching)
+            .filter(sql::<diesel::sql_types::Bool>(
+                "id IN (
+                    SELECT id
+                    FROM groups
+                    GROUP BY CASE WHEN dm_id IS NULL THEN id ELSE dm_id END
+                    ORDER BY last_message_ns DESC
+                )",
+            ))
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
 

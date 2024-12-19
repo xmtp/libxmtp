@@ -1326,10 +1326,10 @@ impl FfiConversation {
             .find_messages(&MsgQueryArgs {
                 sent_before_ns: opts.sent_before_ns,
                 sent_after_ns: opts.sent_after_ns,
-                kind: kind,
-                delivery_status: delivery_status,
                 limit: opts.limit,
-                direction: direction,
+                kind,
+                delivery_status,
+                direction,
             })?
             .into_iter()
             .map(|msg| msg.into())
