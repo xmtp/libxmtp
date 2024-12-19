@@ -131,6 +131,7 @@ pub struct MsgQueryArgs {
     delivery_status: Option<DeliveryStatus>,
     limit: Option<i64>,
     direction: Option<SortDirection>,
+    content_types: Option<Vec<ContentType>>,
 }
 
 impl MsgQueryArgs {
@@ -216,6 +217,10 @@ impl DbConnection {
 
         if let Some(status) = args.delivery_status {
             query = query.filter(dsl::delivery_status.eq(status));
+        }
+
+        if let Some(content_types) = &args.content_types {
+            query = query.filter(dsl::content_type.eq_any(content_types));
         }
 
         query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {

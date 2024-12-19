@@ -1258,6 +1258,7 @@ pub struct FfiListMessagesOptions {
     pub limit: Option<i64>,
     pub delivery_status: Option<FfiDeliveryStatus>,
     pub direction: Option<FfiDirection>,
+    pub content_types: Option<Vec<String>>,
 }
 
 #[derive(uniffi::Record, Clone, Default)]

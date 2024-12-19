@@ -25,6 +25,11 @@ pub enum ContentType {
     Text = 1,
     GroupMembershipChange = 2,
     GroupUpdated = 3,
+    Reaction = 4,
+    Reply = 5,
+    ReadReceipt = 6,
+    RemoteAttachment = 7,
+    TransactionReference = 8,
 }
 
 impl ContentType {
@@ -33,6 +38,11 @@ impl ContentType {
             "text" => Self::Text,
             "group_membership_change" => Self::GroupMembershipChange,
             "group_updated" => Self::GroupUpdated,
+            "reaction" => Self::Reaction,
+            "reply" => Self::Reply,
+            "read_receipt" => Self::ReadReceipt,
+            "remote_attachment" => Self::RemoteAttachment,
+            "transaction_reference" => Self::TransactionReference,
             _ => Self::Unknown,
         }
     }
@@ -43,6 +53,11 @@ impl ContentType {
             Self::Text => "text",
             Self::GroupMembershipChange => "group_membership_change",
             Self::GroupUpdated => "group_updated",
+            Self::Reaction => "reaction",
+            Self::Reply => "reply",
+            Self::ReadReceipt => "read_receipt",
+            Self::RemoteAttachment => "remote_attachment",
+            Self::TransactionReference => "transaction_reference",
         }
     }
 }
@@ -67,6 +82,11 @@ where
             1 => Ok(ContentType::Text),
             2 => Ok(ContentType::GroupMembershipChange),
             3 => Ok(ContentType::GroupUpdated),
+            4 => Ok(ContentType::Reaction),
+            5 => Ok(ContentType::Reply),
+            6 => Ok(ContentType::ReadReceipt),
+            7 => Ok(ContentType::RemoteAttachment),
+            8 => Ok(ContentType::TransactionReference),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
