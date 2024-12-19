@@ -19,7 +19,6 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
-use xmtp_id::InboxIdRef;
 
 pub type ID = Vec<u8>;
 
@@ -346,9 +345,9 @@ impl DbConnection {
 
     pub fn find_dm_group(
         &self,
-        members: DmMembers<&str>,
+        members: &DmMembers<&str>,
     ) -> Result<Option<StoredGroup>, StorageError> {
-        let dm_id = String::from(members.clone());
+        let dm_id = String::from(members);
 
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
@@ -745,7 +744,7 @@ pub(crate) mod tests {
             // test find_dm_group
 
             let dm_result = conn
-                .find_dm_group(DmMembers {
+                .find_dm_group(&DmMembers {
                     member_one_inbox_id: "placeholder_inbox_id_1",
                     member_two_inbox_id: "placeholder_inbox_id_2",
                 })

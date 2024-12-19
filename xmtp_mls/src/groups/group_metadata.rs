@@ -161,20 +161,39 @@ where
     }
 }
 
-impl<Id> From<DmMembers<Id>> for String
+impl<Id> From<&DmMembers<Id>> for String
 where
     Id: AsRef<str>,
 {
-    fn from(members: DmMembers<Id>) -> Self {
-        let inbox_ids = [
+    fn from(members: &DmMembers<Id>) -> Self {
+        let mut inbox_ids = [
             members.member_one_inbox_id.as_ref(),
             members.member_two_inbox_id.as_ref(),
         ]
         .into_iter()
         .map(str::to_lowercase)
         .collect::<Vec<_>>();
+        inbox_ids.sort();
 
         format!("dm:{}", inbox_ids.join(":"))
+    }
+}
+
+impl<Id> From<DmMembers<Id>> for String
+where
+    Id: AsRef<str>,
+{
+    fn from(members: DmMembers<Id>) -> Self {
+        String::from(&members)
+    }
+}
+
+impl<Id> ToString for DmMembers<Id>
+where
+    Id: AsRef<str>,
+{
+    fn to_string(&self) -> String {
+        String::from(self)
     }
 }
 

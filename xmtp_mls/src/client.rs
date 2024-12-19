@@ -638,7 +638,7 @@ where
         target_inbox_id: String,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let conn = self.store().conn()?;
-        match conn.find_dm_group(DmMembers {
+        match conn.find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
             member_two_inbox_id: &target_inbox_id,
         })? {
