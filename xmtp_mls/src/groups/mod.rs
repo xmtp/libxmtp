@@ -35,6 +35,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use xmtp_content_types::ContentType;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -67,7 +68,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::{
         plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
+        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -307,6 +308,14 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
+}
+
+/// Fields extracted from content of a message that should be stored in the DB
+pub struct QueryableContentFields {
+    pub content_type: ContentType,
+    pub version_major: i32,
+    pub version_minor: i32,
+    pub authority_id: String,
 }
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
@@ -706,6 +715,36 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(message_id)
     }
 
+    /// Helper function to extract queryable content fields from a message
+    fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
+        let default = QueryableContentFields {
+            content_type: ContentType::Unknown,
+            version_major: 0,
+            version_minor: 0,
+            authority_id: "unknown".to_string(),
+        };
+
+        // Return early with default if decoding fails or type is missing
+        let content_type_id = match EncodedContent::decode(message)
+            .map_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .ok()
+            .and_then(|content| content.r#type)
+        {
+            Some(type_id) => type_id,
+            None => {
+                tracing::debug!("Message content type is missing");
+                return default;
+            }
+        };
+
+        QueryableContentFields {
+            content_type: ContentType::from_string(&content_type_id.type_id),
+            version_major: content_type_id.version_major as i32,
+            version_minor: content_type_id.version_minor as i32,
+            authority_id: content_type_id.authority_id.to_string(),
+        }
+    }
+
     /// Prepare a [`IntentKind::SendMessage`] intent, and [`StoredGroupMessage`] on this users XMTP [`Client`].
     ///
     /// # Arguments
@@ -734,6 +773,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
+        let queryable_content_fields = Self::extract_queryable_content_fields(message);
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),
@@ -743,6 +783,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key().into(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
+            content_type: queryable_content_fields.content_type,
+            version_major: queryable_content_fields.version_major,
+            version_minor: queryable_content_fields.version_minor,
+            authority_id: queryable_content_fields.authority_id,
         };
         group_message.store(provider.conn_ref())?;
 

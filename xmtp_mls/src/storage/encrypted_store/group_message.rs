@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_content_types::ContentType;
 
 use super::{
     db_connection::DbConnection,
@@ -38,6 +39,14 @@ pub struct StoredGroupMessage {
     pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
+    /// The Content Type of the message
+    pub content_type: ContentType,
+    /// The content type version major
+    pub version_major: i32,
+    /// The content type version minor
+    pub version_minor: i32,
+    /// The ID of the authority defining the content type
+    pub authority_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -294,6 +303,7 @@ pub(crate) mod tests {
         kind: Option<GroupMessageKind>,
         group_id: Option<&[u8]>,
         sent_at_ns: Option<i64>,
+        content_type: Option<ContentType>,
     ) -> StoredGroupMessage {
         StoredGroupMessage {
             id: rand_vec::<24>(),
@@ -304,6 +314,10 @@ pub(crate) mod tests {
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
+            content_type: content_type.unwrap_or(ContentType::Unknown),
+            version_major: 0,
+            version_minor: 0,
+            authority_id: "unknown".to_string(),
         }
     }
 
@@ -320,7 +334,7 @@ pub(crate) mod tests {
     async fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
-            let message = generate_message(None, Some(&group.id), None);
+            let message = generate_message(None, Some(&group.id), None, None);
             group.store(conn).unwrap();
             let id = message.id.clone();
 
@@ -337,7 +351,7 @@ pub(crate) mod tests {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
         with_connection(|conn| {
-            let message = generate_message(None, None, None);
+            let message = generate_message(None, None, None, None);
             assert_err!(
                 message.store(conn),
                 StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
@@ -355,7 +369,7 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             for idx in 0..50 {
-                let msg = generate_message(None, Some(&group.id), Some(idx));
+                let msg = generate_message(None, Some(&group.id), Some(idx), None);
                 assert_ok!(msg.store(conn));
             }
 
@@ -388,10 +402,10 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(1_000)),
-                generate_message(None, Some(&group.id), Some(100_000)),
-                generate_message(None, Some(&group.id), Some(10_000)),
-                generate_message(None, Some(&group.id), Some(1_000_000)),
+                generate_message(None, Some(&group.id), Some(1_000), None),
+                generate_message(None, Some(&group.id), Some(100_000), None),
+                generate_message(None, Some(&group.id), Some(10_000), None),
+                generate_message(None, Some(&group.id), Some(1_000_000), None),
             ];
             assert_ok!(messages.store(conn));
             let message = conn
@@ -432,6 +446,7 @@ pub(crate) mod tests {
                             Some(GroupMessageKind::Application),
                             Some(&group.id),
                             None,
+                            Some(ContentType::Text),
                         );
                         msg.store(conn).unwrap();
                     }
@@ -440,6 +455,7 @@ pub(crate) mod tests {
                             Some(GroupMessageKind::MembershipChange),
                             Some(&group.id),
                             None,
+                            Some(ContentType::GroupMembershipChange),
                         );
                         msg.store(conn).unwrap();
                     }
@@ -472,10 +488,10 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(10_000)),
-                generate_message(None, Some(&group.id), Some(1_000)),
-                generate_message(None, Some(&group.id), Some(100_000)),
-                generate_message(None, Some(&group.id), Some(1_000_000)),
+                generate_message(None, Some(&group.id), Some(10_000), None),
+                generate_message(None, Some(&group.id), Some(1_000), None),
+                generate_message(None, Some(&group.id), Some(100_000), None),
+                generate_message(None, Some(&group.id), Some(1_000_000), None),
             ];
 
             assert_ok!(messages.store(conn));
