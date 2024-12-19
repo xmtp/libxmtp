@@ -1,3 +1,4 @@
+pub mod attachment;
 pub mod group_updated;
 pub mod membership_change;
 pub mod reaction;

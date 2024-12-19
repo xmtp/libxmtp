@@ -7,7 +7,10 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_content_types::{group_updated, membership_change, text};
+use xmtp_content_types::{
+    attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
+    text, transaction_reference,
+};
 
 use super::{
     db_connection::DbConnection,
@@ -86,6 +89,7 @@ where
     }
 }
 
+//Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromSqlRow, AsExpression)]
 #[diesel(sql_type = diesel::sql_types::Integer)]
@@ -94,6 +98,12 @@ pub enum ContentType {
     Text = 1,
     GroupMembershipChange = 2,
     GroupUpdated = 3,
+    Reaction = 4,
+    ReadReceipt = 5,
+    Reply = 6,
+    Attachment = 7,
+    RemoteAttachment = 8,
+    TransactionReference = 9,
 }
 
 impl std::fmt::Display for ContentType {
@@ -103,6 +113,12 @@ impl std::fmt::Display for ContentType {
             Self::Text => text::TextCodec::TYPE_ID,
             Self::GroupMembershipChange => membership_change::GroupMembershipChangeCodec::TYPE_ID,
             Self::GroupUpdated => group_updated::GroupUpdatedCodec::TYPE_ID,
+            Self::Reaction => reaction::ReactionCodec::TYPE_ID,
+            Self::ReadReceipt => read_receipt::ReadReceiptCodec::TYPE_ID,
+            Self::Attachment => attachment::AttachmentCodec::TYPE_ID,
+            Self::RemoteAttachment => remote_attachment::RemoteAttachmentCodec::TYPE_ID,
+            Self::Reply => reply::ReplyCodec::TYPE_ID,
+            Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
         };
 
         write!(f, "{}", as_string)
@@ -115,6 +131,12 @@ impl From<String> for ContentType {
             text::TextCodec::TYPE_ID => Self::Text,
             membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
             group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
+            reaction::ReactionCodec::TYPE_ID => Self::Reaction,
+            read_receipt::ReadReceiptCodec::TYPE_ID => Self::ReadReceipt,
+            reply::ReplyCodec::TYPE_ID => Self::Reply,
+            attachment::AttachmentCodec::TYPE_ID => Self::Attachment,
+            remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
+            transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
             _ => Self::Unknown,
         }
     }
@@ -140,6 +162,12 @@ where
             1 => Ok(ContentType::Text),
             2 => Ok(ContentType::GroupMembershipChange),
             3 => Ok(ContentType::GroupUpdated),
+            4 => Ok(ContentType::Reaction),
+            5 => Ok(ContentType::ReadReceipt),
+            6 => Ok(ContentType::Reply),
+            7 => Ok(ContentType::Attachment),
+            8 => Ok(ContentType::RemoteAttachment),
+            9 => Ok(ContentType::TransactionReference),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
