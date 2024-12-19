@@ -562,7 +562,7 @@ impl std::fmt::Display for ConversationType {
 }
 
 pub trait DmIdExt {
-    fn other_inbox_id(&self, other: &str) -> String;
+    fn other_inbox_id(&self, id: &str) -> String;
 }
 impl DmIdExt for String {
     fn other_inbox_id(&self, id: &str) -> String {

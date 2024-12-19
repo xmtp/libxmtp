@@ -58,7 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::StorageError;
+use crate::storage::{group::DmIdExt, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -1126,17 +1126,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .ok_or(GroupError::GroupNotFound)?;
         let inbox_id = self.client.inbox_id();
         // drop the "dm:"
-        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?[3..];
-
-        // If my inbox id is the first half, return the second half, otherwise return first half
-        let target_inbox = if dm_id[..inbox_id.len()] == *inbox_id {
-            // + 1 because there is a colon (:)
-            &dm_id[(inbox_id.len() + 1)..]
-        } else {
-            &dm_id[..inbox_id.len()]
-        };
-
-        Ok(target_inbox.to_string())
+        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?;
+        Ok(dm_id.other_inbox_id(inbox_id))
     }
 
     /// Find the `consent_state` of the group
