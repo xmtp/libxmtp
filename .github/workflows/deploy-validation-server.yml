@@ -49,7 +49,7 @@ jobs:
     needs: push_to_registry
     strategy:
       matrix:
-        environment: [ dev, production, testnet ]
+        environment: [ dev, production, testnet-staging ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
