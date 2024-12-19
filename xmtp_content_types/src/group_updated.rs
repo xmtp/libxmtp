@@ -10,7 +10,7 @@ pub struct GroupUpdatedCodec {}
 
 impl GroupUpdatedCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
-    const TYPE_ID: &'static str = "group_updated";
+    pub const TYPE_ID: &'static str = "group_updated";
 }
 
 impl ContentCodec<GroupUpdated> for GroupUpdatedCodec {
