@@ -317,6 +317,17 @@ pub struct QueryableContentFields {
     pub authority_id: String,
 }
 
+impl Default for QueryableContentFields {
+    fn default() -> Self {
+        Self {
+            content_type: ContentType::Unknown, // Or whatever the appropriate default is
+            version_major: 0,
+            version_minor: 0,
+            authority_id: String::new(),
+        }
+    }
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
