@@ -85,7 +85,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
     MsgQueryArgs {
       sent_before_ns: opts.sent_before_ns,
       sent_after_ns: opts.sent_after_ns,
-      delivery_status: delivery_status,
+      delivery_status,
       limit: opts.limit,
       direction,
       ..Default::default()

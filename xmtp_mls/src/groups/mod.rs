@@ -1136,7 +1136,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &dm_id[..inbox_id.len()]
         };
 
-        return Ok(target_inbox.to_string());
+        Ok(target_inbox.to_string())
     }
 
     /// Find the `consent_state` of the group
@@ -1674,16 +1674,13 @@ pub(crate) mod tests {
     use diesel::{ExpressionMethods, RunQueryDsl};
     use futures::future::join_all;
     use prost::Message;
-    use std::{sync::Arc, time::Duration};
+    use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
+    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-    use xmtp_proto::xmtp::mls::{
-        api::v1::group_message::Version, message_contents::PlaintextEnvelope,
-    };
 
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::{group_messages, groups};
@@ -2071,7 +2068,6 @@ pub(crate) mod tests {
             .unwrap();
 
         bo_dm.send_message(b"Hello there").await.unwrap();
-        std::thread::sleep(Duration::from_millis(20));
         alix_dm
             .send_message(b"No, let's use this dm")
             .await

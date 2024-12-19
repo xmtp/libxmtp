@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
 use prost::Message;
 use thiserror::Error;
@@ -188,12 +190,12 @@ where
     }
 }
 
-impl<Id> ToString for DmMembers<Id>
+impl<Id> Display for DmMembers<Id>
 where
     Id: AsRef<str>,
 {
-    fn to_string(&self) -> String {
-        String::from(self)
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", String::from(self))
     }
 }
 
