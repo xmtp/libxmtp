@@ -134,6 +134,8 @@ impl DbConnection {
         group_id: &[u8],
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        // Get all messages that have a group with an id equal the provided id,
+        // or a dm_id equal to the dm_id that belongs to the loaded group with the provided id.
         let mut query = dsl::group_messages
             .filter(
                 dsl::group_id.eq_any(
