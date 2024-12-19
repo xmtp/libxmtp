@@ -2077,7 +2077,7 @@ pub(crate) mod tests {
         assert_eq!(alix_groups[0].dm_id, alix_groups[1].dm_id);
 
         // The dm is filtered out up
-        let alix_filtered_groups = alix_conn.find_groups(&GroupQueryArgs::default()).unwrap();
+        let alix_filtered_groups = alix_conn.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(alix_filtered_groups.len(), 1);
 
         let alix_msgs = alix_conn
