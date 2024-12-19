@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     db_connection::DbConnection,
-    schema::group_messages::{self, dsl},
+    schema::{
+        group_messages::{self, dsl},
+        groups::dsl as groups_dsl,
+    },
     Sqlite,
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
@@ -132,7 +135,20 @@ impl DbConnection {
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let mut query = dsl::group_messages
-            .filter(dsl::group_id.eq(group_id))
+            .filter(
+                dsl::group_id.eq_any(
+                    groups_dsl::groups
+                        .filter(
+                            groups_dsl::id.eq(group_id).or(groups_dsl::dm_id.eq_any(
+                                groups_dsl::groups
+                                    .select(groups_dsl::dm_id)
+                                    .filter(groups_dsl::id.eq(group_id))
+                                    .into_boxed(),
+                            )),
+                        )
+                        .select(groups_dsl::id),
+                ),
+            )
             .into_boxed();
 
         if let Some(sent_after) = args.sent_after_ns {
