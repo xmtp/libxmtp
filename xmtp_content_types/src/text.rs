@@ -8,7 +8,7 @@ pub struct TextCodec {}
 
 impl TextCodec {
     const AUTHORITY_ID: &'static str = "xmtp.org";
-    const TYPE_ID: &'static str = "text";
+    pub const TYPE_ID: &'static str = "text";
     const ENCODING_KEY: &'static str = "encoding";
     const ENCODING_UTF8: &'static str = "UTF-8";
 }
