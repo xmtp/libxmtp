@@ -4,7 +4,6 @@ use crate::{FfiSubscribeError, GenericError};
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_common::retry::Retry;
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -155,18 +154,11 @@ pub async fn create_client(
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn get_inbox_id_for_address(
-    host: String,
-    is_secure: bool,
+    api: Arc<XmtpApiClient>,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    let api_client = ApiClientWrapper::new(
-        TonicApiClient::create(host.clone(), is_secure)
-            .await?
-            .into(),
-        Retry::default(),
-    );
-
-    let results = api_client
+    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), Default::default());
+    let results = api
         .get_inbox_ids(vec![account_address.clone()])
         .await
         .map_err(GenericError::from_error)?;
@@ -2135,8 +2127,9 @@ mod tests {
         let real_inbox_id = client.inbox_id();
 
         let from_network = get_inbox_id_for_address(
-            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
-            false,
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             client.account_address.clone(),
         )
         .await
