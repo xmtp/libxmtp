@@ -190,7 +190,7 @@ impl XmtpMlsClient for ClientV4 {
             .map(|key| build_key_package_topic(key.as_slice()))
             .collect();
 
-        let envelopes = self.query_v4_envelopes(topics).await?;
+        let envelopes = self.query_v4_envelopes(topics, 0).await?;
         let key_packages: Result<Vec<_>, Error> = envelopes
             .iter()
             .map(|envelopes| {
@@ -248,7 +248,7 @@ impl XmtpMlsClient for ClientV4 {
                     originator_node_ids: vec![],
                     last_seen: None,
                 }),
-                limit: 100,
+                limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
@@ -304,7 +304,7 @@ impl XmtpMlsClient for ClientV4 {
                     originator_node_ids: vec![],
                     last_seen: None,
                 }),
-                limit: 100,
+                limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
             .await
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
@@ -418,7 +418,7 @@ impl XmtpIdentityClient for ClientV4 {
             .iter()
             .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
             .collect();
-        let v4_envelopes = self.query_v4_envelopes(topics?).await?;
+        let v4_envelopes = self.query_v4_envelopes(topics?, 0).await?;
         let joined_data = v4_envelopes
             .into_iter()
             .zip(request.requests.into_iter())
@@ -466,6 +466,7 @@ impl ClientV4 {
     async fn query_v4_envelopes(
         &self,
         topics: Vec<Vec<u8>>,
+        limit: u32,
     ) -> Result<Vec<Vec<OriginatorEnvelope>>, Error> {
         let requests = topics.iter().map(|topic| async {
             let client = &mut self.client.clone();
@@ -476,7 +477,7 @@ impl ClientV4 {
                         originator_node_ids: vec![],
                         last_seen: None,
                     }),
-                    limit: 100,
+                    limit,
                 })
                 .await
                 .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
