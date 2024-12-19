@@ -556,31 +556,27 @@ class ClientTest {
         val time3 = end3.time - start3.time
         Log.d("PERF", "Built a client with inboxId in ${time3 / 1000.0}s")
 
+        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
         val start4 = Date()
-        val buildClient3 = runBlocking {
-            Client().build(
-                fakeWallet.address,
+        runBlocking {
+            Client().create(
+                PrivateKeyBuilder(),
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
                     appContext = context,
                     dbEncryptionKey = key
                 ),
-                inboxId = client.inboxId,
-                apiClient = client.apiClient
             )
         }
         val end4 = Date()
         val time4 = end4.time - start4.time
-        Log.d("PERF", "Built a client with inboxId and apiClient in ${time4 / 1000.0}s")
+        Log.d("PERF", "Create a client after prebuilding apiClient in ${time4 / 1000.0}s")
 
         assert(time2 < time1)
         assert(time3 < time1)
         assert(time3 < time2)
         assert(time4 < time1)
-        assert(time4 < time2)
-        assert(time4 < time3)
         assertEquals(client.inboxId, buildClient1.inboxId)
         assertEquals(client.inboxId, buildClient2.inboxId)
-        assertEquals(client.inboxId, buildClient3.inboxId)
     }
 }

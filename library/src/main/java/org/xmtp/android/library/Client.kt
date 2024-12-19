@@ -1,7 +1,6 @@
 package org.xmtp.android.library
 
 import android.content.Context
-import com.google.protobuf.api
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
@@ -49,7 +48,6 @@ class Client() {
     lateinit var conversations: Conversations
     lateinit var environment: XMTPEnvironment
     lateinit var dbPath: String
-    lateinit var apiClient: XmtpApiClient
     val libXMTPVersion: String = getVersionInfo()
     private lateinit var ffiClient: FfiXmtpClient
 
@@ -62,14 +60,26 @@ class Client() {
             registry
         }
 
+        private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
+        private val cacheLock = Any()
+
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
-            return connectToBackend(api.env.getUrl(), api.isSecure)
+            val cacheKey = api.env.getUrl()
+            return synchronized(cacheLock) {
+                apiClientCache.getOrPut(cacheKey) {
+                    runBlocking {
+                        connectToBackend(api.env.getUrl(), api.isSecure)
+                    }
+                }
+            }
         }
 
-        suspend fun getOrCreateInboxId(environment: ClientOptions.Api, address: String): String {
+        suspend fun getOrCreateInboxId(
+            api: ClientOptions.Api,
+            address: String,
+        ): String {
             var inboxId = getInboxIdForAddress(
-                host = environment.env.getUrl(),
-                isSecure = environment.isSecure,
+                api = connectToApiBackend(api),
                 accountAddress = address.lowercase()
             )
             if (inboxId.isNullOrBlank()) {
@@ -86,7 +96,6 @@ class Client() {
             accountAddresses: List<String>,
             appContext: Context,
             api: ClientOptions.Api,
-            apiClient: XmtpApiClient? = null
         ): Map<String, Boolean> {
             val accountAddress = "0x0000000000000000000000000000000000000000"
             val inboxId = getOrCreateInboxId(api, accountAddress)
@@ -97,7 +106,7 @@ class Client() {
             val dbPath = directoryFile.absolutePath + "/$alias.db3"
 
             val ffiClient = createClient(
-                api = apiClient ?: connectToApiBackend(api),
+                api = connectToApiBackend(api),
                 db = dbPath,
                 encryptionKey = null,
                 accountAddress = accountAddress.lowercase(),
@@ -122,7 +131,6 @@ class Client() {
         installationId: String,
         inboxId: String,
         environment: XMTPEnvironment,
-        apiClient: XmtpApiClient,
     ) : this() {
         this.address = address.lowercase()
         this.preferences = PrivatePreferences(client = this, ffiClient = libXMTPClient)
@@ -133,7 +141,6 @@ class Client() {
         this.installationId = installationId
         this.inboxId = inboxId
         this.environment = environment
-        this.apiClient = apiClient
     }
 
     private suspend fun initializeV3Client(
@@ -141,18 +148,17 @@ class Client() {
         clientOptions: ClientOptions,
         signingKey: SigningKey? = null,
         inboxId: String? = null,
-        apiClient: XmtpApiClient? = null,
     ): Client {
         val accountAddress = address.lowercase()
-        val recoveredInboxId = inboxId ?: getOrCreateInboxId(clientOptions.api, accountAddress)
+        val recoveredInboxId =
+            inboxId ?: getOrCreateInboxId(clientOptions.api, accountAddress)
 
-        val (ffiClient, dbPath, apiClient) = createFfiClient(
+        val (ffiClient, dbPath) = createFfiClient(
             accountAddress,
             recoveredInboxId,
             clientOptions,
             signingKey,
             clientOptions.appContext,
-            apiClient,
         )
 
         return Client(
@@ -162,7 +168,6 @@ class Client() {
             ffiClient.installationId().toHex(),
             ffiClient.inboxId(),
             clientOptions.api.env,
-            apiClient
         )
     }
 
@@ -170,10 +175,9 @@ class Client() {
     suspend fun create(
         account: SigningKey,
         options: ClientOptions,
-        apiClient: XmtpApiClient? = null
     ): Client {
         return try {
-            initializeV3Client(account.address, options, account, apiClient = apiClient)
+            initializeV3Client(account.address, options, account)
         } catch (e: Exception) {
             throw XMTPException("Error creating V3 client: ${e.message}", e)
         }
@@ -184,10 +188,9 @@ class Client() {
         address: String,
         options: ClientOptions,
         inboxId: String? = null,
-        apiClient: XmtpApiClient? = null,
     ): Client {
         return try {
-            initializeV3Client(address, options, inboxId = inboxId, apiClient = apiClient)
+            initializeV3Client(address, options, inboxId = inboxId)
         } catch (e: Exception) {
             throw XMTPException("Error creating V3 client: ${e.message}", e)
         }
@@ -199,8 +202,7 @@ class Client() {
         options: ClientOptions,
         signingKey: SigningKey?,
         appContext: Context,
-        apiClient: XmtpApiClient? = null,
-    ): Triple<FfiXmtpClient, String, XmtpApiClient> {
+    ): Pair<FfiXmtpClient, String> {
         val alias = "xmtp-${options.api.env}-$inboxId"
 
         val mlsDbDirectory = options.dbDirectory
@@ -212,10 +214,8 @@ class Client() {
         directoryFile.mkdir()
         dbPath = directoryFile.absolutePath + "/$alias.db3"
 
-        val xmtpApiClient =
-            apiClient ?: connectToApiBackend(options.api)
         val ffiClient = createClient(
-            api = xmtpApiClient,
+            api = connectToApiBackend(options.api),
             db = dbPath,
             encryptionKey = options.dbEncryptionKey,
             accountAddress = accountAddress.lowercase(),
@@ -235,7 +235,7 @@ class Client() {
                 ?: throw XMTPException("No signer passed but signer was required.")
             ffiClient.registerIdentity(signatureRequest)
         }
-        return Triple(ffiClient, dbPath, xmtpApiClient)
+        return Pair(ffiClient, dbPath)
     }
 
     suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {

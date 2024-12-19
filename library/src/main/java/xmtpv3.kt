@@ -1628,7 +1628,7 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
 
     fun uniffi_xmtpv3_fn_func_get_inbox_id_for_address(
-        `host`: RustBuffer.ByValue, `isSecure`: Byte, `accountAddress`: RustBuffer.ByValue,
+        `api`: Pointer, `accountAddress`: RustBuffer.ByValue,
     ): Long
 
     fun uniffi_xmtpv3_fn_func_get_version_info(
@@ -2345,7 +2345,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_generate_private_preferences_topic_identifier() != 59124.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_get_inbox_id_for_address() != 35414.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_get_inbox_id_for_address() != 19849.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_get_version_info() != 29277.toShort()) {
@@ -12249,15 +12249,13 @@ fun `generatePrivatePreferencesTopicIdentifier`(`privateKey`: kotlin.ByteArray):
 @Throws(GenericException::class)
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 suspend fun `getInboxIdForAddress`(
-    `host`: kotlin.String,
-    `isSecure`: kotlin.Boolean,
+    `api`: XmtpApiClient,
     `accountAddress`: kotlin.String,
 ): kotlin.String? {
     return uniffiRustCallAsync(
         UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_get_inbox_id_for_address(
-            FfiConverterString.lower(
-                `host`
-            ), FfiConverterBoolean.lower(`isSecure`), FfiConverterString.lower(`accountAddress`),
+            FfiConverterTypeXmtpApiClient.lower(`api`),
+            FfiConverterString.lower(`accountAddress`),
         ),
         { future, callback, continuation ->
             UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(
