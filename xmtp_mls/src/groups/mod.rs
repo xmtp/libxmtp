@@ -272,6 +272,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
+    pub last_message: Option<StoredGroupMessage>,
     pub client: Arc<C>,
     mutex: Arc<Mutex<()>>,
 }
@@ -289,6 +290,7 @@ impl<C> Clone for MlsGroup<C> {
         Self {
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
+            last_message: self.last_message.clone(),
             client: self.client.clone(),
             mutex: self.mutex.clone(),
         }
