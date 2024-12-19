@@ -1670,16 +1670,23 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use diesel::connection::SimpleConnection;
+    use diesel::query_dsl::methods::FilterDsl;
+    use diesel::{ExpressionMethods, RunQueryDsl};
     use futures::future::join_all;
     use prost::Message;
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+    use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+    use xmtp_proto::xmtp::mls::{
+        api::v1::group_message::Version, message_contents::PlaintextEnvelope,
+    };
 
+    use crate::storage::group::StoredGroup;
+    use crate::storage::schema::{group_messages, groups};
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -2041,6 +2048,66 @@ pub(crate) mod tests {
             assert_eq!(groups.len(), 0);
             assert_logged!("failed to create group from welcome", 1);
         });
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_dm_stitching() {
+        let alix_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix_provider = alix.mls_provider().unwrap();
+        let alix_conn = alix_provider.conn_ref();
+
+        let bo_wallet = generate_local_wallet();
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_provider = bo.mls_provider().unwrap();
+
+        let bo_dm = bo
+            .create_dm_by_inbox_id(&bo_provider, alix.inbox_id().to_string())
+            .await
+            .unwrap();
+        let alix_dm = alix
+            .create_dm_by_inbox_id(&alix_provider, bo.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        bo_dm.send_message(b"Hello there").await.unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        alix_dm
+            .send_message(b"No, let's use this dm")
+            .await
+            .unwrap();
+
+        alix.sync_all_welcomes_and_groups(&alix_provider, None)
+            .await
+            .unwrap();
+
+        // The dm shows up
+        let alix_groups = alix_conn
+            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .unwrap();
+        assert_eq!(alix_groups.len(), 2);
+        // They should have the same ID
+        assert_eq!(alix_groups[0].dm_id, alix_groups[1].dm_id);
+
+        // The dm is filtered out up
+        let alix_filtered_groups = alix_conn.find_groups(&GroupQueryArgs::default()).unwrap();
+        assert_eq!(alix_filtered_groups.len(), 1);
+
+        let alix_msgs = alix_conn
+            .raw_query(|conn| {
+                group_messages::table
+                    .filter(group_messages::kind.eq(GroupMessageKind::Application))
+                    .load::<StoredGroupMessage>(conn)
+            })
+            .unwrap();
+
+        assert_eq!(alix_msgs.len(), 2);
+
+        let msg = String::from_utf8_lossy(&alix_msgs[1].decrypted_message_bytes);
+        assert_eq!(msg, "Hello there");
+
+        let msg = String::from_utf8_lossy(&alix_msgs[0].decrypted_message_bytes);
+        assert_eq!(msg, "No, let's use this dm");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]

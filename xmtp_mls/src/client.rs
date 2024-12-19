@@ -923,6 +923,7 @@ where
         let query_args = GroupQueryArgs {
             consent_state,
             include_sync_groups: true,
+            include_duplicate_dms: true,
             ..GroupQueryArgs::default()
         };
         let groups = provider

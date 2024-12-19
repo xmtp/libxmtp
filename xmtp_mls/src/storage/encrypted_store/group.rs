@@ -133,6 +133,7 @@ pub struct GroupQueryArgs {
     pub conversation_type: Option<ConversationType>,
     pub consent_state: Option<ConsentState>,
     pub include_sync_groups: bool,
+    pub include_duplicate_dms: bool,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -220,21 +221,25 @@ impl DbConnection {
             conversation_type,
             consent_state,
             include_sync_groups,
+            include_duplicate_dms,
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
             .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
             // Group by dm_id and grab the latest group (conversation stitching)
-            .filter(sql::<diesel::sql_types::Bool>(
+            .order(groups_dsl::created_at_ns.asc())
+            .into_boxed();
+
+        if !include_duplicate_dms {
+            query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id
                     FROM groups
                     GROUP BY CASE WHEN dm_id IS NULL THEN id ELSE dm_id END
                     ORDER BY last_message_ns DESC
                 )",
-            ))
-            .order(groups_dsl::created_at_ns.asc())
-            .into_boxed();
+            ));
+        }
 
         if let Some(limit) = limit {
             query = query.limit(*limit);
@@ -581,7 +586,10 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use std::sync::atomic::{AtomicU16, Ordering};
+    use std::{
+        sync::atomic::{AtomicU16, Ordering},
+        time::Duration,
+    };
 
     use super::*;
     use crate::{
@@ -620,24 +628,21 @@ pub(crate) mod tests {
         }
     }
 
-    static INBOX_ID: AtomicU16 = AtomicU16::new(2);
+    static TARGET_INBOX_ID: AtomicU16 = AtomicU16::new(2);
 
     /// Generate a test dm group
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
-        let id = rand_vec::<24>();
-        let created_at_ns = now_ns();
-        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         let members = DmMembers {
             member_one_inbox_id: "placeholder_inbox_id_1".to_string(),
             member_two_inbox_id: format!(
                 "placeholder_inbox_id_{}",
-                INBOX_ID.fetch_add(1, Ordering::SeqCst)
+                TARGET_INBOX_ID.fetch_add(1, Ordering::SeqCst)
             ),
         };
         StoredGroup::new(
-            id,
-            created_at_ns,
-            membership_state,
+            rand_vec::<24>(),
+            now_ns(),
+            state.unwrap_or(GroupMembershipState::Allowed),
             "placeholder_address".to_string(),
             Some(members),
         )
@@ -699,6 +704,42 @@ pub(crate) mod tests {
         })
         .await
     }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_dm_stitching() {
+        with_connection(|conn| {
+            let dm1 = StoredGroup::new(
+                rand_vec::<24>(),
+                now_ns(),
+                GroupMembershipState::Allowed,
+                "placeholder_address".to_string(),
+                Some(DmMembers {
+                    member_one_inbox_id: "thats_me".to_string(),
+                    member_two_inbox_id: "some_wise_guy".to_string(),
+                }),
+            );
+            dm1.store(conn).unwrap();
+
+            let dm2 = StoredGroup::new(
+                rand_vec::<24>(),
+                now_ns(),
+                GroupMembershipState::Allowed,
+                "placeholder_address".to_string(),
+                Some(DmMembers {
+                    member_one_inbox_id: "some_wise_guy".to_string(),
+                    member_two_inbox_id: "thats_me".to_string(),
+                }),
+            );
+            dm2.store(conn).unwrap();
+
+            let all_groups = conn.find_groups(GroupQueryArgs::default()).unwrap();
+
+            assert_eq!(all_groups.len(), 1);
+        })
+        .await;
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_find_groups() {
