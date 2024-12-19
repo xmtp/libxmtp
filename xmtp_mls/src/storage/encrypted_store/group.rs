@@ -581,6 +581,8 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use std::sync::atomic::{AtomicU16, Ordering};
+
     use super::*;
     use crate::{
         storage::{
@@ -618,6 +620,8 @@ pub(crate) mod tests {
         }
     }
 
+    static INBOX_ID: AtomicU16 = AtomicU16::new(2);
+
     /// Generate a test dm group
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
         let id = rand_vec::<24>();
@@ -625,7 +629,10 @@ pub(crate) mod tests {
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
         let members = DmMembers {
             member_one_inbox_id: "placeholder_inbox_id_1".to_string(),
-            member_two_inbox_id: "placeholder_inbox_id_2".to_string(),
+            member_two_inbox_id: format!(
+                "placeholder_inbox_id_{}",
+                INBOX_ID.fetch_add(1, Ordering::SeqCst)
+            ),
         };
         StoredGroup::new(
             id,
