@@ -475,12 +475,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
+
         let stored_group = StoredGroup::new(
             group_id.clone(),
             now_ns(),
             membership_state,
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(DmMembers {
+                member_one_inbox_id: dm_target_inbox_id,
+                member_two_inbox_id: client.inbox_id().to_string(),
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -507,15 +511,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let dm_members = metadata.dm_members;
-        let dm_inbox_id = if let Some(dm_members) = &dm_members {
-            if dm_members.member_one_inbox_id == client.inbox_id() {
-                Some(dm_members.member_two_inbox_id.clone())
-            } else {
-                Some(dm_members.member_one_inbox_id.clone())
-            }
-        } else {
-            None
-        };
+
         let conversation_type = metadata.conversation_type;
 
         let to_store = match conversation_type {
@@ -526,7 +522,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_members,
             ),
             ConversationType::Dm => {
                 validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
@@ -537,7 +533,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     added_by_inbox,
                     welcome_id,
                     conversation_type,
-                    dm_inbox_id,
+                    dm_members,
                 )
             }
             ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -547,7 +543,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_members,
             ),
         };
 
@@ -1128,7 +1124,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group = conn
             .find_group(self.group_id.clone())?
             .ok_or(GroupError::GroupNotFound)?;
-        group.dm_inbox_id.ok_or(GroupError::GroupNotFound)
+        let inbox_id = self.client.inbox_id();
+        // drop the "dm:"
+        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?[3..];
+
+        // If my inbox id is the first half, return the second half, otherwise return first half
+        let target_inbox = if dm_id[..inbox_id.len()] == *inbox_id {
+            // + 1 because there is a colon (:)
+            &dm_id[(inbox_id.len() + 1)..]
+        } else {
+            &dm_id[..inbox_id.len()]
+        };
+
+        return Ok(target_inbox.to_string());
     }
 
     /// Find the `consent_state` of the group
@@ -1264,7 +1272,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             now_ns(),
             GroupMembershipState::Allowed, // Use Allowed as default for tests
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(DmMembers {
+                member_one_inbox_id: client.inbox_id().to_string(),
+                member_two_inbox_id: dm_target_inbox_id,
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -2286,7 +2297,10 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3284,7 +3298,10 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3824,10 +3841,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3847,10 +3870,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3

@@ -87,12 +87,14 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
     let delivery_status = opts.delivery_status.map(Into::into);
     let direction = opts.direction.map(Into::into);
 
-    MsgQueryArgs::default()
-      .maybe_sent_before_ns(opts.sent_before_ns)
-      .maybe_sent_after_ns(opts.sent_after_ns)
-      .maybe_delivery_status(delivery_status)
-      .maybe_limit(opts.limit)
-      .maybe_direction(direction)
+    MsgQueryArgs {
+      sent_before_ns: opts.sent_before_ns,
+      sent_after_ns: opts.sent_after_ns,
+      delivery_status,
+      limit: opts.limit,
+      direction,
+      ..Default::default()
+    }
   }
 }
 

@@ -201,9 +201,13 @@ impl Conversation {
       ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
       ConversationType::Sync => None,
     };
-    let opts: MsgQueryArgs = opts.into();
+
+    let opts = MsgQueryArgs {
+      kind,
+      ..opts.into()
+    };
     let messages: Vec<Message> = group
-      .find_messages(&opts.maybe_kind(kind))
+      .find_messages(&opts)
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
       .map(Into::into)

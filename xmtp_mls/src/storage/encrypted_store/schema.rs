@@ -52,9 +52,10 @@ diesel::table! {
         installations_last_checked -> BigInt,
         added_by_inbox_id -> Text,
         welcome_id -> Nullable<BigInt>,
-        dm_inbox_id -> Nullable<Text>,
         rotated_at_ns -> BigInt,
         conversation_type -> Integer,
+        dm_id -> Nullable<Text>,
+        last_message_ns -> BigInt,
     }
 }
 
