@@ -33,6 +33,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -665,6 +666,43 @@ where
             .into_iter()
             .map(|stored_group| {
                 MlsGroup::new(self.clone(), stored_group.id, stored_group.created_at_ns)
+            })
+            .collect())
+    }
+
+    pub fn list_conversations(&self) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
+        Ok(self
+            .store()
+            .conn()?
+            .fetch_conversation_list()?
+            .into_iter()
+            .map(|conversation_item| {
+                let message = conversation_item.message_id.and_then(|message_id| {
+                    // Only construct StoredGroupMessage if all fields are Some
+                    Some(StoredGroupMessage {
+                        id: message_id,
+                        group_id: conversation_item.id.clone(),
+                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
+                        sent_at_ns: conversation_item.sent_at_ns?,
+                        sender_installation_id: conversation_item.sender_installation_id?,
+                        sender_inbox_id: conversation_item.sender_inbox_id?,
+                        kind: conversation_item.kind?,
+                        delivery_status: conversation_item.delivery_status?,
+                        content_type: conversation_item.content_type?,
+                        version_major: conversation_item.version_major?,
+                        version_minor: conversation_item.version_minor?,
+                        authority_id: conversation_item.authority_id?,
+                    })
+                });
+
+                ConversationListItem {
+                    group: MlsGroup::new(
+                        self.clone(),
+                        conversation_item.id,
+                        conversation_item.created_at_ns,
+                    ),
+                    last_message: message,
+                }
             })
             .collect())
     }
