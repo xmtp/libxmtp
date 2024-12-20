@@ -686,25 +686,35 @@ where
 
     pub fn list_conversations(
         &self,
-    ) -> Result<Vec<(MlsGroup<Self>, StoredGroupMessage)>, ClientError> {
+    ) -> Result<Vec<(MlsGroup<Self>, Option<StoredGroupMessage>)>, ClientError> {
         Ok(self
             .store()
             .conn()?
             .fetch_conversation_list()?
             .into_iter()
             .map(|conversation_item| {
-                (
-                    StoredGroupMessage {
-                        id: conversation_item.message_id?,
+                let message = if let Some(message_id) = conversation_item.message_id {
+                    Some(StoredGroupMessage {
+                        id: message_id,
                         group_id: conversation_item.id.clone(),
-                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
-                        sent_at_ns: conversation_item.sent_at_ns?,
-                        sender_installation_id: conversation_item.sender_installation_id?,
-                        sender_inbox_id: conversation_item.sender_inbox_id?,
-                        kind: conversation_item.kind?,
-                        delivery_status: conversation_item.delivery_status?,
-                    },
-                    MlsGroup::new(self.clone(), conversation_item.id, conversation_item.created_at_ns),
+                        decrypted_message_bytes: conversation_item.decrypted_message_bytes.unwrap(),
+                        sent_at_ns: conversation_item.sent_at_ns.unwrap(),
+                        sender_installation_id: conversation_item.sender_installation_id.unwrap(),
+                        sender_inbox_id: conversation_item.sender_inbox_id.unwrap(),
+                        kind: conversation_item.kind.unwrap(),
+                        delivery_status: conversation_item.delivery_status.unwrap(),
+                    })
+                } else {
+                    None
+                };
+
+                (
+                    MlsGroup::new(
+                        self.clone(),
+                        conversation_item.id,
+                        conversation_item.created_at_ns,
+                    ),
+                    message,
                 )
             })
             .collect())
