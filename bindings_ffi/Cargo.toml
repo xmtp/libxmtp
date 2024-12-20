@@ -12,10 +12,12 @@ futures.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["registry", "env-filter", "fmt", "json"] }
 parking_lot.workspace = true
+prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls" }
