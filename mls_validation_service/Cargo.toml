@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "mls_validation_service"
-version = "0.1.0" # Intentionally decoupled from the Workspace versioning
+version = "0.1.4"
 build = "build.rs"
 license.workspace = true
 
@@ -10,7 +10,7 @@ name = "mls-validation-service"
 path = "src/main.rs"
 
 [build-dependencies]
-vergen = { version = "8.3.2", features = ["git", "git2"] }
+vergen-git2 = { workspace = true, features = ["build"] }
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
