@@ -168,16 +168,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: &DmMembers<Id>) -> Self {
-        let mut inbox_ids = [
-            members.member_one_inbox_id.as_ref(),
-            members.member_two_inbox_id.as_ref(),
-        ]
-        .into_iter()
-        .map(str::to_lowercase)
-        .collect::<Vec<_>>();
-        inbox_ids.sort();
-
-        format!("dm:{}", inbox_ids.join(":"))
+        format!("{members}")
     }
 }
 
@@ -186,7 +177,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: DmMembers<Id>) -> Self {
-        String::from(&members)
+        format!("{members}")
     }
 }
 
@@ -195,7 +186,16 @@ where
     Id: AsRef<str>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", String::from(self))
+        let mut inbox_ids = [
+            self.member_one_inbox_id.as_ref(),
+            self.member_two_inbox_id.as_ref(),
+        ]
+        .into_iter()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+        inbox_ids.sort();
+
+        write!(f, "dm:{}", inbox_ids.join(":"))
     }
 }
 
