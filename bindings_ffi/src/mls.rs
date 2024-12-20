@@ -1331,6 +1331,7 @@ impl FfiConversation {
                 kind,
                 delivery_status,
                 direction,
+                ..Default::default()
             })?
             .into_iter()
             .map(|msg| msg.into())

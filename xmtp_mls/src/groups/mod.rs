@@ -1708,8 +1708,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use diesel::connection::SimpleConnection;
-    use diesel::query_dsl::methods::FilterDsl;
-    use diesel::{ExpressionMethods, RunQueryDsl};
+    use diesel::RunQueryDsl;
     use futures::future::join_all;
     use prost::Message;
     use std::sync::Arc;
@@ -1722,7 +1721,7 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use crate::storage::group::StoredGroup;
-    use crate::storage::schema::{group_messages, groups};
+    use crate::storage::schema::groups;
     use crate::{
         builder::ClientBuilder,
         groups::{
