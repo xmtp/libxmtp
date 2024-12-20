@@ -27,8 +27,7 @@ where
         &self,
         conn: &DbConnection,
     ) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups =
-            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
+        let groups = conn.find_groups(GroupQueryArgs::default())?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
