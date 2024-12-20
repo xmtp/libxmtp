@@ -11,6 +11,9 @@ pub use types::*;
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
 pub struct AppOpts {
+    // Print Version
+    #[arg(long)]
+    pub version: bool,
     #[command(subcommand)]
     pub cmd: Option<Commands>,
     #[command(flatten)]

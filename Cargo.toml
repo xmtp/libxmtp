@@ -61,6 +61,7 @@ thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.35.1", default-features = false }
 uuid = "1.10"
+vergen-git2 = "1.0.2"
 wasm-timer = "0.2"
 web-time = "1.1"
 # Changing this version and rustls may potentially break the android build. Use Caution.
