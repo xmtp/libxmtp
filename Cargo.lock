@@ -7331,9 +7331,10 @@ dependencies = [
 name = "xmtp_api_http"
 version = "0.1.0"
 dependencies = [
- "async-stream",
  "async-trait",
+ "bytes",
  "futures",
+ "pin-project-lite",
  "reqwest 0.12.9",
  "serde",
  "serde_json",
@@ -7509,6 +7510,7 @@ dependencies = [
  "openssl",
  "openssl-sys",
  "parking_lot 0.12.3",
+ "pin-project-lite",
  "prost",
  "rand",
  "reqwest 0.12.9",
