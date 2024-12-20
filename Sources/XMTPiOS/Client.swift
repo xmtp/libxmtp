@@ -84,6 +84,18 @@ public struct ClientOptions {
 	}
 }
 
+actor ApiClientCache {
+	private var apiClientCache: [String: XmtpApiClient] = [:]
+
+	func getClient(forKey key: String) -> XmtpApiClient? {
+		return apiClientCache[key]
+	}
+
+	func setClient(_ client: XmtpApiClient, forKey key: String) {
+		apiClientCache[key] = client
+	}
+}
+
 public final class Client {
 	public let address: String
 	public let inboxID: String
@@ -91,8 +103,8 @@ public final class Client {
 	public let dbPath: String
 	public let installationID: String
 	public let environment: XMTPEnvironment
-	public let apiClient: XmtpApiClient
 	private let ffiClient: LibXMTP.FfiXmtpClient
+	private static let apiCache = ApiClientCache()
 
 	public lazy var conversations: Conversations = .init(
 		client: self, ffiConversations: ffiClient.conversations())
@@ -112,12 +124,11 @@ public final class Client {
 		inboxId: String,
 		apiClient: XmtpApiClient? = nil
 	) async throws -> Client {
-		let (libxmtpClient, dbPath, apiClient) = try await initFFiClient(
+		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountAddress: accountAddress.lowercased(),
 			options: options,
 			signingKey: signingKey,
-			inboxId: inboxId,
-			apiClient: apiClient
+			inboxId: inboxId
 		)
 
 		let client = try Client(
@@ -126,8 +137,7 @@ public final class Client {
 			dbPath: dbPath,
 			installationID: libxmtpClient.installationId().toHex,
 			inboxID: libxmtpClient.inboxId(),
-			environment: options.api.env,
-			apiClient: apiClient
+			environment: options.api.env
 		)
 
 		// Register codecs
@@ -139,8 +149,7 @@ public final class Client {
 	}
 
 	public static func create(
-		account: SigningKey, options: ClientOptions,
-		apiClient: XmtpApiClient? = nil
+		account: SigningKey, options: ClientOptions
 	)
 		async throws -> Client
 	{
@@ -152,14 +161,12 @@ public final class Client {
 			accountAddress: accountAddress,
 			options: options,
 			signingKey: account,
-			inboxId: inboxId,
-			apiClient: apiClient
+			inboxId: inboxId
 		)
 	}
 
 	public static func build(
-		address: String, options: ClientOptions, inboxId: String? = nil,
-		apiClient: XmtpApiClient? = nil
+		address: String, options: ClientOptions, inboxId: String? = nil
 	)
 		async throws -> Client
 	{
@@ -176,8 +183,7 @@ public final class Client {
 			accountAddress: accountAddress,
 			options: options,
 			signingKey: nil,
-			inboxId: resolvedInboxId,
-			apiClient: apiClient
+			inboxId: resolvedInboxId
 		)
 	}
 
@@ -185,9 +191,8 @@ public final class Client {
 		accountAddress: String,
 		options: ClientOptions,
 		signingKey: SigningKey?,
-		inboxId: String,
-		apiClient: XmtpApiClient? = nil
-	) async throws -> (FfiXmtpClient, String, XmtpApiClient) {
+		inboxId: String
+	) async throws -> (FfiXmtpClient, String) {
 		let address = accountAddress.lowercased()
 
 		let mlsDbDirectory = options.dbDirectory
@@ -214,15 +219,8 @@ public final class Client {
 		let alias = "xmtp-\(options.api.env.rawValue)-\(inboxId).db3"
 		let dbURL = directoryURL.appendingPathComponent(alias).path
 
-		let xmtpApiClient: XmtpApiClient
-		if let existingApiClient = apiClient {
-			xmtpApiClient = existingApiClient
-		} else {
-			xmtpApiClient = try await connectToApiBackend(api: options.api)
-		}
-
 		let ffiClient = try await LibXMTP.createClient(
-			api: xmtpApiClient,
+			api: connectToApiBackend(api: options.api),
 			db: dbURL,
 			encryptionKey: options.dbEncryptionKey,
 			inboxId: inboxId,
@@ -252,7 +250,7 @@ public final class Client {
 			}
 		}
 
-		return (ffiClient, dbURL, xmtpApiClient)
+		return (ffiClient, dbURL)
 	}
 
 	private static func handleSignature(
@@ -282,12 +280,19 @@ public final class Client {
 		}
 	}
 
-	public static func connectToApiBackend(
-		api: ClientOptions.Api
-	) async throws -> XmtpApiClient {
-		return try await connectToBackend(
-			host: api.env.url,
-			isSecure: api.env.isSecure == true)
+	public static func connectToApiBackend(api: ClientOptions.Api) async throws
+		-> XmtpApiClient
+	{
+		let cacheKey = api.env.url
+
+		if let cachedClient = await apiCache.getClient(forKey: cacheKey) {
+			return cachedClient
+		}
+
+		let apiClient = try await connectToBackend(
+			host: api.env.url, isSecure: api.isSecure)
+		await apiCache.setClient(apiClient, forKey: cacheKey)
+		return apiClient
 	}
 
 	public static func getOrCreateInboxId(
@@ -297,8 +302,7 @@ public final class Client {
 		do {
 			inboxId =
 				try await getInboxIdForAddress(
-					host: api.env.url,
-					isSecure: api.env.isSecure == true,
+					api: connectToApiBackend(api: api),
 					accountAddress: address.lowercased()
 				)
 				?? generateInboxId(
@@ -344,8 +348,7 @@ public final class Client {
 
 	init(
 		address: String, ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
-		installationID: String, inboxID: String, environment: XMTPEnvironment,
-		apiClient: XmtpApiClient
+		installationID: String, inboxID: String, environment: XMTPEnvironment
 	) throws {
 		self.address = address
 		self.ffiClient = ffiClient
@@ -353,7 +356,6 @@ public final class Client {
 		self.installationID = installationID
 		self.inboxID = inboxID
 		self.environment = environment
-		self.apiClient = apiClient
 	}
 
 	public func addAccount(newAccount: SigningKey)
