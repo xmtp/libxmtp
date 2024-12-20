@@ -665,7 +665,7 @@ pub(crate) mod tests {
             .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
-        assert_eq!(&*groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
+        assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
     }
 
     #[tokio::test]
