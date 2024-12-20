@@ -41,6 +41,10 @@ diesel::table! {
         sender_installation_id -> Binary,
         sender_inbox_id -> Text,
         delivery_status -> Integer,
+        content_type -> Integer,
+        version_minor -> Integer,
+        version_major -> Integer,
+        authority_id -> Text,
     }
 }
 
