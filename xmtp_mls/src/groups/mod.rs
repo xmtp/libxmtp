@@ -1668,6 +1668,7 @@ pub(crate) mod tests {
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
+    use xmtp_common::time::now_ns;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
@@ -2081,6 +2082,11 @@ pub(crate) mod tests {
         assert_eq!(alix_filtered_groups.len(), 1);
 
         let dm_group = alix_filtered_groups.pop().unwrap();
+
+        let now = now_ns();
+        let one_second = 1_000_000_000;
+        assert!(((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns));
+
         let dm_group = alix.group(dm_group.id).unwrap();
         let alix_msgs = dm_group
             .find_messages(&MsgQueryArgs {
