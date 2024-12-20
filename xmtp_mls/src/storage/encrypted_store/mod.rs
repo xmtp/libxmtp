@@ -25,6 +25,7 @@ pub mod key_store_entry;
 mod native;
 pub mod refresh_state;
 pub mod schema;
+mod schema_gen;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
 pub mod user_preferences;
