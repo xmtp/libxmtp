@@ -893,6 +893,7 @@ pub(crate) mod tests {
     async fn test_get_group_welcome_ids() {
         with_connection(|conn| {
             let mls_groups = vec![
+                generate_group_with_welcome(None, Some(30)),
                 generate_group(None),
                 generate_group(None),
                 generate_group_with_welcome(None, Some(10)),
@@ -900,7 +901,7 @@ pub(crate) mod tests {
             for g in mls_groups.iter() {
                 g.store(conn).unwrap();
             }
-            assert_eq!(vec![10], conn.group_welcome_ids());
+            assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
         .await
     }
