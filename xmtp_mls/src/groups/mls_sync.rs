@@ -1045,7 +1045,9 @@ where
                             intent.id
                         );
 
-                        let messages = self.prepare_group_messages(vec![payload_slice])?;self.client
+                        let messages = self.prepare_group_messages(vec![payload_slice])?;
+
+                        self.client
                             .api()
                             .send_group_messages(messages)
                             .await?;
@@ -1464,7 +1466,8 @@ where
         let mut result = vec![];
         for payload in payloads {
             let mut sender_hmac = sender_hmac.clone();
-            sender_hmac.update(payload);
+            // When we switch to V2, update with the header bytes.
+            sender_hmac.update(&[]);
             let sender_hmac = sender_hmac.finalize();
 
             result.push(GroupMessageInput {
