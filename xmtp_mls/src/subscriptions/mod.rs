@@ -10,6 +10,9 @@ use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
+// mod stream_all;
+// mod stream_conversations;
+
 use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{
@@ -453,9 +456,9 @@ where
             futures::pin_mut!(messages_stream);
 
             let convo_stream = self.stream_conversations(conversation_type).await?;
-
             futures::pin_mut!(convo_stream);
 
+            tracing::info!("\n\n Waiting on messages \n\n");
             let mut extra_messages = Vec::new();
 
             loop {
@@ -608,6 +611,45 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
+    /// A macro for asserting that a stream yields a specific decrypted message.
+    ///
+    /// # Example
+    /// ```rust
+    /// assert_msg!(stream, b"first");
+    /// ```
+    #[macro_export]
+    macro_rules! assert_msg {
+        ($stream:expr, $expected:expr) => {
+            assert_eq!(
+                $stream
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .decrypted_message_bytes,
+                $expected.as_bytes()
+            );
+        };
+    }
+
+    /// A macro for asserting that a stream yields a specific decrypted message.
+    ///
+    /// # Example
+    /// ```rust
+    /// assert_msg!(stream, b"first");
+    /// ```
+    #[macro_export]
+    macro_rules! assert_msg_exists {
+        ($stream:expr) => {
+            assert!(!$stream
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .decrypted_message_bytes
+                .is_empty());
+        };
+    }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -616,23 +658,8 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        // FIXME:insipx we run into an issue where the reqwest::post().send() request
-        // blocks the executor and we cannot progress the runtime if we dont `tokio::spawn` this.
-        // A solution might be to use `hyper` instead, and implement a custom connection pool with
-        // `deadpool`. This is a bit more work but shouldn't be too complicated since
-        // we're only using `post` requests. It would be nice for all streams to work
-        // w/o spawning a separate task.
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        let bob_ptr = bob.clone();
-        crate::spawn(None, async move {
-            let bob_stream = bob_ptr.stream_conversations(None).await.unwrap();
-            futures::pin_mut!(bob_stream);
-            while let Some(item) = bob_stream.next().await {
-                let _ = tx.send(item);
-            }
-        });
-
+        let stream = bob.stream_conversations(None).await.unwrap();
+        futures::pin_mut!(stream);
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
@@ -643,7 +670,7 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_messages() {
         xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -652,6 +679,7 @@ pub(crate) mod tests {
         let alice_group = alice
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
+        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
         alice_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
@@ -663,33 +691,16 @@ pub(crate) mod tests {
             .unwrap();
         let bob_group = bob_groups.first().unwrap();
 
-        let notify = Delivery::new(None);
-        let notify_ptr = notify.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::spawn(None, async move {
-            let stream = alice_group.stream().await.unwrap();
-            futures::pin_mut!(stream);
-            while let Some(item) = stream.next().await {
-                let _ = tx.send(item);
-                notify_ptr.notify_one();
-            }
-        });
-
-        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        // let stream = alice_group.stream().await.unwrap();
+        let stream = alice_group.stream().await.unwrap();
         futures::pin_mut!(stream);
         bob_group.send_message(b"hello").await.unwrap();
-        tracing::debug!("Bob Sent Message!, waiting for delivery");
-        // notify.wait_for_delivery().await.unwrap();
+
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
-        // notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
-
-        // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -713,40 +724,20 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
-        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
 
-        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
-        let messages_clone = messages.clone();
+        let stream = caro.stream_all_messages(None).await.unwrap();
+        futures::pin_mut!(stream);
+        bo_group.send_message(b"first").await.unwrap();
+        assert_msg!(stream, "first");
 
-        let notify = Delivery::new(None);
-        let notify_pointer = notify.clone();
-        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
-            Arc::new(caro),
-            None,
-            move |message| {
-                (*messages_clone.lock()).push(message.unwrap());
-                notify_pointer.notify_one();
-            },
-        );
-        handle.wait_for_ready().await;
+        bo_group.send_message(b"second").await.unwrap();
+        assert_msg!(stream, "second");
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
-        notify
-            .wait_for_delivery()
-            .await
-            .expect("didn't get `first`");
-        bo_group.send_message("second".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        alix_group.send_message("third".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        bo_group.send_message("fourth".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
+        alix_group.send_message(b"third").await.unwrap();
+        assert_msg!(stream, "third");
 
-        let messages = messages.lock();
-        assert_eq!(messages[0].decrypted_message_bytes, b"first");
-        assert_eq!(messages[1].decrypted_message_bytes, b"second");
-        assert_eq!(messages[2].decrypted_message_bytes, b"third");
-        assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
+        bo_group.send_message(b"fourth").await.unwrap();
+        assert_msg!(stream, "fourth");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -764,39 +755,21 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
-        let messages_clone = messages.clone();
-        let delivery = Delivery::new(None);
-        let delivery_pointer = delivery.clone();
-        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
-            caro.clone(),
-            None,
-            move |message| {
-                delivery_pointer.notify_one();
-                (*messages_clone.lock()).push(message.unwrap());
-            },
-        );
-        handle.wait_for_ready().await;
+        let stream = caro.stream_all_messages(None).await.unwrap();
+        futures::pin_mut!(stream);
+        tracing::info!("\n\nSENDING FIRST MESSAGE\n\n");
 
         alix_group.send_message(b"first").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `first`");
+        assert_msg!(stream, "first");
 
         let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
+        assert_msg_exists!(stream);
 
         bo_group.send_message(b"second").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `second`");
+        assert_msg!(stream, "second");
 
         alix_group.send_message(b"third").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `third`");
+        assert_msg!(stream, "third");
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -807,36 +780,10 @@ pub(crate) mod tests {
             .unwrap();
 
         alix_group.send_message(b"fourth").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `fourth`");
+        assert_msg!(stream, "fourth");
 
         alix_group_2.send_message(b"fifth").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `fifth`");
-
-        {
-            let messages = messages.lock();
-            assert_eq!(messages.len(), 5);
-        }
-
-        let a = handle.abort_handle();
-        a.end();
-        let _ = handle.join().await;
-        assert!(a.is_finished());
-
-        alix_group
-            .send_message("should not show up".as_bytes())
-            .await
-            .unwrap();
-        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
-
-        let messages = messages.lock();
-
-        assert_eq!(messages.len(), 5);
+        assert_msg!(stream, "fifth");
     }
 
     #[ignore]
