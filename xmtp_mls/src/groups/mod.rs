@@ -58,7 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::StorageError;
+use crate::storage::{group_message::ContentType, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -67,7 +67,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::{
         plaintext_envelope::{Content, V1},
-        PlaintextEnvelope,
+        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -307,6 +307,38 @@ pub enum UpdateAdminListType {
     Remove,
     AddSuper,
     RemoveSuper,
+}
+
+/// Fields extracted from content of a message that should be stored in the DB
+pub struct QueryableContentFields {
+    pub content_type: ContentType,
+    pub version_major: i32,
+    pub version_minor: i32,
+    pub authority_id: String,
+}
+
+impl Default for QueryableContentFields {
+    fn default() -> Self {
+        Self {
+            content_type: ContentType::Unknown, // Or whatever the appropriate default is
+            version_major: 0,
+            version_minor: 0,
+            authority_id: String::new(),
+        }
+    }
+}
+
+impl From<EncodedContent> for QueryableContentFields {
+    fn from(content: EncodedContent) -> Self {
+        let content_type_id = content.r#type.unwrap_or_default();
+
+        QueryableContentFields {
+            content_type: content_type_id.type_id.into(),
+            version_major: content_type_id.version_major as i32,
+            version_minor: content_type_id.version_minor as i32,
+            authority_id: content_type_id.authority_id.to_string(),
+        }
+    }
 }
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
@@ -706,6 +738,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(message_id)
     }
 
+    /// Helper function to extract queryable content fields from a message
+    fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
+        // Return early with default if decoding fails or type is missing
+        EncodedContent::decode(message)
+            .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .map(QueryableContentFields::from)
+            .unwrap_or_default()
+    }
+
     /// Prepare a [`IntentKind::SendMessage`] intent, and [`StoredGroupMessage`] on this users XMTP [`Client`].
     ///
     /// # Arguments
@@ -734,6 +775,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
+        let queryable_content_fields = Self::extract_queryable_content_fields(message);
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),
@@ -743,6 +785,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             sender_installation_id: self.context().installation_public_key().into(),
             sender_inbox_id: self.context().inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
+            content_type: queryable_content_fields.content_type,
+            version_major: queryable_content_fields.version_major,
+            version_minor: queryable_content_fields.version_minor,
+            authority_id: queryable_content_fields.authority_id,
         };
         group_message.store(provider.conn_ref())?;
 
