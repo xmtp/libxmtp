@@ -33,6 +33,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -684,38 +685,35 @@ where
             .collect())
     }
 
-    pub fn list_conversations(
-        &self,
-    ) -> Result<Vec<(MlsGroup<Self>, Option<StoredGroupMessage>)>, ClientError> {
+    pub fn list_conversations(&self) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?
             .fetch_conversation_list()?
             .into_iter()
             .map(|conversation_item| {
-                let message = if let Some(message_id) = conversation_item.message_id {
+                let message = conversation_item.message_id.and_then(|message_id| {
+                    // Only construct StoredGroupMessage if all fields are Some
                     Some(StoredGroupMessage {
                         id: message_id,
                         group_id: conversation_item.id.clone(),
-                        decrypted_message_bytes: conversation_item.decrypted_message_bytes.unwrap(),
-                        sent_at_ns: conversation_item.sent_at_ns.unwrap(),
-                        sender_installation_id: conversation_item.sender_installation_id.unwrap(),
-                        sender_inbox_id: conversation_item.sender_inbox_id.unwrap(),
-                        kind: conversation_item.kind.unwrap(),
-                        delivery_status: conversation_item.delivery_status.unwrap(),
+                        decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
+                        sent_at_ns: conversation_item.sent_at_ns?,
+                        sender_installation_id: conversation_item.sender_installation_id?,
+                        sender_inbox_id: conversation_item.sender_inbox_id?,
+                        kind: conversation_item.kind?,
+                        delivery_status: conversation_item.delivery_status?,
                     })
-                } else {
-                    None
-                };
+                });
 
-                (
-                    MlsGroup::new(
+                ConversationListItem {
+                    group: MlsGroup::new(
                         self.clone(),
                         conversation_item.id,
                         conversation_item.created_at_ns,
                     ),
-                    message,
-                )
+                    last_message: message,
+                }
             })
             .collect())
     }

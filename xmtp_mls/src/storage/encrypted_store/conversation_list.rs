@@ -2,8 +2,7 @@ use crate::storage::group::{ConversationType, GroupMembershipState};
 use crate::storage::group_message::{DeliveryStatus, GroupMessageKind};
 use crate::storage::schema::conversation_list::dsl::conversation_list;
 use crate::storage::{DbConnection, StorageError};
-use crate::{Fetch, FetchListWithKey};
-use diesel::{Identifiable, QueryDsl, Queryable, RunQueryDsl, Table};
+use diesel::{QueryDsl, Queryable, RunQueryDsl, Table};
 use serde::{Deserialize, Serialize};
 
 #[derive(Queryable, Debug, Clone, Deserialize, Serialize)]
@@ -98,9 +97,9 @@ pub(crate) mod tests {
     async fn test_three_groups_specific_ordering() {
         with_connection(|conn| {
             // Create three groups
-            let group_a = generate_group_with_created_at(None,5000); // Created after last message
-            let group_b = generate_group_with_created_at(None,2000); // Created before last message
-            let group_c = generate_group_with_created_at(None,1000); // Created before last message with no messages
+            let group_a = generate_group_with_created_at(None, 5000); // Created after last message
+            let group_b = generate_group_with_created_at(None, 2000); // Created before last message
+            let group_c = generate_group_with_created_at(None, 1000); // Created before last message with no messages
 
             group_a.store(conn).unwrap();
             group_b.store(conn).unwrap();

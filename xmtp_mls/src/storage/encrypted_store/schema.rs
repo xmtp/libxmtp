@@ -121,7 +121,7 @@ diesel::table! {
     }
 }
 
-diesel::table!{
+diesel::table! {
     conversation_list (id) {
         id -> Binary,
         created_at_ns -> BigInt,

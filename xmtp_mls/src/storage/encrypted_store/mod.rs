@@ -12,6 +12,7 @@
 
 pub mod association_state;
 pub mod consent_record;
+mod conversation_list;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -28,7 +29,6 @@ pub mod schema;
 mod sqlcipher_connection;
 pub mod user_preferences;
 pub mod wallet_addresses;
-mod conversation_list;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 

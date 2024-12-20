@@ -972,13 +972,13 @@ impl FfiConversations {
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations()?
             .into_iter()
-            .filter_map(|(mls_group, stored_message)| {
-                let last_message = stored_message.map(|msg| msg.into());
-
-                Some(Arc::new(FfiConversationListItem {
-                    conversation: mls_group.into(),
-                    last_message,
-                }))
+            .map(|conversation_item| {
+                Arc::new(FfiConversationListItem {
+                    conversation: conversation_item.group.into(),
+                    last_message: conversation_item
+                        .last_message
+                        .map(|stored_message| stored_message.into()),
+                })
             })
             .collect();
 
@@ -1164,7 +1164,7 @@ pub struct FfiConversation {
 #[derive(uniffi::Object)]
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
-    last_message: Option<FfiMessage>
+    last_message: Option<FfiMessage>,
 }
 
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
@@ -2711,17 +2711,23 @@ mod tests {
             .unwrap();
 
         // Add messages to the group
-        group.send("First message".as_bytes().to_vec()).await.unwrap();
-        group.send("Second message".as_bytes().to_vec()).await.unwrap();
-
-        // Step 3: Synchronize conversations
-        alix_conversations.sync_all_conversations(None).await.unwrap();
-
-        // Step 4: List conversations and verify
-        let conversations = alix_conversations
-            .list_conversations()
+        group
+            .send("First message".as_bytes().to_vec())
             .await
             .unwrap();
+        group
+            .send("Second message".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 3: Synchronize conversations
+        alix_conversations
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 4: List conversations and verify
+        let conversations = alix_conversations.list_conversations().await.unwrap();
 
         // Ensure the group is included
         assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
@@ -2732,7 +2738,6 @@ mod tests {
             "Second message".as_bytes().to_vec(),
             "Last message content should be the most recent"
         );
-
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -2744,7 +2749,7 @@ mod tests {
         let alix_conversations = alix.conversations();
 
         // Step 2: Create a group with Bo but do not send messages
-        let group = alix_conversations
+        alix_conversations
             .create_group(
                 vec![bo.account_address.clone()],
                 FfiCreateGroupOptions::default(),
@@ -2753,13 +2758,13 @@ mod tests {
             .unwrap();
 
         // Step 3: Synchronize conversations
-        alix_conversations.sync_all_conversations(None).await.unwrap();
-
-        // Step 4: List conversations and verify
-        let conversations = alix_conversations
-            .list_conversations()
+        alix_conversations
+            .sync_all_conversations(None)
             .await
             .unwrap();
+
+        // Step 4: List conversations and verify
+        let conversations = alix_conversations.list_conversations().await.unwrap();
 
         // Ensure the group is included
         assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
@@ -2768,6 +2773,86 @@ mod tests {
         assert!(
             conversations[0].last_message.is_none(),
             "Last message should be None since no messages were sent"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_list_ordering() {
+        // Step 1: Setup test client
+        let client = new_test_client().await;
+        let conversations_api = client.conversations();
+
+        // Step 2: Create Group A
+        let group_a = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 3: Create Group B
+        let group_b = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 4: Send a message to Group A
+        group_a
+            .send("Message to Group A".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 5: Create Group C
+        let group_c = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 6: Synchronize conversations
+        conversations_api
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 7: Fetch the conversation list
+        let conversations = conversations_api.list_conversations().await.unwrap();
+
+        // Step 8: Assert the correct order of conversations
+        assert_eq!(
+            conversations.len(),
+            3,
+            "There should be exactly 3 conversations"
+        );
+
+        // Verify the order: Group C, Group A, Group B
+        assert_eq!(
+            conversations[0].conversation.inner.group_id, group_c.inner.group_id,
+            "Group C should be the first conversation"
+        );
+        assert_eq!(
+            conversations[1].conversation.inner.group_id, group_a.inner.group_id,
+            "Group A should be the second conversation"
+        );
+        assert_eq!(
+            conversations[2].conversation.inner.group_id, group_b.inner.group_id,
+            "Group B should be the third conversation"
+        );
+
+        // Verify the last_message field for Group A and None for others
+        assert!(
+            conversations[0].last_message.is_none(),
+            "Group C should have no messages"
+        );
+        assert!(
+            conversations[1].last_message.is_some(),
+            "Group A should have a last message"
+        );
+        assert_eq!(
+            conversations[1].last_message.as_ref().unwrap().content,
+            "Message to Group A".as_bytes().to_vec(),
+            "Group A's last message content should match"
+        );
+        assert!(
+            conversations[2].last_message.is_none(),
+            "Group B should have no messages"
         );
     }
 
