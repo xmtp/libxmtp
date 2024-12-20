@@ -1466,8 +1466,7 @@ where
         let mut result = vec![];
         for payload in payloads {
             let mut sender_hmac = sender_hmac.clone();
-            // When we switch to V2, update with the header bytes.
-            sender_hmac.update(&[]);
+            sender_hmac.update(payload);
             let sender_hmac = sender_hmac.finalize();
 
             result.push(GroupMessageInput {
