@@ -534,24 +534,6 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
     }
-
-    pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let conversations = inner.find_groups(GroupQueryArgs::default())?;
-
-        let mut keys = vec![];
-        for conversation in conversations {
-            let mut k = conversation
-                .hmac_keys(-1..=1)?
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>();
-
-            keys.append(&mut k);
-        }
-
-        Ok(keys)
-    }
 }
 
 impl From<HmacKey> for FfiHmacKey {
@@ -1129,6 +1111,25 @@ impl FfiConversations {
         );
 
         FfiStreamCloser::new(handle)
+    }
+
+    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conversations = inner.find_groups(GroupQueryArgs::default())?;
+
+        let mut hmac_map = HashMap::new();
+        for conversation in conversations {
+            let id = conversation.group_id.clone();
+            let keys = conversation
+                .hmac_keys(-1..=1)?
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>();
+
+            hmac_map.insert(id, keys);
+        }
+
+        Ok(hmac_map)
     }
 }
 
