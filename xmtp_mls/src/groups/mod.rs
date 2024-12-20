@@ -276,6 +276,11 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
+pub struct ConversationListItem<C> {
+    pub group: MlsGroup<C>,
+    pub last_message: Option<StoredGroupMessage>,
+}
+
 #[derive(Default)]
 pub struct GroupMetadataOptions {
     pub name: Option<String>,

@@ -947,6 +947,26 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
+    pub async fn list_conversations(
+        &self,
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+            .list_conversations()?
+            .into_iter()
+            .map(|conversation_item| {
+                Arc::new(FfiConversationListItem {
+                    conversation: conversation_item.group.into(),
+                    last_message: conversation_item
+                        .last_message
+                        .map(|stored_message| stored_message.into()),
+                })
+            })
+            .collect();
+
+        Ok(convo_list)
+    }
+
     pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
@@ -1140,6 +1160,13 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
 #[derive(uniffi::Object)]
 pub struct FfiConversation {
     inner: MlsGroup<RustXmtpClient>,
+}
+
+#[derive(uniffi::Object)]
+#[allow(unused_variables, dead_code)]
+pub struct FfiConversationListItem {
+    conversation: FfiConversation,
+    last_message: Option<FfiMessage>,
 }
 
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
@@ -2665,6 +2692,170 @@ mod tests {
         stream_messages.end_and_wait().await.unwrap();
 
         assert!(stream_messages.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_list_conversations_last_message() {
+        // Step 1: Setup test client Alix and bo
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Step 2: Create a group and add messages
+        let alix_conversations = alix.conversations();
+
+        // Create a group
+        let group = alix_conversations
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Add messages to the group
+        group
+            .send("First message".as_bytes().to_vec())
+            .await
+            .unwrap();
+        group
+            .send("Second message".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 3: Synchronize conversations
+        alix_conversations
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 4: List conversations and verify
+        let conversations = alix_conversations.list_conversations().await.unwrap();
+
+        // Ensure the group is included
+        assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
+
+        let last_message = conversations[0].last_message.as_ref().unwrap();
+        assert_eq!(
+            last_message.content,
+            "Second message".as_bytes().to_vec(),
+            "Last message content should be the most recent"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_list_conversations_no_messages() {
+        // Step 1: Setup test clients Alix and Bo
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_conversations = alix.conversations();
+
+        // Step 2: Create a group with Bo but do not send messages
+        alix_conversations
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Step 3: Synchronize conversations
+        alix_conversations
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 4: List conversations and verify
+        let conversations = alix_conversations.list_conversations().await.unwrap();
+
+        // Ensure the group is included
+        assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
+
+        // Verify that the last_message is None
+        assert!(
+            conversations[0].last_message.is_none(),
+            "Last message should be None since no messages were sent"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_list_ordering() {
+        // Step 1: Setup test client
+        let client = new_test_client().await;
+        let conversations_api = client.conversations();
+
+        // Step 2: Create Group A
+        let group_a = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 3: Create Group B
+        let group_b = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 4: Send a message to Group A
+        group_a
+            .send("Message to Group A".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 5: Create Group C
+        let group_c = conversations_api
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 6: Synchronize conversations
+        conversations_api
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 7: Fetch the conversation list
+        let conversations = conversations_api.list_conversations().await.unwrap();
+
+        // Step 8: Assert the correct order of conversations
+        assert_eq!(
+            conversations.len(),
+            3,
+            "There should be exactly 3 conversations"
+        );
+
+        // Verify the order: Group C, Group A, Group B
+        assert_eq!(
+            conversations[0].conversation.inner.group_id, group_c.inner.group_id,
+            "Group C should be the first conversation"
+        );
+        assert_eq!(
+            conversations[1].conversation.inner.group_id, group_a.inner.group_id,
+            "Group A should be the second conversation"
+        );
+        assert_eq!(
+            conversations[2].conversation.inner.group_id, group_b.inner.group_id,
+            "Group B should be the third conversation"
+        );
+
+        // Verify the last_message field for Group A and None for others
+        assert!(
+            conversations[0].last_message.is_none(),
+            "Group C should have no messages"
+        );
+        assert!(
+            conversations[1].last_message.is_some(),
+            "Group A should have a last message"
+        );
+        assert_eq!(
+            conversations[1].last_message.as_ref().unwrap().content,
+            "Message to Group A".as_bytes().to_vec(),
+            "Group A's last message content should match"
+        );
+        assert!(
+            conversations[2].last_message.is_none(),
+            "Group B should have no messages"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

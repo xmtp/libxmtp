@@ -351,7 +351,7 @@ pub(crate) mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 
-    fn generate_message(
+    pub(crate) fn generate_message(
         kind: Option<GroupMessageKind>,
         group_id: Option<&[u8]>,
         sent_at_ns: Option<i64>,

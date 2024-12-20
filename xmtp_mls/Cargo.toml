@@ -107,6 +107,7 @@ diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
     "sqlite",
+    "32-column-tables"
 ] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
