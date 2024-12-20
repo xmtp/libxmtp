@@ -6,11 +6,9 @@ use crate::{
     configuration::NS_IN_HOUR,
     storage::{
         consent_record::StoredConsentRecord,
-        group::StoredGroup,
-        group::{ConversationType, GroupQueryArgs},
-        group_message::MsgQueryArgs,
-        group_message::{GroupMessageKind, StoredGroupMessage},
-        DbConnection, StorageError,
+        group::{ConversationType, GroupQueryArgs, StoredGroup},
+        group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        DbConnection, NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -115,6 +113,12 @@ impl RetryableError for DeviceSyncError {
     }
 }
 
+impl From<NotFound> for DeviceSyncError {
+    fn from(value: NotFound) -> Self {
+        DeviceSyncError::Storage(StorageError::NotFound(value))
+    }
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -211,9 +215,9 @@ where
             retry,
             (async {
                 conn.get_group_message(&message_id)?
-                    .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                        "Message id {message_id:?} not found."
-                    ))))
+                    .ok_or(DeviceSyncError::from(NotFound::MessageById(
+                        message_id.clone(),
+                    )))
             })
         )?;
 
@@ -240,9 +244,9 @@ where
             retry,
             (async {
                 conn.get_group_message(&message_id)?
-                    .ok_or(DeviceSyncError::Storage(StorageError::NotFound(format!(
-                        "Message id {message_id:?} not found."
-                    ))))
+                    .ok_or(DeviceSyncError::from(NotFound::MessageById(
+                        message_id.clone(),
+                    )))
             })
         )?;
 

@@ -5,9 +5,13 @@ use super::{
     schema::groups::{self, dsl},
     Sqlite,
 };
+
 use crate::{
     groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
 };
+
+use crate::storage::NotFound;
+
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -399,9 +403,8 @@ impl DbConnection {
             Ok::<Option<i64>, StorageError>(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound(format!(
-            "installation time for group {}",
-            hex::encode(group_id)
+        last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
+            group_id,
         )))
     }
 
@@ -427,10 +430,7 @@ impl DbConnection {
             Ok::<_, StorageError>(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound(format!(
-            "installation time for group {}",
-            hex::encode(group_id)
-        )))
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
