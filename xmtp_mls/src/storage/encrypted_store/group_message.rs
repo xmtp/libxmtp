@@ -629,7 +629,7 @@ pub(crate) mod tests {
                 .get_group_messages(
                     &group.id,
                     &MsgQueryArgs {
-                        content_types: vec![ContentType::Text],
+                        content_types: Some(vec![ContentType::Text]),
                         ..Default::default()
                     },
                 )
@@ -643,7 +643,7 @@ pub(crate) mod tests {
                 .get_group_messages(
                     &group.id,
                     &MsgQueryArgs {
-                        content_types: vec![ContentType::GroupMembershipChange],
+                        content_types: Some(vec![ContentType::GroupMembershipChange]),
                         ..Default::default()
                     },
                 )
@@ -660,7 +660,7 @@ pub(crate) mod tests {
                 .get_group_messages(
                     &group.id,
                     &MsgQueryArgs {
-                        content_types: vec![ContentType::GroupUpdated],
+                        content_types: Some(vec![ContentType::GroupUpdated]),
                         ..Default::default()
                     },
                 )
