@@ -1,5 +1,5 @@
 use std::error::Error;
-use     vergen_git2::{BuildBuilder, Emitter, Git2Builder};
+use vergen_git2::{BuildBuilder, Emitter, Git2Builder};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let build = BuildBuilder::all_build()?;
