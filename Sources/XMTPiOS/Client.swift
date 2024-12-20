@@ -227,7 +227,7 @@ public final class Client {
 			accountAddress: address,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
-			historySyncUrl: nil
+			historySyncUrl: options.historySyncUrl
 		)
 
 		try await options.preAuthenticateToInboxCallback?()
@@ -538,10 +538,6 @@ public final class Client {
 		} catch {
 			return nil
 		}
-	}
-
-	public func requestMessageHistorySync() async throws {
-		try await ffiClient.sendSyncRequest(kind: .messages)
 	}
 
 	public func inboxState(refreshFromNetwork: Bool) async throws -> InboxState

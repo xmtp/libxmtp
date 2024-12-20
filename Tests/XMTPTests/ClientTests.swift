@@ -304,28 +304,31 @@ class ClientTests: XCTestCase {
 	func testRevokesAllOtherInstallations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
-		let options = ClientOptions.init(
-			api: .init(env: .local, isSecure: false),
-			dbEncryptionKey: key
-		)
 
 		let alixClient = try await Client.create(
 			account: alix,
-			options: options
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key
+			)
 		)
-		try alixClient.dropLocalDatabaseConnection()
-		try alixClient.deleteLocalDatabase()
 
 		let alixClient2 = try await Client.create(
 			account: alix,
-			options: options
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: "xmtp_db1"
+			)
 		)
-		try alixClient2.dropLocalDatabaseConnection()
-		try alixClient2.deleteLocalDatabase()
 
 		let alixClient3 = try await Client.create(
 			account: alix,
-			options: options
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: "xmtp_db2"
+			)
 		)
 
 		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
@@ -532,7 +535,8 @@ class ClientTests: XCTestCase {
 		print("PERF: Built a client with inboxId in \(time3)s")
 
 		// Measure time to build a client with an inboxId and apiClient
-		try await Client.connectToApiBackend(api: ClientOptions.Api(env: .dev, isSecure: true))
+		try await Client.connectToApiBackend(
+			api: ClientOptions.Api(env: .dev, isSecure: true))
 		let start4 = Date()
 		try await Client.create(
 			account: fakeWallet,
