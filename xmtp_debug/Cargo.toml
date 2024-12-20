@@ -5,6 +5,9 @@ edition = "2021"
 version = "0.1.0"
 license.workspace = true
 
+[build-dependencies]
+vergen-git2 = { workspace = true, features = ["build"] }
+
 [dependencies]
 clap = { version = "4.5.20", features = ["derive"] }
 clap-verbosity-flag = "3.0"
