@@ -58,7 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{group_message::ContentType, StorageError};
+use crate::storage::{group_message::ContentType, NotFound, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -423,7 +423,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(crate::StorageError::from)?
-                .ok_or(crate::StorageError::NotFound("Group Not Found".into()))?;
+                .ok_or(StorageError::from(NotFound::GroupById(
+                    self.group_id.to_vec(),
+                )))?;
 
         // Perform the operation with the MLS group
         operation(mls_group).await.map_err(Into::into)

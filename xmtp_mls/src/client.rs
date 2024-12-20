@@ -51,7 +51,7 @@ use crate::{
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         wallet_addresses::WalletEntry,
-        EncryptedMessageStore, StorageError,
+        EncryptedMessageStore, NotFound, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     types::InstallationId,
@@ -107,6 +107,12 @@ pub enum ClientError {
     LocalEvent(#[from] LocalEventError),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+impl From<NotFound> for ClientError {
+    fn from(value: NotFound) -> Self {
+        ClientError::Storage(StorageError::NotFound(value))
+    }
 }
 
 impl From<GroupError> for ClientError {
@@ -310,11 +316,7 @@ where
         address: String,
     ) -> Result<Option<String>, ClientError> {
         let results = self.find_inbox_ids_from_addresses(conn, &[address]).await?;
-        if let Some(first_result) = results.into_iter().next() {
-            Ok(first_result)
-        } else {
-            Ok(None)
-        }
+        Ok(results.into_iter().next().flatten())
     }
 
     /// Calls the server to look up the `inbox_id`s` associated with a list of addresses.
@@ -557,10 +559,9 @@ where
         {
             Some(id) => id,
             None => {
-                return Err(ClientError::Storage(StorageError::NotFound(format!(
-                    "inbox id for address {} not found",
-                    account_address
-                ))))
+                return Err(ClientError::Storage(StorageError::NotFound(
+                    NotFound::InboxIdForAddress(account_address),
+                )));
             }
         };
 
@@ -611,13 +612,10 @@ where
         group_id: Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
-        match stored_group {
-            Some(group) => Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns)),
-            None => Err(ClientError::Storage(StorageError::NotFound(format!(
-                "group {}",
-                hex::encode(group_id)
-            )))),
-        }
+        stored_group
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .ok_or(NotFound::GroupById(group_id))
+            .map_err(Into::into)
     }
 
     /// Look up a group by its ID
@@ -639,17 +637,10 @@ where
         target_inbox_id: String,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let conn = self.store().conn()?;
-        match conn.find_dm_group(&target_inbox_id)? {
-            Some(dm_group) => Ok(MlsGroup::new(
-                self.clone(),
-                dm_group.id,
-                dm_group.created_at_ns,
-            )),
-            None => Err(ClientError::Storage(StorageError::NotFound(format!(
-                "dm_target_inbox_id {}",
-                hex::encode(target_inbox_id)
-            )))),
-        }
+        let group = conn
+            .find_dm_group(&target_inbox_id)?
+            .ok_or(NotFound::DmByInbox(target_inbox_id))?;
+        Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns))
     }
 
     /// Look up a message by its ID
@@ -657,13 +648,7 @@ where
     pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
         let conn = &mut self.store().conn()?;
         let message = conn.get_group_message(&message_id)?;
-        match message {
-            Some(message) => Ok(message),
-            None => Err(ClientError::Storage(StorageError::NotFound(format!(
-                "message {}",
-                hex::encode(message_id)
-            )))),
-        }
+        Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
 
     /// Query for groups with optional filters

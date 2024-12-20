@@ -8,7 +8,11 @@ use diesel::{
 };
 
 use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
-use crate::{impl_store, impl_store_or_ignore, storage::StorageError, StoreOrIgnore};
+use crate::{
+    impl_store, impl_store_or_ignore,
+    storage::{NotFound, StorageError},
+    StoreOrIgnore,
+};
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
@@ -16,6 +20,16 @@ use crate::{impl_store, impl_store_or_ignore, storage::StorageError, StoreOrIgno
 pub enum EntityKind {
     Welcome = 1,
     Group = 2,
+}
+
+impl std::fmt::Display for EntityKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use EntityKind::*;
+        match self {
+            Welcome => write!(f, "welcome"),
+            Group => write!(f, "group"),
+        }
+    }
 }
 
 impl ToSql<Integer, Sqlite> for EntityKind
@@ -96,24 +110,18 @@ impl DbConnection {
         entity_kind: EntityKind,
         cursor: i64,
     ) -> Result<bool, StorageError> {
-        let state: Option<RefreshState> = self.get_refresh_state(&entity_id, entity_kind)?;
-        match state {
-            Some(state) => {
-                use super::schema::refresh_state::dsl;
-                let num_updated = self.raw_query(|conn| {
-                    diesel::update(&state)
-                        .filter(dsl::cursor.lt(cursor))
-                        .set(dsl::cursor.eq(cursor))
-                        .execute(conn)
-                })?;
-                Ok(num_updated == 1)
-            }
-            None => Err(StorageError::NotFound(format!(
-                "state for entity ID {} with kind {:?}",
-                hex::encode(entity_id.as_ref()),
-                entity_kind
-            ))),
-        }
+        use super::schema::refresh_state::dsl;
+        let state: RefreshState = self.get_refresh_state(&entity_id, entity_kind)?.ok_or(
+            NotFound::RefreshStateByIdAndKind(entity_id.as_ref().to_vec(), entity_kind),
+        )?;
+
+        let num_updated = self.raw_query(|conn| {
+            diesel::update(&state)
+                .filter(dsl::cursor.lt(cursor))
+                .set(dsl::cursor.eq(cursor))
+                .execute(conn)
+        })?;
+        Ok(num_updated == 1)
     }
 }
 
