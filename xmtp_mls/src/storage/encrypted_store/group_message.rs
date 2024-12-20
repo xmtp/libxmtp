@@ -221,7 +221,7 @@ pub struct MsgQueryArgs {
     pub delivery_status: Option<DeliveryStatus>,
     pub limit: Option<i64>,
     pub direction: Option<SortDirection>,
-    content_types: Option<Vec<ContentType>>,
+    pub content_types: Option<Vec<ContentType>>,
 }
 
 impl DbConnection {
@@ -628,7 +628,10 @@ pub(crate) mod tests {
             let text_messages = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().content_types(vec![ContentType::Text]),
+                    &MsgQueryArgs {
+                        content_types: vec![ContentType::Text],
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(text_messages.len(), 1);
@@ -639,8 +642,10 @@ pub(crate) mod tests {
             let membership_messages = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default()
-                        .content_types(vec![ContentType::GroupMembershipChange]),
+                    &MsgQueryArgs {
+                        content_types: vec![ContentType::GroupMembershipChange],
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(membership_messages.len(), 1);
@@ -654,7 +659,10 @@ pub(crate) mod tests {
             let updated_messages = conn
                 .get_group_messages(
                     &group.id,
-                    &MsgQueryArgs::default().content_types(vec![ContentType::GroupUpdated]),
+                    &MsgQueryArgs {
+                        content_types: vec![ContentType::GroupUpdated],
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             assert_eq!(updated_messages.len(), 1);

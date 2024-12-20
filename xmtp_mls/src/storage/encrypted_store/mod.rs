@@ -594,8 +594,12 @@ pub(crate) mod tests {
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
 
+        #[cfg(not(target_arch = "wasm32"))]
         let db =
             native::NativeDb::new(&opts, Some(EncryptedMessageStore::generate_enc_key())).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        let db = wasm::WasmDb::new(&opts).await?;
+
         let store = EncryptedMessageStore { db, opts };
         store.db.validate(&store.opts).unwrap();
 
