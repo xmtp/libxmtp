@@ -46,7 +46,7 @@ pub struct StoredGroup {
     /// The inbox_id of the DM target
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
-    pub last_message_ns: i64,
+    pub last_message_ns: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -73,7 +73,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: now_ns(),
+            last_message_ns: Some(now_ns()),
         }
     }
 
@@ -98,7 +98,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: now_ns(),
+            last_message_ns: Some(now_ns()),
         }
     }
 
@@ -119,7 +119,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: None,
-            last_message_ns: now_ns(),
+            last_message_ns: Some(now_ns()),
         }
     }
 }

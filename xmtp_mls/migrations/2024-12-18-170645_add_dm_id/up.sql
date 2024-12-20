@@ -1,5 +1,5 @@
 ALTER TABLE groups ADD COLUMN dm_id TEXT;
-ALTER TABLE groups ADD COLUMN last_message_ns BIGINT NOT NULL DEFAULT ((strftime('%s', 'now') * 1000000000) + (strftime('%f', 'now') * 1000000));
+ALTER TABLE groups ADD COLUMN last_message_ns BIGINT;
 
 -- Fill the dm_id column
 UPDATE groups
