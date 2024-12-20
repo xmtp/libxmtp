@@ -3,7 +3,7 @@ use std::sync::PoisonError;
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
-use super::sql_key_store;
+use super::{refresh_state::EntityKind, sql_key_store};
 use crate::groups::intents::IntentError;
 use xmtp_common::{retryable, RetryableError};
 
@@ -27,9 +27,9 @@ pub enum StorageError {
     Serialization(String),
     #[error("deserialization error")]
     Deserialization(String),
-    #[error("{0} not found")]
-    NotFound(String),
-    #[error("lock")]
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+    #[error("lock {0}")]
     Lock(String),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
@@ -45,6 +45,35 @@ pub enum StorageError {
     FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
     Duplicate(DuplicateItem),
+}
+
+#[derive(Error, Debug)]
+// Monolithic enum for all things lost
+pub enum NotFound {
+    #[error("group with welcome id {0} not found")]
+    GroupByWelcome(i64),
+    #[error("group with id {id} not found", id = hex::encode(_0))]
+    GroupById(Vec<u8>),
+    #[error("installation time for group {id}", id = hex::encode(_0))]
+    InstallationTimeForGroup(Vec<u8>),
+    #[error("inbox id for address {0} not found")]
+    InboxIdForAddress(String),
+    #[error("message id {id} not found", id = hex::encode(_0))]
+    MessageById(Vec<u8>),
+    #[error("dm by dm_target_inbox_id {0} not found")]
+    DmByInbox(String),
+    #[error("intent with id {0} for state Publish from ToPublish not found")]
+    IntentForToPublish(i32),
+    #[error("intent with id {0} for state ToPublish from Published not found")]
+    IntentForPublish(i32),
+    #[error("intent with id {0} for state Committed from Published not found")]
+    IntentForCommitted(i32),
+    #[error("Intent with id {0} not found")]
+    IntentById(i32),
+    #[error("refresh state with id {id} and kind {1} not found", id = hex::encode(_0))]
+    RefreshStateByIdAndKind(Vec<u8>, EntityKind),
+    #[error("Cipher salt for db at [`{0}`] not found")]
+    CipherSalt(String),
 }
 
 #[derive(Error, Debug)]
@@ -98,6 +127,14 @@ impl RetryableError for StorageError {
             Self::SqlCipherKeyIncorrect => false,
             Self::Duplicate(d) => retryable!(d),
             _ => false,
+        }
+    }
+}
+
+impl RetryableError for NotFound {
+    fn is_retryable(&self) -> bool {
+        match self {
+            _ => true,
         }
     }
 }

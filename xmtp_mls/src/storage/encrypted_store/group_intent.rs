@@ -17,7 +17,7 @@ use super::{
 use crate::{
     groups::{intents::SendMessageIntentData, IntentError},
     impl_fetch, impl_store,
-    storage::StorageError,
+    storage::{NotFound, StorageError},
     utils::id::calculate_message_id,
     Delete,
 };
@@ -197,7 +197,7 @@ impl DbConnection {
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
     ) -> Result<(), StorageError> {
-        let res = self.raw_query(|conn| {
+        let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
@@ -213,18 +213,15 @@ impl DbConnection {
                 .execute(conn)
         })?;
 
-        match res {
-            // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound(format!(
-                "ToPublish intent {intent_id} for publish"
-            ))),
-            _ => Ok(()),
+        if rows_changed == 0 {
+            return Err(NotFound::IntentForToPublish(intent_id).into());
         }
+        Ok(())
     }
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        let res = self.raw_query(|conn| {
+        let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from
@@ -234,19 +231,18 @@ impl DbConnection {
                 .execute(conn)
         })?;
 
-        match res {
-            // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound(format!(
-                "Published intent {intent_id} for commit"
-            ))),
-            _ => Ok(()),
+        // If nothing matched the query, return an error. Either ID or state was wrong
+        if rows_changed == 0 {
+            return Err(NotFound::IntentForCommitted(intent_id).into());
         }
+
+        Ok(())
     }
 
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     pub fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
-        let res = self.raw_query(|conn| {
+        let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to ToPublish is from
@@ -263,32 +259,27 @@ impl DbConnection {
                 .execute(conn)
         })?;
 
-        match res {
-            // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound(format!(
-                "Published intent {intent_id} for ToPublish"
-            ))),
-            _ => Ok(()),
+        if rows_changed == 0 {
+            return Err(NotFound::IntentForPublish(intent_id).into());
         }
+        Ok(())
     }
 
     /// Set the intent with the given ID to `Error`
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
-        let res = self.raw_query(|conn| {
+        let rows_changed = self.raw_query(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 .set(dsl::state.eq(IntentState::Error))
                 .execute(conn)
         })?;
 
-        match res {
-            // If nothing matched the query, return an error. Either ID or state was wrong
-            0 => Err(StorageError::NotFound(format!(
-                "state for intent {intent_id}"
-            ))),
-            _ => Ok(()),
+        if rows_changed == 0 {
+            return Err(NotFound::IntentById(intent_id).into());
         }
+
+        Ok(())
     }
 
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the

@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::storage::StorageError;
+use crate::storage::{NotFound, StorageError};
 
 use super::{EncryptionKey, StorageOption};
 
@@ -165,9 +165,9 @@ impl EncryptedConnection {
     ) -> Result<(), StorageError> {
         let mut row_iter = conn.load(sql_query("PRAGMA cipher_salt"))?;
         // cipher salt should always exist. if it doesn't SQLCipher is misconfigured.
-        let row = row_iter.next().ok_or(StorageError::NotFound(
-            "Cipher salt doesn't exist in database".into(),
-        ))??;
+        let row = row_iter
+            .next()
+            .ok_or(NotFound::CipherSalt(path.to_string()))??;
         let salt = <String as FromSqlRow<diesel::sql_types::Text, _>>::build_from_row(&row)?;
         tracing::debug!(
             salt,

@@ -274,10 +274,10 @@ where
         Ok(())
     }
 
-    pub async fn subscribe_group_messages(
-        &self,
+    pub(crate) async fn subscribe_group_messages<'a>(
+        &'a self,
         filters: Vec<GroupFilter>,
-    ) -> Result<impl futures::Stream<Item = Result<GroupMessage, ApiError>> + '_, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>, ApiError>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -289,11 +289,11 @@ where
             .await
     }
 
-    pub async fn subscribe_welcome_messages(
-        &self,
+    pub(crate) async fn subscribe_welcome_messages<'a>(
+        &'a self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<impl futures::Stream<Item = Result<WelcomeMessage, ApiError>> + '_, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>, ApiError>
     where
         ApiClient: XmtpMlsStreams,
     {

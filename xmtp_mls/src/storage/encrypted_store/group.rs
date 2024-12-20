@@ -5,7 +5,7 @@ use super::{
     schema::groups::{self, dsl},
     Sqlite,
 };
-use crate::{impl_fetch, impl_store, DuplicateItem, StorageError};
+use crate::{impl_fetch, impl_store, storage::NotFound, DuplicateItem, StorageError};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -379,9 +379,8 @@ impl DbConnection {
             Ok::<Option<i64>, StorageError>(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound(format!(
-            "installation time for group {}",
-            hex::encode(group_id)
+        last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
+            group_id,
         )))
     }
 
@@ -407,10 +406,7 @@ impl DbConnection {
             Ok::<_, StorageError>(ts)
         })?;
 
-        last_ts.ok_or(StorageError::NotFound(format!(
-            "installation time for group {}",
-            hex::encode(group_id)
-        )))
+        last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
     }
 
     /// Updates the 'last time checked' we checked for new installations.
@@ -457,6 +453,22 @@ impl DbConnection {
         })?;
 
         Ok(stored_group)
+    }
+
+    /// Get all the welcome ids turned into groups
+    pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+        self.raw_query(|conn| {
+            Ok::<_, StorageError>(
+                dsl::groups
+                    .filter(dsl::welcome_id.is_not_null())
+                    .select(dsl::welcome_id)
+                    .load::<Option<i64>>(conn)?
+                    .into_iter()
+                    .map(|id| id.expect("SQL explicity filters for none"))
+                    .collect(),
+            )
+        })
+        .map_err(Into::into)
     }
 }
 
@@ -566,6 +578,25 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
+            None,
+        )
+    }
+
+    /// Generate a test group with welcome
+    pub fn generate_group_with_welcome(
+        state: Option<GroupMembershipState>,
+        welcome_id: Option<i64>,
+    ) -> StoredGroup {
+        let id = rand_vec::<24>();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        StoredGroup::new_from_welcome(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+            welcome_id.unwrap_or(xmtp_common::rand_i64()),
+            ConversationType::Group,
             None,
         )
     }
@@ -853,6 +884,23 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_group_welcome_ids() {
+        with_connection(|conn| {
+            let mls_groups = vec![
+                generate_group(None),
+                generate_group(None),
+                generate_group_with_welcome(None, Some(10)),
+            ];
+            for g in mls_groups.iter() {
+                g.store(conn).unwrap();
+            }
+            assert_eq!(vec![10], conn.group_welcome_ids());
         })
         .await
     }

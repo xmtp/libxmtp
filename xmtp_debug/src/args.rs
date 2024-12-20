@@ -154,6 +154,17 @@ pub enum EntityKind {
     Identity,
 }
 
+impl std::fmt::Display for EntityKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use EntityKind::*;
+        match self {
+            Group => write!(f, "group"),
+            Message => write!(f, "message"),
+            Identity => write!(f, "identity"),
+        }
+    }
+}
+
 /// specify the log output
 #[derive(Args, Debug)]
 pub struct LogOptions {

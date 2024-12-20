@@ -51,7 +51,7 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use futures::task::Poll::*;
+        use std::task::Poll::*;
         match self.as_mut().project() {
             PostStreamProject::NotStarted { fut } => match fut.poll(cx) {
                 Ready(response) => {
@@ -155,25 +155,9 @@ where
             }
         }
     }
-    /*
-    fn on_request(
-        self: &mut Pin<&mut Self>,
-        p: Poll<Result<reqwest::Response, reqwest::Error>>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<<Self as Stream>::Item>> {
-        use futures::task::Poll::*;
-        match p {
-            Ready(response) => {
-                let s = response.unwrap().bytes_stream();
-                self.set(Self::started(s));
-                self.as_mut().poll_next(cx)
-            }
-            Pending => Pending,
-        }
-    }
-    */
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<F, R> HttpPostStream<F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
@@ -188,6 +172,23 @@ where
         let mut cx = std::task::Context::from_waker(&noop_waker);
         // let mut this = Pin::new(self);
         let mut this = Pin::new(self);
+        let _ = this.poll_next_unpin(&mut cx);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<F, R> HttpPostStream<F, R>
+where
+    F: Future<Output = Result<Response, reqwest::Error>>,
+    for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
+{
+    fn establish(&mut self) -> () {
+        // we need to poll the future once to progress the future state &
+        // establish the initial POST request.
+        // It should always be pending
+        let noop_waker = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&noop_waker);
+        let mut this = unsafe { Pin::new_unchecked(self) };
         let _ = this.poll_next_unpin(&mut cx);
     }
 }
