@@ -226,11 +226,11 @@ impl DbConnection {
 
         let mut query = groups_dsl::groups
             .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
-            // Group by dm_id and grab the latest group (conversation stitching)
             .order(groups_dsl::created_at_ns.asc())
             .into_boxed();
 
         if !include_duplicate_dms {
+            // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id
