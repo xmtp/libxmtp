@@ -1125,7 +1125,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .find_group(self.group_id.clone())?
             .ok_or(GroupError::GroupNotFound)?;
         let inbox_id = self.client.inbox_id();
-        // drop the "dm:"
         let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?;
         Ok(dm_id.other_inbox_id(inbox_id))
     }
