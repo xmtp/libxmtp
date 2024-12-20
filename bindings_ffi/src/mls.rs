@@ -592,15 +592,19 @@ pub struct FfiListConversationsOptions {
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
     pub consent_state: Option<FfiConsentState>,
+    pub include_duplicate_dms: bool,
 }
 
 impl From<FfiListConversationsOptions> for GroupQueryArgs {
     fn from(opts: FfiListConversationsOptions) -> GroupQueryArgs {
-        GroupQueryArgs::default()
-            .maybe_created_before_ns(opts.created_before_ns)
-            .maybe_created_after_ns(opts.created_after_ns)
-            .maybe_limit(opts.limit)
-            .maybe_consent_state(opts.consent_state.map(Into::into))
+        GroupQueryArgs {
+            created_before_ns: opts.created_before_ns,
+            created_after_ns: opts.created_after_ns,
+            limit: opts.limit,
+            consent_state: opts.consent_state.map(Into::into),
+            include_duplicate_dms: opts.include_duplicate_dms,
+            ..Default::default()
+        }
     }
 }
 
