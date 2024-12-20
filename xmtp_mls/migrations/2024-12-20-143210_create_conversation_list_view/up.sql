@@ -9,6 +9,10 @@ WITH ranked_messages AS (
         gm.sender_installation_id,
         gm.sender_inbox_id,
         gm.delivery_status,
+        gm.content_type,
+        gm.version_major,
+        gm.version_minor,
+        gm.authority_id,
         ROW_NUMBER() OVER (PARTITION BY gm.group_id ORDER BY gm.sent_at_ns DESC) AS row_num
     FROM
         group_messages gm
@@ -31,7 +35,11 @@ SELECT
     rm.message_kind,
     rm.sender_installation_id,
     rm.sender_inbox_id,
-    rm.delivery_status
+    rm.delivery_status,
+    rm.content_type,
+    rm.version_major,
+    rm.version_minor,
+    rm.authority_id
 FROM
     groups g
         LEFT JOIN ranked_messages rm

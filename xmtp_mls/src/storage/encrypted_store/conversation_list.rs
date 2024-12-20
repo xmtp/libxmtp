@@ -1,5 +1,5 @@
 use crate::storage::group::{ConversationType, GroupMembershipState};
-use crate::storage::group_message::{DeliveryStatus, GroupMessageKind};
+use crate::storage::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use crate::storage::schema::conversation_list::dsl::conversation_list;
 use crate::storage::{DbConnection, StorageError};
 use diesel::{QueryDsl, Queryable, RunQueryDsl, Table};
@@ -42,6 +42,14 @@ pub struct ConversationListItem {
     pub sender_inbox_id: Option<String>,
     /// We optimistically store messages before sending.
     pub delivery_status: Option<DeliveryStatus>,
+    /// The Content Type of the message
+    pub content_type: Option<ContentType>,
+    /// The content type version major
+    pub version_major: Option<i32>,
+    /// The content type version minor
+    pub version_minor: Option<i32>,
+    /// The ID of the authority defining the content type
+    pub authority_id: Option<String>,
 }
 
 impl DbConnection {
@@ -73,7 +81,8 @@ pub(crate) mod tests {
                     crate::storage::encrypted_store::group_message::tests::generate_message(
                         None,
                         Some(&group.id),
-                        Some(i * 1000), // Increment timestamp for each message
+                        Some(i * 1000),
+                        None,
                     );
                 message.store(conn).unwrap();
             }
@@ -109,6 +118,7 @@ pub(crate) mod tests {
                 None,
                 Some(&group_b.id),
                 Some(3000), // Last message timestamp
+                None,
             );
             message.store(conn).unwrap();
 
@@ -144,6 +154,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(1000),
+                    None,
                 );
             first_message.store(conn).unwrap();
 
@@ -162,6 +173,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(2000),
+                    None,
                 );
             second_message.store(conn).unwrap();
 

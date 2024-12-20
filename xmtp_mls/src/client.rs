@@ -703,6 +703,10 @@ where
                         sender_inbox_id: conversation_item.sender_inbox_id?,
                         kind: conversation_item.kind?,
                         delivery_status: conversation_item.delivery_status?,
+                        content_type: conversation_item.content_type?,
+                        version_major: conversation_item.version_major?,
+                        version_minor: conversation_item.version_minor?,
+                        authority_id: conversation_item.authority_id?,
                     })
                 });
 
