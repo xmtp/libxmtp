@@ -1100,7 +1100,7 @@ impl FfiConversations {
         let mut hmac_map = HashMap::new();
         for conversation in conversations {
             let id = conversation.group_id.clone();
-            let mut keys = conversation
+            let keys = conversation
                 .hmac_keys(-1..=1)?
                 .into_iter()
                 .map(Into::into)
