@@ -8,7 +8,7 @@ diesel::table! {
     installations_last_checked -> BigInt,
     added_by_inbox_id -> Text,
     welcome_id -> Nullable<BigInt>,
-    dm_inbox_id -> Nullable<Text>,
+    dm_id -> Nullable<Text>,
     rotated_at_ns -> BigInt,
     conversation_type -> Integer,
     message_id -> Nullable<Binary>,
