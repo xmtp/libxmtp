@@ -1163,6 +1163,7 @@ pub struct FfiConversation {
 }
 
 #[derive(uniffi::Object)]
+#[allow(unused_variables, dead_code)]
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
