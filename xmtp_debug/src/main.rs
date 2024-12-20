@@ -23,8 +23,17 @@ async fn main() -> Result<()> {
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
 
+    if opts.version {
+        info!("Version: {0}", get_version());
+        return Ok(());
+    }
+
     let app = app::App::new(opts)?;
     app.run().await?;
 
     Ok(())
+}
+
+pub fn get_version() -> String {
+    format!("{}-{}", env!("CARGO_PKG_VERSION"), env!("VERGEN_GIT_SHA"))
 }

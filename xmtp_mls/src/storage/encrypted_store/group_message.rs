@@ -7,6 +7,10 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_content_types::{
+    attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
+    text, transaction_reference,
+};
 
 use super::{
     db_connection::DbConnection,
@@ -41,6 +45,14 @@ pub struct StoredGroupMessage {
     pub sender_inbox_id: String,
     /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
+    /// The Content Type of the message
+    pub content_type: ContentType,
+    /// The content type version major
+    pub version_major: i32,
+    /// The content type version minor
+    pub version_minor: i32,
+    /// The ID of the authority defining the content type
+    pub authority_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +87,90 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(GroupMessageKind::Application),
             2 => Ok(GroupMessageKind::MembershipChange),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+//Legacy content types found at https://github.com/xmtp/xmtp-js/tree/main/content-types
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, FromSqlRow, AsExpression)]
+#[diesel(sql_type = diesel::sql_types::Integer)]
+pub enum ContentType {
+    Unknown = 0,
+    Text = 1,
+    GroupMembershipChange = 2,
+    GroupUpdated = 3,
+    Reaction = 4,
+    ReadReceipt = 5,
+    Reply = 6,
+    Attachment = 7,
+    RemoteAttachment = 8,
+    TransactionReference = 9,
+}
+
+impl std::fmt::Display for ContentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let as_string = match self {
+            Self::Unknown => "unknown",
+            Self::Text => text::TextCodec::TYPE_ID,
+            Self::GroupMembershipChange => membership_change::GroupMembershipChangeCodec::TYPE_ID,
+            Self::GroupUpdated => group_updated::GroupUpdatedCodec::TYPE_ID,
+            Self::Reaction => reaction::ReactionCodec::TYPE_ID,
+            Self::ReadReceipt => read_receipt::ReadReceiptCodec::TYPE_ID,
+            Self::Attachment => attachment::AttachmentCodec::TYPE_ID,
+            Self::RemoteAttachment => remote_attachment::RemoteAttachmentCodec::TYPE_ID,
+            Self::Reply => reply::ReplyCodec::TYPE_ID,
+            Self::TransactionReference => transaction_reference::TransactionReferenceCodec::TYPE_ID,
+        };
+
+        write!(f, "{}", as_string)
+    }
+}
+
+impl From<String> for ContentType {
+    fn from(type_id: String) -> Self {
+        match type_id.as_str() {
+            text::TextCodec::TYPE_ID => Self::Text,
+            membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
+            group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
+            reaction::ReactionCodec::TYPE_ID => Self::Reaction,
+            read_receipt::ReadReceiptCodec::TYPE_ID => Self::ReadReceipt,
+            reply::ReplyCodec::TYPE_ID => Self::Reply,
+            attachment::AttachmentCodec::TYPE_ID => Self::Attachment,
+            remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
+            transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl ToSql<Integer, Sqlite> for ContentType
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for ContentType
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            0 => Ok(ContentType::Unknown),
+            1 => Ok(ContentType::Text),
+            2 => Ok(ContentType::GroupMembershipChange),
+            3 => Ok(ContentType::GroupUpdated),
+            4 => Ok(ContentType::Reaction),
+            5 => Ok(ContentType::ReadReceipt),
+            6 => Ok(ContentType::Reply),
+            7 => Ok(ContentType::Attachment),
+            8 => Ok(ContentType::RemoteAttachment),
+            9 => Ok(ContentType::TransactionReference),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -125,6 +221,7 @@ pub struct MsgQueryArgs {
     pub delivery_status: Option<DeliveryStatus>,
     pub limit: Option<i64>,
     pub direction: Option<SortDirection>,
+    content_types: Option<Vec<ContentType>>,
 }
 
 impl DbConnection {
@@ -167,6 +264,10 @@ impl DbConnection {
 
         if let Some(status) = args.delivery_status {
             query = query.filter(dsl::delivery_status.eq(status));
+        }
+
+        if let Some(content_types) = &args.content_types {
+            query = query.filter(dsl::content_type.eq_any(content_types));
         }
 
         query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
@@ -254,6 +355,7 @@ pub(crate) mod tests {
         kind: Option<GroupMessageKind>,
         group_id: Option<&[u8]>,
         sent_at_ns: Option<i64>,
+        content_type: Option<ContentType>,
     ) -> StoredGroupMessage {
         StoredGroupMessage {
             id: rand_vec::<24>(),
@@ -264,6 +366,10 @@ pub(crate) mod tests {
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
             delivery_status: DeliveryStatus::Unpublished,
+            content_type: content_type.unwrap_or(ContentType::Unknown),
+            version_major: 0,
+            version_minor: 0,
+            authority_id: "unknown".to_string(),
         }
     }
 
@@ -280,7 +386,7 @@ pub(crate) mod tests {
     async fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
-            let message = generate_message(None, Some(&group.id), None);
+            let message = generate_message(None, Some(&group.id), None, None);
             group.store(conn).unwrap();
             let id = message.id.clone();
 
@@ -297,7 +403,7 @@ pub(crate) mod tests {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
         with_connection(|conn| {
-            let message = generate_message(None, None, None);
+            let message = generate_message(None, None, None, None);
             assert_err!(
                 message.store(conn),
                 StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
@@ -315,7 +421,7 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             for idx in 0..50 {
-                let msg = generate_message(None, Some(&group.id), Some(idx));
+                let msg = generate_message(None, Some(&group.id), Some(idx), None);
                 assert_ok!(msg.store(conn));
             }
 
@@ -348,10 +454,10 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(1_000)),
-                generate_message(None, Some(&group.id), Some(100_000)),
-                generate_message(None, Some(&group.id), Some(10_000)),
-                generate_message(None, Some(&group.id), Some(1_000_000)),
+                generate_message(None, Some(&group.id), Some(1_000), None),
+                generate_message(None, Some(&group.id), Some(100_000), None),
+                generate_message(None, Some(&group.id), Some(10_000), None),
+                generate_message(None, Some(&group.id), Some(1_000_000), None),
             ];
             assert_ok!(messages.store(conn));
             let message = conn
@@ -406,6 +512,7 @@ pub(crate) mod tests {
                             Some(GroupMessageKind::Application),
                             Some(&group.id),
                             None,
+                            Some(ContentType::Text),
                         );
                         msg.store(conn).unwrap();
                     }
@@ -414,6 +521,7 @@ pub(crate) mod tests {
                             Some(GroupMessageKind::MembershipChange),
                             Some(&group.id),
                             None,
+                            Some(ContentType::GroupMembershipChange),
                         );
                         msg.store(conn).unwrap();
                     }
@@ -452,10 +560,10 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             let messages = vec![
-                generate_message(None, Some(&group.id), Some(10_000)),
-                generate_message(None, Some(&group.id), Some(1_000)),
-                generate_message(None, Some(&group.id), Some(100_000)),
-                generate_message(None, Some(&group.id), Some(1_000_000)),
+                generate_message(None, Some(&group.id), Some(10_000), None),
+                generate_message(None, Some(&group.id), Some(1_000), None),
+                generate_message(None, Some(&group.id), Some(100_000), None),
+                generate_message(None, Some(&group.id), Some(1_000_000), None),
             ];
 
             assert_ok!(messages.store(conn));
@@ -489,6 +597,69 @@ pub(crate) mod tests {
             assert_eq!(messages_desc[1].sent_at_ns, 100_000);
             assert_eq!(messages_desc[2].sent_at_ns, 10_000);
             assert_eq!(messages_desc[3].sent_at_ns, 1_000);
+        })
+        .await
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test)]
+    async fn it_gets_messages_by_content_type() {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(1_000), Some(ContentType::Text)),
+                generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(2_000),
+                    Some(ContentType::GroupMembershipChange),
+                ),
+                generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(3_000),
+                    Some(ContentType::GroupUpdated),
+                ),
+            ];
+            assert_ok!(messages.store(conn));
+
+            // Query for text messages
+            let text_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default().content_types(vec![ContentType::Text]),
+                )
+                .unwrap();
+            assert_eq!(text_messages.len(), 1);
+            assert_eq!(text_messages[0].content_type, ContentType::Text);
+            assert_eq!(text_messages[0].sent_at_ns, 1_000);
+
+            // Query for membership change messages
+            let membership_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default()
+                        .content_types(vec![ContentType::GroupMembershipChange]),
+                )
+                .unwrap();
+            assert_eq!(membership_messages.len(), 1);
+            assert_eq!(
+                membership_messages[0].content_type,
+                ContentType::GroupMembershipChange
+            );
+            assert_eq!(membership_messages[0].sent_at_ns, 2_000);
+
+            // Query for group updated messages
+            let updated_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs::default().content_types(vec![ContentType::GroupUpdated]),
+                )
+                .unwrap();
+            assert_eq!(updated_messages.len(), 1);
+            assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
+            assert_eq!(updated_messages[0].sent_at_ns, 3_000);
         })
         .await
     }

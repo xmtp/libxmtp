@@ -13,9 +13,9 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    groups::device_sync::DeviceSyncContent,
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, intents::UpdateMetadataIntentData,
+        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
+        intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -25,15 +25,14 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+        group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
         user_preferences::StoredUserPreferences,
         StorageError,
     },
-    subscriptions::LocalEvents,
-    subscriptions::SyncMessage,
+    subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
@@ -44,7 +43,7 @@ use hmac::{Hmac, Mac};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
-    framing::{ContentType, ProtocolMessage},
+    framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     key_packages::KeyPackage,
     prelude::{
@@ -546,6 +545,7 @@ where
                                          })) => {
                             let message_id =
                                 calculate_message_id(&self.group_id, &content, &idempotency_key);
+                            let queryable_content_fields = Self::extract_queryable_content_fields(&content);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),
@@ -555,6 +555,10 @@ where
                                 sender_installation_id,
                                 sender_inbox_id,
                                 delivery_status: DeliveryStatus::Published,
+                                content_type: queryable_content_fields.content_type,
+                                version_major: queryable_content_fields.version_major,
+                                version_minor: queryable_content_fields.version_minor,
+                                authority_id: queryable_content_fields.authority_id,
                             }
                                 .store_or_ignore(provider.conn_ref())?
                         }
@@ -583,6 +587,10 @@ where
                                         sender_installation_id,
                                         sender_inbox_id: sender_inbox_id.clone(),
                                         delivery_status: DeliveryStatus::Published,
+                                        content_type: ContentType::Unknown,
+                                        version_major: 0,
+                                        version_minor: 0,
+                                        authority_id: "unknown".to_string(),
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -612,6 +620,10 @@ where
                                         sender_installation_id,
                                         sender_inbox_id,
                                         delivery_status: DeliveryStatus::Published,
+                                        content_type: ContentType::Unknown,
+                                        version_major: 0,
+                                        version_minor: 0,
+                                        authority_id: "unknown".to_string(),
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -712,7 +724,7 @@ where
                 discriminant(&other),
             )),
         }?;
-        if !allow_epoch_increment && message.content_type() == ContentType::Commit {
+        if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
 
@@ -933,7 +945,19 @@ where
             encoded_payload_bytes.as_slice(),
             &timestamp_ns.to_string(),
         );
-
+        let content_type = match encoded_payload.r#type {
+            Some(ct) => ct,
+            None => {
+                tracing::warn!("Missing content type in encoded payload, using default values");
+                // Default content type values
+                xmtp_proto::xmtp::mls::message_contents::ContentTypeId {
+                    authority_id: "unknown".to_string(),
+                    type_id: "unknown".to_string(),
+                    version_major: 0,
+                    version_minor: 0,
+                }
+            }
+        };
         let msg = StoredGroupMessage {
             id: message_id,
             group_id: group_id.to_vec(),
@@ -943,6 +967,10 @@ where
             sender_installation_id,
             sender_inbox_id,
             delivery_status: DeliveryStatus::Published,
+            content_type: content_type.type_id.into(),
+            version_major: content_type.version_major as i32,
+            version_minor: content_type.version_minor as i32,
+            authority_id: content_type.authority_id.to_string(),
         };
 
         msg.store_or_ignore(conn)?;
@@ -1017,7 +1045,9 @@ where
                             intent.id
                         );
 
-                        let messages = self.prepare_group_messages(vec![payload_slice])?;self.client
+                        let messages = self.prepare_group_messages(vec![payload_slice])?;
+
+                        self.client
                             .api()
                             .send_group_messages(messages)
                             .await?;
@@ -1436,7 +1466,8 @@ where
         let mut result = vec![];
         for payload in payloads {
             let mut sender_hmac = sender_hmac.clone();
-            sender_hmac.update(payload);
+            // When we switch to V2, update with the header bytes.
+            sender_hmac.update(&[]);
             let sender_hmac = sender_hmac.finalize();
 
             result.push(GroupMessageInput {
