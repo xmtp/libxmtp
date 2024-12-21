@@ -94,8 +94,8 @@ class ConversationTests: XCTestCase {
 		let convoCountConsent = try await fixtures.boClient.conversations
 			.syncAllConversations(consentState: .allowed)
 
-		XCTAssertEqual(convoCount, 2)
-		XCTAssertEqual(convoCountConsent, 2)
+		XCTAssertEqual(convoCount, 3)
+		XCTAssertEqual(convoCountConsent, 3)
 
 		try await group.updateConsentState(state: .denied)
 
@@ -104,8 +104,8 @@ class ConversationTests: XCTestCase {
 		let convoCountDenied = try await fixtures.boClient.conversations
 			.syncAllConversations(consentState: .denied)
 
-		XCTAssertEqual(convoCountAllowed, 1)
-		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountAllowed, 2)
+		XCTAssertEqual(convoCountDenied, 2)
 	}
 
 	func testCanListConversationsOrder() async throws {
