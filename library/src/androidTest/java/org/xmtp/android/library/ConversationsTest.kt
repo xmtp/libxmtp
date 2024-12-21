@@ -115,7 +115,7 @@ class ConversationsTest {
         runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
         val group =
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
-        assertEquals(runBlocking { boClient.conversations.syncAllConversations() }.toInt(), 2)
+        assertEquals(runBlocking { boClient.conversations.syncAllConversations() }.toInt(), 3)
         assertEquals(
             runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.ALLOWED) }.toInt(),
             2
