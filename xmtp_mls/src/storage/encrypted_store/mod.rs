@@ -591,7 +591,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[tokio::test]
+    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = tokio::test)]
     async fn test_dm_id_migration() {
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
