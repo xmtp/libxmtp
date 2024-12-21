@@ -1397,7 +1397,6 @@ impl FfiConversation {
                 content_types: opts
                     .content_types
                     .map(|types| types.into_iter().map(Into::into).collect()),
-                ..Default::default()
             })?
             .into_iter()
             .map(|msg| msg.into())
