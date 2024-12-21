@@ -1,6 +1,6 @@
+use super::schema::conversation_list::dsl::conversation_list;
 use crate::storage::group::{ConversationType, GroupMembershipState};
 use crate::storage::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-use crate::storage::schema::conversation_list::dsl::conversation_list;
 use crate::storage::{DbConnection, StorageError};
 use diesel::{QueryDsl, Queryable, RunQueryDsl, Table};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ pub struct ConversationListItem {
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
     /// The inbox_id of the DM target
-    pub dm_inbox_id: Option<String>,
+    pub dm_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.

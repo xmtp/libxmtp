@@ -25,6 +25,7 @@ pub mod key_store_entry;
 mod native;
 pub mod refresh_state;
 pub mod schema;
+mod schema_gen;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
 pub mod user_preferences;
@@ -125,9 +126,9 @@ impl EncryptedMessageStore {
     ) -> Result<Self, StorageError> {
         tracing::info!("Setting up DB connection pool");
         let db = native::NativeDb::new(&opts, enc_key)?;
-        let mut this = Self { db, opts };
-        this.init_db()?;
-        Ok(this)
+        let mut store = Self { db, opts };
+        store.init_db()?;
+        Ok(store)
     }
 }
 
@@ -474,6 +475,9 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use diesel::sql_types::{BigInt, Blob, Integer, Text};
+    use group::ConversationType;
+    use schema::groups;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
@@ -484,7 +488,7 @@ pub(crate) mod tests {
         },
         Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
     };
-    use xmtp_common::{rand_vec, tmp_path};
+    use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
@@ -585,6 +589,83 @@ pub(crate) mod tests {
         }
 
         EncryptedMessageStore::remove_db_files(db_path)
+    }
+
+    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = tokio::test)]
+    async fn test_dm_id_migration() {
+        let db_path = tmp_path();
+        let opts = StorageOption::Persistent(db_path.clone());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let db =
+            native::NativeDb::new(&opts, Some(EncryptedMessageStore::generate_enc_key())).unwrap();
+        #[cfg(target_arch = "wasm32")]
+        let db = wasm::WasmDb::new(&opts).await.unwrap();
+
+        let store = EncryptedMessageStore { db, opts };
+        store.db.validate(&store.opts).unwrap();
+
+        store
+            .db
+            .conn()
+            .unwrap()
+            .raw_query(|conn| {
+                for _ in 0..15 {
+                    conn.run_next_migration(MIGRATIONS)?;
+                }
+
+                sql_query(
+                    r#"
+                INSERT INTO groups (
+                    id,
+                    created_at_ns,
+                    membership_state,
+                    installations_last_checked,
+                    added_by_inbox_id,
+                    rotated_at_ns,
+                    conversation_type,
+                    dm_inbox_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+                )
+                .bind::<Blob, _>(vec![1, 2, 3, 4, 5])
+                .bind::<BigInt, _>(now_ns())
+                .bind::<Integer, _>(GroupMembershipState::Allowed as i32)
+                .bind::<BigInt, _>(now_ns())
+                .bind::<Text, _>("121212")
+                .bind::<BigInt, _>(now_ns())
+                .bind::<Integer, _>(ConversationType::Dm as i32)
+                .bind::<Text, _>("98765")
+                .execute(conn)?;
+
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+
+        let conn = store.db.conn().unwrap();
+
+        let inbox_id = "inbox_id";
+        StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
+            .store(&conn)
+            .unwrap();
+
+        let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
+        assert_eq!(fetched_identity.inbox_id, inbox_id);
+
+        store
+            .db
+            .conn()
+            .unwrap()
+            .raw_query(|conn| {
+                conn.run_pending_migrations(MIGRATIONS)?;
+                Ok::<_, StorageError>(())
+            })
+            .unwrap();
+
+        let groups = conn
+            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
     }
 
     #[tokio::test]

@@ -58,7 +58,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{group_message::ContentType, NotFound, StorageError};
+use crate::storage::{group::DmIdExt, group_message::ContentType, NotFound, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -514,12 +514,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
+
         let stored_group = StoredGroup::new(
             group_id.clone(),
             now_ns(),
             membership_state,
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(DmMembers {
+                member_one_inbox_id: dm_target_inbox_id,
+                member_two_inbox_id: client.inbox_id().to_string(),
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -546,15 +550,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let dm_members = metadata.dm_members;
-        let dm_inbox_id = if let Some(dm_members) = &dm_members {
-            if dm_members.member_one_inbox_id == client.inbox_id() {
-                Some(dm_members.member_two_inbox_id.clone())
-            } else {
-                Some(dm_members.member_one_inbox_id.clone())
-            }
-        } else {
-            None
-        };
+
         let conversation_type = metadata.conversation_type;
 
         let to_store = match conversation_type {
@@ -565,7 +561,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_members,
             ),
             ConversationType::Dm => {
                 validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
@@ -576,7 +572,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     added_by_inbox,
                     welcome_id,
                     conversation_type,
-                    dm_inbox_id,
+                    dm_members,
                 )
             }
             ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -586,7 +582,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 added_by_inbox,
                 welcome_id,
                 conversation_type,
-                dm_inbox_id,
+                dm_members,
             ),
         };
 
@@ -1181,7 +1177,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group = conn
             .find_group(self.group_id.clone())?
             .ok_or(GroupError::GroupNotFound)?;
-        group.dm_inbox_id.ok_or(GroupError::GroupNotFound)
+        let inbox_id = self.client.inbox_id();
+        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?;
+        Ok(dm_id.other_inbox_id(inbox_id))
     }
 
     /// Find the `consent_state` of the group
@@ -1317,7 +1315,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             now_ns(),
             GroupMembershipState::Allowed, // Use Allowed as default for tests
             context.inbox_id().to_string(),
-            Some(dm_target_inbox_id),
+            Some(DmMembers {
+                member_one_inbox_id: client.inbox_id().to_string(),
+                member_two_inbox_id: dm_target_inbox_id,
+            }),
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -1712,16 +1713,20 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use diesel::connection::SimpleConnection;
+    use diesel::RunQueryDsl;
     use futures::future::join_all;
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
+    use xmtp_common::time::now_ns;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
+    use crate::storage::group::StoredGroup;
+    use crate::storage::schema::groups;
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -2086,6 +2091,73 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_dm_stitching() {
+        let alix_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix_provider = alix.mls_provider().unwrap();
+        let alix_conn = alix_provider.conn_ref();
+
+        let bo_wallet = generate_local_wallet();
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_provider = bo.mls_provider().unwrap();
+
+        let bo_dm = bo
+            .create_dm_by_inbox_id(&bo_provider, alix.inbox_id().to_string())
+            .await
+            .unwrap();
+        let alix_dm = alix
+            .create_dm_by_inbox_id(&alix_provider, bo.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        bo_dm.send_message(b"Hello there").await.unwrap();
+        alix_dm
+            .send_message(b"No, let's use this dm")
+            .await
+            .unwrap();
+
+        alix.sync_all_welcomes_and_groups(&alix_provider, None)
+            .await
+            .unwrap();
+
+        // The dm shows up
+        let alix_groups = alix_conn
+            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .unwrap();
+        assert_eq!(alix_groups.len(), 2);
+        // They should have the same ID
+        assert_eq!(alix_groups[0].dm_id, alix_groups[1].dm_id);
+
+        // The dm is filtered out up
+        let mut alix_filtered_groups = alix_conn.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(alix_filtered_groups.len(), 1);
+
+        let dm_group = alix_filtered_groups.pop().unwrap();
+
+        let now = now_ns();
+        let one_second = 1_000_000_000;
+        assert!(
+            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap())
+        );
+
+        let dm_group = alix.group(dm_group.id).unwrap();
+        let alix_msgs = dm_group
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(alix_msgs.len(), 2);
+
+        let msg = String::from_utf8_lossy(&alix_msgs[0].decrypted_message_bytes);
+        assert_eq!(msg, "Hello there");
+
+        let msg = String::from_utf8_lossy(&alix_msgs[1].decrypted_message_bytes);
+        assert_eq!(msg, "No, let's use this dm");
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2339,7 +2411,10 @@ pub(crate) mod tests {
         amal_group.sync().await.expect("sync failed");
 
         let amal_messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3337,7 +3412,10 @@ pub(crate) mod tests {
         ];
 
         let messages = amal_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap()
             .into_iter()
             .collect::<Vec<StoredGroupMessage>>();
@@ -3877,10 +3955,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
@@ -3900,10 +3984,16 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
 
         let alix_messages = alix_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         let bo_messages = bo_group
-            .find_messages(&MsgQueryArgs::default().kind(GroupMessageKind::Application))
+            .find_messages(&MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(bo_messages.len(), 3);
         assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
