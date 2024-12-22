@@ -11,7 +11,7 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 // mod stream_all;
-// mod stream_conversations;
+mod stream_conversations;
 
 use crate::{
     client::{extract_welcome_message, ClientError},
@@ -24,7 +24,7 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
-        ProviderTransactions, StorageError,
+        ProviderTransactions, StorageError, NotFound
     },
     Client, XmtpApi, XmtpOpenMlsProvider,
 };
@@ -223,6 +223,13 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     }
 }
 
+// TODO: REMOVE BEFORE MERGING
+// TODO: REMOVE BEFORE MERGING
+// TODO: REMOVE BEFORE MERGING
+pub(self) mod temp {
+    pub(super) type Result<T> = std::result::Result<T, super::SubscribeError>;
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum SubscribeError {
     #[error("failed to start new messages stream {0}")]
@@ -231,6 +238,9 @@ pub enum SubscribeError {
     Client(#[from] ClientError),
     #[error(transparent)]
     Group(#[from] GroupError),
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+    // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
     #[error("processing group message in stream: {0}")]
@@ -258,6 +268,7 @@ impl RetryableError for SubscribeError {
             Storage(e) => retryable!(e),
             Api(e) => retryable!(e),
             Decode(_) => false,
+            NotFound(e) => retryable!(e),
         }
     }
 }
