@@ -571,9 +571,7 @@ where
         {
             Some(id) => id,
             None => {
-                return Err(ClientError::Storage(StorageError::NotFound(
-                    NotFound::InboxIdForAddress(account_address),
-                )));
+                return Err(NotFound::InboxIdForAddress(account_address).into());
             }
         };
 
