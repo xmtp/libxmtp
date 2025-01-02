@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::vec;
@@ -6,7 +7,7 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::groups::{GroupMetadataOptions, HmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -94,6 +95,21 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       .maybe_created_after_ns(opts.created_after_ns)
       .maybe_created_before_ns(opts.created_before_ns)
       .maybe_limit(opts.limit)
+  }
+}
+
+#[napi(object)]
+pub struct NodeHMACKey {
+  pub key: Vec<u8>,
+  pub epoch: i64,
+}
+
+impl From<HmacKey> for NodeHMACKey {
+  fn from(value: HmacKey) -> Self {
+    Self {
+      epoch: value.epoch,
+      key: value.key.to_vec(),
+    }
   }
 }
 
@@ -323,6 +339,31 @@ impl Conversations {
         ..opts.unwrap_or_default()
       }))
       .await
+  }
+
+  #[napi]
+  pub fn get_hmac_keys(&self) -> Result<HashMap<String, Vec<NodeHMACKey>>> {
+    let inner = self.inner_client.as_ref();
+    let conversations = inner
+      .find_groups(GroupQueryArgs {
+        include_duplicate_dms: true,
+        ..Default::default()
+      })
+      .map_err(ErrorWrapper::from)?;
+
+    let mut hmac_map = HashMap::new();
+    for conversation in conversations {
+      let id = hex::encode(&conversation.group_id);
+      let keys = conversation
+        .hmac_keys(-1..=1)
+        .map_err(ErrorWrapper::from)?
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+      hmac_map.insert(id, keys);
+    }
+
+    Ok(hmac_map)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: Conversation | undefined) => void")]

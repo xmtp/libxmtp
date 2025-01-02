@@ -1119,7 +1119,10 @@ impl FfiConversations {
 
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conversations = inner.find_groups(GroupQueryArgs::default())?;
+        let conversations = inner.find_groups(GroupQueryArgs {
+            include_duplicate_dms: true,
+            ..GroupQueryArgs::default()
+        })?;
 
         let mut hmac_map = HashMap::new();
         for conversation in conversations {
