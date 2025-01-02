@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.31
+
+- Added HMAC keys for push notifications
+
 ## 0.0.30
 
 - Fixed issue that resulted in a forked group
