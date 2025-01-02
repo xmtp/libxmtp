@@ -13,7 +13,9 @@ mod android {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        paranoid_android::layer(env!("CARGO_PKG_NAME")).with_thread_names(true)
+        paranoid_android::layer(env!("CARGO_PKG_NAME"))
+            .with_thread_names(true)
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO)
     }
 }
 
