@@ -7,7 +7,7 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::{GroupMetadataOptions, HmacKey, PreconfiguredPolicies};
+use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -99,13 +99,13 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 }
 
 #[napi(object)]
-pub struct NodeHMACKey {
+pub struct HmacKey {
   pub key: Vec<u8>,
   pub epoch: i64,
 }
 
-impl From<HmacKey> for NodeHMACKey {
-  fn from(value: HmacKey) -> Self {
+impl From<XmtpHmacKey> for HmacKey {
+  fn from(value: XmtpHmacKey) -> Self {
     Self {
       epoch: value.epoch,
       key: value.key.to_vec(),
@@ -342,7 +342,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn get_hmac_keys(&self) -> Result<HashMap<String, Vec<NodeHMACKey>>> {
+  pub fn get_hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let inner = self.inner_client.as_ref();
     let conversations = inner
       .find_groups(GroupQueryArgs {
