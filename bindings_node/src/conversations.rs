@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::vec;
 
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
@@ -101,13 +101,13 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 #[napi(object)]
 pub struct HmacKey {
   pub key: Vec<u8>,
-  pub epoch: i64,
+  pub epoch: BigInt,
 }
 
 impl From<XmtpHmacKey> for HmacKey {
   fn from(value: XmtpHmacKey) -> Self {
     Self {
-      epoch: value.epoch,
+      epoch: BigInt::from(value.epoch),
       key: value.key.to_vec(),
     }
   }
