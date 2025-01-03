@@ -62,6 +62,12 @@ pub mod xmtp {
         pub mod message_contents {
             include!("xmtp.mls.message_contents.rs");
             // @@protoc_insertion_point(xmtp.mls.message_contents)
+            #[cfg(feature = "xmtp-mls-message_contents-content_types")]
+            // @@protoc_insertion_point(attribute:xmtp.mls.message_contents.content_types)
+            pub mod content_types {
+                include!("xmtp.mls.message_contents.content_types.rs");
+                // @@protoc_insertion_point(xmtp.mls.message_contents.content_types)
+            }
         }
     }
     pub mod mls_validation {
