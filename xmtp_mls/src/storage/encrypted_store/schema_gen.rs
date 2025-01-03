@@ -45,6 +45,7 @@ diesel::table! {
         version_minor -> Integer,
         version_major -> Integer,
         authority_id -> Text,
+        parent_id -> Nullable<Binary>,
     }
 }
 

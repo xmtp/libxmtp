@@ -696,6 +696,7 @@ where
                         version_major: conversation_item.version_major?,
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
+                        parent_id: None, // TODO: should conversation_item have a message parent_id?
                     })
                 });
 
