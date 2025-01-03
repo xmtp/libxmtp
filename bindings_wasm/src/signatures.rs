@@ -90,8 +90,8 @@ impl Client {
     Ok(signature_text)
   }
 
-  #[wasm_bindgen(js_name = revokeInstallationsSignatureText)]
-  pub async fn revoke_installations_signature_text(&self) -> Result<String, JsError> {
+  #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureText)]
+  pub async fn revoke_all_other_installations_signature_text(&self) -> Result<String, JsError> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
@@ -106,6 +106,31 @@ impl Client {
     let signature_request = self
       .inner_client()
       .revoke_installations(other_installation_ids)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let signature_text = signature_request.signature_text();
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
+
+    Ok(signature_text)
+  }
+
+  #[wasm_bindgen(js_name = revokeInstallationsSignatureText)]
+  pub async fn revoke_installations_signature_text(
+    &self,
+    installation_ids: Vec<Vec<u8>>,
+  ) -> Result<String, JsError> {
+    let installation_id = self.inner_client().installation_public_key();
+
+    // Check if the current installation ID is in the list
+    if installation_ids.iter().any(|id| id == &installation_id) {
+      return Err(JsError::new("Cannot revoke the current installation ID."));
+    }
+
+    let signature_request = self
+      .inner_client()
+      .revoke_installations(installation_ids)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
