@@ -156,7 +156,7 @@ describe('Client', () => {
     expect(installationIds).toContain(client2.installationId())
     expect(installationIds).toContain(client3.installationId())
 
-    const signatureText = await client3.revokeAllOtherInstallationsSignatureText();
+    const signatureText = await client3.revokeAllOtherInstallationsSignatureText()
     expect(signatureText).toBeDefined()
 
     // sign message
