@@ -119,18 +119,23 @@ impl Client {
   #[wasm_bindgen(js_name = revokeInstallationsSignatureText)]
   pub async fn revoke_installations_signature_text(
     &self,
-    installation_ids: Vec<Vec<u8>>,
+    installation_ids: Vec<Uint8Array>,
   ) -> Result<String, JsError> {
     let installation_id = self.inner_client().installation_public_key();
 
-    // Check if the current installation ID is in the list
-    if installation_ids.iter().any(|id| id == &installation_id) {
+    let installation_ids_bytes: Vec<Vec<u8>> =
+      installation_ids.iter().map(|id| id.to_vec()).collect();
+
+    if installation_ids_bytes
+      .iter()
+      .any(|id| id == &installation_id)
+    {
       return Err(JsError::new("Cannot revoke the current installation ID."));
     }
 
     let signature_request = self
       .inner_client()
-      .revoke_installations(installation_ids)
+      .revoke_installations(installation_ids_bytes)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();

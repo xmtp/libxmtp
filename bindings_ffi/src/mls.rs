@@ -544,7 +544,7 @@ impl FfiXmtpClient {
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let installation_id = self.inner_client.installation_public_key();
 
-        if installation_ids.iter().any(|id| id == &installation_id) {
+        if installation_ids.iter().any(|id| id == installation_id) {
             return Err(GenericError::Generic {
                 err: "Cannot revoke the current installation ID.".to_string(),
             });
@@ -4304,7 +4304,10 @@ mod tests {
         assert_eq!(client_1_state.installations.len(), 2);
         assert_eq!(client_2_state.installations.len(), 2);
 
-        let signature_request = client_1.revoke_installations(vec![client_2.installation_id()]).await.unwrap();
+        let signature_request = client_1
+            .revoke_installations(vec![client_2.installation_id()])
+            .await
+            .unwrap();
         signature_request.add_wallet_signature(&wallet).await;
         client_1
             .apply_signature_request(signature_request)
