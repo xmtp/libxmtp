@@ -87,7 +87,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn revoke_installations_signature_text(&self) -> Result<String> {
+  pub async fn revoke_all_other_installations_signature_text(&self) -> Result<String> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
@@ -102,6 +102,29 @@ impl Client {
     let signature_request = self
       .inner_client()
       .revoke_installations(other_installation_ids)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    let signature_text = signature_request.signature_text();
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
+
+    Ok(signature_text)
+  }
+
+  #[napi]
+  pub async fn revoke_installations_signature_text(
+    &self,
+    installation_ids: Vec<Uint8Array>,
+  ) -> Result<String> {
+    let installation_ids_bytes: Vec<Vec<u8>> = installation_ids
+      .iter()
+      .map(|id| id.deref().to_vec())
+      .collect();
+
+    let signature_request = self
+      .inner_client()
+      .revoke_installations(installation_ids_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();

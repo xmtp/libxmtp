@@ -534,6 +534,24 @@ impl FfiXmtpClient {
             scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
     }
+
+    /**
+     * Revoke a list of installations
+     */
+    pub async fn revoke_installations(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+        let signature_request = self
+            .inner_client
+            .revoke_installations(installation_ids)
+            .await?;
+
+        Ok(Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+        }))
+    }
 }
 
 impl From<HmacKey> for FfiHmacKey {
@@ -4239,6 +4257,49 @@ mod tests {
         assert_eq!(client_2_state.installations.len(), 2);
 
         let signature_request = client_1.revoke_all_other_installations().await.unwrap();
+        signature_request.add_wallet_signature(&wallet).await;
+        client_1
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+        assert_eq!(client_2_state_after_revoke.installations.len(), 1);
+        assert_eq!(
+            client_1_state_after_revoke
+                .installations
+                .first()
+                .unwrap()
+                .id,
+            client_1.installation_id()
+        );
+        assert_eq!(
+            client_2_state_after_revoke
+                .installations
+                .first()
+                .unwrap()
+                .id,
+            client_1.installation_id()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_installations() {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installations.len(), 2);
+        assert_eq!(client_2_state.installations.len(), 2);
+
+        let signature_request = client_1
+            .revoke_installations(vec![client_2.installation_id()])
+            .await
+            .unwrap();
         signature_request.add_wallet_signature(&wallet).await;
         client_1
             .apply_signature_request(signature_request)

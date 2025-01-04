@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.32
+
+- Add ability to revoke installations from a list of installations
+
 ## 0.0.31
 
 - Added HMAC keys for push notifications
