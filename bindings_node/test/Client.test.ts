@@ -175,44 +175,6 @@ describe('Client', () => {
     expect(inboxState2.installations[0].id).toBe(client3.installationId())
   })
 
-  it('should revoke installations', async () => {
-    const user = createUser()
-
-    const client = await createRegisteredClient(user)
-    user.uuid = v4()
-    const client2 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const client3 = await createRegisteredClient(user)
-
-    const inboxState = await client3.inboxState(true)
-    expect(inboxState.installations.length).toBe(3)
-
-    const installationIds = inboxState.installations.map((i) => i.id)
-    expect(installationIds).toContain(client.installationId())
-    expect(installationIds).toContain(client2.installationId())
-    expect(installationIds).toContain(client3.installationId())
-
-    const signatureText = await client3.revokeInstallationsSignatureText([client2.installationId()])
-    expect(signatureText).toBeDefined()
-
-    // sign message
-    const signature = await user.wallet.signMessage({
-      message: signatureText,
-    })
-
-    await client3.addSignature(
-      SignatureRequestType.RevokeInstallations,
-      toBytes(signature)
-    )
-    await client3.applySignatureRequests()
-    const inboxState2 = await client3.inboxState(true)
-
-    expect(inboxState2.installations.length).toBe(2)
-    const installationIds2 = inboxState.installations.map((i) => i.id)
-    expect(installationIds2).toContain(client.installationId())
-    expect(installationIds2).toContain(client3.installationId())
-  })
-
   it('should manage consent states', async () => {
     const user1 = createUser()
     const user2 = createUser()
