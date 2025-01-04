@@ -542,14 +542,6 @@ impl FfiXmtpClient {
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let installation_id = self.inner_client.installation_public_key();
-
-        if installation_ids.iter().any(|id| id == installation_id) {
-            return Err(GenericError::Generic {
-                err: "Cannot revoke the current installation ID.".to_string(),
-            });
-        }
-
         let signature_request = self
             .inner_client
             .revoke_installations(installation_ids)

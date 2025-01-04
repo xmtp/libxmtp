@@ -117,22 +117,10 @@ impl Client {
     &self,
     installation_ids: Vec<Uint8Array>,
   ) -> Result<String> {
-    let installation_id = self.inner_client().installation_public_key();
-
     let installation_ids_bytes: Vec<Vec<u8>> = installation_ids
       .iter()
       .map(|id| id.deref().to_vec())
       .collect();
-
-    // Check if the current installation ID is in the list
-    if installation_ids_bytes
-      .iter()
-      .any(|id| id == installation_id)
-    {
-      return Err(Error::from_reason(
-        "Cannot revoke the current installation ID.",
-      ));
-    }
 
     let signature_request = self
       .inner_client()
