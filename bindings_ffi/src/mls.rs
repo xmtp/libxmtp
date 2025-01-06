@@ -958,18 +958,16 @@ impl FfiConversations {
     pub async fn list(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<FfiConversationListItem>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+        let convo_list: Vec<FfiConversationListItem> = inner
             .list_conversations(opts.into())?
             .into_iter()
-            .map(|conversation_item| {
-                Arc::new(FfiConversationListItem {
-                    conversation: conversation_item.group.into(),
-                    last_message: conversation_item
-                        .last_message
-                        .map(|stored_message| stored_message.into()),
-                })
+            .map(|conversation_item| FfiConversationListItem {
+                conversation: conversation_item.group.into(),
+                last_message: conversation_item
+                    .last_message
+                    .map(|stored_message| stored_message.into()),
             })
             .collect();
 
@@ -979,20 +977,18 @@ impl FfiConversations {
     pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<FfiConversationListItem>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+        let convo_list: Vec<FfiConversationListItem> = inner
             .list_conversations(
                 GroupQueryArgs::from(opts).conversation_type(ConversationType::Group),
             )?
             .into_iter()
-            .map(|conversation_item| {
-                Arc::new(FfiConversationListItem {
-                    conversation: conversation_item.group.into(),
-                    last_message: conversation_item
-                        .last_message
-                        .map(|stored_message| stored_message.into()),
-                })
+            .map(|conversation_item| FfiConversationListItem {
+                conversation: conversation_item.group.into(),
+                last_message: conversation_item
+                    .last_message
+                    .map(|stored_message| stored_message.into()),
             })
             .collect();
 
@@ -1002,18 +998,16 @@ impl FfiConversations {
     pub async fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+    ) -> Result<Vec<FfiConversationListItem>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
             .into_iter()
-            .map(|conversation_item| {
-                Arc::new(FfiConversationListItem {
-                    conversation: conversation_item.group.into(),
-                    last_message: conversation_item
-                        .last_message
-                        .map(|stored_message| stored_message.into()),
-                })
+            .map(|conversation_item| FfiConversationListItem {
+                conversation: conversation_item.group.into(),
+                last_message: conversation_item
+                    .last_message
+                    .map(|stored_message| stored_message.into()),
             })
             .collect();
 
@@ -1191,7 +1185,6 @@ pub struct FfiConversation {
 }
 
 #[derive(uniffi::Object)]
-#[allow(unused_variables, dead_code)]
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
