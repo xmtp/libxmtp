@@ -115,9 +115,10 @@ impl DbConnection {
             if *consent_state == ConsentState::Unknown {
                 let query = query
                     .left_join(
-                        consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                                .eq(consent_dsl::entity)),
+                        consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
+                            &format!("lower(hex({}))", conversation_list_dsl::id.name()), // Dynamically insert the column name
+                        )
+                        .eq(consent_dsl::entity)),
                     )
                     .filter(
                         consent_dsl::state
