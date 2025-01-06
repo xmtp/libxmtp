@@ -75,11 +75,12 @@ impl DbConnection {
             include_duplicate_dms,
         } = args.as_ref();
 
-        let mut query = conversation_list_dsl::conversation_list
+        let mut query = conversation_list
             .select(conversation_list::all_columns())
             .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
             .into_boxed();
 
+        // Group by dm_id and grab the latest group (conversation stitching)
         if !include_duplicate_dms {
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
@@ -147,6 +148,8 @@ impl DbConnection {
             self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
         };
 
+        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
+        // Then query for those separately
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
@@ -299,7 +302,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_find_groups_by_consent_state() {
+    async fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_1.store(conn).unwrap();
