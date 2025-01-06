@@ -1185,16 +1185,27 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
     }
 }
 
-#[derive(uniffi::Object)]
+#[derive(uniffi::Object, Clone)]
 pub struct FfiConversation {
     inner: MlsGroup<RustXmtpClient>,
 }
 
 #[derive(uniffi::Object)]
-#[allow(unused_variables, dead_code)]
+#[allow(dead_code)]
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
+}
+
+impl FfiConversationListItem {
+    #[allow(dead_code)]
+    fn conversation(&self) -> Arc<FfiConversation> {
+        Arc::new(self.conversation.clone())
+    }
+    #[allow(dead_code)]
+    fn last_message(&self) -> Option<FfiMessage> {
+        self.last_message.clone()
+    }
 }
 
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
@@ -1701,7 +1712,7 @@ impl FfiConversation {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq, Debug)]
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
 pub enum FfiConversationMessageKind {
     Application,
     MembershipChange,
@@ -1760,7 +1771,7 @@ impl From<FfiDeliveryStatus> for DeliveryStatus {
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
     pub sent_at_ns: i64,
