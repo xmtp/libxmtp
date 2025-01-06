@@ -1,6 +1,5 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
 use crate::client::Client;
@@ -68,7 +67,7 @@ impl From<AssociationState> for InboxState {
           MemberIdentifier::Installation(inst) => Some(Installation {
             bytes: Uint8Array::from(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns,
-            id: ed25519_public_key_to_address(inst.as_slice()),
+            id: hex::encode(inst),
           }),
         })
         .collect(),

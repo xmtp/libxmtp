@@ -8,7 +8,6 @@ use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
-use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
@@ -230,7 +229,7 @@ impl Conversation {
         installation_ids: member
           .installation_ids
           .into_iter()
-          .map(|id| ed25519_public_key_to_address(id.as_slice()))
+          .map(|id| hex::encode(id))
           .collect(),
         permission_level: match member.permission_level {
           XmtpPermissionLevel::Member => PermissionLevel::Member,
