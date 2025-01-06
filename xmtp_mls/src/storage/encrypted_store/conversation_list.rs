@@ -79,7 +79,6 @@ impl DbConnection {
             .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
             .into_boxed();
 
-        //question: do we need to do this always? if yes, we can put it in the main view query instead of here!
         if !include_duplicate_dms {
             // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
