@@ -1197,12 +1197,11 @@ pub struct FfiConversationListItem {
     last_message: Option<FfiMessage>,
 }
 
+#[uniffi::export]
 impl FfiConversationListItem {
-    #[allow(dead_code)]
     fn conversation(&self) -> Arc<FfiConversation> {
         Arc::new(self.conversation.clone())
     }
-    #[allow(dead_code)]
     fn last_message(&self) -> Option<FfiMessage> {
         self.last_message.clone()
     }
