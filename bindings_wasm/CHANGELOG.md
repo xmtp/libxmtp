@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.11
+
+- Added installation ID `bytes` to return value of `inboxState`
+
 ## 0.0.10
 
 - Add ability to revoke installations from a list of installations

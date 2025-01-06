@@ -5,7 +5,6 @@ use napi::{
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
   JsFunction,
 };
-use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_mls::{
   groups::{
     group_metadata::GroupMetadata as XmtpGroupMetadata,
@@ -231,7 +230,7 @@ impl Conversation {
         installation_ids: member
           .installation_ids
           .into_iter()
-          .map(|id| ed25519_public_key_to_address(id.as_slice()))
+          .map(hex::encode)
           .collect(),
         permission_level: match member.permission_level {
           XmtpPermissionLevel::Member => PermissionLevel::Member,
