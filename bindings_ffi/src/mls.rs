@@ -955,7 +955,7 @@ impl FfiConversations {
         Ok(num_groups_synced)
     }
 
-    pub async fn list(
+    pub fn list(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
@@ -976,7 +976,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub async fn list_groups(
+    pub fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
@@ -999,7 +999,7 @@ impl FfiConversations {
         Ok(convo_list)
     }
 
-    pub async fn list_dms(
+    pub fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
@@ -2727,7 +2727,6 @@ mod tests {
         let bo_groups = bo
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         let bo_group = &bo_groups[0];
         bo_group.conversation.sync().await.unwrap();
@@ -2811,7 +2810,6 @@ mod tests {
         // Step 4: List conversations and verify
         let conversations = alix_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         // Ensure the group is included
@@ -2851,7 +2849,6 @@ mod tests {
         // Step 4: List conversations and verify
         let conversations = alix_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         // Ensure the group is included
@@ -2903,7 +2900,6 @@ mod tests {
         // Step 7: Fetch the conversation list
         let conversations = conversations_api
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         // Step 8: Assert the correct order of conversations
@@ -2969,7 +2965,6 @@ mod tests {
         let alix_groups = alix
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         let alix_group1 = alix_groups[0].clone();
@@ -3043,7 +3038,6 @@ mod tests {
         for group in alix
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap()
         {
             group
@@ -3570,7 +3564,6 @@ mod tests {
         let bo_groups = bo
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(bo_groups.len(), 1);
         let bo_group = bo_groups[0].clone();
@@ -3839,7 +3832,6 @@ mod tests {
         // the database.
         let bola_groups = bola_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         let bola_group = bola_groups.first().unwrap();
@@ -4023,7 +4015,6 @@ mod tests {
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         let bola_group = bola_groups.first().unwrap();
@@ -4130,7 +4121,6 @@ mod tests {
         let _ = bola_conversations.sync().await;
         let bola_groups = bola_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
 
         let bola_group = bola_groups.first().unwrap();
@@ -4401,37 +4391,31 @@ mod tests {
 
         let alix_groups = alix_conversations
             .list_groups(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(alix_groups.len(), 0);
 
         let bola_groups = bola_conversations
             .list_groups(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(bola_groups.len(), 0);
 
         let alix_dms = alix_conversations
             .list_dms(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(alix_dms.len(), 1);
 
         let bola_dms = bola_conversations
             .list_dms(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(bola_dms.len(), 1);
 
         let alix_conversations = alix_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(alix_conversations.len(), 1);
 
         let bola_conversations = bola_conversations
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap();
         assert_eq!(bola_conversations.len(), 1);
     }
@@ -5035,7 +5019,6 @@ mod tests {
         let alix_dm_messages = client_a
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap()[0]
             .conversation
             .find_messages(FfiListMessagesOptions::default())
@@ -5044,7 +5027,6 @@ mod tests {
         let bo_dm_messages = client_b
             .conversations()
             .list(FfiListConversationsOptions::default())
-            .await
             .unwrap()[0]
             .conversation
             .find_messages(FfiListMessagesOptions::default())
