@@ -230,7 +230,7 @@ impl Conversation {
         installation_ids: member
           .installation_ids
           .into_iter()
-          .map(|id| hex::encode(id))
+          .map(hex::encode)
           .collect(),
         permission_level: match member.permission_level {
           XmtpPermissionLevel::Member => PermissionLevel::Member,
