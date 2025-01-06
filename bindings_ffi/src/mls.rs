@@ -958,23 +958,10 @@ impl FfiConversations {
     pub async fn list(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(opts.into())?
-            .into_iter()
-            .map(|group| Arc::new(group.into()))
-            .collect();
-
-        Ok(convo_list)
-    }
-
-    pub async fn list_conversations(
-        &self,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations()?
+            .list_conversations(opts.into())?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -992,12 +979,21 @@ impl FfiConversations {
     pub async fn list_groups(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Group))?
+        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+            .list_conversations(
+                GroupQueryArgs::from(opts).conversation_type(ConversationType::Group),
+            )?
             .into_iter()
-            .map(|group| Arc::new(group.into()))
+            .map(|conversation_item| {
+                Arc::new(FfiConversationListItem {
+                    conversation: conversation_item.group.into(),
+                    last_message: conversation_item
+                        .last_message
+                        .map(|stored_message| stored_message.into()),
+                })
+            })
             .collect();
 
         Ok(convo_list)
@@ -1006,12 +1002,19 @@ impl FfiConversations {
     pub async fn list_dms(
         &self,
         opts: FfiListConversationsOptions,
-    ) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+    ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
+        let convo_list: Vec<Arc<FfiConversationListItem>> = inner
+            .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
             .into_iter()
-            .map(|group| Arc::new(group.into()))
+            .map(|conversation_item| {
+                Arc::new(FfiConversationListItem {
+                    conversation: conversation_item.group.into(),
+                    last_message: conversation_item
+                        .last_message
+                        .map(|stored_message| stored_message.into()),
+                })
+            })
             .collect();
 
         Ok(convo_list)
@@ -2718,13 +2721,14 @@ mod tests {
             .await
             .unwrap();
         let bo_group = &bo_groups[0];
-        bo_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
 
         // alix published + processed group creation and name update
         assert_eq!(alix_provider.conn_ref().intents_published(), 2);
         assert_eq!(alix_provider.conn_ref().intents_deleted(), 2);
 
         bo_group
+            .conversation
             .update_group_name("Old Name2".to_string())
             .await
             .unwrap();
@@ -2746,6 +2750,7 @@ mod tests {
 
         // Uncomment the following lines to add more group name updates
         bo_group
+            .conversation
             .update_group_name("Old Name3".to_string())
             .await
             .unwrap();
@@ -2795,7 +2800,10 @@ mod tests {
             .unwrap();
 
         // Step 4: List conversations and verify
-        let conversations = alix_conversations.list_conversations().await.unwrap();
+        let conversations = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
 
         // Ensure the group is included
         assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
@@ -2832,7 +2840,10 @@ mod tests {
             .unwrap();
 
         // Step 4: List conversations and verify
-        let conversations = alix_conversations.list_conversations().await.unwrap();
+        let conversations = alix_conversations
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
 
         // Ensure the group is included
         assert_eq!(conversations.len(), 1, "Alix should have exactly 1 group");
@@ -2881,7 +2892,10 @@ mod tests {
             .unwrap();
 
         // Step 7: Fetch the conversation list
-        let conversations = conversations_api.list_conversations().await.unwrap();
+        let conversations = conversations_api
+            .list(FfiListConversationsOptions::default())
+            .await
+            .unwrap();
 
         // Step 8: Assert the correct order of conversations
         assert_eq!(
@@ -2951,11 +2965,19 @@ mod tests {
 
         let alix_group1 = alix_groups[0].clone();
         let alix_group5 = alix_groups[5].clone();
-        let bo_group1 = bo.conversation(alix_group1.id()).unwrap();
-        let bo_group5 = bo.conversation(alix_group5.id()).unwrap();
+        let bo_group1 = bo.conversation(alix_group1.conversation.id()).unwrap();
+        let bo_group5 = bo.conversation(alix_group5.conversation.id()).unwrap();
 
-        alix_group1.send("alix1".as_bytes().to_vec()).await.unwrap();
-        alix_group5.send("alix1".as_bytes().to_vec()).await.unwrap();
+        alix_group1
+            .conversation
+            .send("alix1".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group5
+            .conversation
+            .send("alix1".as_bytes().to_vec())
+            .await
+            .unwrap();
 
         let bo_messages1 = bo_group1
             .find_messages(FfiListMessagesOptions::default())
@@ -3016,6 +3038,7 @@ mod tests {
             .unwrap()
         {
             group
+                .conversation
                 .remove_members(vec![bo.account_address.clone()])
                 .await
                 .unwrap();
@@ -3542,17 +3565,26 @@ mod tests {
             .unwrap();
         assert_eq!(bo_groups.len(), 1);
         let bo_group = bo_groups[0].clone();
-        bo_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
 
         let bo_messages1 = bo_group
+            .conversation
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
         assert_eq!(bo_messages1.len(), first_msg_check);
 
-        bo_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .conversation
+            .send("hello2".as_bytes().to_vec())
+            .await
+            .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        bo_group.send("hello3".as_bytes().to_vec()).await.unwrap();
+        bo_group
+            .conversation
+            .send("hello3".as_bytes().to_vec())
+            .await
+            .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         alix_group.sync().await.unwrap();
@@ -3565,9 +3597,10 @@ mod tests {
 
         alix_group.send("hello4".as_bytes().to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        bo_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
 
         let bo_messages2 = bo_group
+            .conversation
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
@@ -3803,7 +3836,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Check Bola's group for the added_by_inbox_id of the inviter
-        let added_by_inbox_id = bola_group.added_by_inbox_id().unwrap();
+        let added_by_inbox_id = bola_group.conversation.added_by_inbox_id().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
@@ -3986,24 +4019,26 @@ mod tests {
 
         let bola_group = bola_groups.first().unwrap();
         bola_group
+            .conversation
             .update_group_name("new_name".to_string())
             .await
             .unwrap_err();
 
         // Verify that bo CAN update the image url
         bola_group
+            .conversation
             .update_group_image_url_square("https://example.com/image.png".to_string())
             .await
             .unwrap();
 
         // Verify we can read the correct values from the group
-        bola_group.sync().await.unwrap();
+        bola_group.conversation.sync().await.unwrap();
         alix_group.sync().await.unwrap();
         assert_eq!(
-            bola_group.group_image_url_square().unwrap(),
+            bola_group.conversation.group_image_url_square().unwrap(),
             "https://example.com/image.png"
         );
-        assert_eq!(bola_group.group_name().unwrap(), "");
+        assert_eq!(bola_group.conversation.group_name().unwrap(), "");
         assert_eq!(
             alix_group.group_image_url_square().unwrap(),
             "https://example.com/image.png"
@@ -4091,10 +4126,12 @@ mod tests {
 
         let bola_group = bola_groups.first().unwrap();
         bola_group
+            .conversation
             .update_group_name("new_name".to_string())
             .await
             .unwrap_err();
         let result = bola_group
+            .conversation
             .update_group_name("New Group Name".to_string())
             .await;
         assert!(result.is_err());
@@ -4107,6 +4144,7 @@ mod tests {
 
         // Verify that Bola can update the group description
         let result = bola_group
+            .conversation
             .update_group_description("New Description".to_string())
             .await;
         assert!(result.is_ok());
@@ -4990,6 +5028,7 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .await
             .unwrap()[0]
+            .conversation
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
@@ -4998,6 +5037,7 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .await
             .unwrap()[0]
+            .conversation
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();

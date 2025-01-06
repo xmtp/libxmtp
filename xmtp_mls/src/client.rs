@@ -674,11 +674,11 @@ where
             .collect())
     }
 
-    pub fn list_conversations(&self) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
+    pub fn list_conversations(&self, args: GroupQueryArgs) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?
-            .fetch_conversation_list()?
+            .fetch_conversation_list(args)?
             .into_iter()
             .map(|conversation_item| {
                 let message = conversation_item.message_id.and_then(|message_id| {
