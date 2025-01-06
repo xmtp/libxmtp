@@ -323,10 +323,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen]
-  pub async fn list(
-    &self,
-    opts: Option<ListConversationsOptions>,
-  ) -> Result<js_sys::Array, JsError> {
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
       .find_groups(opts.unwrap_or_default().into())
@@ -345,28 +342,21 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = listGroups)]
-  pub async fn list_groups(
+  pub fn list_groups(
     &self,
     opts: Option<ListConversationsOptions>,
   ) -> Result<js_sys::Array, JsError> {
-    self
-      .list(Some(ListConversationsOptions {
-        conversation_type: Some(ConversationType::Group),
-        ..opts.unwrap_or_default()
-      }))
-      .await
+    self.list(Some(ListConversationsOptions {
+      conversation_type: Some(ConversationType::Group),
+      ..opts.unwrap_or_default()
+    }))
   }
 
   #[wasm_bindgen(js_name = listDms)]
-  pub async fn list_dms(
-    &self,
-    opts: Option<ListConversationsOptions>,
-  ) -> Result<js_sys::Array, JsError> {
-    self
-      .list(Some(ListConversationsOptions {
-        conversation_type: Some(ConversationType::Dm),
-        ..opts.unwrap_or_default()
-      }))
-      .await
+  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
+    self.list(Some(ListConversationsOptions {
+      conversation_type: Some(ConversationType::Dm),
+      ..opts.unwrap_or_default()
+    }))
   }
 }

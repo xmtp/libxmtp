@@ -303,7 +303,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
     let convo_list: Vec<Conversation> = self
       .inner_client
       .find_groups(opts.unwrap_or_default().into())
@@ -316,29 +316,19 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn list_groups(
-    &self,
-    opts: Option<ListConversationsOptions>,
-  ) -> Result<Vec<Conversation>> {
-    self
-      .list(Some(ListConversationsOptions {
-        conversation_type: Some(ConversationType::Group),
-        ..opts.unwrap_or_default()
-      }))
-      .await
+  pub fn list_groups(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+    self.list(Some(ListConversationsOptions {
+      conversation_type: Some(ConversationType::Group),
+      ..opts.unwrap_or_default()
+    }))
   }
 
   #[napi]
-  pub async fn list_dms(
-    &self,
-    opts: Option<ListConversationsOptions>,
-  ) -> Result<Vec<Conversation>> {
-    self
-      .list(Some(ListConversationsOptions {
-        conversation_type: Some(ConversationType::Dm),
-        ..opts.unwrap_or_default()
-      }))
-      .await
+  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+    self.list(Some(ListConversationsOptions {
+      conversation_type: Some(ConversationType::Dm),
+      ..opts.unwrap_or_default()
+    }))
   }
 
   #[napi]
