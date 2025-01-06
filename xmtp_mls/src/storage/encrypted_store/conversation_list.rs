@@ -116,7 +116,7 @@ impl DbConnection {
                 let query = query
                     .left_join(
                         consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                            &format!("lower(hex({}))", conversation_list_dsl::id.name()),
+                            "lower(hex(conversation_list_dsl::id))",
                         )
                         .eq(consent_dsl::entity)),
                     )
