@@ -3,6 +3,7 @@
 ## 0.0.11
 
 - Added installation ID `bytes` to return value of `inboxState`
+- Refactored `list`, `listGroups`, and `listDms` to be synchronous
 
 ## 0.0.10
 
