@@ -133,7 +133,7 @@ impl DbConnection {
                 let query = query
                     .inner_join(
                         consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
+                            .on(sql::<diesel::sql_types::Text>("lower(hex(conversation_list_dsl::id))")
                                 .eq(consent_dsl::entity)),
                     )
                     .filter(consent_dsl::state.eq(*consent_state))
