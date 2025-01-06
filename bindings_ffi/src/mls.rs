@@ -1191,7 +1191,6 @@ pub struct FfiConversation {
 }
 
 #[derive(uniffi::Object)]
-#[allow(dead_code)]
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
@@ -1199,10 +1198,10 @@ pub struct FfiConversationListItem {
 
 #[uniffi::export]
 impl FfiConversationListItem {
-    fn conversation(&self) -> Arc<FfiConversation> {
+    pub fn conversation(&self) -> Arc<FfiConversation> {
         Arc::new(self.conversation.clone())
     }
-    fn last_message(&self) -> Option<FfiMessage> {
+    pub fn last_message(&self) -> Option<FfiMessage> {
         self.last_message.clone()
     }
 }
