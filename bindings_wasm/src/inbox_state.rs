@@ -1,5 +1,5 @@
+use js_sys::Uint8Array;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
 use crate::client::Client;
@@ -7,6 +7,7 @@ use crate::client::Client;
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct Installation {
+  pub bytes: Uint8Array,
   pub id: String,
   #[wasm_bindgen(js_name = clientTimestampNs)]
   pub client_timestamp_ns: Option<u64>,
@@ -15,10 +16,11 @@ pub struct Installation {
 #[wasm_bindgen]
 impl Installation {
   #[wasm_bindgen(constructor)]
-  pub fn new(id: String, client_timestamp_ns: Option<u64>) -> Self {
+  pub fn new(bytes: Uint8Array, id: String, client_timestamp_ns: Option<u64>) -> Self {
     Self {
-      id,
+      bytes,
       client_timestamp_ns,
+      id,
     }
   }
 }
@@ -63,8 +65,9 @@ impl From<AssociationState> for InboxState {
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Address(_) => None,
           MemberIdentifier::Installation(inst) => Some(Installation {
-            id: ed25519_public_key_to_address(inst.as_slice()),
+            bytes: Uint8Array::from(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns,
+            id: hex::encode(inst),
           }),
         })
         .collect(),
