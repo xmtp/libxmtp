@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::{BigInt, Result};
+use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
@@ -7,8 +7,9 @@ use crate::{client::Client, ErrorWrapper};
 
 #[napi(object)]
 pub struct Installation {
-  pub id: String,
+  pub bytes: Uint8Array,
   pub client_timestamp_ns: Option<BigInt>,
+  pub id: String,
 }
 
 #[napi(object)]
@@ -30,8 +31,9 @@ impl From<AssociationState> for InboxState {
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Address(_) => None,
           MemberIdentifier::Installation(inst) => Some(Installation {
-            id: ed25519_public_key_to_address(inst.as_slice()),
+            bytes: Uint8Array::from(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns.map(BigInt::from),
+            id: ed25519_public_key_to_address(inst.as_slice()),
           }),
         })
         .collect(),
