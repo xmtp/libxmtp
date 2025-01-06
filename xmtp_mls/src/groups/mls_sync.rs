@@ -1467,12 +1467,14 @@ where
         for payload in payloads {
             let mut sender_hmac = sender_hmac.clone();
             sender_hmac.update(payload);
-            let sender_hmac = sender_hmac.finalize();
+            let sender_hmac = sender_hmac.finalize().into_bytes().to_vec();
+
+            assert!(sender_hmac.len() > 0);
 
             result.push(GroupMessageInput {
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: payload.to_vec(),
-                    sender_hmac: sender_hmac.into_bytes().to_vec(),
+                    sender_hmac,
                 })),
             });
         }
