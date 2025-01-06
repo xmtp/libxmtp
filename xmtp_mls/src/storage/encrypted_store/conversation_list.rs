@@ -74,13 +74,13 @@ impl DbConnection {
             include_sync_groups,
             include_duplicate_dms,
         } = args.as_ref();
-        let mut query = conversation_list
+
+        let mut query = conversation_list_dsl::conversation_list
             .select(conversation_list::all_columns())
             .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id
@@ -115,10 +115,9 @@ impl DbConnection {
             if *consent_state == ConsentState::Unknown {
                 let query = query
                     .left_join(
-                        consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                            "lower(hex(conversation_list_dsl::id))",
-                        )
-                        .eq(consent_dsl::entity)),
+                        consent_dsl::consent_records
+                            .on(sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))")
+                                .eq(consent_dsl::entity)),
                     )
                     .filter(
                         consent_dsl::state
@@ -133,7 +132,7 @@ impl DbConnection {
                 let query = query
                     .inner_join(
                         consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(conversation_list_dsl::id))")
+                            .on(sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))")
                                 .eq(consent_dsl::entity)),
                     )
                     .filter(consent_dsl::state.eq(*consent_state))
@@ -146,8 +145,6 @@ impl DbConnection {
             self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
         };
 
-        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
-        // Then query for those separately
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
@@ -157,12 +154,14 @@ impl DbConnection {
 
         Ok(conversations)
     }
+
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::storage::group::tests::{generate_group, generate_group_with_created_at};
-    use crate::storage::group::GroupQueryArgs;
+    use crate::storage::consent_record::{ConsentState, ConsentType};
+    use crate::storage::group::tests::{generate_consent_record, generate_dm, generate_group, generate_group_with_created_at};
+    use crate::storage::group::{GroupMembershipState, GroupQueryArgs};
     use crate::storage::tests::with_connection;
     use crate::Store;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -291,6 +290,61 @@ pub(crate) mod tests {
                 2000,
                 "Last message should now match the second (newest) message"
             );
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_groups_by_consent_state() {
+        with_connection(|conn| {
+            let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_1.store(conn).unwrap();
+            let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_2.store(conn).unwrap();
+            let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_3.store(conn).unwrap();
+            let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
+            test_group_4.store(conn).unwrap();
+
+            let test_group_1_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_1.id.clone()),
+            );
+            test_group_1_consent.store(conn).unwrap();
+            let test_group_2_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(test_group_2.id.clone()),
+            );
+            test_group_2_consent.store(conn).unwrap();
+            let test_group_3_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(test_group_3.id.clone()),
+            );
+            test_group_3_consent.store(conn).unwrap();
+
+            let all_results = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
+            assert_eq!(all_results.len(), 4);
+
+            let allowed_results = conn
+                .fetch_conversation_list(GroupQueryArgs::default().consent_state(ConsentState::Allowed))
+                .unwrap();
+            assert_eq!(allowed_results.len(), 2);
+
+            let denied_results = conn
+                .fetch_conversation_list(GroupQueryArgs::default().consent_state(ConsentState::Denied))
+                .unwrap();
+            assert_eq!(denied_results.len(), 1);
+            assert_eq!(denied_results[0].id, test_group_2.id);
+
+            let unknown_results = conn
+                .fetch_conversation_list(GroupQueryArgs::default().consent_state(ConsentState::Unknown))
+                .unwrap();
+            assert_eq!(unknown_results.len(), 1);
+            assert_eq!(unknown_results[0].id, test_group_4.id);
         })
         .await
     }

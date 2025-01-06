@@ -620,7 +620,7 @@ pub(crate) mod tests {
     }
 
     /// Generate a test consent
-    fn generate_consent_record(
+    pub fn generate_consent_record(
         entity_type: ConsentType,
         state: ConsentState,
         entity: String,
