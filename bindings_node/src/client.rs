@@ -11,7 +11,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_cryptography::signature::ed25519_public_key_to_address;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
@@ -200,7 +199,7 @@ impl Client {
 
   #[napi]
   pub fn installation_id(&self) -> String {
-    ed25519_public_key_to_address(self.inner_client.installation_public_key().as_slice())
+    hex::encode(self.inner_client.installation_public_key())
   }
 
   #[napi]
