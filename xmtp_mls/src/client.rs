@@ -674,7 +674,10 @@ where
             .collect())
     }
 
-    pub fn list_conversations(&self, args: GroupQueryArgs) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
+    pub fn list_conversations(
+        &self,
+        args: GroupQueryArgs,
+    ) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
         Ok(self
             .store()
             .conn()?

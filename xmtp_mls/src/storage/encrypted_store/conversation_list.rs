@@ -1,11 +1,13 @@
 use super::schema::conversation_list::dsl::conversation_list;
-use crate::storage::{DbConnection, StorageError};
-use diesel::{BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table};
-use diesel::dsl::sql;
-use serde::{Deserialize, Serialize};
 use crate::storage::consent_record::ConsentState;
 use crate::storage::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
 use crate::storage::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+use crate::storage::{DbConnection, StorageError};
+use diesel::dsl::sql;
+use diesel::{
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = conversation_list)]
@@ -95,31 +97,19 @@ impl DbConnection {
         }
 
         if let Some(allowed_states) = allowed_states {
-            query = query.filter(
-                conversation_list_dsl::membership_state
-                    .eq_any(allowed_states),
-            );
+            query = query.filter(conversation_list_dsl::membership_state.eq_any(allowed_states));
         }
 
         if let Some(created_after_ns) = created_after_ns {
-            query = query.filter(
-                conversation_list_dsl::created_at_ns
-                    .gt(created_after_ns),
-            );
+            query = query.filter(conversation_list_dsl::created_at_ns.gt(created_after_ns));
         }
 
         if let Some(created_before_ns) = created_before_ns {
-            query = query.filter(
-                conversation_list_dsl::created_at_ns
-                    .lt(created_before_ns),
-            );
+            query = query.filter(conversation_list_dsl::created_at_ns.lt(created_before_ns));
         }
 
         if let Some(conversation_type) = conversation_type {
-            query = query.filter(
-                conversation_list_dsl::conversation_type
-                    .eq(conversation_type),
-            );
+            query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
         }
 
         let mut conversations = if let Some(consent_state) = consent_state {
@@ -156,26 +146,26 @@ impl DbConnection {
             self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
         };
 
-
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
         // Then query for those separately
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
-            let query =
-                conversation_list_dsl::conversation_list.filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
+            let query = conversation_list_dsl::conversation_list
+                .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
             let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
             conversations.append(&mut sync_groups);
         }
 
-        Ok(conversations)    }
+        Ok(conversations)
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::storage::group::tests::{generate_group, generate_group_with_created_at};
+    use crate::storage::group::GroupQueryArgs;
     use crate::storage::tests::with_connection;
     use crate::Store;
     use wasm_bindgen_test::wasm_bindgen_test;
-    use crate::storage::group::GroupQueryArgs;
 
     #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn test_single_group_multiple_messages() {
@@ -197,7 +187,9 @@ pub(crate) mod tests {
             }
 
             // Fetch the conversation list
-            let conversation_list = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
+            let conversation_list = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
                 conversation_list[0].id, group.id,
@@ -232,7 +224,9 @@ pub(crate) mod tests {
             message.store(conn).unwrap();
 
             // Fetch the conversation list
-            let conversation_list = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
+            let conversation_list = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
 
             assert_eq!(conversation_list.len(), 3, "Should return all three groups");
             assert_eq!(
@@ -268,7 +262,9 @@ pub(crate) mod tests {
             first_message.store(conn).unwrap();
 
             // Fetch the conversation list and check last message
-            let mut conversation_list = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
+            let mut conversation_list = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
             assert_eq!(conversation_list.len(), 1, "Should return one group");
             assert_eq!(
                 conversation_list[0].sent_at_ns.unwrap(),
@@ -287,7 +283,9 @@ pub(crate) mod tests {
             second_message.store(conn).unwrap();
 
             // Fetch the conversation list again and validate the last message is updated
-            conversation_list = conn.fetch_conversation_list(GroupQueryArgs::default()).unwrap();
+            conversation_list = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
             assert_eq!(
                 conversation_list[0].sent_at_ns.unwrap(),
                 2000,
