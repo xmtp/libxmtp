@@ -8,7 +8,6 @@ import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.rawData
 import uniffi.xmtpv3.FfiConversationType
-import uniffi.xmtpv3.FfiDeviceSyncKind
 import uniffi.xmtpv3.FfiSignatureRequest
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
@@ -384,10 +383,6 @@ class Client() {
 
     suspend fun reconnectLocalDatabase() {
         ffiClient.dbReconnect()
-    }
-
-    suspend fun requestMessageHistorySync() {
-        ffiClient.sendSyncRequest(FfiDeviceSyncKind.MESSAGES)
     }
 
     suspend fun inboxStatesForInboxIds(

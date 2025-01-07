@@ -75,7 +75,6 @@ class HistorySyncTest {
 
         runBlocking {
             alixClient2.preferences.syncConsent()
-            Thread.sleep(2000)
             alixClient.conversations.syncAllConversations()
             Thread.sleep(2000)
             alixClient2.conversations.syncAllConversations()
@@ -125,8 +124,7 @@ class HistorySyncTest {
         runBlocking {
             alix2Group.send("A message")
             alix2Group.send("A second message")
-            alixClient3.requestMessageHistorySync()
-            Thread.sleep(1000)
+            Thread.sleep(2000)
             alixClient.conversations.syncAllConversations()
             Thread.sleep(2000)
             alixClient2.conversations.syncAllConversations()
@@ -168,6 +166,47 @@ class HistorySyncTest {
         Thread.sleep(2000)
         assertEquals(3, consent.size)
         assertEquals(alixGroup.consentState(), ConsentState.DENIED)
+        job.cancel()
+    }
+
+    @Test
+    fun testStreamPreferenceUpdates() {
+        var preferences = 0
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.preferences.streamPreferenceUpdates()
+                    .collect { entry ->
+                        preferences++
+                    }
+            } catch (e: Exception) {
+            }
+        }
+
+        Thread.sleep(2000)
+
+        runBlocking {
+            val alixClient3 = runBlocking {
+                Client().create(
+                    account = alixWallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = fixtures.context,
+                        dbEncryptionKey = fixtures.key,
+                        dbDirectory = File(fixtures.context.filesDir.absolutePath, "xmtp_db3").toPath()
+                            .toString()
+                    )
+                )
+            }
+            alixClient3.conversations.syncAllConversations()
+            Thread.sleep(2000)
+            alixClient.conversations.syncAllConversations()
+            Thread.sleep(2000)
+            alixClient2.conversations.syncAllConversations()
+            Thread.sleep(2000)
+        }
+
+        Thread.sleep(2000)
+        assertEquals(2, preferences)
         job.cancel()
     }
 }

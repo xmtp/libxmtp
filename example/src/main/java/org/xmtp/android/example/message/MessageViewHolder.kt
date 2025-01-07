@@ -47,7 +47,7 @@ class MessageViewHolder(
         if (item.message.content<Any>() is String) {
             binding.messageBody.text = item.message.body
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            binding.messageDate.text = sdf.format(item.message.sent)
+            binding.messageDate.text = sdf.format(item.message.sentAt)
 
         } else if (item.message.content<Any>() is GroupUpdated) {
             val changes = item.message.content() as? GroupUpdated

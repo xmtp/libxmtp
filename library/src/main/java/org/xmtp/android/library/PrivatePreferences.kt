@@ -9,6 +9,8 @@ import uniffi.xmtpv3.FfiConsentCallback
 import uniffi.xmtpv3.FfiConsentEntityType
 import uniffi.xmtpv3.FfiConsentState
 import uniffi.xmtpv3.FfiDeviceSyncKind
+import uniffi.xmtpv3.FfiPreferenceCallback
+import uniffi.xmtpv3.FfiPreferenceUpdate
 import uniffi.xmtpv3.FfiSubscribeException
 import uniffi.xmtpv3.FfiXmtpClient
 
@@ -60,6 +62,10 @@ enum class EntryType {
     }
 }
 
+enum class PreferenceType {
+    HMAC_KEYS;
+}
+
 data class ConsentRecord(
     val value: String,
     val entryType: EntryType,
@@ -98,6 +104,26 @@ data class PrivatePreferences(
 ) {
     suspend fun syncConsent() {
         ffiClient.sendSyncRequest(FfiDeviceSyncKind.CONSENT)
+    }
+
+    suspend fun streamPreferenceUpdates(): Flow<PreferenceType> = callbackFlow {
+        val preferenceCallback = object : FfiPreferenceCallback {
+            override fun onPreferenceUpdate(preference: List<FfiPreferenceUpdate>) {
+                preference.iterator().forEach {
+                    when (it) {
+                        is FfiPreferenceUpdate.Hmac -> trySend(PreferenceType.HMAC_KEYS)
+                    }
+                }
+            }
+
+            override fun onError(error: FfiSubscribeException) {
+                Log.e("XMTP preference update stream", error.message.toString())
+            }
+        }
+
+        val stream = ffiClient.conversations().streamPreferences(preferenceCallback)
+
+        awaitClose { stream.end() }
     }
 
     suspend fun streamConsent(): Flow<ConsentRecord> = callbackFlow {

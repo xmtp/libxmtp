@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -8,6 +9,8 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.messages.Topic
+import org.xmtp.proto.keystore.api.v1.Keystore
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationCallback
@@ -277,4 +280,23 @@ data class Conversations(
 
             awaitClose { stream.end() }
         }
+
+    fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse {
+        val hmacKeysResponse = Keystore.GetConversationHmacKeysResponse.newBuilder()
+        val conversations = ffiConversations.getHmacKeys()
+        conversations.iterator().forEach {
+            val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
+            it.value.forEach { key ->
+                val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
+                hmacKeyData.hmacKey = key.key.toByteString()
+                hmacKeyData.thirtyDayPeriodsSinceEpoch = key.epoch.toInt()
+                hmacKeys.addValues(hmacKeyData)
+            }
+            hmacKeysResponse.putHmacKeys(
+                Topic.groupMessage(it.key.toHex()).description,
+                hmacKeys.build()
+            )
+        }
+        return hmacKeysResponse.build()
+    }
 }

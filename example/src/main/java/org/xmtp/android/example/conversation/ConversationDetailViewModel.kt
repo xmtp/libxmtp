@@ -20,6 +20,7 @@ import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.library.Conversation
+import org.xmtp.android.library.libxmtp.Message
 
 class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
@@ -125,7 +126,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             const val ITEM_TYPE_MESSAGE = 1
         }
 
-        data class Message(override val id: String, val message: DecodedMessage) :
+        data class Message(override val id: String, val message: org.xmtp.android.library.libxmtp.Message) :
             MessageListItem(id, ITEM_TYPE_MESSAGE)
     }
 }

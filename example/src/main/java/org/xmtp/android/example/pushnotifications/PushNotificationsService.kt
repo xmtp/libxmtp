@@ -90,12 +90,12 @@ class PushNotificationsService : FirebaseMessagingService() {
                 return
             }
             val decodedMessage =
-                runBlocking { conversation.processMessage(encryptedMessageData).decode() }
+                runBlocking { conversation.processMessage(encryptedMessageData) }
             val peerAddress = conversation.id
 
-            val body: String = if (decodedMessage.content<Any>() is String) {
+            val body: String = if (decodedMessage?.content<Any>() is String) {
                 decodedMessage.body
-            } else if (decodedMessage.content<Any>() is GroupUpdated) {
+            } else if (decodedMessage?.content<Any>() is GroupUpdated) {
                 val changes = decodedMessage.content() as? GroupUpdated
                 "Membership Changed ${
                     changes?.addedInboxesList?.mapNotNull { it.inboxId }.toString()

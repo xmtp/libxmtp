@@ -89,7 +89,7 @@ dependencies {
     implementation 'org.web3j:crypto:4.9.4'
     implementation "net.java.dev.jna:jna:5.14.0@aar"
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
-    api 'org.xmtp:proto-kotlin:3.72.3'
+    api 'org.xmtp:proto-kotlin:3.72.4'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'androidx.test:monitor:1.7.2'
