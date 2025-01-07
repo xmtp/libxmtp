@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -6,6 +8,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
+
 use serde::{Deserialize, Serialize};
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
@@ -290,7 +293,6 @@ impl DbConnection {
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
-
     /// Query for group messages with their reactions
     #[allow(clippy::too_many_arguments)]
     pub fn get_group_messages_with_reactions(
@@ -301,9 +303,26 @@ impl DbConnection {
         // First get all the main messages
         let mut modified_args = args.clone();
         // filter out reactions from the main query so we don't get them twice
-        let mut content_types = modified_args.content_types.clone().unwrap_or_default();
-        content_types.retain(|content_type| *content_type != ContentType::Reaction);
-        modified_args.content_types = Some(content_types);
+        let content_types = match modified_args.content_types.clone() {
+            Some(content_types) => {
+                let mut content_types = content_types.clone();
+                content_types.retain(|content_type| *content_type != ContentType::Reaction);
+                Some(content_types)
+            }
+            None => Some(vec![
+                ContentType::Text,
+                ContentType::GroupMembershipChange,
+                ContentType::GroupUpdated,
+                ContentType::ReadReceipt,
+                ContentType::Reply,
+                ContentType::Attachment,
+                ContentType::RemoteAttachment,
+                ContentType::TransactionReference,
+                ContentType::Unknown,
+            ]),
+        };
+
+        modified_args.content_types = content_types;
         let messages = self.get_group_messages(group_id, &modified_args)?;
 
         // Then get all reactions for these messages in a single query
@@ -325,8 +344,7 @@ impl DbConnection {
             self.raw_query(|conn| reactions_query.load(conn))?;
 
         // Group reactions by parent message id
-        let mut reactions_by_reference: std::collections::HashMap<Vec<u8>, Vec<StoredGroupMessage>> =
-            std::collections::HashMap::new();
+        let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
 
         for reaction in reactions {
             if let Some(reference_id) = &reaction.reference_id {

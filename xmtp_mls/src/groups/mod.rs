@@ -59,7 +59,11 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{group::DmIdExt, group_message::ContentType, NotFound, StorageError};
+use crate::storage::{
+    group::DmIdExt,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    NotFound, StorageError,
+};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -67,7 +71,9 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage,
     },
     message_contents::{
-        content_types::ReactionV2, plaintext_envelope::{Content, V1}, EncodedContent, PlaintextEnvelope
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -842,6 +848,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
+    pub fn find_messages_with_reactions(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
+        let conn = self.context().store().conn()?;
+        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
 
