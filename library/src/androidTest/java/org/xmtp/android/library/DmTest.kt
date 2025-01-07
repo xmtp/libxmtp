@@ -181,12 +181,8 @@ class DmTest {
         runBlocking { group.send("Howdy") }
         runBlocking { boClient.conversations.syncAllConversations() }
         val conversations = runBlocking { boClient.conversations.listDms() }
-        val conversationsOrdered =
-            runBlocking { boClient.conversations.listDms(order = Conversations.ConversationOrder.LAST_MESSAGE) }
         assertEquals(conversations.size, 2)
-        assertEquals(conversationsOrdered.size, 2)
-        assertEquals(conversations.map { it.id }, listOf(dm1.id, dm2.id))
-        assertEquals(conversationsOrdered.map { it.id }, listOf(dm2.id, dm1.id))
+        assertEquals(conversations.map { it.id }, listOf(dm2.id, dm1.id))
     }
 
     @Test

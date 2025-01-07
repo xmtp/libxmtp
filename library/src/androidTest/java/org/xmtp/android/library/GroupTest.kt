@@ -513,12 +513,8 @@ class GroupTest {
         runBlocking { group2.send("Howdy") }
         runBlocking { boClient.conversations.syncAllConversations() }
         val conversations = runBlocking { boClient.conversations.listGroups() }
-        val conversationsOrdered =
-            runBlocking { boClient.conversations.listGroups(order = Conversations.ConversationOrder.LAST_MESSAGE) }
         assertEquals(conversations.size, 2)
-        assertEquals(conversationsOrdered.size, 2)
         assertEquals(conversations.map { it.id }, listOf(group1.id, group2.id))
-        assertEquals(conversationsOrdered.map { it.id }, listOf(group2.id, group1.id))
     }
 
     @Test

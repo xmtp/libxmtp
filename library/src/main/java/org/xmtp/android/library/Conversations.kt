@@ -9,13 +9,12 @@ import kotlinx.coroutines.launch
 import org.xmtp.android.library.libxmtp.Message
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationCallback
+import uniffi.xmtpv3.FfiConversationListItem
 import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiCreateGroupOptions
-import uniffi.xmtpv3.FfiDirection
 import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiListConversationsOptions
-import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiPermissionPolicySet
@@ -30,11 +29,6 @@ data class Conversations(
     var client: Client,
     private val ffiConversations: FfiConversations,
 ) {
-
-    enum class ConversationOrder {
-        CREATED_AT,
-        LAST_MESSAGE;
-    }
 
     enum class ConversationType {
         ALL,
@@ -131,7 +125,11 @@ data class Conversations(
 
     // Sync all new and existing conversations data from the network
     suspend fun syncAllConversations(consentState: ConsentState? = null): UInt {
-        return ffiConversations.syncAllConversations(consentState?.let { ConsentState.toFfiConsentState(it) })
+        return ffiConversations.syncAllConversations(
+            consentState?.let {
+                ConsentState.toFfiConsentState(it)
+            }
+        )
     }
 
     suspend fun newConversation(peerAddress: String): Conversation {
@@ -160,7 +158,6 @@ data class Conversations(
         after: Date? = null,
         before: Date? = null,
         limit: Int? = null,
-        order: ConversationOrder = ConversationOrder.CREATED_AT,
         consentState: ConsentState? = null,
     ): List<Group> {
         val ffiGroups = ffiConversations.listGroups(
@@ -168,13 +165,13 @@ data class Conversations(
                 after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 limit?.toLong(),
-                consentState?.let { ConsentState.toFfiConsentState(it) }
+                consentState?.let { ConsentState.toFfiConsentState(it) },
+                false
             )
         )
-        val sortedConversations = sortConversations(ffiGroups, order)
 
-        return sortedConversations.map {
-            Group(client, it)
+        return ffiGroups.map {
+            Group(client, it.conversation(), it.lastMessage())
         }
     }
 
@@ -182,7 +179,6 @@ data class Conversations(
         after: Date? = null,
         before: Date? = null,
         limit: Int? = null,
-        order: ConversationOrder = ConversationOrder.CREATED_AT,
         consentState: ConsentState? = null,
     ): List<Dm> {
         val ffiDms = ffiConversations.listDms(
@@ -190,13 +186,13 @@ data class Conversations(
                 after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 limit?.toLong(),
-                consentState?.let { ConsentState.toFfiConsentState(it) }
+                consentState?.let { ConsentState.toFfiConsentState(it) },
+                false
             )
         )
-        val sortedConversations = sortConversations(ffiDms, order)
 
-        return sortedConversations.map {
-            Dm(client, it)
+        return ffiDms.map {
+            Dm(client, it.conversation(), it.lastMessage())
         }
     }
 
@@ -204,57 +200,25 @@ data class Conversations(
         after: Date? = null,
         before: Date? = null,
         limit: Int? = null,
-        order: ConversationOrder = ConversationOrder.CREATED_AT,
         consentState: ConsentState? = null,
     ): List<Conversation> {
-        val ffiConversations = ffiConversations.list(
+        val ffiConversation = ffiConversations.list(
             FfiListConversationsOptions(
                 after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 limit?.toLong(),
-                consentState?.let { ConsentState.toFfiConsentState(it) }
+                consentState?.let { ConsentState.toFfiConsentState(it) },
+                false
             )
         )
 
-        val sortedConversations = sortConversations(ffiConversations, order)
-
-        return sortedConversations.map { it.toConversation() }
+        return ffiConversation.map { it.toConversation() }
     }
 
-    private suspend fun sortConversations(
-        conversations: List<FfiConversation>,
-        order: ConversationOrder,
-    ): List<FfiConversation> {
-        return when (order) {
-            ConversationOrder.LAST_MESSAGE -> {
-                conversations.map { conversation ->
-                    val message =
-                        conversation.findMessages(
-                            FfiListMessagesOptions(
-                                null,
-                                null,
-                                1,
-                                null,
-                                FfiDirection.DESCENDING
-                            )
-                        )
-                            .firstOrNull()
-                    conversation to message?.sentAtNs
-                }.sortedByDescending {
-                    it.second ?: 0L
-                }.map {
-                    it.first
-                }
-            }
-
-            ConversationOrder.CREATED_AT -> conversations
-        }
-    }
-
-    private suspend fun FfiConversation.toConversation(): Conversation {
-        return when (conversationType()) {
-            FfiConversationType.DM -> Conversation.Dm(Dm(client, this))
-            else -> Conversation.Group(Group(client, this))
+    private suspend fun FfiConversationListItem.toConversation(): Conversation {
+        return when (conversation().conversationType()) {
+            FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation(), lastMessage()))
+            else -> Conversation.Group(Group(client, conversation(), lastMessage()))
         }
     }
 
@@ -264,7 +228,15 @@ data class Conversations(
                 override fun onConversation(conversation: FfiConversation) {
                     launch(Dispatchers.IO) {
                         when (conversation.conversationType()) {
-                            FfiConversationType.DM -> trySend(Conversation.Dm(Dm(client, conversation)))
+                            FfiConversationType.DM -> trySend(
+                                Conversation.Dm(
+                                    Dm(
+                                        client,
+                                        conversation
+                                    )
+                                )
+                            )
+
                             else -> trySend(Conversation.Group(Group(client, conversation)))
                         }
                     }

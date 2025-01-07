@@ -22,7 +22,7 @@ import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
-class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
+class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private val ffiLastMessage: FfiMessage? = null) {
     val id: String
         get() = libXMTPGroup.id().toHex()
 
@@ -103,6 +103,14 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
         libXMTPGroup.sync()
     }
 
+    suspend fun lastMessage(): DecodedMessage? {
+        return if (ffiLastMessage != null) {
+            Message(client, ffiLastMessage).decode()
+        } else {
+            messages(limit = 1).firstOrNull()
+        }
+    }
+
     suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
@@ -124,7 +132,8 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation) {
                 direction = when (direction) {
                     SortDirection.ASCENDING -> FfiDirection.ASCENDING
                     else -> FfiDirection.DESCENDING
-                }
+                },
+                contentTypes = null
             )
         ).mapNotNull {
             Message(client, it).decodeOrNull()

@@ -27,7 +27,11 @@ import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionOption
 import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.PermissionPolicySet
 import java.util.Date
 
-class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
+class Group(
+    val client: Client,
+    private val libXMTPGroup: FfiConversation,
+    private val ffiLastMessage: FfiMessage? = null,
+) {
     val id: String
         get() = libXMTPGroup.id().toHex()
 
@@ -120,6 +124,14 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
         libXMTPGroup.sync()
     }
 
+    suspend fun lastMessage(): DecodedMessage? {
+        return if (ffiLastMessage != null) {
+            Message(client, ffiLastMessage).decode()
+        } else {
+            messages(limit = 1).firstOrNull()
+        }
+    }
+
     suspend fun messages(
         limit: Int? = null,
         beforeNs: Long? = null,
@@ -141,7 +153,8 @@ class Group(val client: Client, private val libXMTPGroup: FfiConversation) {
                 direction = when (direction) {
                     SortDirection.ASCENDING -> FfiDirection.ASCENDING
                     else -> FfiDirection.DESCENDING
-                }
+                },
+                contentTypes = null
             )
         ).mapNotNull {
             Message(client, it).decodeOrNull()
