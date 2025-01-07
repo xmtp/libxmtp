@@ -74,14 +74,13 @@ impl DbConnection {
             include_sync_groups,
             include_duplicate_dms,
         } = args.as_ref();
-
         let mut query = conversation_list
             .select(conversation_list::all_columns())
             .filter(conversation_list_dsl::conversation_type.ne(ConversationType::Sync))
             .into_boxed();
 
-        // Group by dm_id and grab the latest group (conversation stitching)
         if !include_duplicate_dms {
+            // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id
