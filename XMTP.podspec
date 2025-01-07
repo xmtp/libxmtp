@@ -23,7 +23,7 @@ Pod::Spec.new do |spec|
 
   spec.dependency 'CSecp256k1', '~> 0.2'
   spec.dependency "Connect-Swift", "= 1.0.0"
-  spec.dependency 'LibXMTP', '= 3.0.15'
+  spec.dependency 'LibXMTP', '= 3.0.18'
   spec.dependency 'CryptoSwift', '= 1.8.3'
   spec.dependency 'SQLCipher', '= 4.5.7'
   

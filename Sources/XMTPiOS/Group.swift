@@ -25,6 +25,7 @@ final class StreamHolder {
 
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
+	var ffiLastMessage: FfiMessage? = nil
 	var client: Client
 	let streamHolder = StreamHolder()
 
@@ -398,6 +399,15 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	public func lastMessage() async throws -> DecodedMessage? {
+		if let ffiMessage = ffiLastMessage {
+			return Message(client: self.client, ffiMessage: ffiMessage)
+				.decodeOrNull()
+		} else {
+			return try await messages(limit: 1).first
+		}
+	}
+
 	public func messages(
 		beforeNs: Int64? = nil,
 		afterNs: Int64? = nil,
@@ -410,7 +420,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			sentAfterNs: nil,
 			limit: nil,
 			deliveryStatus: nil,
-			direction: nil
+			direction: nil,
+			contentTypes: nil
 		)
 
 		if let beforeNs {

@@ -124,17 +124,10 @@ class ConversationTests: XCTestCase {
 
 		let conversations = try await fixtures.boClient.conversations
 			.list()
-		let conversationsOrdered = try await fixtures.boClient.conversations
-			.list(order: .lastMessage)
 
 		XCTAssertEqual(conversations.count, 3)
-		XCTAssertEqual(conversationsOrdered.count, 3)
-
 		XCTAssertEqual(
-			conversations.map { $0.id }, [dm.id, group1.id, group2.id])
-		XCTAssertEqual(
-			conversationsOrdered.map { $0.id },
-			[group2.id, dm.id, group1.id])
+			conversations.map { $0.id }, [group2.id, dm.id, group1.id])
 	}
 
 	func testCanStreamConversations() async throws {

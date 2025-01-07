@@ -26,6 +26,15 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	public func lastMessage() async throws -> DecodedMessage? {
+		switch self {
+		case let .group(group):
+			return try await group.lastMessage()
+		case let .dm(dm):
+			return try await dm.lastMessage()
+		}
+	}
+
 	public func isCreator() async throws -> Bool {
 		switch self {
 		case let .group(group):

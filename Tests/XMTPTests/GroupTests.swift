@@ -223,17 +223,10 @@ class GroupTests: XCTestCase {
 
 		let conversations = try await fixtures.boClient.conversations
 			.listGroups()
-		let conversationsOrdered = try await fixtures.boClient.conversations
-			.listGroups(order: .lastMessage)
 
 		XCTAssertEqual(conversations.count, 2)
-		XCTAssertEqual(conversationsOrdered.count, 2)
-
 		XCTAssertEqual(
-			conversations.map { $0.id }, [group1.id, group2.id])
-		XCTAssertEqual(
-			conversationsOrdered.map { $0.id },
-			[group2.id, group1.id])
+			conversations.map { $0.id }, [group2.id, group1.id])
 	}
 
 	func testCanListGroupMembers() async throws {

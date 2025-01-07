@@ -30,10 +30,6 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
-public enum ConversationOrder {
-	case createdAt, lastMessage
-}
-
 public enum ConversationType {
 	case all, groups, dms
 }
@@ -88,12 +84,12 @@ public actor Conversations {
 
 	public func listGroups(
 		createdAfter: Date? = nil, createdBefore: Date? = nil,
-		limit: Int? = nil, order: ConversationOrder = .createdAt,
+		limit: Int? = nil,
 		consentState: ConsentState? = nil
-	) async throws -> [Group] {
+	) throws -> [Group] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: nil, createdBeforeNs: nil, limit: nil,
-			consentState: consentState?.toFFI)
+			consentState: consentState?.toFFI, includeDuplicateDms: false)
 		if let createdAfter {
 			options.createdAfterNs = Int64(createdAfter.millisecondsSinceEpoch)
 		}
@@ -104,25 +100,22 @@ public actor Conversations {
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		let conversations = try await ffiConversations.listGroups(
+		let conversations = try ffiConversations.listGroups(
 			opts: options)
 
-		let sortedConversations = try await sortConversations(
-			conversations, order: order)
-
-		return sortedConversations.map {
+		return conversations.map {
 			$0.groupFromFFI(client: client)
 		}
 	}
 
 	public func listDms(
 		createdAfter: Date? = nil, createdBefore: Date? = nil,
-		limit: Int? = nil, order: ConversationOrder = .createdAt,
+		limit: Int? = nil,
 		consentState: ConsentState? = nil
-	) async throws -> [Dm] {
+	) throws -> [Dm] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: nil, createdBeforeNs: nil, limit: nil,
-			consentState: consentState?.toFFI)
+			consentState: consentState?.toFFI, includeDuplicateDms: false)
 		if let createdAfter {
 			options.createdAfterNs = Int64(createdAfter.millisecondsSinceEpoch)
 		}
@@ -133,25 +126,22 @@ public actor Conversations {
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		let conversations = try await ffiConversations.listDms(
+		let conversations = try ffiConversations.listDms(
 			opts: options)
 
-		let sortedConversations = try await sortConversations(
-			conversations, order: order)
-
-		return sortedConversations.map {
+		return conversations.map {
 			$0.dmFromFFI(client: client)
 		}
 	}
 
 	public func list(
 		createdAfter: Date? = nil, createdBefore: Date? = nil,
-		limit: Int? = nil, order: ConversationOrder = .createdAt,
+		limit: Int? = nil,
 		consentState: ConsentState? = nil
 	) async throws -> [Conversation] {
 		var options = FfiListConversationsOptions(
 			createdAfterNs: nil, createdBeforeNs: nil, limit: nil,
-			consentState: consentState?.toFFI)
+			consentState: consentState?.toFFI, includeDuplicateDms: false)
 		if let createdAfter {
 			options.createdAfterNs = Int64(createdAfter.millisecondsSinceEpoch)
 		}
@@ -162,51 +152,16 @@ public actor Conversations {
 		if let limit {
 			options.limit = Int64(limit)
 		}
-		let ffiConversations = try await ffiConversations.list(
+		let ffiConversations = try ffiConversations.list(
 			opts: options)
 
-		let sortedConversations = try await sortConversations(
-			ffiConversations, order: order)
-
 		var conversations: [Conversation] = []
-		for sortedConversation in sortedConversations {
-			let conversation = try await sortedConversation.toConversation(
+		for conversation in ffiConversations {
+			let conversation = try await conversation.toConversation(
 				client: client)
 			conversations.append(conversation)
 		}
-
 		return conversations
-	}
-
-	private func sortConversations(
-		_ conversations: [FfiConversation],
-		order: ConversationOrder
-	) async throws -> [FfiConversation] {
-		switch order {
-		case .lastMessage:
-			var conversationWithTimestamp: [(FfiConversation, Int64?)] = []
-
-			for conversation in conversations {
-				let message = try await conversation.findMessages(
-					opts: FfiListMessagesOptions(
-						sentBeforeNs: nil,
-						sentAfterNs: nil,
-						limit: 1,
-						deliveryStatus: nil,
-						direction: .descending
-					)
-				).first
-				conversationWithTimestamp.append(
-					(conversation, message?.sentAtNs))
-			}
-
-			let sortedTuples = conversationWithTimestamp.sorted { (lhs, rhs) in
-				(lhs.1 ?? 0) > (rhs.1 ?? 0)
-			}
-			return sortedTuples.map { $0.0 }
-		case .createdAt:
-			return conversations
-		}
 	}
 
 	public func stream(type: ConversationType = .all) -> AsyncThrowingStream<
