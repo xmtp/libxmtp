@@ -166,13 +166,14 @@ public actor Conversations {
 			opts: options)
 
 		let sortedConversations = try await sortConversations(
-            ffiConversations, order: order)
-        
-        var conversations: [Conversation] = []
-        for sortedConversation in sortedConversations {
-            let conversation = try await sortedConversation.toConversation(client: client)
-            conversations.append(conversation)
-        }
+			ffiConversations, order: order)
+
+		var conversations: [Conversation] = []
+		for sortedConversation in sortedConversations {
+			let conversation = try await sortedConversation.toConversation(
+				client: client)
+			conversations.append(conversation)
+		}
 
 		return conversations
 	}
@@ -440,4 +441,30 @@ public actor Conversations {
 		let dm = try await findOrCreateDm(with: peerAddress)
 		return Conversation.dm(dm)
 	}
+
+	public func getHmacKeys() throws
+		-> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+	{
+		var hmacKeysResponse =
+			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+		let conversations = try ffiConversations.getHmacKeys()
+		for convo in conversations {
+			var hmacKeys =
+				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+			for key in convo.value {
+				var hmacKeyData =
+					Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+					.HmacKeyData()
+				hmacKeyData.hmacKey = key.key
+				hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
+				hmacKeys.values.append(hmacKeyData)
+
+			}
+			hmacKeysResponse.hmacKeys[
+				Topic.groupMessage(convo.key.toHex).description] = hmacKeys
+		}
+
+		return hmacKeysResponse
+	}
+
 }

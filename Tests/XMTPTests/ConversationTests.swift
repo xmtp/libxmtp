@@ -79,7 +79,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
 	}
-	
+
 	func testCanSyncAllConversationsFiltered() async throws {
 		let fixtures = try await fixtures()
 
@@ -188,5 +188,34 @@ class ConversationTests: XCTestCase {
 		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
+	}
+
+	func testReturnsAllHMACKeys() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let opts = ClientOptions(
+			api: ClientOptions.Api(env: .local, isSecure: false),
+			dbEncryptionKey: key)
+		let fixtures = try await fixtures()
+		var conversations: [Conversation] = []
+		for _ in 0..<5 {
+			let account = try PrivateKey.generate()
+			let client = try await Client.create(
+				account: account, options: opts)
+			do {
+				let newConversation = try await fixtures.alixClient
+					.conversations
+					.newConversation(
+						with: client.address
+					)
+				conversations.append(newConversation)
+			} catch {
+				print("Error creating conversation: \(error)")
+			}
+		}
+		let hmacKeys = try await fixtures.alixClient.conversations.getHmacKeys()
+		let topics = hmacKeys.hmacKeys.keys
+		conversations.forEach { conversation in
+			XCTAssertTrue(topics.contains(conversation.topic))
+		}
 	}
 }

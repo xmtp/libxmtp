@@ -7,6 +7,9 @@ public enum ConsentState: String, Codable {
 public enum EntryType: String, Codable {
 	case address, conversation_id, inbox_id
 }
+public enum PreferenceType: String, Codable {
+	case hmac_keys
+}
 
 public struct ConsentRecord: Codable, Hashable {
 	public init(value: String, entryType: EntryType, consentType: ConsentState)
@@ -121,6 +124,43 @@ public actor PrivatePreferences {
 			}
 		}
 	}
+
+	public func streamPreferenceUpdates()
+		-> AsyncThrowingStream<PreferenceType, Error>
+	{
+		AsyncThrowingStream { continuation in
+			let ffiStreamActor = FfiStreamActor()
+
+			let preferenceCallback = PreferenceCallback(client: self.client) {
+				records in
+				guard !Task.isCancelled else {
+					continuation.finish()
+					Task {
+						await ffiStreamActor.endStream()
+					}
+					return
+				}
+				for preference in records {
+					if case .hmac(let key) = preference {
+						continuation.yield(.hmac_keys)
+					}
+				}
+			}
+
+			let task = Task {
+				let stream = await ffiClient.conversations().streamPreferences(
+					callback: preferenceCallback)
+				await ffiStreamActor.setFfiStream(stream)
+			}
+
+			continuation.onTermination = { _ in
+				task.cancel()
+				Task {
+					await ffiStreamActor.endStream()
+				}
+			}
+		}
+	}
 }
 
 final class ConsentCallback: FfiConsentCallback {
@@ -134,6 +174,25 @@ final class ConsentCallback: FfiConsentCallback {
 
 	func onConsentUpdate(consent: [FfiConsent]) {
 		callback(consent)
+	}
+
+	func onError(error: FfiSubscribeError) {
+		print("Error ConsentCallback \(error)")
+	}
+}
+
+final class PreferenceCallback: FfiPreferenceCallback {
+	let client: Client
+	let callback: ([FfiPreferenceUpdate]) -> Void
+
+	init(client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void)
+	{
+		self.client = client
+		self.callback = callback
+	}
+
+	func onPreferenceUpdate(preference: [FfiPreferenceUpdate]) {
+		callback(preference)
 	}
 
 	func onError(error: FfiSubscribeError) {
