@@ -18,6 +18,7 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -290,7 +291,7 @@ class DmTest {
         val boDm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
         runBlocking { alixClient.conversations.sync() }
 
-        val allMessages = mutableListOf<DecodedMessage>()
+        val allMessages = mutableListOf<Message>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {

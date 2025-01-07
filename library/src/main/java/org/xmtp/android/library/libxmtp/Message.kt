@@ -1,19 +1,22 @@
 package org.xmtp.android.library.libxmtp
 
-import android.util.Log
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
+import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
-import uniffi.xmtpv3.FfiDeliveryStatus
+import org.xmtp.proto.message.contents.Content
 import uniffi.xmtpv3.FfiConversationMessageKind
+import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiMessage
 import java.util.Date
 
-data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
+class Message private constructor(
+    private val libXMTPMessage: FfiMessage,
+    val encodedContent: Content.EncodedContent,
+    private val decodedContent: Any?,
+) {
     enum class MessageDeliveryStatus {
         ALL, PUBLISHED, UNPUBLISHED, FAILED
     }
@@ -45,33 +48,33 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
             FfiDeliveryStatus.FAILED -> MessageDeliveryStatus.FAILED
         }
 
-    fun decode(): DecodedMessage {
-        try {
-            val decodedMessage = DecodedMessage(
-                id = id,
-                client = client,
-                topic = Topic.groupMessage(convoId).description,
-                encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
-                senderInboxId = senderInboxId,
-                sent = sentAt,
-                sentNs = sentAtNs,
-                deliveryStatus = deliveryStatus
-            )
-            if (decodedMessage.encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
-                throw XMTPException("Error decoding group membership change")
-            }
-            return decodedMessage
-        } catch (e: Exception) {
-            throw XMTPException("Error decoding message", e)
-        }
-    }
+    val topic: String
+        get() = Topic.groupMessage(convoId).description
 
-    fun decodeOrNull(): DecodedMessage? {
-        return try {
-            decode()
-        } catch (e: Exception) {
-            Log.d("MESSAGE_V3", "discarding message that failed to decode", e)
-            null
+    @Suppress("UNCHECKED_CAST")
+    fun <T> content(): T? = decodedContent as? T
+
+    val fallbackContent: String
+        get() = encodedContent.fallback
+
+    val body: String
+        get() {
+            return content() as? String ?: fallbackContent
+        }
+
+    companion object {
+        fun create(libXMTPMessage: FfiMessage): Message? {
+            return try {
+                val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
+                if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                    throw XMTPException("Error decoding group membership change")
+                }
+                // Decode the content once during creation
+                val decodedContent = encodedContent.decoded<Any>()
+                Message(libXMTPMessage, encodedContent, decodedContent)
+            } catch (e: Exception) {
+                null // Return null if decoding fails
+            }
         }
     }
 }

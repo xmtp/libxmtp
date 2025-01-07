@@ -334,7 +334,7 @@ class SmartContractWalletTest {
         val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCW.walletAddress) }
         runBlocking { davonSCWClient.conversations.sync() }
 
-        val allMessages = mutableListOf<DecodedMessage>()
+        val allMessages = mutableListOf<Message>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {

@@ -1,4 +1,4 @@
-package uniffi.xmtpv3.org.xmtp.android.library.libxmtp
+package org.xmtp.android.library.libxmtp
 
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiInstallation

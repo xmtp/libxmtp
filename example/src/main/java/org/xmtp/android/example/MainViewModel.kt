@@ -20,7 +20,7 @@ import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
-import org.xmtp.android.library.DecodedMessage
+import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.push.Service
 
@@ -84,7 +84,7 @@ class MainViewModel : ViewModel() {
     }
 
     @WorkerThread
-    private fun fetchMostRecentMessage(conversation: Conversation): DecodedMessage? {
+    private fun fetchMostRecentMessage(conversation: Conversation): Message? {
         return runBlocking { conversation.messages(limit = 1).firstOrNull() }
     }
 

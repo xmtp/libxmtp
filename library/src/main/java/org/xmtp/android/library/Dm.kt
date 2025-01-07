@@ -103,9 +103,9 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
         libXMTPGroup.sync()
     }
 
-    suspend fun lastMessage(): DecodedMessage? {
+    suspend fun lastMessage(): Message? {
         return if (ffiLastMessage != null) {
-            Message(client, ffiLastMessage).decode()
+            Message.create(ffiLastMessage)
         } else {
             messages(limit = 1).firstOrNull()
         }
@@ -117,7 +117,7 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<DecodedMessage> {
+    ): List<Message> {
         return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = beforeNs,
@@ -136,13 +136,13 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
                 contentTypes = null
             )
         ).mapNotNull {
-            Message(client, it).decodeOrNull()
+            Message.create(it)
         }
     }
 
-    suspend fun processMessage(messageBytes: ByteArray): Message {
+    suspend fun processMessage(messageBytes: ByteArray): Message? {
         val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-        return Message(client, message)
+        return Message.create(message)
     }
 
     suspend fun creatorInboxId(): String {
@@ -157,10 +157,10 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
         return libXMTPGroup.listMembers().map { Member(it) }
     }
 
-    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
+    fun streamMessages(): Flow<Message> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                val decodedMessage = Message(client, message).decodeOrNull()
+                val decodedMessage = Message.create(message)
                 decodedMessage?.let {
                     trySend(it)
                 }

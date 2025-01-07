@@ -1,4 +1,4 @@
-package uniffi.xmtpv3.org.xmtp.android.library.libxmtp
+package org.xmtp.android.library.libxmtp
 
 import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiPermissionPolicy

@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
+import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.rawData
 import uniffi.xmtpv3.FfiConversationType
@@ -16,7 +17,6 @@ import uniffi.xmtpv3.createClient
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForAddress
 import uniffi.xmtpv3.getVersionInfo
-import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.InboxState
 import java.io.File
 
 typealias PreEventCallback = suspend () -> Unit
@@ -356,7 +356,7 @@ class Client() {
 
     fun findMessage(messageId: String): Message? {
         return try {
-            Message(this, ffiClient.message(messageId.hexToByteArray()))
+            Message.create(ffiClient.message(messageId.hexToByteArray()))
         } catch (e: Exception) {
             null
         }
