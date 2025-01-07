@@ -154,7 +154,7 @@ impl Conversations {
     account_addresses: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let options = options.unwrap_or_else(|| CreateGroupOptions {
+    let options = options.unwrap_or(CreateGroupOptions {
       permissions: None,
       group_name: None,
       group_image_url_square: None,

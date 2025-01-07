@@ -126,7 +126,7 @@ impl GroupMutableMetadata {
         attributes.insert(
             MetadataField::MessageExpirationMillis.to_string(),
             opts.message_expiration_ms
-                .unwrap_or_else(|| DEFAULT_MESSAGE_EXPIRATION_MS)
+                .unwrap_or(DEFAULT_MESSAGE_EXPIRATION_MS)
                 .to_string(),
         );
         let admin_list = vec![];
