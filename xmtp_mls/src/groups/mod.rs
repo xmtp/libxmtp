@@ -287,6 +287,7 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
+    pub message_expiration_ms: Option<i64>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -2547,6 +2548,7 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
+                    message_expiration_ms: None,
                 },
             )
             .unwrap();

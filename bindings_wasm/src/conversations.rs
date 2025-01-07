@@ -129,6 +129,8 @@ pub struct CreateGroupOptions {
   pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
+  #[wasm_bindgen(js_name = messageExpirationMillis)]
+  pub message_expiration_ms: Option<i64>,
 }
 
 #[wasm_bindgen]
@@ -141,6 +143,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
+    message_expiration_ms: Option<i64>,
   ) -> Self {
     Self {
       permissions,
@@ -149,6 +152,7 @@ impl CreateGroupOptions {
       group_description,
       group_pinned_frame_url,
       custom_permission_policy_set,
+      message_expiration_ms,
     }
   }
 }
@@ -160,6 +164,7 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
+      message_expiration_ms: self.message_expiration_ms,
     }
   }
 }

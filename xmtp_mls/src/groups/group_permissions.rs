@@ -25,12 +25,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
 
-use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
-
 use super::{
     group_mutable_metadata::GroupMutableMetadata,
     validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit},
 };
+use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
+use crate::groups::group_mutable_metadata::MetadataField;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -1197,6 +1197,11 @@ pub(crate) fn policy_all_members() -> PolicySet {
     for field in GroupMutableMetadata::supported_fields() {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
     }
+    metadata_policies_map.insert(
+        MetadataField::MessageExpirationMillis.to_string(),
+        MetadataPolicies::allow_if_actor_admin(),
+    );
+
     PolicySet::new(
         MembershipPolicies::allow(),
         MembershipPolicies::allow_if_actor_admin(),
@@ -1215,6 +1220,11 @@ pub(crate) fn policy_admin_only() -> PolicySet {
     for field in GroupMutableMetadata::supported_fields() {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
     }
+    metadata_policies_map.insert(
+        MetadataField::MessageExpirationMillis.to_string(),
+        MetadataPolicies::allow_if_actor_admin(),
+    );
+
     PolicySet::new(
         MembershipPolicies::allow_if_actor_admin(),
         MembershipPolicies::allow_if_actor_admin(),

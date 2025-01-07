@@ -55,6 +55,7 @@ pub const DEFAULT_GROUP_NAME: &str = "";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "";
 pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";
 pub const DEFAULT_GROUP_PINNED_FRAME_URL: &str = "";
+pub const DEFAULT_MESSAGE_EXPIRATION_MS: i64 = 0;
 
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
