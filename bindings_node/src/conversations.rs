@@ -154,17 +154,15 @@ impl Conversations {
     account_addresses: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let options = match options {
-      Some(options) => options,
-      None => CreateGroupOptions {
-        permissions: None,
-        group_name: None,
-        group_image_url_square: None,
-        group_description: None,
-        group_pinned_frame_url: None,
-        custom_permission_policy_set: None,
-      },
-    };
+    let options = options.unwrap_or_else(|| CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      group_pinned_frame_url: None,
+      custom_permission_policy_set: None,
+      message_expiration_ms: None,
+    });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
       if options.custom_permission_policy_set.is_none() {
