@@ -269,10 +269,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.consentState().fromFFI
 	}
 
-	public func processMessage(messageBytes: Data) async throws -> Message {
+	public func processMessage(messageBytes: Data) async throws -> Message? {
 		let message = try await ffiGroup.processStreamedConversationMessage(
 			envelopeBytes: messageBytes)
-		return Message(client: client, ffiMessage: message)
+		return Message.create(client: client, ffiMessage: message)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -365,7 +365,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		self.streamHolder.stream?.end()
 	}
 
-	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+	public func streamMessages() -> AsyncThrowingStream<Message, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiGroup.stream(
@@ -375,14 +375,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 							continuation.finish()
 							return
 						}
-						do {
-							continuation.yield(
-								try Message(
-									client: self.client, ffiMessage: message
-								).decode())
-						} catch {
-							print("Error onMessage \(error)")
-							continuation.finish(throwing: error)
+						if let message = Message.create(
+							client: self.client, ffiMessage: message)
+						{
+							continuation.yield(message)
 						}
 					}
 				)
@@ -399,10 +395,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func lastMessage() async throws -> DecodedMessage? {
+	public func lastMessage() async throws -> Message? {
 		if let ffiMessage = ffiLastMessage {
-			return Message(client: self.client, ffiMessage: ffiMessage)
-				.decodeOrNull()
+			return Message.create(client: self.client, ffiMessage: ffiMessage)
 		} else {
 			return try await messages(limit: 1).first
 		}
@@ -414,7 +409,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all
-	) async throws -> [DecodedMessage] {
+	) async throws -> [Message] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
 			sentAfterNs: nil,
@@ -464,8 +459,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		return try await ffiGroup.findMessages(opts: options).compactMap {
 			ffiMessage in
-			return Message(client: self.client, ffiMessage: ffiMessage)
-				.decodeOrNull()
+			return Message.create(client: self.client, ffiMessage: ffiMessage)
 		}
 	}
 }

@@ -531,7 +531,7 @@ public final class Client {
 
 	public func findMessage(messageId: String) throws -> Message? {
 		do {
-			return Message(
+			return Message.create(
 				client: self,
 				ffiMessage: try ffiClient.message(
 					messageId: messageId.hexToData))

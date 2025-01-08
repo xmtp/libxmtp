@@ -149,7 +149,7 @@ class DmTests: XCTestCase {
 		try await dm.sync()
 
 		let firstMessage = try await dm.messages().first!
-		XCTAssertEqual(firstMessage.body, "gm")
+		XCTAssertEqual(try firstMessage.body, "gm")
 		XCTAssertEqual(firstMessage.id, messageId)
 		XCTAssertEqual(firstMessage.deliveryStatus, .published)
 		let messages = try await dm.messages()
@@ -161,7 +161,7 @@ class DmTests: XCTestCase {
 
 		let sameMessages = try await sameDm.messages()
 		XCTAssertEqual(sameMessages.count, 2)
-		XCTAssertEqual(sameMessages.first!.body, "gm")
+		XCTAssertEqual(try sameMessages.first!.body, "gm")
 	}
 
 	func testCanStreamDmMessages() async throws {

@@ -84,6 +84,6 @@ class CodecTests: XCTestCase {
 
 		let content: Double? = try? messages[0].content()
 		XCTAssertEqual(nil, content)
-		XCTAssertEqual("pi", messages[0].fallbackContent)
+		XCTAssertEqual("pi", try messages[0].fallbackContent)
 	}
 }

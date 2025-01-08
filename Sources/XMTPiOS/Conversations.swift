@@ -329,7 +329,7 @@ public actor Conversations {
 	}
 
 	public func streamAllMessages(type: ConversationType = .all)
-		-> AsyncThrowingStream<DecodedMessage, Error>
+		-> AsyncThrowingStream<Message, Error>
 	{
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
@@ -343,13 +343,10 @@ public actor Conversations {
 					}
 					return
 				}
-				do {
-					continuation.yield(
-						try Message(client: self.client, ffiMessage: message)
-							.decode()
-					)
-				} catch {
-					print("Error onMessage \(error)")
+				if let message = Message.create(
+					client: self.client, ffiMessage: message)
+				{
+					continuation.yield(message)
 				}
 			}
 

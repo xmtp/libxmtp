@@ -5,49 +5,45 @@ enum MessageError: Error {
 	case decodeError(String)
 }
 
-public enum MessageDeliveryStatus: String, RawRepresentable, Sendable {
-	case all,
-		published,
-		unpublished,
-		failed
+public enum MessageDeliveryStatus: String, Sendable {
+	case all
+	case published
+	case unpublished
+	case failed
 }
 
 public enum SortDirection {
-	case descending, ascending
+	case ascending
+	case descending
 }
 
 public struct Message: Identifiable {
-	let client: Client
 	let ffiMessage: FfiMessage
-
-	init(client: Client, ffiMessage: FfiMessage) {
-		self.client = client
-		self.ffiMessage = ffiMessage
-	}
+	private let decodedContent: Any?
 
 	public var id: String {
-		return ffiMessage.id.toHex
+		ffiMessage.id.toHex
 	}
 
-	var convoId: String {
-		return ffiMessage.convoId.toHex
+	public var convoId: String {
+		ffiMessage.convoId.toHex
 	}
 
-	var senderInboxId: String {
-		return ffiMessage.senderInboxId
+	public var senderInboxId: String {
+		ffiMessage.senderInboxId
 	}
 
-	var sentAt: Date {
-		return Date(
+	public var sentAt: Date {
+		Date(
 			timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs)
 				/ 1_000_000_000)
 	}
-	
-	var sentAtNs: Int64 {
-		return ffiMessage.sentAtNs
+
+	public var sentAtNs: Int64 {
+		ffiMessage.sentAtNs
 	}
 
-	var deliveryStatus: MessageDeliveryStatus {
+	public var deliveryStatus: MessageDeliveryStatus {
 		switch ffiMessage.deliveryStatus {
 		case .unpublished:
 			return .unpublished
@@ -58,41 +54,59 @@ public struct Message: Identifiable {
 		}
 	}
 
-	public func decode() throws -> DecodedMessage {
+	public var topic: String {
+		Topic.groupMessage(convoId).description
+	}
+
+	public func content<T>() throws -> T {
+		guard let result = decodedContent as? T else {
+			throw MessageError.decodeError(
+				"Decoded content could not be cast to the expected type \(T.self)."
+			)
+		}
+		return result
+	}
+
+	public var fallbackContent: String {
+		get throws {
+			try encodedContent.fallback
+		}
+	}
+
+	public var body: String {
+		get throws {
+			do {
+				return try content() as String
+			} catch {
+				return try fallbackContent
+			}
+		}
+	}
+
+	public var encodedContent: EncodedContent {
+		get throws {
+			try EncodedContent(serializedBytes: ffiMessage.content)
+		}
+	}
+
+	public static func create(client: Client, ffiMessage: FfiMessage)
+		-> Message?
+	{
 		do {
 			let encodedContent = try EncodedContent(
-				serializedData: ffiMessage.content)
-
-			let decodedMessage = DecodedMessage(
-				id: id,
-				client: client,
-				topic: Topic.groupMessage(convoId).description,
-				encodedContent: encodedContent,
-				senderInboxId: senderInboxId,
-				sent: sentAt,
-				sentNs: sentAtNs,
-				deliveryStatus: deliveryStatus
-			)
-
-			if decodedMessage.encodedContent.type == ContentTypeGroupUpdated
+				serializedBytes: ffiMessage.content)
+			if encodedContent.type == ContentTypeGroupUpdated
 				&& ffiMessage.kind != .membershipChange
 			{
 				throw MessageError.decodeError(
 					"Error decoding group membership change")
 			}
-
-			return decodedMessage
+			// Decode the content once during creation
+			let decodedContent: Any = try encodedContent.decoded(with: client)
+			return Message(
+				ffiMessage: ffiMessage, decodedContent: decodedContent)
 		} catch {
-			throw MessageError.decodeError(
-				"Error decoding message: \(error.localizedDescription)")
-		}
-	}
-
-	public func decodeOrNull() -> DecodedMessage? {
-		do {
-			return try decode()
-		} catch {
-			print("MESSAGE: discarding message that failed to decode", error)
+			print("Error creating Message: \(error)")
 			return nil
 		}
 	}

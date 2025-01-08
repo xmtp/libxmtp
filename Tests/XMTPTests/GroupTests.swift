@@ -694,8 +694,8 @@ class GroupTests: XCTestCase {
 		let alixMessages = try await alixGroup.messages()
 		for message in alixMessages {
 			print(
-				"message", message.encodedContent.type,
-				message.encodedContent.type.typeID)
+				"message", try message.encodedContent.type,
+				try message.encodedContent.type.typeID)
 		}
 		XCTAssertEqual(
 			alixMessages.count, 5,
@@ -708,8 +708,8 @@ class GroupTests: XCTestCase {
 		let boMessages2 = try await boGroup.messages()
 		for message in boMessages2 {
 			print(
-				"message", message.encodedContent.type,
-				message.encodedContent.type.typeID)
+				"message", try message.encodedContent.type,
+				try message.encodedContent.type.typeID)
 		}
 		XCTAssertEqual(
 			boMessages2.count, 5,

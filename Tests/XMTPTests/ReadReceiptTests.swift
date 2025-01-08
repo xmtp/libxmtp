@@ -24,7 +24,7 @@ class ReadReceiptTests: XCTestCase {
 		_ = try await conversation.messages()
 
 		let message = try await conversation.messages()[0]
-		let contentType: String = message.encodedContent.type.typeID
+		let contentType: String = try message.encodedContent.type.typeID
 		XCTAssertEqual("readReceipt", contentType)
 	}
 }
