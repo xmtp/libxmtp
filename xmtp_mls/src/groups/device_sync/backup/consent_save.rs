@@ -1,8 +1,7 @@
+use crate::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 use xmtp_proto::xmtp::device_sync::consent_backup::{
     ConsentRecordSave, ConsentStateSave, ConsentTypeSave,
 };
-
-use crate::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 
 impl From<ConsentRecordSave> for StoredConsentRecord {
     fn from(value: ConsentRecordSave) -> Self {

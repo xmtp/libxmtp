@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 mod consent_save;
 mod group_save;
+mod message_save;
 
 #[derive(Serialize, Deserialize)]
 pub enum BackupElement {
