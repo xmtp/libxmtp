@@ -33,7 +33,7 @@ You can find the latest package version on [Maven Central](https://central.sonat
 
 ## Usage overview
 
-The XMTP message API revolves around a message API client (client) that allows retrieving and sending messages to other XMTP network participants. A client must connect to a wallet app on startup. If this is the very first time the client is created, the client will generate a identity with a encrypted local database to store and retrieve messages. Each additional log in will create a new installation if a local database is not present.
+The XMTP message API revolves around a message API client (client) that allows retrieving and sending messages to other XMTP network participants. A client must connect to a wallet app on startup. If this is the very first time the client is created, the client will generate an identity with an encrypted local database to store and retrieve messages. Each additional log in will create a new installation if a local database is not present.
 
 ```kotlin
 // You'll want to replace this with a wallet from your application.

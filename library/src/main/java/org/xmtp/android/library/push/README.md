@@ -22,7 +22,7 @@ Now that you have an FCM server set up, take a look at the `kotlin` folder in th
 
 These files can serve as the basis for what you might want to provide for your own notification server. This proto code from the example notification server has already been generated and add in the `xmtp-android` example app if you use the example notification server as is.
 
-**To run a example notification server:**
+**To run an example notification server:**
 
 1. Clone the [example-notification-server-go](https://github.com/xmtp/example-notification-server-go) repo.
 
