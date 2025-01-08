@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+mod consent_save;
 mod group_save;
 
 #[derive(Serialize, Deserialize)]
