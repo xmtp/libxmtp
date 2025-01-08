@@ -42,6 +42,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
+pub mod backup;
 pub mod consent_sync;
 pub mod message_sync;
 pub mod preference_sync;
