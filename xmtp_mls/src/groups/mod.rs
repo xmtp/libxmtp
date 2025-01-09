@@ -113,8 +113,8 @@ use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
-    #[error("group not found")]
-    GroupNotFound,
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
@@ -247,7 +247,7 @@ impl RetryableError for GroupError {
             Self::LockUnavailable => true,
             Self::LockFailedToAcquire => true,
             Self::SyncFailedToWait => true,
-            Self::GroupNotFound
+            Self::NotFound(_)
             | Self::GroupMetadata(_)
             | Self::GroupMutableMetadata(_)
             | Self::GroupMutablePermissions(_)
@@ -384,7 +384,24 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
     }
 
-    pub fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    // Creates a new group instance. Validate that the group exists in the DB
+    pub fn new_validated(
+        client: ScopedClient,
+        group_id: Vec<u8>,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(Self, StoredGroup), GroupError> {
+        if let Some(group) = provider.conn_ref().find_group(&group_id)? {
+            Ok((
+                Self::new_from_arc(Arc::new(client), group_id, group.created_at_ns),
+                group,
+            ))
+        } else {
+            tracing::error!("Failed to validate existence of group");
+            return Err(NotFound::GroupById(group_id).into());
+        }
+    }
+
+    fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),
@@ -422,8 +439,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(|_| GroupError::GroupNotFound)?
-                .ok_or(GroupError::GroupNotFound)?;
+                .map_err(|_| NotFound::MlsGroup)?
+                .ok_or(NotFound::MlsGroup)?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -564,12 +581,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
     async fn create_from_welcome(
-        client: Arc<ScopedClient>,
+        client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
         welcome_id: i64,
-    ) -> Result<Self, GroupError> {
+    ) -> Result<Self, GroupError>
+    where
+        ScopedClient: Clone,
+    {
         tracing::info!("Creating from welcome");
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -592,7 +612,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 dm_members,
             ),
             ConversationType::Dm => {
-                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
+                validate_dm_group(&client, &mls_group, &added_by_inbox)?;
                 StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
@@ -616,13 +636,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
+        validate_initial_group_membership(&client, provider.conn_ref(), &mls_group).await?;
 
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new_from_arc(
+        Ok(Self::new(
             client.clone(),
             stored_group.id,
             stored_group.created_at_ns,
@@ -631,12 +651,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub async fn create_from_encrypted_welcome(
-        client: Arc<ScopedClient>,
+        client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
         welcome_id: i64,
-    ) -> Result<Self, GroupError> {
+    ) -> Result<Self, GroupError>
+    where
+        ScopedClient: Clone,
+    {
         tracing::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
 
@@ -1283,23 +1306,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context().store().conn()?;
-        conn.find_group(self.group_id.clone())
-            .map_err(GroupError::from)
-            .and_then(|fetch_result| {
-                fetch_result
-                    .map(|group| group.added_by_inbox_id.clone())
-                    .ok_or_else(|| GroupError::GroupNotFound)
-            })
+        let group = conn
+            .find_group(&self.group_id)?
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
+        Ok(group.added_by_inbox_id)
     }
 
     /// Find the `inbox_id` of the group member who is the peer of this dm
     pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context().store().conn()?;
         let group = conn
-            .find_group(self.group_id.clone())?
-            .ok_or(GroupError::GroupNotFound)?;
+            .find_group(&self.group_id)?
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
         let inbox_id = self.client.inbox_id();
-        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?;
+        let dm_id = &group
+            .dm_id
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
         Ok(dm_id.other_inbox_id(inbox_id))
     }
 

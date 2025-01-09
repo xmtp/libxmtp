@@ -158,9 +158,7 @@ pub struct SyncWorker<ApiClient, V> {
     client: Client<ApiClient, V>,
     /// The sync events stream
     #[allow(clippy::type_complexity)]
-    stream: Pin<
-        Box<dyn Stream<Item = Result<LocalEvents<Client<ApiClient, V>>, SubscribeError>> + Send>,
-    >,
+    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send>>,
     init: OnceCell<()>,
     retry: Retry,
 
@@ -741,7 +739,7 @@ where
     pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group_id = conn
             .latest_sync_group()?
-            .ok_or(GroupError::GroupNotFound)?
+            .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
             .id;
         let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
 

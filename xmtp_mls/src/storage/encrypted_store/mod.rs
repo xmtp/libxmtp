@@ -809,7 +809,7 @@ pub(crate) mod tests {
         let groups = store
             .conn()
             .unwrap()
-            .find_group(b"should not exist".to_vec())
+            .find_group(b"should not exist")
             .unwrap();
         assert_eq!(groups, None);
     }
@@ -856,7 +856,7 @@ pub(crate) mod tests {
 
         let conn = store.conn().unwrap();
         // this group should not exist because of the rollback
-        let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
+        let groups = conn.find_group(b"should not exist").unwrap();
         assert_eq!(groups, None);
     }
 }
