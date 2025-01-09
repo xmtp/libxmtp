@@ -392,10 +392,10 @@ where
     }
 
     /// Get the [`AssociationState`] for each `inbox_id`
-    pub async fn inbox_addresses<'a>(
+    pub async fn inbox_addresses(
         &self,
         refresh_from_network: bool,
-        inbox_ids: Vec<InboxIdRef<'a>>,
+        inbox_ids: Vec<InboxIdRef<'_>>,
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.store().conn()?;
         if refresh_from_network {

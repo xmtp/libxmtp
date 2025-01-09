@@ -1245,13 +1245,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         state: ConsentState,
     ) -> Result<(), GroupError> {
-
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        provider.conn_ref().insert_or_replace_consent_records(&[consent_record.clone()])?;
+        provider
+            .conn_ref()
+            .insert_or_replace_consent_records(&[consent_record.clone()])?;
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
