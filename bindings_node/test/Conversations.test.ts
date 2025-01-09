@@ -104,7 +104,7 @@ describe('Conversations', () => {
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
           updateGroupPinnedFrameUrlPolicy: 3,
-          updateMessageExpirationMsPolicy: 2
+          updateMessageExpirationMsPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -120,7 +120,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
-      updateMessageExpirationMsPolicy: 2
+      updateMessageExpirationMsPolicy: 2,
     })
   })
 
