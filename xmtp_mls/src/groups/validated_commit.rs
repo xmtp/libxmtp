@@ -456,7 +456,7 @@ struct ExpectedDiff {
 /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
 /// This requires loading the Inbox state from the network.
 /// Satisfies Rule 2
-async fn extract_expected_diff<'diff>(
+async fn extract_expected_diff(
     conn: &DbConnection,
     client: impl ScopedGroupClient,
     staged_commit: &StagedCommit,
