@@ -228,7 +228,11 @@ impl MetadataPolicies {
     pub fn default_map(policies: MetadataPolicies) -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
-            map.insert(field.to_string(), policies.clone());
+            if field == MessageExpirationMillis {
+                map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            } else {
+                map.insert(field.to_string(), policies.clone());
+            }
         }
         map
     }
