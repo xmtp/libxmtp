@@ -501,7 +501,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
 
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(&provider, ConsentState::Allowed)?;
+        new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
     }
 
@@ -554,7 +554,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(&provider, ConsentState::Allowed)?;
+        new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
     }
 
@@ -727,7 +727,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(provider, ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed)?;
 
         message_id
     }
@@ -743,7 +743,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(&provider).await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(&provider, ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
     }
@@ -1240,18 +1240,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub fn update_consent_state(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        state: ConsentState,
-    ) -> Result<(), GroupError> {
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let conn = self.context().store().conn()?;
 
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        provider.conn_ref().insert_or_replace_consent_records(&[consent_record.clone()])?;
+        conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
@@ -3929,7 +3926,7 @@ pub(crate) mod tests {
         assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Allowed);
 
         alix_group
-            .update_consent_state(&alix.mls_provider().unwrap(), ConsentState::Denied)
+            .update_consent_state(ConsentState::Denied)
             .unwrap();
         assert_eq!(alix_group.consent_state().unwrap(), ConsentState::Denied);
 
