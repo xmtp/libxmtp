@@ -346,14 +346,15 @@ impl DbConnection {
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .limit(1)
+            .filter(dsl::id.eq(id));
 
-        query = query.limit(1).filter(dsl::id.eq(id));
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
-
-        // Manually extract the first element
-        Ok(groups.into_iter().next())
+        Ok(self
+            .raw_query(|conn| query.load(conn))
+            .map(|mut g| g.pop())?)
     }
 
     /// Return a single group that matches the given welcome ID
@@ -365,12 +366,14 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let mut groups = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
-            tracing::error!("More than one group found for welcome_id {}", welcome_id);
+            tracing::warn!(
+                welcome_id,
+                "More than one group found for welcome_id {welcome_id}"
+            );
         }
-
-        Ok(groups.into_iter().next())
+        Ok(groups.pop())
     }
 
     pub fn find_dm_group(
@@ -383,12 +386,12 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(Some(dm_id)))
             .order(dsl::last_message_ns.desc());
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let mut groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::info!("More than one group found for dm_inbox_id {members:?}");
         }
 
-        Ok(groups.into_iter().next())
+        Ok(groups.pop())
     }
 
     /// Updates group membership state
