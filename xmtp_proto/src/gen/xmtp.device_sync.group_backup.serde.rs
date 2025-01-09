@@ -147,7 +147,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for StoredGroupSave {
+impl serde::Serialize for GroupSave {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -185,7 +185,7 @@ impl serde::Serialize for StoredGroupSave {
         if self.last_message_ns.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.group_backup.StoredGroupSave", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.group_backup.GroupSave", len)?;
         if !self.id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
@@ -235,7 +235,7 @@ impl serde::Serialize for StoredGroupSave {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for StoredGroupSave {
+impl<'de> serde::Deserialize<'de> for GroupSave {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -315,13 +315,13 @@ impl<'de> serde::Deserialize<'de> for StoredGroupSave {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = StoredGroupSave;
+            type Value = GroupSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.device_sync.group_backup.StoredGroupSave")
+                formatter.write_str("struct xmtp.device_sync.group_backup.GroupSave")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<StoredGroupSave, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GroupSave, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -411,7 +411,7 @@ impl<'de> serde::Deserialize<'de> for StoredGroupSave {
                         }
                     }
                 }
-                Ok(StoredGroupSave {
+                Ok(GroupSave {
                     id: id__.unwrap_or_default(),
                     created_at_ns: created_at_ns__.unwrap_or_default(),
                     membership_state: membership_state__.unwrap_or_default(),
@@ -425,6 +425,6 @@ impl<'de> serde::Deserialize<'de> for StoredGroupSave {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.device_sync.group_backup.StoredGroupSave", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.device_sync.group_backup.GroupSave", FIELDS, GeneratedVisitor)
     }
 }

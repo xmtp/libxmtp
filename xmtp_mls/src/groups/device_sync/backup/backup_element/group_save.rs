@@ -1,10 +1,10 @@
 use crate::storage::group::{ConversationType, GroupMembershipState, StoredGroup};
 use xmtp_proto::xmtp::device_sync::group_backup::{
-    ConversationTypeSave, GroupMembershipStateSave, StoredGroupSave,
+    ConversationTypeSave, GroupMembershipStateSave, GroupSave,
 };
 
-impl From<StoredGroupSave> for StoredGroup {
-    fn from(value: StoredGroupSave) -> Self {
+impl From<GroupSave> for StoredGroup {
+    fn from(value: GroupSave) -> Self {
         let membership_state = value.membership_state().into();
         let conversation_type = value.conversation_type().into();
 
@@ -43,7 +43,7 @@ impl From<ConversationTypeSave> for ConversationType {
     }
 }
 
-impl From<StoredGroup> for StoredGroupSave {
+impl From<StoredGroup> for GroupSave {
     fn from(value: StoredGroup) -> Self {
         let membership_state: GroupMembershipStateSave = value.membership_state.into();
         let conversation_type: ConversationTypeSave = value.conversation_type.into();

@@ -1,7 +1,35 @@
-use crate::storage::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+use super::*;
+use crate::storage::{
+    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    schema::consent_records,
+};
+use diesel::prelude::*;
 use xmtp_proto::xmtp::device_sync::consent_backup::{
     ConsentRecordSave, ConsentStateSave, ConsentTypeSave,
 };
+
+impl BackupRecordProvider for ConsentRecordSave {
+    const BATCH_SIZE: i64 = 100;
+    fn backup_records(streamer: &BackupRecordStreamer<'_, Self>) -> Vec<BackupElement>
+    where
+        Self: Sized,
+    {
+        let query = consent_records::table
+            .order_by((consent_records::entity_type, consent_records::entity))
+            .limit(BATCH_SIZE)
+            .offset(streamer.offset);
+
+        let batch = streamer
+            .conn
+            .raw_query(|conn| query.load::<StoredConsentRecord>(conn))
+            .expect("Failed to load consent records");
+
+        batch
+            .into_iter()
+            .map(|record| BackupElement::Consent(record.into()))
+            .collect()
+    }
+}
 
 impl From<ConsentRecordSave> for StoredConsentRecord {
     fn from(value: ConsentRecordSave) -> Self {
