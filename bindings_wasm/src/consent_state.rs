@@ -127,9 +127,11 @@ impl Conversation {
   #[wasm_bindgen(js_name = updateConsentState)]
   pub fn update_consent_state(&self, state: ConsentState) -> Result<(), JsError> {
     let group = self.to_mls_group();
-
+    let provider = group
+      .mls_provider()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
     group
-      .update_consent_state(state.into())
+      .update_consent_state(&provider, state.into())
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(())
