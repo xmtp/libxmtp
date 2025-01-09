@@ -1,11 +1,8 @@
-use std::{
-    collections::HashSet, future::Future, marker::PhantomData, pin::Pin,
-    sync::Arc, task::Poll,
-};
+use std::{collections::HashSet, future::Future, pin::Pin, task::Poll};
 
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, DbConnection, NotFound},
+    storage::{group::ConversationType, NotFound},
     Client, XmtpOpenMlsProvider,
 };
 use futures::{future::FutureExt, prelude::stream::Select, Stream};
@@ -20,29 +17,27 @@ use xmtp_proto::{
 
 use super::{temp::Result, LocalEvents, SubscribeError};
 
-enum WelcomeOrGroup<C> {
-    Group(Result<MlsGroup<C>>),
+#[derive(Debug)]
+pub(super) enum WelcomeOrGroup {
+    Group(Vec<u8>),
     Welcome(Result<WelcomeMessage>),
 }
 
 pin_project! {
     /// Broadcast stream filtered + mapped to WelcomeOrGroup
-    struct BroadcastGroupStream<C> {
-        #[pin] inner: BroadcastStream<LocalEvents<C>>,
+    pub(super) struct BroadcastGroupStream {
+        #[pin] inner: BroadcastStream<LocalEvents>,
     }
 }
 
-impl<C> BroadcastGroupStream<C> {
-    fn new(inner: BroadcastStream<LocalEvents<C>>) -> Self {
+impl BroadcastGroupStream {
+    fn new(inner: BroadcastStream<LocalEvents>) -> Self {
         Self { inner }
     }
 }
 
-impl<C> Stream for BroadcastGroupStream<C>
-where
-    C: Clone + Send + Sync + 'static, // required by tokio::BroadcastStream
-{
-    type Item = WelcomeOrGroup<C>;
+impl Stream for BroadcastGroupStream {
+    type Item = WelcomeOrGroup;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -56,7 +51,7 @@ where
                 let ev = xmtp_common::optify!(event, "Missed messages due to event queue lag")
                     .and_then(LocalEvents::group_filter);
                 if let Some(g) = ev {
-                    Ready(Some(WelcomeOrGroup::<C>::Group(Ok(g))))
+                    Ready(Some(WelcomeOrGroup::Group(g)))
                 } else {
                     // skip this item since it was either missed due to lag, or not a group
                     Pending
@@ -70,26 +65,22 @@ where
 
 pin_project! {
     /// Subscription Stream mapped to WelcomeOrGroup
-    struct SubscriptionStream<S, C> {
+    pub(super) struct SubscriptionStream<S> {
         #[pin] inner: S,
-        _marker: PhantomData<C>,
     }
 }
 
-impl<S, C> SubscriptionStream<S, C> {
+impl<S> SubscriptionStream<S> {
     fn new(inner: S) -> Self {
-        Self {
-            inner,
-            _marker: PhantomData,
-        }
+        Self { inner }
     }
 }
 
-impl<S, C> Stream for SubscriptionStream<S, C>
+impl<S> Stream for SubscriptionStream<S>
 where
     S: Stream<Item = std::result::Result<WelcomeMessage, xmtp_proto::Error>>,
 {
-    type Item = WelcomeOrGroup<C>;
+    type Item = WelcomeOrGroup;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
@@ -111,7 +102,7 @@ where
 
 pin_project! {
     pub struct StreamConversations<'a, C, Subscription> {
-        client: &'a C,
+        client: C,
         #[pin] inner: Subscription,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
@@ -127,7 +118,62 @@ pin_project! {
         /// State where we are waiting on an IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: Pin<Box<dyn Future<Output = Result< (MlsGroup<C>, Option<i64>) >> + 'a >>
+            #[pin] future: FutureWrapper<'a, C>
+        }
+    }
+}
+
+// we can't avoid the cfg(target_arch) without making the entire
+// 'process_new_item' flow a Future, which makes this code
+// significantly more difficult to modify. The other option is storing a
+// anonymous stack type in a struct that would be returned from an async fn
+// struct Foo {
+//      inner: impl Future
+// }
+// or some equivalent, which does not exist in rust.
+//
+// Another option is to make processing a welcome syncronous which
+// might be possible with some kind of a cached identity strategy
+
+// Wrappers to deal with Send Bounds
+#[cfg(not(target_arch = "wasm32"))]
+pub struct FutureWrapper<'a, C> {
+    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct FutureWrapper<'a, C> {
+    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a>>,
+}
+
+impl<'a, C> Future for FutureWrapper<'a, C> {
+    type Output = Result<(MlsGroup<C>, Option<i64>)>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let inner = &mut self.inner;
+        futures::pin_mut!(inner);
+        inner.as_mut().poll(cx)
+    }
+}
+
+impl<'a, C> FutureWrapper<'a, C> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a,
+    {
+        Self {
+            inner: future.boxed(),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a,
+    {
+        Self {
+            inner: future.boxed_local(),
         }
     }
 }
@@ -138,13 +184,13 @@ impl<'a, C> Default for ProcessState<'a, C> {
     }
 }
 
-type MultiplexedSelect<C, S> = Select<BroadcastGroupStream<C>, SubscriptionStream<S, C>>;
+type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
 
 impl<'a, A, V>
     StreamConversations<
         'a,
         Client<A, V>,
-        MultiplexedSelect<Client<A, V>, <A as XmtpMlsStreams>::WelcomeMessageStream<'a>>,
+        MultiplexedSelect<<A as XmtpMlsStreams>::WelcomeMessageStream<'a>>,
     >
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
@@ -153,8 +199,9 @@ where
     pub async fn new(
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
-        conn: &DbConnection,
     ) -> Result<Self> {
+        let provider = client.mls_provider()?;
+        let conn = provider.conn_ref();
         let installation_key = client.installation_public_key();
         let id_cursor = 0;
         tracing::info!(
@@ -175,7 +222,7 @@ where
         let stream = futures::stream::select(events, subscription);
 
         Ok(Self {
-            client,
+            client: client.clone(),
             inner: stream,
             known_welcome_ids,
             conversation_type,
@@ -186,8 +233,8 @@ where
 
 impl<'a, C, Subscription> Stream for StreamConversations<'a, C, Subscription>
 where
-    C: ScopedGroupClient + Clone,
-    Subscription: Stream<Item = Result<WelcomeOrGroup<C>>> + 'a,
+    C: ScopedGroupClient + Clone + 'a,
+    Subscription: Stream<Item = WelcomeOrGroup> + 'a,
 {
     type Item = Result<MlsGroup<C>>;
 
@@ -196,7 +243,6 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::task::Poll::*;
-        use ProcessState::*;
         let mut this = self.as_mut().project();
 
         match this.state.as_mut().project() {
@@ -211,12 +257,14 @@ where
                             // There maybe a way to avoid it, but we need to `Box<>` the type
                             // b/c there's no way to get the anonymous future type on the stack generated by an
                             // `async fn`. If we can somehow store `impl Trait` on a struct (or
-                            // something similar), we could avoid the `Clone` + `Arc`ing.
-                            Self::process_new_item(this.known_welcome_ids.clone(), Arc::new(this.client.clone()), item);
+                           // something similar), we could avoid the `Clone` + `Arc`ing.
+                            // TODO: try ref here?
+                            Self::process_new_item(this.known_welcome_ids.clone(), this.client.clone(), item);
 
                         this.state.set(ProcessState::Processing {
-                            future: future.boxed(),
+                            future: FutureWrapper::new(future),
                         });
+                        cx.waker().wake_by_ref();
                         Pending
                     }
                     // stream ended
@@ -227,7 +275,6 @@ where
                     }
                 }
             }
-            /// We're processing a message we received
             ProcessProject::Processing { future } => match future.poll(cx) {
                 Ready(Ok((group, welcome_id))) => {
                     if let Some(id) = welcome_id {
@@ -243,42 +290,47 @@ where
     }
 }
 
+/// bulk of the processing for a new welcome/group
 impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
 where
     C: ScopedGroupClient + Clone,
 {
     async fn process_new_item(
         known_welcome_ids: HashSet<i64>,
-        client: Arc<C>,
-        item: Result<WelcomeOrGroup<C>>,
+        client: C,
+        item: WelcomeOrGroup,
     ) -> Result<(MlsGroup<C>, Option<i64>)> {
         use WelcomeOrGroup::*;
         let provider = client.context().mls_provider()?;
-        match item? {
-            Welcome(w) => Self::on_welcome(&known_welcome_ids, client, &provider, w?).await,
-            Group(g) => {
-                todo!()
+        match item {
+            Welcome(w) => Self::on_welcome(&known_welcome_ids, client, &provider, w?)
+                .await
+                .map(|(g, w_id)| (g, Some(w_id))),
+            Group(id) => {
+                let (group, stored_group) = MlsGroup::new_validated(client, id, &provider)?;
+                Ok((group, stored_group.welcome_id))
             }
         }
     }
 
-    // process a new welcome, returning the new welcome ID
-    async fn on_welcome(
+    /// process a new welcome, returning the Group & Welcome ID
+    pub(super) async fn on_welcome(
         known_welcome_ids: &HashSet<i64>,
-        client: Arc<C>,
+        client: C,
         provider: &XmtpOpenMlsProvider,
         welcome: WelcomeMessage,
-    ) -> Result<(MlsGroup<C>, Option<i64>)> {
+    ) -> Result<(MlsGroup<C>, i64)> {
         let WelcomeMessageV1 {
             id,
-            ref created_ns,
+            created_ns: _,
             ref installation_key,
             ref data,
             ref hpke_public_key,
-        } = crate::client::extract_welcome_message(welcome)?;
+        } = super::extract_welcome_message(welcome)?;
         let id = id as i64;
 
-        if known_welcome_ids.contains(&(id)) {
+        // TODO: Test multiple streams at once
+        if known_welcome_ids.contains(&id) {
             let conn = provider.conn_ref();
             let group = conn
                 .find_group_by_welcome_id(id)?
@@ -291,8 +343,8 @@ where
                 group.welcome_id
             );
             return Ok((
-                MlsGroup::new(Arc::unwrap_or_clone(client), group.id, group.created_at_ns),
-                Some(id),
+                MlsGroup::new(client.clone(), group.id, group.created_at_ns),
+                id,
             ));
         }
 
@@ -306,12 +358,12 @@ where
                     "Trying to process streamed welcome"
                 );
 
-                (*client)
+                client
                     .context()
                     .store()
                     .transaction_async(provider, |provider| async move {
                         MlsGroup::create_from_encrypted_welcome(
-                            Arc::clone(c),
+                            c,
                             provider,
                             hpke_public_key.as_slice(),
                             data,
@@ -323,6 +375,40 @@ where
             })
         )?;
 
-        Ok((mls_group, Some(id)))
+        Ok((mls_group, id))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::builder::ClientBuilder;
+    use crate::groups::GroupMetadataOptions;
+    use futures::StreamExt;
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    async fn test_stream_welcomes() {
+        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let alice_bob_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        let mut stream = StreamConversations::new(&bob, None).await.unwrap();
+        // futures::pin_mut!(stream);
+        let group_id = alice_bob_group.group_id.clone();
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+        let bob_received_groups = stream.next().await.unwrap().unwrap();
+        assert_eq!(bob_received_groups.group_id, group_id);
     }
 }

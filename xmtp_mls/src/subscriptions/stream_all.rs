@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<'a, C, Welcomes, Messages> Stream for StreamAllMessages<'a, C, Welcomes, Messages>
+impl<'a, C, Welcomes, Messages> Stream for StreamAllMessages<'a, C>
 where
     C: ScopedGroupClient,
 {

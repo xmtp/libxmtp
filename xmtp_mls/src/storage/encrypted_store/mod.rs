@@ -294,16 +294,18 @@ pub mod private {
             // ensuring we have only one strong reference
             let result = fun(provider).await;
             let local_connection = provider.conn_ref().inner_ref();
-            if Arc::strong_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 strong connection references still exist during async transaction"
+            let (strong, weak) = (
+                Arc::strong_count(&local_connection),
+                Arc::weak_count(&local_connection),
+            );
+            if strong > 1 {
+                tracing::debug!(
+                    "{strong} strong connection references still exist during async transaction"
                 );
             }
 
-            if Arc::weak_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 weak connection references still exist during transaction"
-                );
+            if weak > 1 {
+                tracing::debug!("{weak} weak connection references still exist during transaction");
             }
 
             // after the closure finishes, `local_provider` should have the only reference ('strong')
@@ -797,7 +799,7 @@ pub(crate) mod tests {
         let groups = store
             .conn()
             .unwrap()
-            .find_group(b"should not exist".to_vec())
+            .find_group(b"should not exist")
             .unwrap();
         assert_eq!(groups, None);
     }
@@ -844,7 +846,7 @@ pub(crate) mod tests {
 
         let conn = store.conn().unwrap();
         // this group should not exist because of the rollback
-        let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
+        let groups = conn.find_group(b"should not exist").unwrap();
         assert_eq!(groups, None);
     }
 }
