@@ -28,10 +28,20 @@ trait BackupRecordProvider {
         Self: Sized;
 }
 
-struct BackupRecordStreamer<'a, R> {
+pub(super) struct BackupRecordStreamer<'a, R> {
     offset: i64,
     conn: &'a DbConnection,
     _phantom: PhantomData<R>,
+}
+
+impl<'a, R> BackupRecordStreamer<'a, R> {
+    pub(super) fn new(conn: &'a DbConnection) -> Self {
+        Self {
+            offset: 0,
+            conn,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<'a, R> Stream for BackupRecordStreamer<'a, R>
