@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::device_sync::consent_backup::{
 
 impl BackupRecordProvider for ConsentRecordSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records(streamer: &BackupRecordStreamer<'_, Self>) -> Vec<BackupElement>
+    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
     where
         Self: Sized,
     {

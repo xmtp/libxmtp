@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -23,28 +23,28 @@ pub enum BackupElement {
 
 trait BackupRecordProvider {
     const BATCH_SIZE: i64;
-    fn backup_records(streamer: &BackupRecordStreamer<'_, Self>) -> Vec<BackupElement>
+    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
     where
         Self: Sized;
 }
 
-pub(super) struct BackupRecordStreamer<'a, R> {
+pub(super) struct BackupRecordStreamer<R> {
     offset: i64,
-    conn: &'a DbConnection,
+    conn: Arc<DbConnection>,
     _phantom: PhantomData<R>,
 }
 
-impl<'a, R> BackupRecordStreamer<'a, R> {
-    pub(super) fn new(conn: &'a DbConnection) -> Self {
+impl<R> BackupRecordStreamer<R> {
+    pub(super) fn new(conn: &Arc<DbConnection>) -> Self {
         Self {
             offset: 0,
-            conn,
+            conn: conn.clone(),
             _phantom: PhantomData,
         }
     }
 }
 
-impl<'a, R> Stream for BackupRecordStreamer<'a, R>
+impl<R> Stream for BackupRecordStreamer<R>
 where
     R: BackupRecordProvider + Unpin,
 {
@@ -57,7 +57,7 @@ where
 
         // Get a mutable reference to self
         let this = self.get_mut();
-        let batch = R::backup_records(&*this);
+        let batch = R::backup_records(this);
 
         // If no records found, we've reached the end of the stream
         if batch.is_empty() {

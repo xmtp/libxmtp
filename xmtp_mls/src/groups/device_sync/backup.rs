@@ -1,9 +1,9 @@
+use crate::storage::DbConnection;
 use backup_element::{BackupElement, BackupRecordStreamer};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::{ops::Range, sync::Arc};
 use xmtp_proto::xmtp::device_sync::consent_backup::ConsentRecordSave;
-
-use crate::storage::DbConnection;
 
 mod backup_element;
 
@@ -17,8 +17,7 @@ pub struct BackupMetadata {
 }
 
 pub struct BackupOptions {
-    from_ns: u64,
-    to_ns: u64,
+    range_ns: Option<Range<u64>>,
     elements: Vec<BackupSelection>,
 }
 
@@ -31,7 +30,7 @@ pub enum BackupSelection {
 impl BackupSelection {
     fn to_streamers(
         &self,
-        conn: &'static DbConnection,
+        conn: &Arc<DbConnection>,
     ) -> Vec<Box<dyn Stream<Item = Vec<BackupElement>>>> {
         match self {
             Self::Consent => vec![Box::new(BackupRecordStreamer::<ConsentRecordSave>::new(
@@ -43,7 +42,7 @@ impl BackupSelection {
 }
 
 impl BackupOptions {
-    pub fn write(self, conn: &'static DbConnection) -> BackupWriter {
+    pub fn write(self, conn: &Arc<DbConnection>) -> BackupWriter {
         let input_streams = self
             .elements
             .iter()
@@ -60,13 +59,4 @@ impl BackupOptions {
 struct BackupWriter {
     options: BackupOptions,
     input_streams: Vec<Vec<Box<dyn Stream<Item = Vec<BackupElement>>>>>,
-}
-
-impl Stream for BackupWriter {
-    type Item = Vec<BackupElement>;
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-    }
 }
