@@ -1,7 +1,41 @@
-use crate::storage::group::{ConversationType, GroupMembershipState, StoredGroup};
+use super::*;
+use crate::storage::{
+    group::{ConversationType, GroupMembershipState, StoredGroup},
+    schema::groups,
+};
+use diesel::prelude::*;
 use xmtp_proto::xmtp::device_sync::group_backup::{
     ConversationTypeSave, GroupMembershipStateSave, GroupSave,
 };
+
+impl BackupRecordProvider for GroupSave {
+    const BATCH_SIZE: i64 = 100;
+    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    where
+        Self: Sized,
+    {
+        let mut query = groups::table.order_by(groups::id).into_boxed();
+
+        if let Some(start_ns) = streamer.start_ns {
+            query = query.filter(groups::created_at_ns.gt(start_ns as i64));
+        }
+        if let Some(end_ns) = streamer.end_ns {
+            query = query.filter(groups::created_at_ns.le(end_ns as i64));
+        }
+
+        query = query.limit(BATCH_SIZE).offset(streamer.offset);
+
+        let batch = streamer
+            .conn
+            .raw_query(|conn| query.load::<StoredGroup>(conn))
+            .expect("Failed to load group records");
+
+        batch
+            .into_iter()
+            .map(|record| BackupElement::Group(record.into()))
+            .collect()
+    }
+}
 
 impl From<GroupSave> for StoredGroup {
     fn from(value: GroupSave) -> Self {

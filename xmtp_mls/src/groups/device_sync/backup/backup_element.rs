@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, ops::Range, sync::Arc};
 
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,8 @@ use xmtp_proto::xmtp::device_sync::{
 };
 
 use crate::storage::DbConnection;
+
+use super::BackupOptions;
 
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
@@ -31,14 +33,18 @@ trait BackupRecordProvider {
 pub(super) struct BackupRecordStreamer<R> {
     offset: i64,
     conn: Arc<DbConnection>,
+    start_ns: Option<u64>,
+    end_ns: Option<u64>,
     _phantom: PhantomData<R>,
 }
 
 impl<R> BackupRecordStreamer<R> {
-    pub(super) fn new(conn: &Arc<DbConnection>) -> Self {
+    pub(super) fn new(conn: &Arc<DbConnection>, opts: &BackupOptions) -> Self {
         Self {
             offset: 0,
             conn: conn.clone(),
+            start_ns: opts.start_ns,
+            end_ns: opts.end_ns,
             _phantom: PhantomData,
         }
     }

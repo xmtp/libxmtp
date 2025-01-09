@@ -1,10 +1,43 @@
+use super::*;
+use crate::storage::{
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    schema::group_messages,
+};
+use diesel::prelude::*;
 use xmtp_proto::xmtp::device_sync::message_backup::{
     ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
 };
 
-use crate::storage::group_message::{
-    ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
-};
+impl BackupRecordProvider for GroupMessageSave {
+    const BATCH_SIZE: i64 = 100;
+    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    where
+        Self: Sized,
+    {
+        let mut query = group_messages::table
+            .order_by(group_messages::id)
+            .into_boxed();
+
+        if let Some(start_ns) = streamer.start_ns {
+            query = query.filter(group_messages::sent_at_ns.gt(start_ns as i64));
+        }
+        if let Some(end_ns) = streamer.end_ns {
+            query = query.filter(group_messages::sent_at_ns.le(end_ns as i64));
+        }
+
+        query = query.limit(BATCH_SIZE).offset(streamer.offset);
+
+        let batch = streamer
+            .conn
+            .raw_query(|conn| query.load::<StoredGroupMessage>(conn))
+            .expect("Failed to load group records");
+
+        batch
+            .into_iter()
+            .map(|record| BackupElement::Message(record.into()))
+            .collect()
+    }
+}
 
 impl From<GroupMessageSave> for StoredGroupMessage {
     fn from(value: GroupMessageSave) -> Self {
