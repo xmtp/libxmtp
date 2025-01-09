@@ -14,7 +14,7 @@ use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
-// mod stream_all;
+mod stream_all;
 mod stream_conversations;
 
 use crate::{
