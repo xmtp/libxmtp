@@ -3911,7 +3911,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_permissions_show_expected_values() {
+    async fn test_group_permissions_show_expected_values() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
         // Create admin_only group
@@ -3941,6 +3941,67 @@ mod tests {
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+
+        // Create all_members group
+        let all_members_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::Default),
+            ..Default::default()
+        };
+        let alix_group_all_members = alix
+            .conversations()
+            .create_group(vec![bo.account_address.clone()], all_members_options)
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_all_members
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Allow,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
+            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_permissions_show_expected_values() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group_admin_only = alix
+            .conversations()
+            .create_dm(bo.account_address.clone())
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_admin_only
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Deny,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+            add_admin_policy: FfiPermissionPolicy::Deny,
+            remove_admin_policy: FfiPermissionPolicy::Deny,
+            update_group_name_policy: FfiPermissionPolicy::Allow,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
+            update_message_expiration_ms_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 

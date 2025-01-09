@@ -204,7 +204,7 @@ describe('Conversations', () => {
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageExpirationMsPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)

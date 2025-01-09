@@ -186,6 +186,7 @@ impl GroupMutableMetadata {
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
             MetadataField::GroupPinnedFrameUrl,
+            MetadataField::MessageExpirationMillis
         ]
     }
 
