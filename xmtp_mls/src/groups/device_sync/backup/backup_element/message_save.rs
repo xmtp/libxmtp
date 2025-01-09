@@ -58,6 +58,7 @@ impl From<GroupMessageSave> for StoredGroupMessage {
             version_major: value.version_major,
             version_minor: value.version_minor,
             authority_id: value.authority_id,
+            reference_id: value.reference_id,
         }
     }
 }
@@ -114,6 +115,7 @@ impl From<StoredGroupMessage> for GroupMessageSave {
             version_major: value.version_major,
             version_minor: value.version_minor,
             authority_id: value.authority_id,
+            reference_id: value.reference_id,
         }
     }
 }
