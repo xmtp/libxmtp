@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -6,6 +8,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
+
 use serde::{Deserialize, Serialize};
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
@@ -53,6 +56,14 @@ pub struct StoredGroupMessage {
     pub version_minor: i32,
     /// The ID of the authority defining the content type
     pub authority_id: String,
+    /// The ID of a referenced message
+    pub reference_id: Option<Vec<u8>>,
+}
+
+pub struct StoredGroupMessageWithReactions {
+    pub message: StoredGroupMessage,
+    // Messages who's reference_id matches this message's id
+    pub reactions: Vec<StoredGroupMessage>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -213,7 +224,7 @@ impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MsgQueryArgs {
     pub sent_after_ns: Option<i64>,
     pub sent_before_ns: Option<i64>,
@@ -280,6 +291,85 @@ impl DbConnection {
         }
 
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
+    }
+
+    /// Query for group messages with their reactions
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_group_messages_with_reactions(
+        &self,
+        group_id: &[u8],
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, StorageError> {
+        // First get all the main messages
+        let mut modified_args = args.clone();
+        // filter out reactions from the main query so we don't get them twice
+        let content_types = match modified_args.content_types.clone() {
+            Some(content_types) => {
+                let mut content_types = content_types.clone();
+                content_types.retain(|content_type| *content_type != ContentType::Reaction);
+                Some(content_types)
+            }
+            None => Some(vec![
+                ContentType::Text,
+                ContentType::GroupMembershipChange,
+                ContentType::GroupUpdated,
+                ContentType::ReadReceipt,
+                ContentType::Reply,
+                ContentType::Attachment,
+                ContentType::RemoteAttachment,
+                ContentType::TransactionReference,
+                ContentType::Unknown,
+            ]),
+        };
+
+        modified_args.content_types = content_types;
+        let messages = self.get_group_messages(group_id, &modified_args)?;
+
+        // Then get all reactions for these messages in a single query
+        let message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_slice()).collect();
+
+        let mut reactions_query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::reference_id.is_not_null())
+            .filter(dsl::reference_id.eq_any(message_ids))
+            .into_boxed();
+
+        // Apply the same sorting as the main messages
+        reactions_query = match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
+            SortDirection::Ascending => reactions_query.order(dsl::sent_at_ns.asc()),
+            SortDirection::Descending => reactions_query.order(dsl::sent_at_ns.desc()),
+        };
+
+        let reactions: Vec<StoredGroupMessage> =
+            self.raw_query(|conn| reactions_query.load(conn))?;
+
+        // Group reactions by parent message id
+        let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
+
+        for reaction in reactions {
+            if let Some(reference_id) = &reaction.reference_id {
+                reactions_by_reference
+                    .entry(reference_id.clone())
+                    .or_default()
+                    .push(reaction);
+            }
+        }
+
+        // Combine messages with their reactions
+        let messages_with_reactions: Vec<StoredGroupMessageWithReactions> = messages
+            .into_iter()
+            .map(|message| {
+                let message_clone = message.clone();
+                StoredGroupMessageWithReactions {
+                    message,
+                    reactions: reactions_by_reference
+                        .remove(&message_clone.id)
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        Ok(messages_with_reactions)
     }
 
     /// Get a particular group message
@@ -370,6 +460,7 @@ pub(crate) mod tests {
             version_major: 0,
             version_minor: 0,
             authority_id: "unknown".to_string(),
+            reference_id: None,
         }
     }
 

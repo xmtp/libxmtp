@@ -35,6 +35,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use xmtp_content_types::reaction::ReactionCodec;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -58,7 +59,11 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{group::DmIdExt, group_message::ContentType, NotFound, StorageError};
+use crate::storage::{
+    group::DmIdExt,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    NotFound, StorageError,
+};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -66,6 +71,7 @@ use xmtp_proto::xmtp::mls::{
         GroupMessage,
     },
     message_contents::{
+        content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
         EncodedContent, PlaintextEnvelope,
     },
@@ -322,6 +328,7 @@ pub struct QueryableContentFields {
     pub version_major: i32,
     pub version_minor: i32,
     pub authority_id: String,
+    pub reference_id: Option<Vec<u8>>,
 }
 
 impl Default for QueryableContentFields {
@@ -331,20 +338,38 @@ impl Default for QueryableContentFields {
             version_major: 0,
             version_minor: 0,
             authority_id: String::new(),
+            reference_id: None,
         }
     }
 }
 
-impl From<EncodedContent> for QueryableContentFields {
-    fn from(content: EncodedContent) -> Self {
-        let content_type_id = content.r#type.unwrap_or_default();
+impl TryFrom<EncodedContent> for QueryableContentFields {
+    type Error = prost::DecodeError;
 
-        QueryableContentFields {
+    fn try_from(content: EncodedContent) -> Result<Self, Self::Error> {
+        let content_type_id = content.r#type.unwrap_or_default();
+        let reference_id = match (
+            content_type_id.type_id.as_str(),
+            content_type_id.version_major,
+        ) {
+            (ReactionCodec::TYPE_ID, major) if major >= 2 => {
+                let reaction = ReactionV2::decode(content.content.as_slice())?;
+                hex::decode(reaction.reference).ok()
+            }
+            (ReactionCodec::TYPE_ID, _) => {
+                // TODO: Implement JSON deserialization for legacy reaction format
+                None
+            }
+            _ => None,
+        };
+
+        Ok(QueryableContentFields {
             content_type: content_type_id.type_id.into(),
             version_major: content_type_id.version_major as i32,
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
-        }
+            reference_id,
+        })
     }
 }
 
@@ -748,7 +773,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Return early with default if decoding fails or type is missing
         EncodedContent::decode(message)
             .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
-            .map(QueryableContentFields::from)
+            .and_then(|content| {
+                QueryableContentFields::try_from(content).inspect_err(|e| {
+                    tracing::debug!(
+                        "Failed to convert EncodedContent to QueryableContentFields: {}",
+                        e
+                    )
+                })
+            })
             .unwrap_or_default()
     }
 
@@ -794,6 +826,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_major: queryable_content_fields.version_major,
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
+            reference_id: queryable_content_fields.reference_id,
         };
         group_message.store(provider.conn_ref())?;
 
@@ -817,6 +850,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    /// and limit
+    pub fn find_messages_with_reactions(
+        &self,
+        args: &MsgQueryArgs,
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
+        let conn = self.context().store().conn()?;
+        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
 
