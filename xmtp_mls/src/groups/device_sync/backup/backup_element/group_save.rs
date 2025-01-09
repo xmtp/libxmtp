@@ -23,7 +23,7 @@ impl BackupRecordProvider for GroupSave {
             query = query.filter(groups::created_at_ns.le(end_ns as i64));
         }
 
-        query = query.limit(BATCH_SIZE).offset(streamer.offset);
+        query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);
 
         let batch = streamer
             .conn
