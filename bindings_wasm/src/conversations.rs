@@ -129,6 +129,8 @@ pub struct CreateGroupOptions {
   pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
+  #[wasm_bindgen(js_name = messageExpirationFromMillis)]
+  pub message_expiration_from_ms: Option<i64>,
   #[wasm_bindgen(js_name = messageExpirationMillis)]
   pub message_expiration_ms: Option<i64>,
 }
@@ -136,6 +138,7 @@ pub struct CreateGroupOptions {
 #[wasm_bindgen]
 impl CreateGroupOptions {
   #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     permissions: Option<GroupPermissionsOptions>,
     group_name: Option<String>,
@@ -143,6 +146,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
+    message_expiration_from_ms: Option<i64>,
     message_expiration_ms: Option<i64>,
   ) -> Self {
     Self {
@@ -152,6 +156,7 @@ impl CreateGroupOptions {
       group_description,
       group_pinned_frame_url,
       custom_permission_policy_set,
+      message_expiration_from_ms,
       message_expiration_ms,
     }
   }
@@ -164,6 +169,7 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
+      message_expiration_from_ms: self.message_expiration_from_ms,
       message_expiration_ms: self.message_expiration_ms,
     }
   }
@@ -195,6 +201,7 @@ impl Conversations {
       group_description: None,
       group_pinned_frame_url: None,
       custom_permission_policy_set: None,
+      message_expiration_from_ms: None,
       message_expiration_ms: None,
     });
 
@@ -209,8 +216,8 @@ impl Conversations {
     let metadata_options = options.clone().into_group_metadata_options();
 
     let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::AllMembers) => {
-        Some(PreconfiguredPolicies::AllMembers.to_policy_set())
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
       }
       Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())

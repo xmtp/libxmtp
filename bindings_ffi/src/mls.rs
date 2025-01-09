@@ -633,7 +633,7 @@ pub struct FfiConversations {
 
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiGroupPermissionsOptions {
-    AllMembers,
+    Default,
     AdminOnly,
     CustomPolicy,
 }
@@ -789,7 +789,7 @@ pub struct FfiPermissionPolicySet {
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::AllMembers => FfiGroupPermissionsOptions::AllMembers,
+            PreconfiguredPolicies::Default => FfiGroupPermissionsOptions::Default,
             PreconfiguredPolicies::AdminsOnly => FfiGroupPermissionsOptions::AdminOnly,
         }
     }
@@ -814,6 +814,14 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
         metadata_permissions_map.insert(
             MetadataField::GroupPinnedFrameUrl.to_string(),
             policy_set.update_group_pinned_frame_url_policy.try_into()?,
+        );
+        // MessageExpirationFromMillis follows the same policy as MessageExpirationMillis
+        metadata_permissions_map.insert(
+            MetadataField::MessageExpirationFromMillis.to_string(),
+            policy_set
+                .update_message_expiration_ms_policy
+                .clone()
+                .try_into()?,
         );
         metadata_permissions_map.insert(
             MetadataField::MessageExpirationMillis.to_string(),
@@ -877,8 +885,8 @@ impl FfiConversations {
         let metadata_options = opts.clone().into_group_metadata_options();
 
         let group_permissions = match opts.permissions {
-            Some(FfiGroupPermissionsOptions::AllMembers) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers.to_policy_set())
+            Some(FfiGroupPermissionsOptions::Default) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
             }
             Some(FfiGroupPermissionsOptions::AdminOnly) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
@@ -1370,6 +1378,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
+    pub message_expiration_from_ms: Option<i64>,
     pub message_expiration_ms: Option<i64>,
 }
 
@@ -1380,6 +1389,7 @@ impl FfiCreateGroupOptions {
             image_url_square: self.group_image_url_square,
             description: self.group_description,
             pinned_frame_url: self.group_pinned_frame_url,
+            message_expiration_from_ms: self.message_expiration_from_ms,
             message_expiration_ms: self.message_expiration_ms,
         }
     }
@@ -2689,6 +2699,7 @@ mod tests {
                     group_description: Some("group description".to_string()),
                     group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
+                    message_expiration_from_ms: None,
                     message_expiration_ms: None,
                 },
             )
@@ -3935,7 +3946,7 @@ mod tests {
 
         // Create all_members group
         let all_members_options = FfiCreateGroupOptions {
-            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            permissions: Some(FfiGroupPermissionsOptions::Default),
             ..Default::default()
         };
         let alix_group_all_members = alix
@@ -4085,6 +4096,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
+            message_expiration_from_ms: None,
             message_expiration_ms: None,
         };
 
@@ -4213,6 +4225,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
+            message_expiration_from_ms: None,
             message_expiration_ms: None,
         };
 
@@ -4227,12 +4240,13 @@ mod tests {
         assert!(results_1.is_err());
 
         let create_group_options_invalid_2 = FfiCreateGroupOptions {
-            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            permissions: Some(FfiGroupPermissionsOptions::Default),
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+            message_expiration_from_ms: None,
             message_expiration_ms: None,
         };
 
@@ -4253,6 +4267,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+            message_expiration_from_ms: None,
             message_expiration_ms: None,
         };
 
@@ -4273,6 +4288,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
+            message_expiration_from_ms: None,
             message_expiration_ms: None,
         };
 

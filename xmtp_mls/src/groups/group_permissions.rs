@@ -31,6 +31,7 @@ use super::{
 };
 use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 use crate::groups::group_mutable_metadata::MetadataField;
+use crate::groups::group_mutable_metadata::MetadataField::MessageExpirationMillis;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -1145,7 +1146,7 @@ impl PolicySet {
 /// since the group was created, the number of metadata policies might not match
 /// the default All Members Policy Set. As long as all metadata policies are allow, we will
 /// match against All Members Preconfigured Policy
-pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
+pub fn is_policy_default(policy: &PolicySet) -> Result<bool, PolicyError> {
     let mut metadata_policies_equal = true;
     for field_name in policy.update_metadata_policy.keys() {
         let metadata_policy = policy.update_metadata_policy.get(field_name).ok_or(
@@ -1153,8 +1154,13 @@ pub fn is_policy_all_members(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        metadata_policies_equal =
-            metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
+        if field_name == MessageExpirationMillis.as_str() {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        } else {
+            metadata_policies_equal =
+                metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
+        }
     }
     Ok(metadata_policies_equal
         && policy.add_member_policy == MembershipPolicies::allow()
@@ -1192,13 +1198,13 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
 /// Returns the "All Members" preconfigured policy.
 ///
 /// A policy where any member can add or remove any other member
-pub(crate) fn policy_all_members() -> PolicySet {
+pub(crate) fn default_policy() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
     }
     metadata_policies_map.insert(
-        MetadataField::MessageExpirationMillis.to_string(),
+        MessageExpirationMillis.to_string(),
         MetadataPolicies::allow_if_actor_admin(),
     );
 
@@ -1247,7 +1253,7 @@ impl Default for PolicySet {
 pub enum PreconfiguredPolicies {
     /// The "All Members" preconfigured policy.
     #[default]
-    AllMembers,
+    Default,
     /// The "Admin Only" preconfigured policy.
     AdminsOnly,
 }
@@ -1256,15 +1262,15 @@ impl PreconfiguredPolicies {
     /// Converts the PreconfiguredPolicies to a PolicySet.
     pub fn to_policy_set(&self) -> PolicySet {
         match self {
-            PreconfiguredPolicies::AllMembers => policy_all_members(),
+            PreconfiguredPolicies::Default => default_policy(),
             PreconfiguredPolicies::AdminsOnly => policy_admin_only(),
         }
     }
 
     /// Creates a PreconfiguredPolicies from a PolicySet.
     pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
-        if is_policy_all_members(policy_set)? {
-            Ok(PreconfiguredPolicies::AllMembers)
+        if is_policy_default(policy_set)? {
+            Ok(PreconfiguredPolicies::Default)
         } else if is_policy_admin_only(policy_set)? {
             Ok(PreconfiguredPolicies::AdminsOnly)
         } else {
@@ -1624,11 +1630,11 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_preconfigured_policy() {
-        let group_permissions = GroupMutablePermissions::new(policy_all_members());
+        let group_permissions = GroupMutablePermissions::new(default_policy());
 
         assert_eq!(
             group_permissions.preconfigured_policy().unwrap(),
-            PreconfiguredPolicies::AllMembers
+            PreconfiguredPolicies::Default
         );
 
         let group_group_permissions_creator_admin =
@@ -1657,7 +1663,7 @@ pub(crate) mod tests {
             update_permissions_policy: PermissionsPolicies::allow_if_actor_super_admin(),
         };
 
-        assert!(is_policy_all_members(&policy_set_new_metadata_permission).unwrap());
+        assert!(is_policy_default(&policy_set_new_metadata_permission).unwrap());
 
         let mut metadata_policies_map =
             MetadataPolicies::default_map(MetadataPolicies::allow_if_actor_admin());

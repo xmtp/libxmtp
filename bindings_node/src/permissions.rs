@@ -14,7 +14,7 @@ use xmtp_mls::groups::{
 
 #[napi]
 pub enum GroupPermissionsOptions {
-  AllMembers,
+  Default,
   AdminOnly,
   CustomPolicy,
 }
@@ -167,7 +167,7 @@ pub struct PermissionPolicySet {
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissionsOptions::AllMembers,
+      PreconfiguredPolicies::Default => GroupPermissionsOptions::Default,
       PreconfiguredPolicies::AdminsOnly => GroupPermissionsOptions::AdminOnly,
     }
   }

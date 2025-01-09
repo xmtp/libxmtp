@@ -14,7 +14,7 @@ use xmtp_mls::groups::{
 #[wasm_bindgen]
 #[derive(Clone)]
 pub enum GroupPermissionsOptions {
-  AllMembers,
+  Default,
   AdminOnly,
   CustomPolicy,
 }
@@ -206,7 +206,7 @@ impl PermissionPolicySet {
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissionsOptions::AllMembers,
+      PreconfiguredPolicies::Default => GroupPermissionsOptions::Default,
       PreconfiguredPolicies::AdminsOnly => GroupPermissionsOptions::AdminOnly,
     }
   }

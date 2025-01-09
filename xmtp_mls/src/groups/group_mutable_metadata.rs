@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
-    DEFAULT_GROUP_PINNED_FRAME_URL, DEFAULT_MESSAGE_EXPIRATION_MS, MUTABLE_METADATA_EXTENSION_ID,
+    DEFAULT_GROUP_PINNED_FRAME_URL, MUTABLE_METADATA_EXTENSION_ID,
 };
 
 use super::GroupMetadataOptions;
@@ -47,6 +47,7 @@ pub enum MetadataField {
     Description,
     GroupImageUrlSquare,
     GroupPinnedFrameUrl,
+    MessageExpirationFromMillis,
     MessageExpirationMillis,
 }
 
@@ -58,6 +59,7 @@ impl MetadataField {
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
+            MetadataField::MessageExpirationFromMillis => "message_expiration_from_ms",
             MetadataField::MessageExpirationMillis => "message_expiration_ms",
         }
     }
@@ -123,12 +125,20 @@ impl GroupMutableMetadata {
             opts.pinned_frame_url
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
-        attributes.insert(
-            MetadataField::MessageExpirationMillis.to_string(),
-            opts.message_expiration_ms
-                .unwrap_or(DEFAULT_MESSAGE_EXPIRATION_MS)
-                .to_string(),
-        );
+
+        if let Some(message_expiration_from_ms) = opts.message_expiration_from_ms {
+            attributes.insert(
+                MetadataField::MessageExpirationFromMillis.to_string(),
+                message_expiration_from_ms.to_string(),
+            );
+        }
+        if let Some(message_expiration_ms) = opts.message_expiration_ms {
+            attributes.insert(
+                MetadataField::MessageExpirationMillis.to_string(),
+                message_expiration_ms.to_string(),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -157,10 +167,6 @@ impl GroupMutableMetadata {
         attributes.insert(
             MetadataField::GroupPinnedFrameUrl.to_string(),
             DEFAULT_GROUP_PINNED_FRAME_URL.to_string(),
-        );
-        attributes.insert(
-            MetadataField::MessageExpirationMillis.to_string(),
-            DEFAULT_MESSAGE_EXPIRATION_MS.to_string(),
         );
         let admin_list = vec![];
         let super_admin_list = vec![];
