@@ -1,24 +1,65 @@
-use std::{marker::PhantomData, ops::Range, sync::Arc};
-
+use super::BackupOptions;
+use crate::storage::DbConnection;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::{marker::PhantomData, pin::Pin, sync::Arc};
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::ConsentRecordSave, group_backup::GroupSave, message_backup::GroupMessageSave,
 };
-
-use crate::storage::DbConnection;
-
-use super::BackupOptions;
 
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
+/// A union type that describes everything that can be backed up.
 #[derive(Serialize, Deserialize)]
 pub enum BackupElement {
     Group(GroupSave),
     Message(GroupMessageSave),
     Consent(ConsentRecordSave),
+}
+
+/// A stream that curates a collection of streams for backup.
+pub(super) struct BackupStream {
+    pub(super) buffer: Vec<BackupElement>,
+    pub(super) input_streams: Vec<Vec<Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>>>,
+}
+
+impl Stream for BackupStream {
+    type Item = BackupElement;
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::task::Poll;
+
+        let this = self.get_mut();
+
+        if let Some(element) = this.buffer.pop() {
+            return Poll::Ready(Some(element));
+        }
+
+        loop {
+            let Some(last) = this.input_streams.last_mut() else {
+                // No streams left, we're done.
+                return Poll::Ready(None);
+            };
+            if let Some(last) = last.last_mut() {
+                let buffer = match last.as_mut().poll_next(cx) {
+                    Poll::Ready(v) => v,
+                    Poll::Pending => return Poll::Pending,
+                };
+                if let Some(buffer) = buffer {
+                    this.buffer = buffer;
+                    if let Some(element) = this.buffer.pop() {
+                        return Poll::Ready(Some(element));
+                    }
+                }
+            };
+
+            this.input_streams.pop();
+        }
+    }
 }
 
 trait BackupRecordProvider {
@@ -28,6 +69,7 @@ trait BackupRecordProvider {
         Self: Sized;
 }
 
+/// A generic struct to make it easier to stream backup records from the database
 pub(super) struct BackupRecordStreamer<R> {
     offset: i64,
     conn: Arc<DbConnection>,
