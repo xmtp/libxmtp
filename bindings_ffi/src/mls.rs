@@ -5598,6 +5598,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
     }
 }
