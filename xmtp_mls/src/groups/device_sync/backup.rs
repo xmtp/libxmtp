@@ -29,11 +29,11 @@ pub enum BackupOptionsElementSelection {
 }
 
 impl BackupOptionsElementSelection {
-    fn to_streamers(
+    fn to_streamers<'a>(
         &self,
-        conn: &Arc<DbConnection>,
+        conn: &'a DbConnection,
         opts: &BackupOptions,
-    ) -> Vec<Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>> {
+    ) -> Vec<Pin<Box<dyn Stream<Item = Vec<BackupElement>> + 'a>>> {
         match self {
             Self::Consent => vec![Box::pin(BackupRecordStreamer::<ConsentRecordSave>::new(
                 conn, opts,
@@ -44,7 +44,7 @@ impl BackupOptionsElementSelection {
 }
 
 impl BackupOptions {
-    pub fn write(self, conn: &Arc<DbConnection>) -> BackupStream {
+    pub fn write(self, conn: &'static DbConnection) -> BackupStream {
         let input_streams = self
             .elements
             .iter()

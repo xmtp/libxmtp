@@ -70,19 +70,19 @@ trait BackupRecordProvider {
 }
 
 /// A generic struct to make it easier to stream backup records from the database
-pub(super) struct BackupRecordStreamer<R> {
+pub(super) struct BackupRecordStreamer<'a, R> {
     offset: i64,
-    conn: Arc<DbConnection>,
+    conn: &'a DbConnection,
     start_ns: Option<u64>,
     end_ns: Option<u64>,
     _phantom: PhantomData<R>,
 }
 
-impl<R> BackupRecordStreamer<R> {
-    pub(super) fn new(conn: &Arc<DbConnection>, opts: &BackupOptions) -> Self {
+impl<'a, R> BackupRecordStreamer<'a, R> {
+    pub(super) fn new(conn: &'a DbConnection, opts: &BackupOptions) -> Self {
         Self {
             offset: 0,
-            conn: conn.clone(),
+            conn: conn,
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             _phantom: PhantomData,
@@ -90,7 +90,7 @@ impl<R> BackupRecordStreamer<R> {
     }
 }
 
-impl<R> Stream for BackupRecordStreamer<R>
+impl<'a, R> Stream for BackupRecordStreamer<'a, R>
 where
     R: BackupRecordProvider + Unpin,
 {
