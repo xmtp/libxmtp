@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -171,6 +172,22 @@ impl CreateGroupOptions {
       pinned_frame_url: self.group_pinned_frame_url,
       message_expiration_from_ms: self.message_expiration_from_ms,
       message_expiration_ms: self.message_expiration_ms,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(serde::Serialize)]
+pub struct HmacKey {
+  pub key: Vec<u8>,
+  pub epoch: i64,
+}
+
+impl From<XmtpHmacKey> for HmacKey {
+  fn from(value: XmtpHmacKey) -> Self {
+    Self {
+      epoch: value.epoch,
+      key: value.key.to_vec(),
     }
   }
 }
@@ -368,5 +385,30 @@ impl Conversations {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()
     }))
+  }
+
+  #[wasm_bindgen(js_name = getHmacKeys)]
+  pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
+    let inner = self.inner_client.as_ref();
+    let conversations = inner
+      .find_groups(GroupQueryArgs {
+        include_duplicate_dms: true,
+        ..Default::default()
+      })
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
+    for conversation in conversations {
+      let id = hex::encode(&conversation.group_id);
+      let keys = conversation
+        .hmac_keys(-1..=1)
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+      hmac_map.insert(id, keys);
+    }
+
+    Ok(serde_wasm_bindgen::to_value(&hmac_map)?)
   }
 }
