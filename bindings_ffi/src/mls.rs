@@ -1710,9 +1710,8 @@ impl FfiConversation {
     }
 
     pub fn update_consent_state(&self, state: FfiConsentState) -> Result<(), GenericError> {
-        let provider = self.inner.mls_provider()?;
         self.inner
-            .update_consent_state(&provider, state.into())
+            .update_consent_state(state.into())
             .map_err(Into::into)
     }
 
