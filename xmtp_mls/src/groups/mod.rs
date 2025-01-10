@@ -501,7 +501,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
 
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(&provider, ConsentState::Allowed)?;
+        new_group.update_consent_state(provider, ConsentState::Allowed)?;
         Ok(new_group)
     }
 
@@ -554,7 +554,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(&provider, ConsentState::Allowed)?;
+        new_group.update_consent_state(provider, ConsentState::Allowed)?;
         Ok(new_group)
     }
 
@@ -1245,13 +1245,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         state: ConsentState,
     ) -> Result<(), GroupError> {
-
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        provider.conn_ref().insert_or_replace_consent_records(&[consent_record.clone()])?;
+        provider
+            .conn_ref()
+            .insert_or_replace_consent_records(&[consent_record.clone()])?;
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
