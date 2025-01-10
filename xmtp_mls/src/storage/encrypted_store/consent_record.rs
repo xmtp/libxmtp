@@ -57,14 +57,36 @@ impl DbConnection {
         })?)
     }
 
-    /// Insert consent_records, and replace existing entries
+    /// Insert consent_records, and replace existing entries, returns records that are new or changed
     pub fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<(), StorageError> {
-        self.raw_query(|conn| -> diesel::QueryResult<_> {
+    ) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        let mut query = consent_records::table
+            .into_boxed()
+            .filter(false.into_sql::<diesel::sql_types::Bool>());
+        let primary_keys: Vec<_> = records
+            .iter()
+            .map(|r| (&r.entity, &r.entity_type))
+            .collect();
+        for (entity, entity_type) in primary_keys {
+            query = query.or_filter(
+                consent_records::entity_type
+                    .eq(entity_type)
+                    .and(consent_records::entity.eq(entity)),
+            );
+        }
+
+        let changed = self.raw_query(|conn| -> diesel::QueryResult<_> {
+            let existing: Vec<StoredConsentRecord> = query.load(conn)?;
+            let changed: Vec<_> = records
+                .to_vec()
+                .into_iter()
+                .filter(|r| !existing.contains(r))
+                .collect();
+
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                for record in records.iter() {
+                for record in records.into_iter() {
                     diesel::insert_into(dsl::consent_records)
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
@@ -73,10 +95,12 @@ impl DbConnection {
                         .execute(conn)?;
                 }
                 Ok(())
-            })
+            })?;
+
+            Ok(changed)
         })?;
 
-        Ok(())
+        Ok(changed)
     }
 
     pub fn maybe_insert_consent_record_return_existing(
@@ -205,13 +229,31 @@ mod tests {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
                 ConsentType::InboxId,
-                ConsentState::Denied,
+                ConsentState::Allowed,
                 inbox_id.to_string(),
             );
             let consent_record_entity = consent_record.entity.clone();
 
-            conn.insert_or_replace_consent_records(&[consent_record])
+            // Insert the record
+            conn.insert_or_replace_consent_records(&[consent_record.clone()])
                 .expect("should store without error");
+
+            // Insert it again
+            let result = conn
+                .insert_or_replace_consent_records(&[consent_record.clone()])
+                .expect("should store without error");
+            // Nothing should change
+            assert_eq!(result.len(), 0);
+
+            // Insert it again, this time with a Denied state
+            let result = conn
+                .insert_or_replace_consent_records(&[StoredConsentRecord {
+                    state: ConsentState::Denied,
+                    ..consent_record
+                }])
+                .expect("should store without error");
+            // Should change
+            assert_eq!(result.len(), 1);
 
             let consent_record = conn
                 .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
