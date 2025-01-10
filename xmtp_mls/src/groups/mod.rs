@@ -717,21 +717,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<u8>, GroupError> {
-        self.context().store().transaction_async(provider, |tx_provider| async move {
-            let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-            self.maybe_update_installations(tx_provider, update_interval_ns).await?;
-    
-            let message_id = self.prepare_message(
-                message, 
-                tx_provider,
-                |now| Self::into_envelope(message, now)
-            )?;
-    
-            self.sync_until_last_intent_resolved(tx_provider).await?;
-            self.update_consent_state(tx_provider, ConsentState::Allowed)?;
-    
-            Ok(message_id)
-        }).await
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(provider, update_interval_ns)
+            .await?;
+
+        let message_id =
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
+
+        self.sync_until_last_intent_resolved(provider).await?;
+
+        // implicitly set group consent state to allowed
+        self.update_consent_state(provider, ConsentState::Allowed)?;
+
+        message_id
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
