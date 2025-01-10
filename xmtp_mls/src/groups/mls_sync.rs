@@ -713,7 +713,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn process_message(
+    pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,

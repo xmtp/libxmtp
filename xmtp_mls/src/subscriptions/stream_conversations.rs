@@ -1,11 +1,16 @@
-use std::{collections::HashSet, future::Future, pin::Pin, task::Poll};
+use std::{
+    collections::HashSet,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{group::ConversationType, NotFound},
     Client, XmtpOpenMlsProvider,
 };
-use futures::{future::FutureExt, prelude::stream::Select, Stream};
+use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::{retry_async, Retry};
@@ -15,7 +20,7 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{welcome_message::V1 as WelcomeMessageV1, WelcomeMessage},
 };
 
-use super::{temp::Result, LocalEvents, SubscribeError};
+use super::{temp::Result, FutureWrapper, LocalEvents, SubscribeError};
 
 #[derive(Debug)]
 pub(super) enum WelcomeOrGroup {
@@ -39,10 +44,7 @@ impl BroadcastGroupStream {
 impl Stream for BroadcastGroupStream {
     type Item = WelcomeOrGroup;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
 
@@ -82,10 +84,7 @@ where
 {
     type Item = WelcomeOrGroup;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
 
@@ -113,12 +112,12 @@ pin_project! {
 pin_project! {
     #[project = ProcessProject]
     enum ProcessState<'a, C> {
-        /// State where we are waiting on the next Message from the network
+        /// State that indicates the stream is waiting on the next message from the network
         Waiting,
-        /// State where we are waiting on an IO/Network future to finish processing the current message
+        /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, C>
+            #[pin] future: FutureWrapper<'a, Result<(MlsGroup<C>, Option<i64>)>>
         }
     }
 }
@@ -135,50 +134,7 @@ pin_project! {
 // Another option is to make processing a welcome syncronous which
 // might be possible with some kind of a cached identity strategy
 
-// Wrappers to deal with Send Bounds
-#[cfg(not(target_arch = "wasm32"))]
-pub struct FutureWrapper<'a, C> {
-    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a>>,
-}
-
-#[cfg(target_arch = "wasm32")]
-pub struct FutureWrapper<'a, C> {
-    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a>>,
-}
-
-impl<'a, C> Future for FutureWrapper<'a, C> {
-    type Output = Result<(MlsGroup<C>, Option<i64>)>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let inner = &mut self.inner;
-        futures::pin_mut!(inner);
-        inner.as_mut().poll(cx)
-    }
-}
-
-impl<'a, C> FutureWrapper<'a, C> {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a,
-    {
-        Self {
-            inner: future.boxed(),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a,
-    {
-        Self {
-            inner: future.boxed_local(),
-        }
-    }
-}
-
-impl<'a, C> Default for ProcessState<'a, C> {
+impl<'a, O> Default for ProcessState<'a, O> {
     fn default() -> Self {
         ProcessState::Waiting
     }
@@ -186,12 +142,10 @@ impl<'a, C> Default for ProcessState<'a, C> {
 
 type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
 
-impl<'a, A, V>
-    StreamConversations<
-        'a,
-        Client<A, V>,
-        MultiplexedSelect<<A as XmtpMlsStreams>::WelcomeMessageStream<'a>>,
-    >
+pub(super) type WelcomesApiSubscription<'a, A> =
+    MultiplexedSelect<<A as XmtpMlsStreams>::WelcomeMessageStream<'a>>;
+
+impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, A>>
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
@@ -239,7 +193,7 @@ where
     type Item = Result<MlsGroup<C>>;
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::task::Poll::*;

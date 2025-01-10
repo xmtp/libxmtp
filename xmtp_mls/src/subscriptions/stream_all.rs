@@ -17,7 +17,10 @@ use futures::{
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
-use super::{MessagesStreamInfo, SubscribeError};
+use super::{
+    stream_conversations::{StreamConversations, WelcomesApiSubscription},
+    FutureWrapper, MessagesStreamInfo, SubscribeError,
+};
 pub struct StreamAllMessages<'a, C, Welcomes, Messages> {
     /// The monolithic XMTP Client
     client: &'a C,
@@ -34,7 +37,13 @@ pub struct StreamAllMessages<'a, C, Welcomes, Messages> {
     extra_messages: Vec<StoredGroupMessage>,
 }
 
-impl<'a, A, V, Welcomes, Messages> StreamAllMessages<'a, Client<A, V>, Welcomes, Messages>
+impl<'a, A, V, Messages>
+    StreamAllMessages<
+        'a,
+        Client<A, V>,
+        StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, A>>,
+        FutureWrapper<'a, Result<StoredGroupMessage, SubscribeError>>,
+    >
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
@@ -59,20 +68,25 @@ where
 
         let messages =
             subscriptions::stream_messages(client, Arc::new(active_conversations.clone())).await?;
-        let welcomes = client.stream_conversations(conversation_type).await?;
+        let messages = FutureWrapper::new(messages);
+        let welcomes = super::stream_conversations::StreamConversations::new(
+            client,
+            conversation_type.clone(),
+        )
+        .await?;
 
-        Self {
+        Ok(Self {
             client,
             conversation_type,
             messages,
             welcomes,
             active_conversations,
             extra_messages: Vec::new(),
-        }
+        })
     }
 }
 
-impl<'a, C, Welcomes, Messages> Stream for StreamAllMessages<'a, C>
+impl<'a, C, Welcomes, Messages> Stream for StreamAllMessages<'a, C, Welcomes, Messages>
 where
     C: ScopedGroupClient,
 {

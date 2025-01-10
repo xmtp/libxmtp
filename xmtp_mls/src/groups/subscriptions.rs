@@ -1,127 +1,20 @@
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::oneshot;
-use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::api_client::XmtpMlsStreams;
 
-use super::{extract_message_v1, GroupError, MlsGroup, ScopedGroupClient};
-use crate::api::GroupFilter;
-use crate::client::ClientError;
-use crate::groups::extract_group_id;
-use crate::storage::group_message::StoredGroupMessage;
-use crate::storage::refresh_state::EntityKind;
-use crate::storage::ProviderTransactions;
-use crate::storage::StorageError;
-use crate::subscriptions::MessagesStreamInfo;
-use crate::subscriptions::SubscribeError;
-use crate::XmtpOpenMlsProvider;
 use prost::Message;
-use xmtp_common::{retry_async, Retry};
+use std::collections::HashMap;
+use tokio::sync::oneshot;
+
+use super::MlsGroup;
+use crate::{
+    groups::ScopedGroupClient,
+    storage::group_message::StoredGroupMessage,
+    subscriptions::{stream_messages::{ProcessMessageFuture, StreamGroupMessages, MessagesStreamInfo}, SubscribeError},
+    XmtpOpenMlsProvider,
+};
+use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
-    /// Internal stream processing function
-    pub(crate) async fn process_stream_entry(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        envelope: GroupMessage,
-    ) -> Result<StoredGroupMessage, SubscribeError> {
-        let msgv1 = extract_message_v1(envelope)?;
-        let msg_id = msgv1.id;
-        let client_id = self.client.inbox_id();
-        tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            group_id = hex::encode(&self.group_id),
-            msg_id = msgv1.id,
-            "client [{}]  is about to process streamed envelope: [{}]",
-            &client_id,
-            &msg_id
-        );
-        let created_ns = msgv1.created_ns;
-
-        if !self.has_already_synced(msg_id).await? {
-            let process_result = retry_async!(
-                Retry::default(),
-                (async {
-                    let client_id = &client_id;
-                    let msgv1 = &msgv1;
-                    provider
-                        .transaction_async(|provider| async move {
-                            tracing::info!(
-                                inbox_id = self.client.inbox_id(),
-                                group_id = hex::encode(&self.group_id),
-                                msg_id = msgv1.id,
-                                "current epoch for [{}] in process_stream_entry()",
-                                client_id,
-                            );
-                            self.process_message(provider, msgv1, false)
-                                .await
-                                // NOTE: We want to make sure we retry an error in process_message
-                                .map_err(SubscribeError::ReceiveGroup)
-                        })
-                        .await
-                })
-            );
-
-            if let Err(SubscribeError::ReceiveGroup(_)) = process_result {
-                tracing::debug!(
-                    inbox_id = self.client.inbox_id(),
-                    group_id = hex::encode(&self.group_id),
-                    msg_id = msgv1.id,
-                    "attempting recovery sync"
-                );
-                // Swallow errors here, since another process may have successfully saved the message
-                // to the DB
-                if let Err(err) = self.sync_with_conn(provider).await {
-                    tracing::warn!(
-                        inbox_id = self.client.inbox_id(),
-                        group_id = hex::encode(&self.group_id),
-                        msg_id = msgv1.id,
-                        err = %err,
-                        "recovery sync triggered by streamed message failed: {}", err
-                    );
-                } else {
-                    tracing::debug!(
-                        inbox_id = self.client.inbox_id(),
-                        group_id = hex::encode(&self.group_id),
-                        msg_id = msgv1.id,
-                        "recovery sync triggered by streamed message successful"
-                    )
-                }
-            } else if let Err(e) = process_result {
-                tracing::error!(
-                    inbox_id = self.client.inbox_id(),
-                    group_id = hex::encode(&self.group_id),
-                    msg_id = msgv1.id,
-                    err = e.to_string(),
-                    "process stream entry {:?}",
-                    e
-                );
-            }
-        }
-
-        // Load the message from the DB to handle cases where it may have been already processed in
-        // another thread
-        let new_message = provider
-            .conn_ref()
-            .get_group_message_by_timestamp(&self.group_id, created_ns as i64)?
-            .ok_or(SubscribeError::GroupMessageNotFound)?;
-
-        Ok(new_message)
-    }
-
-    // Checks if a message has already been processed through a sync
-    async fn has_already_synced(&self, id: u64) -> Result<bool, GroupError> {
-        let check_for_last_cursor = || -> Result<i64, StorageError> {
-            let conn = self.context().store().conn()?;
-            conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)
-        };
-
-        let last_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
-        Ok(last_id >= id as i64)
-    }
-
     /// External proxy for `process_stream_entry`
     /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
     pub async fn process_streamed_group_message(
@@ -130,14 +23,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage, SubscribeError> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        self.process_stream_entry(provider, envelope).await
+        ProcessMessageFuture::new(&self.client, envelope)?
+            .process()
+            .await
     }
 
     pub async fn stream<'a>(
         &'a self,
     ) -> Result<
         impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + use<'a, ScopedClient>,
-        ClientError,
+        SubscribeError,
     >
     where
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
@@ -149,7 +44,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 cursor: 0,
             },
         )]);
-        stream_messages(&*self.client, Arc::new(group_list)).await
+        Ok(StreamGroupMessages::new(&self.client, &group_list).await?)
     }
 
     pub fn stream_with_callback(
@@ -157,7 +52,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_id: Vec<u8>,
         created_at_ns: i64,
         callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), crate::groups::ClientError>>
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>>
     where
         ScopedClient: 'static,
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
@@ -172,7 +67,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         stream_messages_with_callback(client, group_list, callback)
     }
 }
-
+/*
 /// Stream messages from groups in `group_id_to_info`
 // TODO: Note when to use a None provider
 #[tracing::instrument(level = "debug", skip_all)]
@@ -225,6 +120,7 @@ where
 
     Ok(stream)
 }
+*/
 
 /// Stream messages from groups in `group_id_to_info`, passing
 /// messages along to a callback.
@@ -232,7 +128,7 @@ pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
     group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
     mut callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
-) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>>
+) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>>
 where
     ScopedClient: ScopedGroupClient + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'static,
@@ -240,14 +136,15 @@ where
     let (tx, rx) = oneshot::channel();
 
     crate::spawn(Some(rx), async move {
-        let stream = stream_messages(&client, Arc::new(group_id_to_info)).await?;
+        let client_ref = &client;
+        let stream = StreamGroupMessages::new(client_ref, &group_id_to_info).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {
             callback(message)
         }
         tracing::debug!("`stream_messages` stream ended, dropping stream");
-        Ok::<_, ClientError>(())
+        Ok::<_, SubscribeError>(())
     })
 }
 

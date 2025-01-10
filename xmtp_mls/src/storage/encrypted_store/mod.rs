@@ -58,6 +58,7 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::sync::Arc;
+use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -365,6 +366,17 @@ where
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
         Db: 'a;
+    pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
+            &self,
+            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            retry: Option<Retry>,
+            fun: F,
+        ) -> Result<T, E>
+        where
+            F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+            Fut: futures::Future<Output = Result<T, E>>,
+            E: From<diesel::result::Error> + From<StorageError> + RetryableError;
+
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -484,6 +496,23 @@ where
             }
         }
     }
+
+    pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
+            &self,
+            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            retry: Option<Retry>,
+            fun: F,
+        ) -> Result<T, E>
+        where
+            F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+            Fut: futures::Future<Output = Result<T, E>>,
+            E: From<diesel::result::Error> + From<StorageError> + RetryableError,
+        {
+            retry_async!(
+                retry.unwrap_or_default(),
+                (async { self.transaction_async(provider, fun).await })
+            )
+        }
 }
 
 #[cfg(test)]
