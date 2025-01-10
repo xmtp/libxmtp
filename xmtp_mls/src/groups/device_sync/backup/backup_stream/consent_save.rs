@@ -4,11 +4,12 @@ use crate::storage::{
     schema::consent_records,
 };
 use diesel::prelude::*;
-use xmtp_proto::xmtp::device_sync::consent_backup::{
-    ConsentRecordSave, ConsentStateSave, ConsentTypeSave,
+use xmtp_proto::xmtp::device_sync::{
+    backup_element::Element,
+    consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
 };
 
-impl BackupRecordProvider for ConsentRecordSave {
+impl BackupRecordProvider for ConsentSave {
     const BATCH_SIZE: i64 = 100;
     fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
     where
@@ -27,13 +28,15 @@ impl BackupRecordProvider for ConsentRecordSave {
 
         batch
             .into_iter()
-            .map(|record| BackupElement::Consent(record.into()))
+            .map(|record| BackupElement {
+                element: Some(Element::Consent(record.into())),
+            })
             .collect()
     }
 }
 
-impl From<ConsentRecordSave> for StoredConsentRecord {
-    fn from(value: ConsentRecordSave) -> Self {
+impl From<ConsentSave> for StoredConsentRecord {
+    fn from(value: ConsentSave) -> Self {
         let entity_type = value.entity_type().into();
         let state = value.state().into();
         Self {
@@ -62,7 +65,7 @@ impl From<ConsentStateSave> for ConsentState {
     }
 }
 
-impl From<StoredConsentRecord> for ConsentRecordSave {
+impl From<StoredConsentRecord> for ConsentSave {
     fn from(value: StoredConsentRecord) -> Self {
         let entity_type: ConsentTypeSave = value.entity_type.into();
         let state: ConsentStateSave = value.state.into();

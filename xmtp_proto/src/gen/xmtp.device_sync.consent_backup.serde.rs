@@ -1,5 +1,5 @@
 // @generated
-impl serde::Serialize for ConsentRecordSave {
+impl serde::Serialize for ConsentSave {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -16,7 +16,7 @@ impl serde::Serialize for ConsentRecordSave {
         if !self.entity.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.consent_backup.ConsentRecordSave", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.consent_backup.ConsentSave", len)?;
         if self.entity_type != 0 {
             let v = ConsentTypeSave::try_from(self.entity_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.entity_type)))?;
@@ -33,7 +33,7 @@ impl serde::Serialize for ConsentRecordSave {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for ConsentRecordSave {
+impl<'de> serde::Deserialize<'de> for ConsentSave {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -84,13 +84,13 @@ impl<'de> serde::Deserialize<'de> for ConsentRecordSave {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsentRecordSave;
+            type Value = ConsentSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.device_sync.consent_backup.ConsentRecordSave")
+                formatter.write_str("struct xmtp.device_sync.consent_backup.ConsentSave")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConsentRecordSave, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConsentSave, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -119,14 +119,14 @@ impl<'de> serde::Deserialize<'de> for ConsentRecordSave {
                         }
                     }
                 }
-                Ok(ConsentRecordSave {
+                Ok(ConsentSave {
                     entity_type: entity_type__.unwrap_or_default(),
                     state: state__.unwrap_or_default(),
                     entity: entity__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.device_sync.consent_backup.ConsentRecordSave", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.device_sync.consent_backup.ConsentSave", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ConsentStateSave {

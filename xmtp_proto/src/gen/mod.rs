@@ -1,6 +1,10 @@
 // @generated
 pub mod xmtp {
+    #[cfg(feature = "xmtp-device_sync")]
+    // @@protoc_insertion_point(attribute:xmtp.device_sync)
     pub mod device_sync {
+        include!("xmtp.device_sync.rs");
+        // @@protoc_insertion_point(xmtp.device_sync)
         #[cfg(feature = "xmtp-device_sync-consent_backup")]
         // @@protoc_insertion_point(attribute:xmtp.device_sync.consent_backup)
         pub mod consent_backup {

@@ -1,7 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
-use crate::scw_verifier::ValidationResponse;
-
 use super::{
     member::Member,
     signature::{AccountId, ValidatedLegacySignedPublicKey},
@@ -19,8 +15,10 @@ use super::{
     verified_signature::VerifiedSignature,
     MemberIdentifier, SignatureError,
 };
+use crate::scw_verifier::ValidationResponse;
 use prost::{DecodeError, Message};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_cryptography::signature::sanitize_evm_addresses;
 use xmtp_proto::xmtp::{

@@ -1,23 +1,20 @@
 use super::BackupOptions;
-use crate::{storage::DbConnection, XmtpOpenMlsProvider};
+use crate::XmtpOpenMlsProvider;
 use futures::Stream;
-use serde::{Deserialize, Serialize};
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
-use xmtp_proto::xmtp::device_sync::{
-    consent_backup::ConsentRecordSave, group_backup::GroupSave, message_backup::GroupMessageSave,
-};
+use xmtp_proto::xmtp::device_sync::BackupElement;
 
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
 /// A union type that describes everything that can be backed up.
-#[derive(Serialize, Deserialize)]
-pub enum BackupElement {
-    Group(GroupSave),
-    Message(GroupMessageSave),
-    Consent(ConsentRecordSave),
-}
+// #[derive(Serialize, Deserialize)]
+// pub enum BackupElement {
+// Group(GroupSave),
+// Message(GroupMessageSave),
+// Consent(ConsentRecordSave),
+// }
 
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BackupStream {
@@ -73,8 +70,8 @@ trait BackupRecordProvider {
 pub(super) struct BackupRecordStreamer<R> {
     offset: i64,
     provider: Arc<XmtpOpenMlsProvider>,
-    start_ns: Option<u64>,
-    end_ns: Option<u64>,
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
     _phantom: PhantomData<R>,
 }
 

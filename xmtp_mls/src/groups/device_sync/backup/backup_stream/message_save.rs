@@ -4,8 +4,9 @@ use crate::storage::{
     schema::group_messages,
 };
 use diesel::prelude::*;
-use xmtp_proto::xmtp::device_sync::message_backup::{
-    ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
+use xmtp_proto::xmtp::device_sync::{
+    backup_element::Element,
+    message_backup::{ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave},
 };
 
 impl BackupRecordProvider for GroupMessageSave {
@@ -35,7 +36,9 @@ impl BackupRecordProvider for GroupMessageSave {
 
         batch
             .into_iter()
-            .map(|record| BackupElement::Message(record.into()))
+            .map(|record| BackupElement {
+                element: Some(Element::GroupMessage(record.into())),
+            })
             .collect()
     }
 }
