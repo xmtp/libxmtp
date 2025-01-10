@@ -5570,6 +5570,10 @@ mod tests {
         let send_futures = vec![
             alix_conversation.send("Message 1".as_bytes().to_vec()),
             alix_conversation.send("Message 2".as_bytes().to_vec()),
+            alix_conversation.send("Message 3".as_bytes().to_vec()),
+            alix_conversation.send("Message 4".as_bytes().to_vec()),
+            alix_conversation.send("Message 5".as_bytes().to_vec()),
+            alix_conversation.send("Message 6".as_bytes().to_vec()),
         ];
 
         // Send all messages in parallel and collect results
@@ -5578,7 +5582,7 @@ mod tests {
         // Check each result and print any errors
         for (i, result) in results.iter().enumerate() {
             if let Err(e) = result {
-                // Getting Error sending message 2: GroupError(Storage(DieselResult(DatabaseError(Unknown, "database is locked"))))
+                // No longer erroring here: GroupError(Storage(DieselResult(DatabaseError(Unknown, "database is locked"))))
                 println!("Error sending message {}: {:?}", i + 1, e);
             }
         }
@@ -5598,6 +5602,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 7);
     }
 }
