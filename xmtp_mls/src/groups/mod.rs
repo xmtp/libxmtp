@@ -293,6 +293,8 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
+    pub message_expiration_from_ms: Option<i64>,
+    pub message_expiration_ms: Option<i64>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -2591,6 +2593,8 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
+                    message_expiration_from_ms: None,
+                    message_expiration_ms: None,
                 },
             )
             .unwrap();
@@ -2821,7 +2825,7 @@ pub(crate) mod tests {
         let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
         // Create a group and verify it has the default group name
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
@@ -3275,7 +3279,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
@@ -3303,7 +3307,7 @@ pub(crate) mod tests {
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
