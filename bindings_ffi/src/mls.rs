@@ -5547,4 +5547,57 @@ mod tests {
             FfiReactionSchema::Unicode
         ));
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_parallel_messages() {
+        use futures::future::join_all;
+
+        // Create two test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create a conversation between them
+        let alix_conversation = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Create futures for sending messages in parallel
+        let send_futures = vec![
+            alix_conversation.send("Message 1".as_bytes().to_vec()),
+            alix_conversation.send("Message 2".as_bytes().to_vec()),
+        ];
+
+        // Send all messages in parallel and collect results
+        let results = join_all(send_futures).await;
+
+        // Check each result and print any errors
+        for (i, result) in results.iter().enumerate() {
+            if let Err(e) = result {
+                // Getting Error sending message 2: GroupError(Storage(DieselResult(DatabaseError(Unknown, "database is locked"))))
+                println!("Error sending message {}: {:?}", i + 1, e);
+            }
+        }
+
+        // Assert all messages were sent successfully
+        assert!(
+            results.into_iter().all(|r| r.is_ok()),
+            "Not all messages were sent successfully"
+        );
+
+        // Have Alix sync to get the messages
+        alix_conversation.sync().await.unwrap();
+
+        // Verify messages were received
+        let messages = alix_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 2);
+    }
 }
