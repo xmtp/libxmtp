@@ -61,10 +61,6 @@ use self::{
 use crate::storage::{group::DmIdExt, group_message::ContentType, NotFound, StorageError};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
     message_contents::{
         plaintext_envelope::{Content, V1},
         EncodedContent, PlaintextEnvelope,
@@ -373,7 +369,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub(crate) fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),
@@ -1349,22 +1345,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id,
             stored_group.created_at_ns,
         ))
-    }
-}
-
-fn extract_message_v1(
-    message: GroupMessage,
-) -> Result<GroupMessageV1, GroupMessageProcessingError> {
-    match message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
-    }
-}
-
-pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, GroupMessageProcessingError> {
-    match &message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
     }
 }
 

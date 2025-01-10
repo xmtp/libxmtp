@@ -2,9 +2,11 @@ use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
+    pin::Pin,
     sync::Arc,
+    task::Poll,
 };
-use stream_conversations::StreamConversations;
 use tokio::{
     sync::{broadcast, oneshot},
     task::JoinHandle,
@@ -14,14 +16,18 @@ use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
-mod stream_all;
+use stream_conversations::StreamConversations;
+use stream_messages::{StreamGroupMessages, MessagesStreamInfo};
+
+// mod stream_all;
 mod stream_conversations;
+pub(crate) mod stream_messages;
 
 use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
-        subscriptions, GroupError, MlsGroup,
+        GroupError, MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord,
@@ -43,6 +49,49 @@ pub enum LocalEventError {
 impl RetryableError for LocalEventError {
     fn is_retryable(&self) -> bool {
         true
+    }
+}
+
+// Wrappers to deal with Send Bounds
+#[cfg(not(target_arch = "wasm32"))]
+pub struct FutureWrapper<'a, O> {
+    inner: Pin<Box<dyn Future<Output = O> + Send + 'a>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct FutureWrapper<'a, C> {
+    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a>>,
+}
+
+impl<'a, O> Future for FutureWrapper<'a, O> {
+    type Output = O;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let inner = &mut self.inner;
+        futures::pin_mut!(inner);
+        inner.as_mut().poll(cx)
+    }
+}
+
+impl<'a, O> FutureWrapper<'a, O> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = O> + Send + 'a,
+    {
+        Self {
+            inner: future.boxed(),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = O> + 'a,
+    {
+        Self {
+            inner: future.boxed_local(),
+        }
     }
 }
 
@@ -205,12 +254,6 @@ impl<T> From<StreamHandle<T>> for JoinHandle<T> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct MessagesStreamInfo {
-    pub convo_created_at_ns: i64,
-    pub cursor: u64,
-}
-
 impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     fn from(group: StoredGroup) -> (Vec<u8>, MessagesStreamInfo) {
         (
@@ -232,8 +275,6 @@ pub(self) mod temp {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SubscribeError {
-    #[error("failed to start new messages stream {0}")]
-    FailedToStartNewMessagesStream(ClientError),
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
@@ -253,13 +294,14 @@ pub enum SubscribeError {
     Api(#[from] xmtp_proto::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    MessageStream(#[from] stream_messages::MessageStreamError),
 }
 
 impl RetryableError for SubscribeError {
     fn is_retryable(&self) -> bool {
         use SubscribeError::*;
         match self {
-            FailedToStartNewMessagesStream(e) => retryable!(e),
             Client(e) => retryable!(e),
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
@@ -269,6 +311,7 @@ impl RetryableError for SubscribeError {
             Api(e) => retryable!(e),
             Decode(_) => false,
             NotFound(e) => retryable!(e),
+            MessageStream(e) => retryable!(e),
         }
     }
 }
@@ -338,31 +381,31 @@ where
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, ClientError>
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + '_, SubscribeError>
     {
         tracing::debug!(
             inbox_id = self.inbox_id(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );
-        let mut group_id_to_info = async {
+        let mut group_list = async {
             let provider = self.mls_provider()?;
             self.sync_welcomes(&provider).await?;
 
-            let group_id_to_info = provider
+            let group_list = provider
                 .conn_ref()
                 .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
                 .into_iter()
                 .map(Into::into)
                 .collect::<HashMap<Vec<u8>, MessagesStreamInfo>>();
-            Ok::<_, ClientError>(group_id_to_info)
+            Ok::<_, SubscribeError>(group_list)
         }
         .await?;
 
         let stream = async_stream::stream! {
-            let messages_stream = subscriptions::stream_messages(
+            let messages_stream = StreamGroupMessages::new(
                 self,
-                Arc::new(group_id_to_info.clone())
+                &group_list
             )
             .await?;
             futures::pin_mut!(messages_stream);
@@ -394,26 +437,23 @@ where
                         match new_group {
                             Ok(new_group) => {
                                 tracing::info!("Received new conversation inside streamAllMessages");
-                                if group_id_to_info.contains_key(&new_group.group_id) {
+                                if group_list.contains_key(&new_group.group_id) {
                                     continue;
                                 }
-                                for info in group_id_to_info.values_mut() {
+                                for info in group_list.values_mut() {
                                     info.cursor = 0;
                                 }
-                                group_id_to_info.insert(
+                                group_list.insert(
                                     new_group.group_id,
                                     MessagesStreamInfo {
                                         convo_created_at_ns: new_group.created_at_ns,
                                         cursor: 1, // For the new group, stream all messages since the group was created
                                     },
                                 );
-                                let new_messages_stream = match subscriptions::stream_messages(
-                                    self,
-                                    Arc::new(group_id_to_info.clone())
-                                ).await {
+                                let new_messages_stream = match StreamGroupMessages::new(self, &group_list).await {
                                     Ok(s) => s,
                                     Err(e) => {
-                                        yield Err(SubscribeError::FailedToStartNewMessagesStream(e));
+                                        yield Err(e);
                                         continue;
                                     },
                                 };
@@ -442,7 +482,7 @@ where
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
         mut callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
@@ -453,7 +493,7 @@ where
                 callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
-            Ok::<_, ClientError>(())
+            Ok::<_, SubscribeError>(())
         })
     }
 
