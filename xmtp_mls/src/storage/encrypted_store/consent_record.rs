@@ -235,8 +235,11 @@ mod tests {
             let consent_record_entity = consent_record.entity.clone();
 
             // Insert the record
-            conn.insert_or_replace_consent_records(&[consent_record.clone()])
+            let result = conn
+                .insert_or_replace_consent_records(&[consent_record.clone()])
                 .expect("should store without error");
+            // One record was inserted
+            assert_eq!(result.len(), 1);
 
             // Insert it again
             let result = conn
