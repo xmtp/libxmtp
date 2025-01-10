@@ -28,7 +28,8 @@ impl BackupRecordProvider for GroupMessageSave {
         query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);
 
         let batch = streamer
-            .conn
+            .provider
+            .conn_ref()
             .raw_query(|conn| query.load::<StoredGroupMessage>(conn))
             .expect("Failed to load group records");
 

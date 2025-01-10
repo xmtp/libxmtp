@@ -1,5 +1,5 @@
 use super::BackupOptions;
-use crate::storage::DbConnection;
+use crate::{storage::DbConnection, XmtpOpenMlsProvider};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
@@ -70,19 +70,19 @@ trait BackupRecordProvider {
 }
 
 /// A generic struct to make it easier to stream backup records from the database
-pub(super) struct BackupRecordStreamer<'a, R> {
+pub(super) struct BackupRecordStreamer<R> {
     offset: i64,
-    conn: &'a DbConnection,
+    provider: Arc<XmtpOpenMlsProvider>,
     start_ns: Option<u64>,
     end_ns: Option<u64>,
     _phantom: PhantomData<R>,
 }
 
-impl<'a, R> BackupRecordStreamer<'a, R> {
-    pub(super) fn new(conn: &'a DbConnection, opts: &BackupOptions) -> Self {
+impl<R> BackupRecordStreamer<R> {
+    pub(super) fn new(provider: &Arc<XmtpOpenMlsProvider>, opts: &BackupOptions) -> Self {
         Self {
             offset: 0,
-            conn: conn,
+            provider: provider.clone(),
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             _phantom: PhantomData,
@@ -90,7 +90,7 @@ impl<'a, R> BackupRecordStreamer<'a, R> {
     }
 }
 
-impl<'a, R> Stream for BackupRecordStreamer<'a, R>
+impl<R> Stream for BackupRecordStreamer<R>
 where
     R: BackupRecordProvider + Unpin,
 {

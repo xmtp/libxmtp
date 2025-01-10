@@ -1,7 +1,6 @@
+use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
-
-use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 
 pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::storage::RawDbConnection>;
 
