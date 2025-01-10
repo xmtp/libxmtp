@@ -2155,7 +2155,7 @@ mod tests {
             Arc, Mutex,
         },
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use tokio::{sync::Notify, task::JoinSet, time::error::Elapsed};
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{read_receipt, text::TextCodec, ContentCodec};
@@ -5565,18 +5565,23 @@ mod tests {
             .await
             .unwrap();
 
-        // Create futures for sending messages in parallel
-        let send_futures = vec![
-            alix_conversation.send("Message 1".as_bytes().to_vec()),
-            alix_conversation.send("Message 2".as_bytes().to_vec()),
-            alix_conversation.send("Message 3".as_bytes().to_vec()),
-            alix_conversation.send("Message 4".as_bytes().to_vec()),
-            alix_conversation.send("Message 5".as_bytes().to_vec()),
-            alix_conversation.send("Message 6".as_bytes().to_vec()),
-        ];
+        // Create JoinSet for parallel tasks
+        let mut tasks = JoinSet::new();
 
-        // Send all messages in parallel and collect results
-        let results = join_all(send_futures).await;
+        // Spawn tasks for sending messages in parallel
+        for i in 1..=6 {
+            let conversation = alix_conversation.clone();
+            let message = format!("Message {}", i);
+            tasks.spawn(async move {
+                conversation.send(message.as_bytes().to_vec()).await
+            });
+        }
+
+        // Collect results as they complete
+        let mut results = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            results.push(result.unwrap());
+        }
 
         // Check each result and print any errors
         for (i, result) in results.iter().enumerate() {
