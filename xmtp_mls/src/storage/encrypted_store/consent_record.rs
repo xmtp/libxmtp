@@ -80,13 +80,13 @@ impl DbConnection {
         let changed = self.raw_query(|conn| -> diesel::QueryResult<_> {
             let existing: Vec<StoredConsentRecord> = query.load(conn)?;
             let changed: Vec<_> = records
-                .to_vec()
-                .into_iter()
+                .iter()
                 .filter(|r| !existing.contains(r))
+                .cloned()
                 .collect();
 
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                for record in records.into_iter() {
+                for record in records.iter() {
                     diesel::insert_into(dsl::consent_records)
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
