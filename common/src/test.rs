@@ -108,6 +108,10 @@ pub fn rand_u64() -> u64 {
     crypto_utils::rng().gen()
 }
 
+pub fn rand_i64() -> i64 {
+    crypto_utils::rng().gen()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn tmp_path() -> String {
     let db_name = crate::rand_string::<24>();

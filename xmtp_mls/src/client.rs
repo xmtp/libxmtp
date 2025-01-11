@@ -151,7 +151,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 
@@ -526,7 +526,9 @@ where
         )?;
 
         // notify streams of our new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
     }
@@ -557,9 +559,7 @@ where
         {
             Some(id) => id,
             None => {
-                return Err(ClientError::Storage(StorageError::NotFound(
-                    NotFound::InboxIdForAddress(account_address),
-                )));
+                return Err(NotFound::InboxIdForAddress(account_address).into());
             }
         };
 
@@ -585,7 +585,9 @@ where
             .await?;
 
         // notify any streams of the new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
     }
@@ -858,7 +860,7 @@ where
                     return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                 }
                 let result = MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
+                    self,
                     provider,
                     welcome.hpke_public_key.as_slice(),
                     &welcome.data,

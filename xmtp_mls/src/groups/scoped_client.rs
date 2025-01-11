@@ -29,7 +29,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
 
@@ -95,7 +95,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
 
@@ -161,7 +161,7 @@ where
         &self.api_client
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.local_events
     }
 
@@ -244,7 +244,7 @@ where
         (**self).api()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         (**self).local_events()
     }
 
@@ -338,7 +338,7 @@ where
         (**self).store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         (**self).local_events()
     }
 

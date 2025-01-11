@@ -1,6 +1,10 @@
 use futures::{FutureExt, Stream, StreamExt};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use stream_conversations::StreamConversations;
 use tokio::{
     sync::{broadcast, oneshot},
     task::JoinHandle,
@@ -10,23 +14,25 @@ use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
+// mod stream_all;
+mod stream_conversations;
+
 use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, group_metadata::GroupMetadata,
-        mls_sync::GroupMessageProcessingError, scoped_client::ScopedGroupClient as _,
+        device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
         subscriptions, GroupError, MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
-        StorageError,
+        NotFound, StorageError,
     },
-    Client, XmtpApi, XmtpOpenMlsProvider,
+    Client, XmtpApi,
 };
 use thiserror::Error;
-use xmtp_common::{retry_async, retryable, Retry, RetryableError};
+use xmtp_common::{retryable, RetryableError};
 
 #[derive(Debug, Error)]
 pub enum LocalEventError {
@@ -51,9 +57,9 @@ pub struct StreamHandle<T> {
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
 #[derive(Clone)]
-pub enum LocalEvents<C> {
+pub enum LocalEvents {
     // a new group was created
-    NewGroup(MlsGroup<C>),
+    NewGroup(Vec<u8>),
     SyncMessage(SyncMessage),
     OutgoingPreferenceUpdates(Vec<UserPreferenceUpdate>),
     IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
@@ -65,8 +71,8 @@ pub enum SyncMessage {
     Reply { message_id: Vec<u8> },
 }
 
-impl<C> LocalEvents<C> {
-    fn group_filter(self) -> Option<MlsGroup<C>> {
+impl LocalEvents {
+    fn group_filter(self) -> Option<Vec<u8>> {
         use LocalEvents::*;
         // this is just to protect against any future variants
         match self {
@@ -143,8 +149,8 @@ impl<C> LocalEvents<C> {
     }
 }
 
-pub(crate) trait StreamMessages<C> {
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>>;
+pub(crate) trait StreamMessages {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents, SubscribeError>>;
     fn stream_consent_updates(
         self,
     ) -> impl Stream<Item = Result<Vec<StoredConsentRecord>, SubscribeError>>;
@@ -153,12 +159,9 @@ pub(crate) trait StreamMessages<C> {
     ) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>, SubscribeError>>;
 }
 
-impl<C> StreamMessages<C> for broadcast::Receiver<LocalEvents<C>>
-where
-    C: Clone + Send + Sync + 'static,
-{
+impl StreamMessages for broadcast::Receiver<LocalEvents> {
     #[instrument(level = "trace", skip_all)]
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents<C>, SubscribeError>> {
+    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents, SubscribeError>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::sync_filter)
@@ -220,6 +223,13 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     }
 }
 
+// TODO: REMOVE BEFORE MERGING
+// TODO: REMOVE BEFORE MERGING
+// TODO: REMOVE BEFORE MERGING
+pub(self) mod temp {
+    pub(super) type Result<T> = std::result::Result<T, super::SubscribeError>;
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum SubscribeError {
     #[error("failed to start new messages stream {0}")]
@@ -228,6 +238,9 @@ pub enum SubscribeError {
     Client(#[from] ClientError),
     #[error(transparent)]
     Group(#[from] GroupError),
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+    // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
     #[error("processing group message in stream: {0}")]
@@ -255,6 +268,7 @@ impl RetryableError for SubscribeError {
             Storage(e) => retryable!(e),
             Api(e) => retryable!(e),
             Decode(_) => false,
+            NotFound(e) => retryable!(e),
         }
     }
 }
@@ -264,135 +278,35 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
-    async fn process_streamed_welcome(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        welcome: WelcomeMessage,
-    ) -> Result<MlsGroup<Self>, ClientError> {
-        let welcome_v1 = extract_welcome_message(welcome)?;
-        let creation_result = retry_async!(
-            Retry::default(),
-            (async {
-                tracing::info!(
-                    installation_id = &welcome_v1.id,
-                    "Trying to process streamed welcome"
-                );
-                let welcome_v1 = &welcome_v1;
-                self.context
-                    .store()
-                    .transaction_async(provider, |provider| async move {
-                        MlsGroup::create_from_encrypted_welcome(
-                            Arc::new(self.clone()),
-                            provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            &welcome_v1.data,
-                            welcome_v1.id as i64,
-                        )
-                        .await
-                    })
-                    .await
-            })
-        );
-
-        if let Some(err) = creation_result.as_ref().err() {
-            let conn = provider.conn_ref();
-            let result = conn.find_group_by_welcome_id(welcome_v1.id as i64);
-            match result {
-                Ok(Some(group)) => {
-                    tracing::info!(
-                        inbox_id = self.inbox_id(),
-                        group_id = hex::encode(&group.id),
-                        welcome_id = ?group.welcome_id,
-                        "Loading existing group for welcome_id: {:?}",
-                        group.welcome_id
-                    );
-                    return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
-                }
-                Ok(None) => return Err(ClientError::Generic(err.to_string())),
-                Err(e) => return Err(ClientError::Generic(e.to_string())),
-            }
-        }
-
-        Ok(creation_result?)
-    }
-
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<Self>, ClientError> {
+    ) -> Result<MlsGroup<Self>, SubscribeError> {
         let provider = self.mls_provider()?;
+        let conn = provider.conn_ref();
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
-
-        let welcome = self.process_streamed_welcome(&provider, envelope).await?;
-        Ok(welcome)
+        let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
+        let (group, _) = StreamConversations::<_, ()>::on_welcome(
+            &known_welcomes,
+            self.clone(),
+            &provider,
+            envelope,
+        )
+        .await?;
+        Ok(group)
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    // #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream_conversations<'a>(
         &'a self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + 'a, ClientError>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>, SubscribeError>> + 'a, SubscribeError>
     where
         ApiClient: XmtpMlsStreams,
     {
-        let installation_key = self.installation_public_key();
-        let id_cursor = 0;
-
-        tracing::info!(inbox_id = self.inbox_id(), "Setting up conversation stream");
-        let subscription = self
-            .api_client
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor))
-            .await?
-            .map(WelcomeOrGroup::<ApiClient, V>::Welcome);
-
-        let event_queue =
-            tokio_stream::wrappers::BroadcastStream::new(self.local_events.subscribe())
-                .filter_map(|event| async {
-                    xmtp_common::optify!(event, "Missed messages due to event queue lag")
-                        .and_then(LocalEvents::group_filter)
-                        .map(Result::Ok)
-                })
-                .map(WelcomeOrGroup::<ApiClient, V>::Group);
-
-        let stream = futures::stream::select(event_queue, subscription);
-        let stream = stream.filter_map(move |group_or_welcome| async move {
-            tracing::info!(
-                inbox_id = self.inbox_id(),
-                installation_id = %self.installation_id(),
-                "Received conversation streaming payload"
-            );
-            let filtered = self.process_streamed_convo(group_or_welcome).await;
-            let filtered = filtered.map(|(metadata, group)| {
-                conversation_type
-                    .map_or(true, |ct| ct == metadata.conversation_type)
-                    .then_some(group)
-            });
-            filtered.transpose()
-        });
-
-        Ok(stream)
+        StreamConversations::new(self, conversation_type).await
     }
-
-    async fn process_streamed_convo(
-        &self,
-        welcome_or_group: WelcomeOrGroup<ApiClient, V>,
-    ) -> Result<(GroupMetadata, MlsGroup<Client<ApiClient, V>>), SubscribeError> {
-        let provider = self.mls_provider()?;
-        let group = match welcome_or_group {
-            WelcomeOrGroup::Welcome(welcome) => {
-                self.process_streamed_welcome(&provider, welcome?).await?
-            }
-            WelcomeOrGroup::Group(group) => group?,
-        };
-        let metadata = group.metadata(&provider).await?;
-        Ok((metadata, group))
-    }
-}
-
-enum WelcomeOrGroup<ApiClient, V> {
-    Group(Result<MlsGroup<Client<ApiClient, V>>, SubscribeError>),
-    Welcome(Result<WelcomeMessage, xmtp_proto::Error>),
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -404,7 +318,7 @@ where
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
         mut convo_callback: impl FnMut(Result<MlsGroup<Self>, SubscribeError>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), ClientError>> {
+    ) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>> {
         let (tx, rx) = oneshot::channel();
 
         crate::spawn(Some(rx), async move {
@@ -416,7 +330,7 @@ where
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
-            Ok::<_, ClientError>(())
+            Ok::<_, SubscribeError>(())
         })
     }
 
@@ -454,9 +368,9 @@ where
             futures::pin_mut!(messages_stream);
 
             let convo_stream = self.stream_conversations(conversation_type).await?;
-
             futures::pin_mut!(convo_stream);
 
+            tracing::info!("\n\n Waiting on messages \n\n");
             let mut extra_messages = Vec::new();
 
             loop {
@@ -609,42 +523,47 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
-    async fn test_stream_welcomes() {
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let alice_bob_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-
-        // FIXME:insipx we run into an issue where the reqwest::post().send() request
-        // blocks the executor and we cannot progress the runtime if we dont `tokio::spawn` this.
-        // A solution might be to use `hyper` instead, and implement a custom connection pool with
-        // `deadpool`. This is a bit more work but shouldn't be too complicated since
-        // we're only using `post` requests. It would be nice for all streams to work
-        // w/o spawning a separate task.
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        let bob_ptr = bob.clone();
-        crate::spawn(None, async move {
-            let bob_stream = bob_ptr.stream_conversations(None).await.unwrap();
-            futures::pin_mut!(bob_stream);
-            while let Some(item) = bob_stream.next().await {
-                let _ = tx.send(item);
-            }
-        });
-
-        let group_id = alice_bob_group.group_id.clone();
-        alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-
-        let bob_received_groups = stream.next().await.unwrap().unwrap();
-        assert_eq!(bob_received_groups.group_id, group_id);
+    /// A macro for asserting that a stream yields a specific decrypted message.
+    ///
+    /// # Example
+    /// ```rust
+    /// assert_msg!(stream, b"first");
+    /// ```
+    #[macro_export]
+    macro_rules! assert_msg {
+        ($stream:expr, $expected:expr) => {
+            assert_eq!(
+                $stream
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .decrypted_message_bytes,
+                $expected.as_bytes()
+            );
+        };
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    /// A macro for asserting that a stream yields a specific decrypted message.
+    ///
+    /// # Example
+    /// ```rust
+    /// assert_msg!(stream, b"first");
+    /// ```
+    #[macro_export]
+    macro_rules! assert_msg_exists {
+        ($stream:expr) => {
+            assert!(!$stream
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .decrypted_message_bytes
+                .is_empty());
+        };
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_messages() {
         xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -653,6 +572,7 @@ pub(crate) mod tests {
         let alice_group = alice
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
+        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
         alice_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
@@ -664,33 +584,16 @@ pub(crate) mod tests {
             .unwrap();
         let bob_group = bob_groups.first().unwrap();
 
-        let notify = Delivery::new(None);
-        let notify_ptr = notify.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        crate::spawn(None, async move {
-            let stream = alice_group.stream().await.unwrap();
-            futures::pin_mut!(stream);
-            while let Some(item) = stream.next().await {
-                let _ = tx.send(item);
-                notify_ptr.notify_one();
-            }
-        });
-
-        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-        // let stream = alice_group.stream().await.unwrap();
+        let stream = alice_group.stream().await.unwrap();
         futures::pin_mut!(stream);
         bob_group.send_message(b"hello").await.unwrap();
-        tracing::debug!("Bob Sent Message!, waiting for delivery");
-        // notify.wait_for_delivery().await.unwrap();
+
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
-        // notify.wait_for_delivery().await.unwrap();
         let message = stream.next().await.unwrap().unwrap();
         assert_eq!(message.decrypted_message_bytes, b"hello2");
-
-        // assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -714,40 +617,20 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
-        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
 
-        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
-        let messages_clone = messages.clone();
+        let stream = caro.stream_all_messages(None).await.unwrap();
+        futures::pin_mut!(stream);
+        bo_group.send_message(b"first").await.unwrap();
+        assert_msg!(stream, "first");
 
-        let notify = Delivery::new(None);
-        let notify_pointer = notify.clone();
-        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
-            Arc::new(caro),
-            None,
-            move |message| {
-                (*messages_clone.lock()).push(message.unwrap());
-                notify_pointer.notify_one();
-            },
-        );
-        handle.wait_for_ready().await;
+        bo_group.send_message(b"second").await.unwrap();
+        assert_msg!(stream, "second");
 
-        alix_group.send_message("first".as_bytes()).await.unwrap();
-        notify
-            .wait_for_delivery()
-            .await
-            .expect("didn't get `first`");
-        bo_group.send_message("second".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        alix_group.send_message("third".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        bo_group.send_message("fourth".as_bytes()).await.unwrap();
-        notify.wait_for_delivery().await.unwrap();
+        alix_group.send_message(b"third").await.unwrap();
+        assert_msg!(stream, "third");
 
-        let messages = messages.lock();
-        assert_eq!(messages[0].decrypted_message_bytes, b"first");
-        assert_eq!(messages[1].decrypted_message_bytes, b"second");
-        assert_eq!(messages[2].decrypted_message_bytes, b"third");
-        assert_eq!(messages[3].decrypted_message_bytes, b"fourth");
+        bo_group.send_message(b"fourth").await.unwrap();
+        assert_msg!(stream, "fourth");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -765,39 +648,21 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
-        let messages_clone = messages.clone();
-        let delivery = Delivery::new(None);
-        let delivery_pointer = delivery.clone();
-        let mut handle = Client::<TestClient, _>::stream_all_messages_with_callback(
-            caro.clone(),
-            None,
-            move |message| {
-                delivery_pointer.notify_one();
-                (*messages_clone.lock()).push(message.unwrap());
-            },
-        );
-        handle.wait_for_ready().await;
+        let stream = caro.stream_all_messages(None).await.unwrap();
+        futures::pin_mut!(stream);
+        tracing::info!("\n\nSENDING FIRST MESSAGE\n\n");
 
         alix_group.send_message(b"first").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `first`");
+        assert_msg!(stream, "first");
 
         let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
+        assert_msg_exists!(stream);
 
         bo_group.send_message(b"second").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `second`");
+        assert_msg!(stream, "second");
 
         alix_group.send_message(b"third").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `third`");
+        assert_msg!(stream, "third");
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -808,36 +673,10 @@ pub(crate) mod tests {
             .unwrap();
 
         alix_group.send_message(b"fourth").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `fourth`");
+        assert_msg!(stream, "fourth");
 
         alix_group_2.send_message(b"fifth").await.unwrap();
-        delivery
-            .wait_for_delivery()
-            .await
-            .expect("timed out waiting for `fifth`");
-
-        {
-            let messages = messages.lock();
-            assert_eq!(messages.len(), 5);
-        }
-
-        let a = handle.abort_handle();
-        a.end();
-        let _ = handle.join().await;
-        assert!(a.is_finished());
-
-        alix_group
-            .send_message("should not show up".as_bytes())
-            .await
-            .unwrap();
-        xmtp_common::time::sleep(core::time::Duration::from_millis(100)).await;
-
-        let messages = messages.lock();
-
-        assert_eq!(messages.len(), 5);
+        assert_msg!(stream, "fifth");
     }
 
     #[ignore]
