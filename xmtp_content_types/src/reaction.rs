@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{CodecError, ContentCodec};
 use prost::Message;
 
+use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::ReactionV2, ContentTypeId, EncodedContent,
 };
@@ -45,6 +46,21 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
 
         Ok(decoded)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LegacyReaction {
+    /// The message ID for the message that is being reacted to
+    pub reference: String,
+    /// The inbox ID of the user who sent the message that is being reacted to
+    #[serde(rename = "referenceInboxId", skip_serializing_if = "Option::is_none")]
+    pub reference_inbox_id: Option<String>,
+    /// The action of the reaction ("added" or "removed")
+    pub action: String,
+    /// The content of the reaction
+    pub content: String,
+    /// The schema of the content ("unicode", "shortcode", or "custom")
+    pub schema: String,
 }
 
 #[cfg(test)]

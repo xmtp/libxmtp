@@ -33,9 +33,10 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -357,8 +358,21 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 hex::decode(reaction.reference).ok()
             }
             (ReactionCodec::TYPE_ID, _) => {
-                // TODO: Implement JSON deserialization for legacy reaction format
-                None
+                // Try to decode the content as UTF-8 string first
+                if let Ok(decoded_content) = String::from_utf8(content.content) {
+                    tracing::info!("attempting legacy json deserialization: {}", decoded_content);
+                    // Try parsing as canonical JSON format first
+                    if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
+                        hex::decode(reaction.reference).ok()
+                    } else {
+                        tracing::error!("legacy json deserialization failed");
+                        // If canonical format fails, try legacy format using parameters
+                        None
+                    }
+                } else {
+                    tracing::error!("utf-8 deserialization failed");
+                    None
+                }
             }
             _ => None,
         };
