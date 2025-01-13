@@ -2743,6 +2743,48 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_update_policies_empty_group() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        assert!(group_mutable_metadata.attributes.len().eq(&4));
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap()
+            .is_empty());
+
+        amal_group
+            .update_permission_policy(
+                PermissionUpdateType::AddMember,
+                PermissionPolicyOption::Allow,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Update group name
+        amal_group
+            .update_group_name("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
