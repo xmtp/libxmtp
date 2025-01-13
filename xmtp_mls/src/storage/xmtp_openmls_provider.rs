@@ -7,7 +7,6 @@ use openmls_traits::OpenMlsProvider;
 use std::marker::PhantomData;
 
 use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
-use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<WasmDb, crate::storage::RawDbConnection>;
@@ -82,36 +81,3 @@ where
     }
 }
 
-/// This trait would be useful elsewhere too,
-/// but it would be a large refactor. For now, it is used in `ProcessMessageFuture`
-/// to accept either a Reference or Owned type.
-/// `as_ref` is a hack to convert back to a concrete type.
-/// In the future, we can replace function arguments with generics for MlsProviderExt
-
-pub trait MlsProviderExt: OpenMlsProvider {
-    type DbConnection;
-    fn conn_ref(&self) -> &Self::DbConnection;
-}
-
-impl<C> MlsProviderExt for XmtpOpenMlsProviderPrivate<C> {
-    type DbConnection = DbConnectionPrivate<C>;
-    fn conn_ref(&self) -> &Self::DbConnection {
-        XmtpOpenMlsProviderPrivate::<C>::conn_ref(self)
-    }
-}
-
-impl<T> MlsProviderExt for &T where T: MlsProviderExt + OpenMlsProvider {
-    type DbConnection = <T as MlsProviderExt>::DbConnection;
-
-    fn conn_ref(&self) ->  &Self::DbConnection {
-        T::conn_ref(&*self)
-    }
-}
-
-impl<T> MlsProviderExt for Arc<T> where T: MlsProviderExt + OpenMlsProvider {
-    type DbConnection = <T as MlsProviderExt>::DbConnection;
-
-    fn conn_ref(&self) -> &Self::DbConnection {
-        T::conn_ref(&*self)
-    }
-}

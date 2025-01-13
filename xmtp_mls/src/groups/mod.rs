@@ -379,7 +379,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
     }
 
-    // Creates a new group instance. Validate that the group exists in the DB
+    /// Creates a new group instance. Validate that the group exists in the DB before constructing
+    /// the group.
+    ///
+    /// # Returns
+    ///
+    /// Returns the Group and the stored group information as a tuple.
     pub fn new_validated(
         client: ScopedClient,
         group_id: Vec<u8>,

@@ -1568,10 +1568,9 @@ impl FfiConversation {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, FfiSubscribeError> {
-        let provider = self.inner.mls_provider()?;
         let message = self
             .inner
-            .process_streamed_group_message(&provider, envelope_bytes)
+            .process_streamed_group_message(envelope_bytes)
             .await?;
         let ffi_message = message.into();
 
