@@ -5,9 +5,7 @@ use prost::Message;
 use std::{
     io::{BufWriter, Read},
     path::Path,
-    pin::Pin,
     sync::Arc,
-    task::Poll,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use xmtp_proto::xmtp::device_sync::BackupMetadata;
@@ -45,11 +43,11 @@ impl<'a> BackupExporter<'a> {
     pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
         let mut file = tokio::fs::File::create(path.as_ref()).await?;
         let mut buffer = [0u8; 1024];
-        let mut read_buf = tokio::io::ReadBuf::new(&mut buffer);
 
-        while self.read_buf(&mut read_buf).await? != 0 {
-            file.write_all(read_buf.filled()).await?;
-            read_buf.clear();
+        let mut amount = self.read(&mut buffer)?;
+        while amount != 0 {
+            file.write_all(&buffer[..amount]).await?;
+            amount = self.read(&mut buffer)?;
         }
 
         file.flush().await?;
@@ -64,7 +62,7 @@ impl<'a> Read for BackupExporter<'a> {
         if self.position < buffer_inner.len() {
             let available = &buffer_inner[self.position..];
             let amount = available.len().min(buf.len());
-            buf.clone_from_slice(&available[..amount]);
+            buf[..amount].clone_from_slice(&available[..amount]);
             self.position += amount;
             self.buffer = Some(buffer_inner);
             return Ok(amount);
@@ -83,23 +81,20 @@ impl<'a> Read for BackupExporter<'a> {
                 self.stage = Stage::Elements;
             }
             Stage::Elements => match self.stream.next() {
-                Poll::Ready(Some(element)) => {
+                Some(element) => {
                     element.encode(&mut buffer)?;
                 }
-                Poll::Ready(None) => {}
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
+                None => {}
             },
         };
 
         let filled = buffer.filled();
-        let amount = filled.len().min(buf.remaining());
-        buf.put_slice(&filled[..amount]);
+        let amount = filled.len().min(buf.len());
+        buf[..amount].clone_from_slice(&filled[..amount]);
         self.position = amount;
 
         self.buffer = Some(buffer_inner);
 
-        Poll::Ready(Ok(()))
+        Ok(amount)
     }
 }
