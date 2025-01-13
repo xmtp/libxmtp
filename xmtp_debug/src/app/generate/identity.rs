@@ -92,15 +92,30 @@ impl GenerateIdentity {
             });
 
             if set.len() == app::get_fdlimit() {
-                if let Some(Ok(identity)) = set.join_next().await {
-                    identities.push(identity?);
+                if let Some(identity) = set.join_next().await {
+                    match identity {
+                        Ok(identity) => {
+                            identities.push(identity?);
+                        }
+                        Err(e) => {
+                            error!("{}", e.to_string());
+                        }
+                    }
                 }
             }
         }
 
-        while let Some(Ok(identity)) = set.join_next().await {
-            identities.push(identity?);
+        while let Some(identity) = set.join_next().await {
+            match identity {
+                Ok(identity) => {
+                    identities.push(identity?);
+                }
+                Err(e) => {
+                    error!("{}", e.to_string());
+                }
+            }
         }
+
         self.identity_store
             .set_all(identities.as_slice(), &self.network)?;
 
