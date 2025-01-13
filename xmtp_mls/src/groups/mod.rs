@@ -727,7 +727,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        // self.update_consent_state(ConsentState::Allowed)?;
 
         message_id
     }
