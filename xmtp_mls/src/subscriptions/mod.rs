@@ -320,6 +320,9 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
+    /// Async proxy for processing a streamed welcome message.
+    /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
+    /// Pulls a new provider/database connection.
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
@@ -548,7 +551,7 @@ pub(crate) mod tests {
             group::{ConversationType, GroupQueryArgs},
             group_message::StoredGroupMessage,
         },
-        utils::test::{Delivery, FullXmtpClient, TestClient},
+        utils::test::{Delivery, TestClient},
         Client, StreamHandle,
     };
     use futures::StreamExt;
@@ -817,27 +820,13 @@ pub(crate) mod tests {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let groups = Arc::new(Mutex::new(Vec::new()));
-        // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(Some(1));
-        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-
-        // Start a stream with enableDm set to false
-        let mut closer = Client::<TestClient, _>::stream_conversations_with_callback(
-            alix.clone(),
-            Some(ConversationType::Group),
-            move |g| {
-                let mut groups = groups_pointer.lock();
-                groups.push(g);
-                notify_pointer.notify_one();
-            },
-        );
+        let stream = alix.stream_conversations(Some(ConversationType::Group)).await.unwrap();
+        futures::pin_mut!(stream);
 
         alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
-
-        let result = notify.wait_for_delivery().await;
+        let result = xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM group");
 
         let group = alix
@@ -848,29 +837,13 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        notify.wait_for_delivery().await.unwrap();
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 1);
-        }
-
-        let _ = closer.end_and_wait().await;
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
 
         // Start a stream with only dms
-        let groups = Arc::new(Mutex::new(Vec::new()));
-        let notify = Delivery::new(Some(1));
-        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-
         // Start a stream with conversation_type DM
-        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
-            alix.clone(),
-            Some(ConversationType::Dm),
-            move |g| {
-                let mut groups = groups_pointer.lock();
-                groups.push(g);
-                notify_pointer.notify_one();
-            },
-        );
+        let stream = alix.stream_conversations(Some(ConversationType::Dm)).await.unwrap();
+        futures::pin_mut!(stream);
 
         let group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -880,40 +853,28 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let result = notify.wait_for_delivery().await;
+        // we should not get a message
+        let result = xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
         alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 1);
-        }
-
-        closer.end();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
 
         // Start a stream with all conversations
-        let groups = Arc::new(Mutex::new(Vec::new()));
+        let mut groups = Vec::new();
         // Wait for 2 seconds for the group creation to be streamed
-        let notify = Delivery::new(None);
-        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-        let closer =
-            FullXmtpClient::stream_conversations_with_callback(alix.clone(), None, move |g| {
-                let mut groups = groups_pointer.lock();
-                groups.push(g);
-                notify_pointer.notify_one();
-            });
+        let stream = alix.stream_conversations(None).await.unwrap();
+futures::pin_mut!(stream);
 
         alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 1);
-        }
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
 
         let dm = bo
             .create_dm_by_inbox_id(alix.inbox_id().to_string())
@@ -922,11 +883,9 @@ pub(crate) mod tests {
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
             .await
             .unwrap();
-        notify.wait_for_delivery().await.unwrap();
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 2);
-        }
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
 
         let group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -935,14 +894,11 @@ pub(crate) mod tests {
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
 
-        notify.wait_for_delivery().await.unwrap();
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 3);
-        }
-
-        closer.end();
+        assert_eq!(groups.len(), 3);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
