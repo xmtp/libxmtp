@@ -259,7 +259,6 @@ impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
         (
             group.id,
             MessagesStreamInfo {
-                convo_created_at_ns: group.created_at_ns,
                 cursor: 0,
             },
         )
@@ -446,7 +445,6 @@ where
                                 group_list.insert(
                                     new_group.group_id,
                                     MessagesStreamInfo {
-                                        convo_created_at_ns: new_group.created_at_ns,
                                         cursor: 1, // For the new group, stream all messages since the group was created
                                     },
                                 );
@@ -601,39 +599,6 @@ pub(crate) mod tests {
                 .decrypted_message_bytes
                 .is_empty());
         };
-    }
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    async fn test_stream_messages() {
-        xmtp_common::logger();
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        let alice_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
-
-        alice_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-        let bob_groups = bob
-            .sync_welcomes(&bob.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let bob_group = bob_groups.first().unwrap();
-
-        let stream = alice_group.stream().await.unwrap();
-        futures::pin_mut!(stream);
-        bob_group.send_message(b"hello").await.unwrap();
-
-        let message = stream.next().await.unwrap().unwrap();
-        assert_eq!(message.decrypted_message_bytes, b"hello");
-
-        bob_group.send_message(b"hello2").await.unwrap();
-        let message = stream.next().await.unwrap().unwrap();
-        assert_eq!(message.decrypted_message_bytes, b"hello2");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]

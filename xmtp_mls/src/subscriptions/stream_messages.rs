@@ -6,9 +6,9 @@ use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
         group_message::StoredGroupMessage, refresh_state::EntityKind,
-        StorageError, DbConnection
+        StorageError,
     },
-    XmtpOpenMlsProvider, MlsProviderExt
+    XmtpOpenMlsProvider
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -50,7 +50,6 @@ type GroupId = Vec<u8>;
 /// in a stream of messages from a single group.
 #[derive(Debug)]
 pub(crate) struct MessagesStreamInfo {
-    pub convo_created_at_ns: i64,
     pub cursor: u64,
 }
 
@@ -141,22 +140,39 @@ where
                     this.state.set(ProcessState::Waiting);
                     Ready(Some(Ok(msg)))
                 }
-                Ready(Err(e)) => Ready(Some(Err(e))),
-                Pending => Pending,
+                Ready(Err(e)) => {
+                    // skip if GroupMessageNotFound
+                    if matches!(e, SubscribeError::GroupMessageNotFound) {
+                        tracing::warn!("skipping message streaming payload");
+                        this.state.set(ProcessState::Waiting);
+                        cx.waker().wake_by_ref();
+                        Pending
+                    } else {
+                        Ready(Some(Err(e)))
+                    }
+                },
+                Pending => {
+                    cx.waker().wake_by_ref();
+                    Pending
+                },
             },
         }
     }
 }
 
 /// Future that processes a group message from the network
-pub struct ProcessMessageFuture<Client, Provider> {
-    provider: Provider,
+pub struct ProcessMessageFuture<Client> {
+    provider: XmtpOpenMlsProvider,
     client: Client,
     msg: group_message::V1,
 }
 
-impl<C> ProcessMessageFuture<C, XmtpOpenMlsProvider> {
-    pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C, XmtpOpenMlsProvider>> {
+impl<C> ProcessMessageFuture<C>
+where
+    C: ScopedGroupClient,
+{
+    /// Create a new Future to process a GroupMessage.
+     pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C>> {
         let msg = extract_message_v1(envelope)?;
         let provider = client.mls_provider()?;
         tracing::info!(
@@ -169,28 +185,6 @@ impl<C> ProcessMessageFuture<C, XmtpOpenMlsProvider> {
             provider,
             client,
             msg,
-        })
-    }
-}
-
-impl<C, Provider> ProcessMessageFuture<C, Provider>
-where
-    C: ScopedGroupClient,
-    Provider: MlsProviderExt<DbConnection = DbConnection>,
-{
-    // allows passing an owned or referenced provider
-    fn new_with_provider(client: C, envelope: GroupMessage, provider: Provider) -> Result<Self> {
-        let msg = extract_message_v1(envelope)?;
-        tracing::info!(
-            inbox_id = client.inbox_id(),
-            group_id = hex::encode(&msg.group_id),
-            "Received message streaming payload"
-        );
-
-        Ok(Self {
-            provider,
-            client,
-            msg
         })
     }
 
@@ -224,7 +218,16 @@ where
             .provider
             .conn_ref()
             .get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?
-            .ok_or(SubscribeError::GroupMessageNotFound)?;
+            .ok_or(SubscribeError::GroupMessageNotFound)
+            .inspect_err(|e| {
+                if matches!(e, SubscribeError::GroupMessageNotFound) {
+                     tracing::warn!(msg_id,
+                    inbox_id = self.inbox_id(),
+                    group_id = hex::encode(&self.msg.group_id),
+                    "group message not found");
+
+                }
+            })?;
         return Ok(new_message);
     }
 
@@ -234,11 +237,11 @@ where
             .client
             .store()
             .retryable_transaction_async(&self.provider, None, |provider| async move {
-                let group = MlsGroup::new(
+                let (group, _) = MlsGroup::new_validated(
                     &self.client,
                     self.msg.group_id.clone(),
-                    self.msg.created_ns as i64,
-                );
+                    provider,
+                )?;
                 tracing::info!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
@@ -320,5 +323,54 @@ where
                 "recovery sync triggered by streamed message successful"
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use futures::stream::StreamExt;
+
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_stream_messages() {
+        xmtp_common::logger();
+        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alice_group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
+
+        alice_group
+            .add_members_by_inbox_id(&[bob.inbox_id()])
+            .await
+            .unwrap();
+        let bob_groups = bob
+            .sync_welcomes(&bob.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bob_group = bob_groups.first().unwrap();
+        alice_group.sync()
+            .await
+            .unwrap();
+
+        let stream = alice_group.stream().await.unwrap();
+        futures::pin_mut!(stream);
+        bob_group.send_message(b"hello").await.unwrap();
+
+        // implicitly skips the first message (add bob to group message)
+        // since that is an epoch increment.
+        let message = stream.next().await.unwrap().unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"hello");
+
+        bob_group.send_message(b"hello2").await.unwrap();
+        let message = stream.next().await.unwrap().unwrap();
+        assert_eq!(message.decrypted_message_bytes, b"hello2");
     }
 }
