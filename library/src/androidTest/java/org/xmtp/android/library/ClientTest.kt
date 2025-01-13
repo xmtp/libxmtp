@@ -103,6 +103,27 @@ class ClientTest {
     }
 
     @Test
+    fun testStaticInboxIds() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fixtures = fixtures()
+        val states = runBlocking {
+            Client.inboxStatesForInboxIds(
+                listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
+                context,
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false)
+            )
+        }
+        assertEquals(
+            states.first().recoveryAddress.lowercase(),
+            fixtures.bo.walletAddress.lowercase()
+        )
+        assertEquals(
+            states.last().recoveryAddress.lowercase(),
+            fixtures.caro.walletAddress.lowercase()
+        )
+    }
+
+    @Test
     fun testCanDeleteDatabase() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -303,6 +324,59 @@ class ClientTest {
     }
 
     @Test
+    fun testRevokesInstallations() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+
+        val alixClient = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+
+        val alixClient2 = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key,
+                    dbDirectory = context.filesDir.absolutePath.toString()
+                )
+            )
+        }
+
+        val alixClient3 = runBlocking {
+            Client().create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key,
+                    dbDirectory = File(context.filesDir.absolutePath, "xmtp_db3").toPath()
+                        .toString()
+                )
+            )
+        }
+
+        var state = runBlocking { alixClient3.inboxState(true) }
+        assertEquals(state.installations.size, 3)
+
+        runBlocking {
+            alixClient3.revokeInstallations(alixWallet, listOf(alixClient2.installationId))
+        }
+
+        state = runBlocking { alixClient3.inboxState(true) }
+        assertEquals(state.installations.size, 2)
+    }
+
+    @Test
     fun testRevokesAllOtherInstallations() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -335,7 +409,8 @@ class ClientTest {
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
                     dbEncryptionKey = key,
-                    dbDirectory = File(context.filesDir.absolutePath, "xmtp_db3").toPath().toString()
+                    dbDirectory = File(context.filesDir.absolutePath, "xmtp_db3").toPath()
+                        .toString()
                 )
             )
         }

@@ -2,6 +2,8 @@ package org.xmtp.android.library
 
 import android.content.Context
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.InboxState
@@ -60,15 +62,13 @@ class Client() {
         }
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
-        private val cacheLock = Any()
+        private val cacheLock = Mutex()
 
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
             val cacheKey = api.env.getUrl()
-            return synchronized(cacheLock) {
+            return cacheLock.withLock {
                 apiClientCache.getOrPut(cacheKey) {
-                    runBlocking {
-                        connectToBackend(api.env.getUrl(), api.isSecure)
-                    }
+                    connectToBackend(api.env.getUrl(), api.isSecure)
                 }
             }
         }
@@ -91,11 +91,11 @@ class Client() {
             codecRegistry.register(codec = codec)
         }
 
-        suspend fun canMessage(
-            accountAddresses: List<String>,
+        suspend fun <T> withFfiClient(
             appContext: Context,
             api: ClientOptions.Api,
-        ): Map<String, Boolean> {
+            useClient: suspend (ffiClient: FfiXmtpClient) -> T,
+        ): T {
             val accountAddress = "0x0000000000000000000000000000000000000000"
             val inboxId = getOrCreateInboxId(api, accountAddress)
             val alias = "xmtp-${api.env}-$inboxId"
@@ -115,11 +115,32 @@ class Client() {
                 historySyncUrl = null
             )
 
-            val result = ffiClient.canMessage(accountAddresses)
-            ffiClient.releaseDbConnection()
-            File(dbPath).delete()
+            return try {
+                useClient(ffiClient)
+            } finally {
+                ffiClient.releaseDbConnection()
+                File(dbPath).delete()
+            }
+        }
 
-            return result
+        suspend fun inboxStatesForInboxIds(
+            inboxIds: List<String>,
+            appContext: Context,
+            api: ClientOptions.Api,
+        ): List<InboxState> {
+            return withFfiClient(appContext, api) { ffiClient ->
+                ffiClient.addressesFromInboxId(true, inboxIds).map { InboxState(it) }
+            }
+        }
+
+        suspend fun canMessage(
+            accountAddresses: List<String>,
+            appContext: Context,
+            api: ClientOptions.Api,
+        ): Map<String, Boolean> {
+            return withFfiClient(appContext, api) { ffiClient ->
+                ffiClient.canMessage(accountAddresses)
+            }
         }
     }
 
@@ -235,6 +256,13 @@ class Client() {
             ffiClient.registerIdentity(signatureRequest)
         }
         return Pair(ffiClient, dbPath)
+    }
+
+    suspend fun revokeInstallations(signingKey: SigningKey, installationIds: List<String>) {
+        val ids = installationIds.map { it.hexToByteArray() }
+        val signatureRequest = ffiClient.revokeInstallations(ids)
+        handleSignature(signatureRequest, signingKey)
+        ffiClient.applySignatureRequest(signatureRequest)
     }
 
     suspend fun revokeAllOtherInstallations(signingKey: SigningKey) {
