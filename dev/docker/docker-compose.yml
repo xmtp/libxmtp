@@ -69,7 +69,7 @@ services:
     # note: the SHA here is tied to the XTMPD_CONTRACTS_*_ADDRESSes
     # if you bump the version of anvil-xmtpd you will have to change the contracts
     # you can find them inside the anvil-xmtpd image via `docker exec libxmtp-chain-1 cat contracts.env`
-    image: ghcr.io/xmtp/anvil-xmtpd:sha-0a896ad
+    image: ghcr.io/xmtp/anvil-xmtpd:sha-9d0de26
     command: ["--host", "0.0.0.0"]
 
   repnode:
