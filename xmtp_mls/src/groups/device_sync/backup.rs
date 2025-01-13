@@ -2,14 +2,17 @@ use crate::XmtpOpenMlsProvider;
 use backup_stream::{BackupRecordStreamer, BackupStream};
 use futures::StreamExt;
 use prost::Message;
-use std::{pin::Pin, sync::Arc, task::Poll};
-use tokio::io::{AsyncRead, ReadBuf};
+use std::{path::Path, pin::Pin, sync::Arc, task::Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
     BackupElementSelection, BackupMetadata,
 };
 
+use super::DeviceSyncError;
+
+// Increment on breaking changes
 const BACKUP_VERSION: u32 = 0;
 
 mod backup_stream;
@@ -77,6 +80,24 @@ enum Stage {
     #[default]
     Metadata,
     Elements,
+}
+
+impl BackupExporter {
+    pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
+        let path = path.as_ref();
+        let mut file = tokio::fs::File::create(path).await?;
+        let mut buffer = [0u8; 1024];
+        let mut read_buf = tokio::io::ReadBuf::new(&mut buffer);
+
+        while self.read_buf(&mut read_buf).await? != 0 {
+            file.write_all(read_buf.filled()).await?;
+            read_buf.clear();
+        }
+
+        file.flush().await?;
+
+        Ok(())
+    }
 }
 
 impl AsyncRead for BackupExporter {
