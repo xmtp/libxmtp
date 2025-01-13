@@ -16,10 +16,12 @@ pub(crate) mod message_save;
 // Consent(ConsentRecordSave),
 // }
 
+type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>;
+
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BackupStream {
     pub(super) buffer: Vec<BackupElement>,
-    pub(super) input_streams: Vec<Vec<Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>>>,
+    pub(super) input_streams: Vec<BackupInputStream>,
 }
 
 impl Stream for BackupStream {
@@ -41,18 +43,17 @@ impl Stream for BackupStream {
                 // No streams left, we're done.
                 return Poll::Ready(None);
             };
-            if let Some(last) = last.last_mut() {
-                let buffer = match last.as_mut().poll_next(cx) {
-                    Poll::Ready(v) => v,
-                    Poll::Pending => return Poll::Pending,
-                };
-                if let Some(buffer) = buffer {
-                    this.buffer = buffer;
-                    if let Some(element) = this.buffer.pop() {
-                        return Poll::Ready(Some(element));
-                    }
-                }
+
+            let buffer = match last.as_mut().poll_next(cx) {
+                Poll::Ready(v) => v,
+                Poll::Pending => return Poll::Pending,
             };
+            if let Some(buffer) = buffer {
+                this.buffer = buffer;
+                if let Some(element) = this.buffer.pop() {
+                    return Poll::Ready(Some(element));
+                }
+            }
 
             this.input_streams.pop();
         }
@@ -75,15 +76,23 @@ pub(super) struct BackupRecordStreamer<R> {
     _phantom: PhantomData<R>,
 }
 
-impl<R> BackupRecordStreamer<R> {
-    pub(super) fn new(provider: &Arc<XmtpOpenMlsProvider>, opts: &BackupOptions) -> Self {
-        Self {
+impl<R> BackupRecordStreamer<R>
+where
+    R: BackupRecordProvider + Unpin + 'static,
+{
+    pub(super) fn new(
+        provider: &Arc<XmtpOpenMlsProvider>,
+        opts: &BackupOptions,
+    ) -> BackupInputStream {
+        let stream = Self {
             offset: 0,
             provider: provider.clone(),
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             _phantom: PhantomData,
-        }
+        };
+
+        Box::pin(stream)
     }
 }
 

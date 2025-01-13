@@ -1,12 +1,13 @@
 use crate::XmtpOpenMlsProvider;
 use backup_stream::{BackupRecordStreamer, BackupStream};
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use prost::Message;
 use std::{pin::Pin, sync::Arc, task::Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{
-    consent_backup::ConsentSave, BackupElement, BackupElementSelection, BackupMetadata,
+    consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
+    BackupElementSelection, BackupMetadata,
 };
 
 const BACKUP_VERSION: u32 = 0;
@@ -31,24 +32,41 @@ impl From<BackupOptions> for BackupMetadata {
     }
 }
 
-impl BackupOptionsElementSelection {
-    fn to_streamers<'a>(
-        &self,
-        provider: &Arc<XmtpOpenMlsProvider>,
-        opts: &BackupOptions,
-    ) -> Vec<Pin<Box<dyn Stream<Item = Vec<BackupElement>> + 'a>>> {
-        match self {
-            Self::Consent => vec![Box::pin(BackupRecordStreamer::<ConsentSave>::new(
-                provider, opts,
-            ))],
-            Self::Messages => vec![],
+impl BackupOptions {
+    pub fn export(self, provider: &Arc<XmtpOpenMlsProvider>) -> BackupExporter {
+        BackupExporter {
+            buffer: None,
+            position: 0,
+            stage: Stage::default(),
+            stream: self.build_stream(provider),
+            metadata: self.into(),
+        }
+    }
+
+    fn build_stream(&self, provider: &Arc<XmtpOpenMlsProvider>) -> BackupStream {
+        use BackupElementSelection::*;
+        let input_streams = self
+            .elements
+            .iter()
+            .flat_map(|&e| match e {
+                Consent => vec![BackupRecordStreamer::<ConsentSave>::new(provider, self)],
+                Messages => vec![
+                    BackupRecordStreamer::<GroupSave>::new(provider, self),
+                    BackupRecordStreamer::<GroupMessageSave>::new(provider, self),
+                ],
+            })
+            .collect();
+
+        BackupStream {
+            input_streams,
+            buffer: vec![],
         }
     }
 }
 
-struct BackupWriter {
+struct BackupExporter {
     stage: Stage,
-    metadata: Vec<u8>,
+    metadata: BackupMetadata,
     stream: BackupStream,
     buffer: Option<Vec<u8>>,
     position: usize,
@@ -57,12 +75,11 @@ struct BackupWriter {
 #[derive(Default)]
 enum Stage {
     #[default]
-    MetadataLen,
     Metadata,
     Elements,
 }
 
-impl AsyncRead for BackupWriter {
+impl AsyncRead for BackupExporter {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -86,11 +103,9 @@ impl AsyncRead for BackupWriter {
         let mut buffer = ReadBuf::new(&mut buffer_inner);
 
         match self.stage {
-            Stage::MetadataLen => {
-                buffer.put_slice(&(self.metadata.len() as u32).to_le_bytes());
-            }
             Stage::Metadata => {
                 buffer.put_slice(&serde_json::to_vec(&self.metadata)?);
+                self.stage = Stage::Elements;
             }
             Stage::Elements => match self.stream.poll_next_unpin(cx) {
                 Poll::Ready(Some(element)) => {
