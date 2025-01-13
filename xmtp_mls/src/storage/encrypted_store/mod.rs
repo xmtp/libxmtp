@@ -336,7 +336,6 @@ pub mod private {
         pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
             &self,
             provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            retry: Option<Retry>,
             fun: F,
         ) -> Result<T, E>
         where
@@ -345,7 +344,7 @@ pub mod private {
             E: From<diesel::result::Error> + From<StorageError> + RetryableError,
         {
             retry_async!(
-                retry.unwrap_or_default(),
+                Retry::default(),
                 (async { self.transaction_async(provider, fun).await })
             )
         }
