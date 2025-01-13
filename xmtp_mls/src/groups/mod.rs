@@ -401,7 +401,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub(crate) fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub(crate) fn new_from_arc(
+        client: Arc<ScopedClient>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+    ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),

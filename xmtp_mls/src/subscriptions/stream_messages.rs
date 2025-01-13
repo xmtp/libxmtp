@@ -4,11 +4,8 @@ use super::{temp::Result, FutureWrapper, SubscribeError};
 use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{
-        group_message::StoredGroupMessage, refresh_state::EntityKind,
-        StorageError,
-    },
-    XmtpOpenMlsProvider
+    storage::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError},
+    XmtpOpenMlsProvider,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -26,7 +23,6 @@ pub enum MessageStreamError {
     #[error("Invalid Payload")]
     InvalidPayload,
 }
-
 
 impl xmtp_common::RetryableError for MessageStreamError {
     fn is_retryable(&self) -> bool {
@@ -120,8 +116,7 @@ where
         match this.state.as_mut().project() {
             Waiting => match this.inner.poll_next(cx) {
                 Ready(Some(envelope)) => {
-                    let future =
-                        ProcessMessageFuture::new(*this.client, envelope?)?;
+                    let future = ProcessMessageFuture::new(*this.client, envelope?)?;
                     let future = future.process();
                     this.state.set(ProcessState::Processing {
                         future: FutureWrapper::new(future),
@@ -140,21 +135,18 @@ where
                     this.state.set(ProcessState::Waiting);
                     Ready(Some(Ok(msg)))
                 }
-                Ready(Err(e)) => {
-                    // skip if GroupMessageNotFound
-                    if matches!(e, SubscribeError::GroupMessageNotFound) {
-                        tracing::warn!("skipping message streaming payload");
-                        this.state.set(ProcessState::Waiting);
-                        cx.waker().wake_by_ref();
-                        Pending
-                    } else {
-                        Ready(Some(Err(e)))
-                    }
-                },
+                // skip if payload GroupMessageNotFound
+                Ready(Err(SubscribeError::GroupMessageNotFound)) => {
+                    tracing::warn!("skipping message streaming payload");
+                    this.state.set(ProcessState::Waiting);
+                    cx.waker().wake_by_ref();
+                    Pending
+                }
+                Ready(Err(e)) => Ready(Some(Err(e))),
                 Pending => {
                     cx.waker().wake_by_ref();
                     Pending
-                },
+                }
             },
         }
     }
@@ -172,7 +164,7 @@ where
     C: ScopedGroupClient,
 {
     /// Create a new Future to process a GroupMessage.
-     pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C>> {
+    pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C>> {
         let msg = extract_message_v1(envelope)?;
         let provider = client.mls_provider()?;
         tracing::info!(
@@ -221,11 +213,12 @@ where
             .ok_or(SubscribeError::GroupMessageNotFound)
             .inspect_err(|e| {
                 if matches!(e, SubscribeError::GroupMessageNotFound) {
-                     tracing::warn!(msg_id,
-                    inbox_id = self.inbox_id(),
-                    group_id = hex::encode(&self.msg.group_id),
-                    "group message not found");
-
+                    tracing::warn!(
+                        msg_id,
+                        inbox_id = self.inbox_id(),
+                        group_id = hex::encode(&self.msg.group_id),
+                        "group message not found"
+                    );
                 }
             })?;
         return Ok(new_message);
@@ -236,12 +229,9 @@ where
         let process_result = self
             .client
             .store()
-            .retryable_transaction_async(&self.provider, None, |provider| async move {
-                let (group, _) = MlsGroup::new_validated(
-                    &self.client,
-                    self.msg.group_id.clone(),
-                    provider,
-                )?;
+            .retryable_transaction_async(&self.provider, |provider| async move {
+                let (group, _) =
+                    MlsGroup::new_validated(&self.client, self.msg.group_id.clone(), provider)?;
                 tracing::info!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
@@ -330,8 +320,8 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use wasm_bindgen_test::wasm_bindgen_test;
     use futures::stream::StreamExt;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -356,9 +346,7 @@ mod tests {
             .await
             .unwrap();
         let bob_group = bob_groups.first().unwrap();
-        alice_group.sync()
-            .await
-            .unwrap();
+        alice_group.sync().await.unwrap();
 
         let stream = alice_group.stream().await.unwrap();
         futures::pin_mut!(stream);
