@@ -2,7 +2,10 @@ use super::BackupOptions;
 use crate::XmtpOpenMlsProvider;
 use futures::Stream;
 use std::{marker::PhantomData, pin::Pin, sync::Arc};
-use xmtp_proto::xmtp::device_sync::BackupElement;
+use xmtp_proto::xmtp::device_sync::{
+    consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
+    BackupElement, BackupElementSelection,
+};
 
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
@@ -22,6 +25,29 @@ type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>;
 pub(super) struct BackupStream {
     pub(super) buffer: Vec<BackupElement>,
     pub(super) input_streams: Vec<BackupInputStream>,
+}
+
+impl BackupStream {
+    pub(super) fn new(opts: &BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
+        let input_streams = opts
+            .elements
+            .iter()
+            .flat_map(|&e| match e {
+                BackupElementSelection::Consent => {
+                    vec![BackupRecordStreamer::<ConsentSave>::new(provider, opts)]
+                }
+                BackupElementSelection::Messages => vec![
+                    BackupRecordStreamer::<GroupSave>::new(provider, opts),
+                    BackupRecordStreamer::<GroupMessageSave>::new(provider, opts),
+                ],
+            })
+            .collect();
+
+        Self {
+            input_streams,
+            buffer: vec![],
+        }
+    }
 }
 
 impl Stream for BackupStream {
