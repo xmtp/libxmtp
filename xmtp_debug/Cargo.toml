@@ -24,7 +24,7 @@ color-eyre = "0.6"
 tracing-logfmt = "0.3"
 owo-colors = "4.1"
 url.workspace = true
-redb = "2.3"
+redb = "2.4"
 directories = "5.0"
 const_format.workspace = true
 speedy = "0.8"
@@ -34,7 +34,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 tokio = "1.41"
 ecdsa = "0.16"
 k256 = "0.13"
-tempfile = "3.14"
+tempfile = "3.15"
 thiserror.workspace = true
 tracing-appender = "0.2"
 chrono.workspace = true

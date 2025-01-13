@@ -559,6 +559,7 @@ where
                                 version_major: queryable_content_fields.version_major,
                                 version_minor: queryable_content_fields.version_minor,
                                 authority_id: queryable_content_fields.authority_id,
+                                reference_id: queryable_content_fields.reference_id,
                             }
                                 .store_or_ignore(provider.conn_ref())?
                         }
@@ -591,6 +592,7 @@ where
                                         version_major: 0,
                                         version_minor: 0,
                                         authority_id: "unknown".to_string(),
+                                        reference_id: None,
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -624,6 +626,7 @@ where
                                         version_major: 0,
                                         version_minor: 0,
                                         authority_id: "unknown".to_string(),
+                                        reference_id: None,
                                     }
                                         .store_or_ignore(provider.conn_ref())?;
 
@@ -971,6 +974,7 @@ where
             version_major: content_type.version_major as i32,
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
+            reference_id: None,
         };
 
         msg.store_or_ignore(conn)?;

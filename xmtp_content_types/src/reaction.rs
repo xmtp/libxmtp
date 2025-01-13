@@ -20,7 +20,7 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
         ContentTypeId {
             authority_id: ReactionCodec::AUTHORITY_ID.to_string(),
             type_id: ReactionCodec::TYPE_ID.to_string(),
-            version_major: 1,
+            version_major: 2,
             version_minor: 0,
         }
     }

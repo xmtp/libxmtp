@@ -1,5 +1,7 @@
 // @generated automatically by Diesel CLI.
 
+use crate::storage::schema::conversation_list;
+
 diesel::table! {
     association_state (inbox_id, sequence_id) {
         inbox_id -> Text,
@@ -45,6 +47,7 @@ diesel::table! {
         version_minor -> Integer,
         version_major -> Integer,
         authority_id -> Text,
+        reference_id -> Nullable<Binary>,
     }
 }
 
@@ -143,4 +146,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     refresh_state,
     user_preferences,
     wallet_addresses,
+    conversation_list
 );

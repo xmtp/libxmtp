@@ -22,9 +22,9 @@ describe('Conversations', () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
 
-    expect((await client.conversations().list()).length).toBe(0)
-    expect((await client.conversations().listDms()).length).toBe(0)
-    expect((await client.conversations().listGroups()).length).toBe(0)
+    expect(client.conversations().list().length).toBe(0)
+    expect(client.conversations().listDms().length).toBe(0)
+    expect(client.conversations().listGroups().length).toBe(0)
   })
 
   it('should create a group chat', async () => {
@@ -41,7 +41,7 @@ describe('Conversations', () => {
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
-      GroupPermissionsOptions.AllMembers
+      GroupPermissionsOptions.Default
     )
     expect(group.groupPermissions().policySet()).toEqual({
       addMemberPolicy: 0,
@@ -52,6 +52,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(1)
@@ -67,22 +68,22 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = await client1.conversations().list()
+    const group1 = client1.conversations().list()
     expect(group1.length).toBe(1)
     expect(group1[0].id).toBe(group.id)
-    expect((await client1.conversations().listDms()).length).toBe(0)
-    expect((await client1.conversations().listGroups()).length).toBe(1)
+    expect(client1.conversations().listDms().length).toBe(0)
+    expect(client1.conversations().listGroups().length).toBe(1)
 
-    expect((await client2.conversations().list()).length).toBe(0)
+    expect(client2.conversations().list().length).toBe(0)
 
     await client2.conversations().sync()
 
-    const group2 = await client2.conversations().list()
+    const group2 = client2.conversations().list()
     expect(group2.length).toBe(1)
     expect(group2[0].id).toBe(group.id)
 
-    expect((await client2.conversations().listDms()).length).toBe(0)
-    expect((await client2.conversations().listGroups()).length).toBe(1)
+    expect(client2.conversations().listDms().length).toBe(0)
+    expect(client2.conversations().listGroups().length).toBe(1)
   })
 
   it('should create a group with custom permissions', async () => {
@@ -103,6 +104,7 @@ describe('Conversations', () => {
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
           updateGroupPinnedFrameUrlPolicy: 3,
+          updateMessageExpirationMsPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -118,6 +120,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
+      updateMessageExpirationMsPolicy: 2,
     })
   })
 
@@ -139,6 +142,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -155,6 +159,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -172,6 +177,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
   })
 
@@ -198,6 +204,7 @@ describe('Conversations', () => {
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)
@@ -213,25 +220,25 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = await client1.conversations().list()
+    const group1 = client1.conversations().list()
     expect(group1.length).toBe(1)
     expect(group1[0].id).toBe(group.id)
     expect(group1[0].dmPeerInboxId()).toBe(client2.inboxId())
 
-    expect((await client1.conversations().listDms()).length).toBe(1)
-    expect((await client1.conversations().listGroups()).length).toBe(0)
+    expect(client1.conversations().listDms().length).toBe(1)
+    expect(client1.conversations().listGroups().length).toBe(0)
 
-    expect((await client2.conversations().list()).length).toBe(0)
+    expect(client2.conversations().list().length).toBe(0)
 
     await client2.conversations().sync()
 
-    const group2 = await client2.conversations().list()
+    const group2 = client2.conversations().list()
     expect(group2.length).toBe(1)
     expect(group2[0].id).toBe(group.id)
     expect(group2[0].dmPeerInboxId()).toBe(client1.inboxId())
 
-    expect((await client2.conversations().listDms()).length).toBe(1)
-    expect((await client2.conversations().listGroups()).length).toBe(0)
+    expect(client2.conversations().listDms().length).toBe(1)
+    expect(client2.conversations().listGroups().length).toBe(0)
 
     const dm1 = client1.conversations().findDmByTargetInboxId(client2.inboxId())
     expect(dm1).toBeDefined()
@@ -335,6 +342,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
       updateGroupPinnedFrameUrlPolicy: 2,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     const groupWithDescription = await client1
@@ -487,15 +495,15 @@ describe('Conversations', () => {
 
     const groups2 = client2.conversations()
     await groups2.sync()
-    const groupsList2 = await groups2.list()
+    const groupsList2 = groups2.list()
 
     const groups3 = client3.conversations()
     await groups3.sync()
-    const groupsList3 = await groups3.list()
+    const groupsList3 = groups3.list()
 
-    const groups4 = await client4.conversations()
+    const groups4 = client4.conversations()
     await groups4.sync()
-    const groupsList4 = await groups4.list()
+    const groupsList4 = groups4.list()
 
     const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
     const message2 = await groupsList3[0].send(encodeTextMessage('gm2!'))
@@ -530,15 +538,15 @@ describe('Conversations', () => {
 
     const groups2 = client2.conversations()
     await groups2.sync()
-    const groupsList2 = await groups2.list()
+    const groupsList2 = groups2.list()
 
     const groups3 = client3.conversations()
     await groups3.sync()
-    const groupsList3 = await groups3.list()
+    const groupsList3 = groups3.list()
 
-    const groups4 = await client4.conversations()
+    const groups4 = client4.conversations()
     await groups4.sync()
-    const groupsList4 = await groups4.list()
+    const groupsList4 = groups4.list()
 
     await groupsList4[0].send(encodeTextMessage('gm3!'))
     const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
@@ -573,15 +581,15 @@ describe('Conversations', () => {
 
     const groups2 = client2.conversations()
     await groups2.sync()
-    const groupsList2 = await groups2.list()
+    const groupsList2 = groups2.list()
 
     const groups3 = client3.conversations()
     await groups3.sync()
-    const groupsList3 = await groups3.list()
+    const groupsList3 = groups3.list()
 
-    const groups4 = await client4.conversations()
+    const groups4 = client4.conversations()
     await groups4.sync()
-    const groupsList4 = await groups4.list()
+    const groupsList4 = groups4.list()
 
     await groupsList2[0].send(encodeTextMessage('gm!'))
     await groupsList3[0].send(encodeTextMessage('gm2!'))

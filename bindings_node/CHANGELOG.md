@@ -1,5 +1,14 @@
 # @xmtp/node-bindings
 
+## 0.0.33
+
+- Added installation ID `bytes` to return value of `inboxState`
+- Refactored `list`, `listGroups`, and `listDms` to be synchronous
+
+## 0.0.32
+
+- Add ability to revoke installations from a list of installations
+
 ## 0.0.31
 
 - Added HMAC keys for push notifications

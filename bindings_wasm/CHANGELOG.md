@@ -1,5 +1,18 @@
 # @xmtp/wasm-bindings
 
+## 0.0.12
+
+- Added `getHmacKeys` to `Conversations`
+
+## 0.0.11
+
+- Added installation ID `bytes` to return value of `inboxState`
+- Refactored `list`, `listGroups`, and `listDms` to be synchronous
+
+## 0.0.10
+
+- Add ability to revoke installations from a list of installations
+
 ## 0.0.9
 
 - Fixed issue that resulted in a forked group

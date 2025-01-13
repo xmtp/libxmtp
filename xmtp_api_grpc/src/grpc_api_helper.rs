@@ -31,7 +31,7 @@ use xmtp_proto::{
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_tls_channel(address: String) -> Result<Channel, Error> {
-    let span = tracing::trace_span!("grpc_connect", address);
+    let span = tracing::debug_span!("grpc_connect", address);
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
