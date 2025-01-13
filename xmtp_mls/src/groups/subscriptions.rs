@@ -8,7 +8,10 @@ use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
     storage::group_message::StoredGroupMessage,
-    subscriptions::{stream_messages::{ProcessMessageFuture, StreamGroupMessages, MessagesStreamInfo}, SubscribeError},
+    subscriptions::{
+        stream_messages::{MessagesStreamInfo, ProcessMessageFuture, StreamGroupMessages},
+        SubscribeError,
+    },
 };
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
@@ -37,12 +40,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
     {
-        let group_list = HashMap::from([(
-            self.group_id.clone(),
-            MessagesStreamInfo {
-                cursor: 0,
-            },
-        )]);
+        let group_list = HashMap::from([(self.group_id.clone(), MessagesStreamInfo { cursor: 0 })]);
         Ok(StreamGroupMessages::new(&self.client, &group_list).await?)
     }
 
@@ -55,12 +53,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         ScopedClient: 'static,
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
     {
-        let group_list = HashMap::from([(
-            group_id,
-            MessagesStreamInfo {
-                cursor: 0,
-            },
-        )]);
+        let group_list = HashMap::from([(group_id, MessagesStreamInfo { cursor: 0 })]);
         stream_messages_with_callback(client, group_list, callback)
     }
 }
@@ -99,14 +92,14 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use xmtp_cryptography::utils::generate_local_wallet;
-     use crate::{
+    use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::GroupMessageKind,
     };
+    use xmtp_cryptography::utils::generate_local_wallet;
 
-    use wasm_bindgen_test::wasm_bindgen_test;
     use futures::StreamExt;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_decode_group_message_bytes() {
@@ -178,7 +171,9 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal.create_group(None, GroupMetadataOptions::default()).unwrap();
+        let group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
 
         let stream = group.stream().await.unwrap();
         futures::pin_mut!(stream);

@@ -25,10 +25,7 @@ use xmtp_id::{
     InboxId, InboxIdRef,
 };
 
-use xmtp_proto::xmtp::mls::api::v1::{
-    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-    GroupMessage, WelcomeMessage,
-};
+use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
@@ -825,16 +822,18 @@ where
     pub async fn sync_welcomes(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
         let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match extract_welcome_message(envelope) {
-                    Ok(inner) => inner,
-                    Err(err) => {
-                        tracing::error!("failed to extract welcome message: {}", err);
+                let welcome_v1 = match envelope.version {
+                    Some(welcome_message::Version::V1(v1)) => v1,
+                    _ => {
+                        tracing::error!(
+                            "failed to extract welcome message, invalid payload only v1 supported."
+                        );
                         return None;
                     }
                 };
@@ -861,7 +860,7 @@ where
     async fn process_new_welcome(
         &self,
         provider: &XmtpOpenMlsProvider,
-        welcome: &WelcomeMessageV1,
+        welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
         provider
             .transaction_async(|provider| async move {
@@ -1027,17 +1026,6 @@ where
             .collect::<HashMap<String, bool>>();
 
         Ok(results)
-    }
-}
-
-pub(crate) fn extract_welcome_message(
-    welcome: WelcomeMessage,
-) -> Result<WelcomeMessageV1, ClientError> {
-    match welcome.version {
-        Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
     }
 }
 

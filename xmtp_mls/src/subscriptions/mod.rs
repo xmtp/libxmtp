@@ -16,15 +16,15 @@ use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
-use stream_conversations::StreamConversations;
-use stream_messages::{StreamGroupMessages, MessagesStreamInfo};
+use stream_conversations::{ProcessWelcomeFuture, StreamConversations, WelcomeOrGroup};
+use stream_messages::{MessagesStreamInfo, StreamGroupMessages};
 
 // mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
 
 use crate::{
-    client::{extract_welcome_message, ClientError},
+    client::ClientError,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
@@ -256,12 +256,7 @@ impl<T> From<StreamHandle<T>> for JoinHandle<T> {
 
 impl From<StoredGroup> for (Vec<u8>, MessagesStreamInfo) {
     fn from(group: StoredGroup) -> (Vec<u8>, MessagesStreamInfo) {
-        (
-            group.id,
-            MessagesStreamInfo {
-                cursor: 0,
-            },
-        )
+        (group.id, MessagesStreamInfo { cursor: 0 })
     }
 }
 
@@ -274,8 +269,6 @@ pub(self) mod temp {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SubscribeError {
-    #[error(transparent)]
-    Client(#[from] ClientError),
     #[error(transparent)]
     Group(#[from] GroupError),
     #[error(transparent)]
@@ -295,13 +288,14 @@ pub enum SubscribeError {
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     MessageStream(#[from] stream_messages::MessageStreamError),
+    #[error(transparent)]
+    ConversationStream(#[from] stream_conversations::ConversationStreamError),
 }
 
 impl RetryableError for SubscribeError {
     fn is_retryable(&self) -> bool {
         use SubscribeError::*;
         match self {
-            Client(e) => retryable!(e),
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
             ReceiveGroup(e) => retryable!(e),
@@ -311,6 +305,7 @@ impl RetryableError for SubscribeError {
             Decode(_) => false,
             NotFound(e) => retryable!(e),
             MessageStream(e) => retryable!(e),
+            ConversationStream(e) => retryable!(e),
         }
     }
 }
@@ -330,16 +325,23 @@ where
         let provider = self.mls_provider()?;
         let conn = provider.conn_ref();
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| ClientError::Generic(e.to_string()))?;
+            .map_err(|e| SubscribeError::from(e))?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
-        let (group, _) = StreamConversations::<_, ()>::on_welcome(
-            &known_welcomes,
+        let future = ProcessWelcomeFuture::new(
+            known_welcomes,
             self.clone(),
-            &provider,
-            envelope,
-        )
-        .await?;
-        Ok(group)
+            WelcomeOrGroup::Welcome(envelope),
+            None,
+        )?;
+        // this should never happen, b/c a conversation type into the process
+        // future, but is here defensively regardless.
+        future
+            .process()
+            .await?
+            .map(|(group, _)| group)
+            .ok_or_else(|| {
+                stream_conversations::ConversationStreamError::InvalidConversationType.into()
+            })
     }
 
     // #[tracing::instrument(level = "debug", skip_all)]
@@ -547,10 +549,7 @@ pub(crate) mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
-        storage::{
-            group::{ConversationType, GroupQueryArgs},
-            group_message::StoredGroupMessage,
-        },
+        storage::{group::ConversationType, group_message::StoredGroupMessage},
         utils::test::{Delivery, TestClient},
         Client, StreamHandle,
     };
@@ -751,154 +750,6 @@ pub(crate) mod tests {
             println!("Missed {} Messages", missed_messages);
             panic!("Test failed due to missed messages");
         }
-    }
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    async fn test_self_group_creation() {
-        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-
-        let groups = Arc::new(Mutex::new(Vec::new()));
-        let notify = Delivery::new(None);
-        let (notify_pointer, groups_pointer) = (notify.clone(), groups.clone());
-
-        let closer = Client::<TestClient, _>::stream_conversations_with_callback(
-            alix.clone(),
-            Some(ConversationType::Group),
-            move |g| {
-                let mut groups = groups_pointer.lock();
-                groups.push(g);
-                notify_pointer.notify_one();
-            },
-        );
-
-        alix.create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-
-        notify
-            .wait_for_delivery()
-            .await
-            .expect("Stream never received group");
-
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 1);
-        }
-
-        let group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[alix.inbox_id()])
-            .await
-            .unwrap();
-
-        notify.wait_for_delivery().await.unwrap();
-
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), 2);
-        }
-
-        // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes(&alix.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
-
-        {
-            let grps = groups.lock();
-            assert_eq!(grps.len(), find_groups_results.len());
-        }
-
-        closer.end();
-    }
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    #[cfg_attr(target_family = "wasm", ignore)]
-    async fn test_dm_streaming() {
-        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-
-        let stream = alix.stream_conversations(Some(ConversationType::Group)).await.unwrap();
-        futures::pin_mut!(stream);
-
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
-            .await
-            .unwrap();
-        let result = xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a DM group");
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-
-        // Start a stream with only dms
-        // Start a stream with conversation_type DM
-        let stream = alix.stream_conversations(Some(ConversationType::Dm)).await.unwrap();
-        futures::pin_mut!(stream);
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-
-        // we should not get a message
-        let result = xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a Group");
-
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
-            .await
-            .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-
-        // Start a stream with all conversations
-        let mut groups = Vec::new();
-        // Wait for 2 seconds for the group creation to be streamed
-        let stream = alix.stream_conversations(None).await.unwrap();
-futures::pin_mut!(stream);
-
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
-            .await
-            .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-        groups.push(group.unwrap());
-
-        let dm = bo
-            .create_dm_by_inbox_id(alix.inbox_id().to_string())
-            .await
-            .unwrap();
-        dm.add_members_by_inbox_id(&[alix.inbox_id()])
-            .await
-            .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-        groups.push(group.unwrap());
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-        groups.push(group.unwrap());
-
-        assert_eq!(groups.len(), 3);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
