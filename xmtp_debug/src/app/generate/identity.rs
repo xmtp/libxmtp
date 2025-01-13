@@ -1,10 +1,10 @@
-use std::{sync::Arc, collections::HashSet};
+use std::{collections::HashSet, sync::Arc};
 
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
 use crate::args;
 
-use color_eyre::eyre::{self, Result};
+use color_eyre::eyre::{self, bail, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 
 /// Identity Generation
@@ -128,7 +128,11 @@ impl GenerateIdentity {
             total_states = states.len(),
             "ensuring identities registered & latest association state loaded..."
         );
-        let errs = states.into_iter().filter_map(|s| s.err()).map(|e| e.to_string()).collect::<Vec<String>>();
+        let errs = states
+            .into_iter()
+            .filter_map(|s| s.err())
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>();
         let unique: HashSet<String> = HashSet::from_iter(errs.clone());
         if !unique.is_empty() {
             tracing::error!("{} errors during identity generation", errs.len());
@@ -136,6 +140,7 @@ impl GenerateIdentity {
             for err in unique.into_iter() {
                 error!(err);
             }
+            bail!("Error generation failed");
         }
         Ok(identities)
     }
