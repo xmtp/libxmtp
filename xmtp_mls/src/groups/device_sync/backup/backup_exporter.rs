@@ -2,16 +2,24 @@ use super::{backup_stream::BackupStream, BackupOptions};
 use crate::{groups::device_sync::DeviceSyncError, XmtpOpenMlsProvider};
 use futures::StreamExt;
 use prost::Message;
-use std::{path::Path, pin::Pin, sync::Arc, task::Poll};
+use std::{
+    io::{BufWriter, Read},
+    path::Path,
+    pin::Pin,
+    sync::Arc,
+    task::Poll,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use xmtp_proto::xmtp::device_sync::BackupMetadata;
+use zstd::stream::Encoder;
 
-pub(super) struct BackupExporter {
+pub(super) struct BackupExporter<'a> {
     stage: Stage,
+    buffer: Option<Vec<u8>>,
     metadata: BackupMetadata,
     stream: BackupStream,
-    buffer: Option<Vec<u8>>,
     position: usize,
+    deflate_encoder: Encoder<'a, BufWriter<Vec<u8>>>,
 }
 
 #[derive(Default)]
@@ -21,14 +29,16 @@ pub(super) enum Stage {
     Elements,
 }
 
-impl BackupExporter {
+impl<'a> BackupExporter<'a> {
     pub(super) fn new(opts: BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
+        let buffer = BufWriter::new(Vec::new());
         Self {
-            buffer: None,
             position: 0,
             stage: Stage::default(),
             stream: BackupStream::new(&opts, provider),
             metadata: opts.into(),
+            buffer: Some(Vec::new()),
+            deflate_encoder: Encoder::new(buffer, 0).unwrap(),
         }
     }
 
@@ -48,20 +58,16 @@ impl BackupExporter {
     }
 }
 
-impl AsyncRead for BackupExporter {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let mut buffer_inner = self.buffer.take().unwrap_or_default();
+impl<'a> Read for BackupExporter<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut buffer_inner = self.buffer.take().expect("This should always be here.");
         if self.position < buffer_inner.len() {
             let available = &buffer_inner[self.position..];
-            let amount = available.len().min(buf.remaining());
-            buf.put_slice(&available[..amount]);
+            let amount = available.len().min(buf.len());
+            buf.clone_from_slice(&available[..amount]);
             self.position += amount;
             self.buffer = Some(buffer_inner);
-            return Poll::Ready(Ok(()));
+            return Ok(amount);
         }
 
         // The buffer is consumed. Reset.
@@ -76,7 +82,7 @@ impl AsyncRead for BackupExporter {
                 buffer.put_slice(&serde_json::to_vec(&self.metadata)?);
                 self.stage = Stage::Elements;
             }
-            Stage::Elements => match self.stream.poll_next_unpin(cx) {
+            Stage::Elements => match self.stream.next() {
                 Poll::Ready(Some(element)) => {
                     element.encode(&mut buffer)?;
                 }

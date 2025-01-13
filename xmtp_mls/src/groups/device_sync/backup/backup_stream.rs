@@ -1,7 +1,6 @@
 use super::BackupOptions;
 use crate::XmtpOpenMlsProvider;
-use futures::Stream;
-use std::{marker::PhantomData, pin::Pin, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
     BackupElement, BackupElementSelection,
@@ -19,7 +18,10 @@ pub(crate) mod message_save;
 // Consent(ConsentRecordSave),
 // }
 
-type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>;
+trait ExportStream {
+    fn next(&mut self) -> Option<Vec<BackupElement>>;
+}
+type BackupInputStream = Box<dyn ExportStream>;
 
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BackupStream {
@@ -50,43 +52,31 @@ impl BackupStream {
     }
 }
 
-impl Stream for BackupStream {
-    type Item = BackupElement;
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll;
-
-        let this = self.get_mut();
-
-        if let Some(element) = this.buffer.pop() {
-            return Poll::Ready(Some(element));
+impl BackupStream {
+    pub(super) fn next(&mut self) -> Option<BackupElement> {
+        if let Some(element) = self.buffer.pop() {
+            return Some(element);
         }
 
         loop {
-            let Some(last) = this.input_streams.last_mut() else {
+            let Some(last) = self.input_streams.last_mut() else {
                 // No streams left, we're done.
-                return Poll::Ready(None);
+                return None;
             };
 
-            let buffer = match last.as_mut().poll_next(cx) {
-                Poll::Ready(v) => v,
-                Poll::Pending => return Poll::Pending,
-            };
-            if let Some(buffer) = buffer {
-                this.buffer = buffer;
-                if let Some(element) = this.buffer.pop() {
-                    return Poll::Ready(Some(element));
+            if let Some(buffer) = last.next() {
+                self.buffer = buffer;
+                if let Some(element) = self.buffer.pop() {
+                    return Some(element);
                 }
             }
 
-            this.input_streams.pop();
+            self.input_streams.pop();
         }
     }
 }
 
-trait BackupRecordProvider {
+pub(crate) trait BackupRecordProvider {
     const BATCH_SIZE: i64;
     fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
     where
@@ -94,7 +84,7 @@ trait BackupRecordProvider {
 }
 
 /// A generic struct to make it easier to stream backup records from the database
-pub(super) struct BackupRecordStreamer<R> {
+pub(crate) struct BackupRecordStreamer<R> {
     offset: i64,
     provider: Arc<XmtpOpenMlsProvider>,
     start_ns: Option<i64>,
@@ -104,7 +94,7 @@ pub(super) struct BackupRecordStreamer<R> {
 
 impl<R> BackupRecordStreamer<R>
 where
-    R: BackupRecordProvider + Unpin + 'static,
+    R: BackupRecordProvider + 'static,
 {
     pub(super) fn new(
         provider: &Arc<XmtpOpenMlsProvider>,
@@ -118,34 +108,26 @@ where
             _phantom: PhantomData,
         };
 
-        Box::pin(stream)
+        Box::new(stream)
     }
 }
 
-impl<R> Stream for BackupRecordStreamer<R>
+impl<R> ExportStream for BackupRecordStreamer<R>
 where
-    R: BackupRecordProvider + Unpin,
+    R: BackupRecordProvider,
 {
-    type Item = Vec<BackupElement>;
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll;
-
-        // Get a mutable reference to self
-        let this = self.get_mut();
-        let batch = R::backup_records(this);
+    fn next(&mut self) -> Option<Vec<BackupElement>> {
+        let batch = R::backup_records(self);
 
         // If no records found, we've reached the end of the stream
         if batch.is_empty() {
-            return Poll::Ready(None);
+            return None;
         }
 
         // Update offset for next batch
-        this.offset += R::BATCH_SIZE;
+        self.offset += R::BATCH_SIZE;
 
         // Return the current batch
-        Poll::Ready(Some(batch))
+        Some(batch)
     }
 }
