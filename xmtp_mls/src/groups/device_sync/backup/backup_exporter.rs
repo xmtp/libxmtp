@@ -1,23 +1,20 @@
 use super::{backup_stream::BackupStream, BackupOptions};
 use crate::{groups::device_sync::DeviceSyncError, XmtpOpenMlsProvider};
-use futures::StreamExt;
 use prost::Message;
 use std::{
-    io::{BufWriter, Read},
+    io::{Read, Write},
     path::Path,
     sync::Arc,
 };
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 use xmtp_proto::xmtp::device_sync::BackupMetadata;
 use zstd::stream::Encoder;
 
 pub(super) struct BackupExporter<'a> {
     stage: Stage,
-    buffer: Option<Vec<u8>>,
     metadata: BackupMetadata,
     stream: BackupStream,
     position: usize,
-    deflate_encoder: Encoder<'a, BufWriter<Vec<u8>>>,
+    deflate_encoder: Encoder<'a, Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -29,28 +26,26 @@ pub(super) enum Stage {
 
 impl<'a> BackupExporter<'a> {
     pub(super) fn new(opts: BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
-        let buffer = BufWriter::new(Vec::new());
         Self {
             position: 0,
             stage: Stage::default(),
             stream: BackupStream::new(&opts, provider),
             metadata: opts.into(),
-            buffer: Some(Vec::new()),
-            deflate_encoder: Encoder::new(buffer, 0).unwrap(),
+            deflate_encoder: Encoder::new(Vec::new(), 0).unwrap(),
         }
     }
 
-    pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
-        let mut file = tokio::fs::File::create(path.as_ref()).await?;
+    pub fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
+        let mut file = std::fs::File::create(path.as_ref())?;
         let mut buffer = [0u8; 1024];
 
         let mut amount = self.read(&mut buffer)?;
         while amount != 0 {
-            file.write_all(&buffer[..amount]).await?;
+            file.write_all(&buffer[..amount])?;
             amount = self.read(&mut buffer)?;
         }
 
-        file.flush().await?;
+        file.flush()?;
 
         Ok(())
     }
@@ -58,43 +53,44 @@ impl<'a> BackupExporter<'a> {
 
 impl<'a> Read for BackupExporter<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buffer_inner = self.buffer.take().expect("This should always be here.");
-        if self.position < buffer_inner.len() {
-            let available = &buffer_inner[self.position..];
-            let amount = available.len().min(buf.len());
-            buf[..amount].clone_from_slice(&available[..amount]);
-            self.position += amount;
-            self.buffer = Some(buffer_inner);
-            return Ok(amount);
+        {
+            let buffer_inner = self.deflate_encoder.get_ref();
+            if self.position < buffer_inner.len() {
+                let available = &buffer_inner[self.position..];
+                let amount = available.len().min(buf.len());
+
+                buf[..amount].clone_from_slice(&available[..amount]);
+                self.position += amount;
+                return Ok(amount);
+            }
         }
 
         // The buffer is consumed. Reset.
         self.position = 0;
-        buffer_inner.clear();
+        self.deflate_encoder.get_mut().clear();
 
         // Time to fill the buffer with more data.
-        let mut buffer = ReadBuf::new(&mut buffer_inner);
-
-        match self.stage {
-            Stage::Metadata => {
-                buffer.put_slice(&serde_json::to_vec(&self.metadata)?);
-                self.stage = Stage::Elements;
-            }
-            Stage::Elements => match self.stream.next() {
-                Some(element) => {
-                    element.encode(&mut buffer)?;
+        let mut byte_count = 0;
+        while byte_count < 8_000 {
+            let bytes = match self.stage {
+                Stage::Metadata => {
+                    self.stage = Stage::Elements;
+                    serde_json::to_vec(&self.metadata)?
                 }
-                None => {}
-            },
-        };
+                Stage::Elements => match self.stream.next() {
+                    Some(element) => element.encode_to_vec(),
+                    None => break,
+                },
+            };
+            byte_count += bytes.len();
+            self.deflate_encoder.write(&bytes)?;
+        }
+        self.deflate_encoder.flush()?;
 
-        let filled = buffer.filled();
-        let amount = filled.len().min(buf.len());
-        buf[..amount].clone_from_slice(&filled[..amount]);
-        self.position = amount;
-
-        self.buffer = Some(buffer_inner);
-
-        Ok(amount)
+        if byte_count > 0 {
+            self.read(buf)
+        } else {
+            Ok(0)
+        }
     }
 }
