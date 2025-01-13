@@ -14,7 +14,7 @@ pub(super) struct BackupExporter<'a> {
     metadata: BackupMetadata,
     stream: BackupStream,
     position: usize,
-    deflate_encoder: Encoder<'a, Vec<u8>>,
+    encoder: Encoder<'a, Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -31,7 +31,7 @@ impl<'a> BackupExporter<'a> {
             stage: Stage::default(),
             stream: BackupStream::new(&opts, provider),
             metadata: opts.into(),
-            deflate_encoder: Encoder::new(Vec::new(), 0).unwrap(),
+            encoder: Encoder::new(Vec::new(), 0).unwrap(),
         }
     }
 
@@ -54,7 +54,8 @@ impl<'a> BackupExporter<'a> {
 impl<'a> Read for BackupExporter<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         {
-            let buffer_inner = self.deflate_encoder.get_ref();
+            // Read from the buffer while there is data
+            let buffer_inner = self.encoder.get_ref();
             if self.position < buffer_inner.len() {
                 let available = &buffer_inner[self.position..];
                 let amount = available.len().min(buf.len());
@@ -67,9 +68,9 @@ impl<'a> Read for BackupExporter<'a> {
 
         // The buffer is consumed. Reset.
         self.position = 0;
-        self.deflate_encoder.get_mut().clear();
+        self.encoder.get_mut().clear();
 
-        // Time to fill the buffer with more data.
+        // Time to fill the buffer with more data 8kb at a time.
         let mut byte_count = 0;
         while byte_count < 8_000 {
             let bytes = match self.stage {
@@ -83,9 +84,9 @@ impl<'a> Read for BackupExporter<'a> {
                 },
             };
             byte_count += bytes.len();
-            self.deflate_encoder.write(&bytes)?;
+            self.encoder.write(&bytes)?;
         }
-        self.deflate_encoder.flush()?;
+        self.encoder.flush()?;
 
         if byte_count > 0 {
             self.read(buf)

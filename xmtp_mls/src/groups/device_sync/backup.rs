@@ -5,6 +5,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
 const BACKUP_VERSION: u32 = 0;
 
 mod backup_exporter;
+mod backup_importer;
 mod backup_stream;
 
 pub struct BackupOptions {
