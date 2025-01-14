@@ -1,3 +1,4 @@
+use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
 
@@ -7,6 +8,12 @@ const BACKUP_VERSION: u32 = 0;
 mod backup_exporter;
 mod backup_importer;
 mod backup_stream;
+
+#[derive(Debug, Error)]
+pub enum BackupError {
+    #[error("Missing metadata")]
+    MissingMetadata,
+}
 
 pub struct BackupOptions {
     start_ns: Option<i64>,
@@ -66,11 +73,10 @@ mod tests {
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
-        let alix2_provider = Arc::new(alix.mls_provider().unwrap());
+        let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
 
         let file = File::open(path).unwrap();
-        let metadata = BackupImporter::get_metadata(file).unwrap();
-
-        tracing::info!("{:?}", metadata);
+        let mut importer = BackupImporter::open(file).unwrap();
+        importer.insert(&alix2_provider).unwrap();
     }
 }

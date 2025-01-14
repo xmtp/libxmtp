@@ -19,6 +19,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use backup::BackupError;
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
@@ -106,6 +107,8 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[error(transparent)]
+    Backup(#[from] BackupError),
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
 }

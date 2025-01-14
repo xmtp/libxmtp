@@ -1,25 +1,45 @@
-use crate::groups::device_sync::DeviceSyncError;
+use crate::{
+    groups::device_sync::DeviceSyncError,
+    storage::{
+        consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
+    },
+    Store, XmtpOpenMlsProvider,
+};
 use prost::Message;
 use std::io::{BufReader, Read};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
 use zstd::stream::Decoder;
 
+use super::BackupError;
+
 pub(super) struct BackupImporter<'a> {
     decoded: Vec<u8>,
     decoder: Decoder<'a, BufReader<Box<dyn Read>>>,
+    metadata: BackupMetadata,
 }
 
 impl<'a> BackupImporter<'a> {
     pub fn open(reader: impl Read + 'static) -> Result<Self, DeviceSyncError> {
         let reader = Box::new(reader) as Box<_>;
         let decoder = Decoder::new(reader)?;
-        Ok(Self {
+        let mut importer = Self {
             decoder,
             decoded: vec![],
-        })
+            metadata: BackupMetadata::default(),
+        };
+
+        let Some(BackupElement {
+            element: Some(Element::Metadata(metadata)),
+        }) = importer.next_element()?
+        else {
+            return Err(BackupError::MissingMetadata)?;
+        };
+
+        importer.metadata = metadata;
+        Ok(importer)
     }
 
-    pub fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
+    fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
         let mut buffer = [0u8; 1024];
         let mut element_len = 0;
         loop {
@@ -45,20 +65,40 @@ impl<'a> BackupImporter<'a> {
         Ok(None)
     }
 
-    pub fn get_metadata(
-        reader: impl Read + 'static,
-    ) -> Result<Option<BackupMetadata>, DeviceSyncError> {
-        let el = Self::open(reader)?.next_element()?;
-        let Some(el) = el else {
-            return Ok(None);
-        };
-        let BackupElement {
-            element: Some(Element::Metadata(metadata)),
-        } = el
-        else {
-            return Ok(None);
-        };
+    pub fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+        while let Some(element) = self.next_element()? {
+            insert(element, provider)?;
+        }
 
-        Ok(Some(metadata))
+        Ok(())
     }
+
+    pub fn metadata(&self) -> &BackupMetadata {
+        &self.metadata
+    }
+}
+
+fn insert(element: BackupElement, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+    let Some(element) = element.element else {
+        return Ok(());
+    };
+
+    let conn = provider.conn_ref();
+    match element {
+        Element::Consent(consent) => {
+            let consent: StoredConsentRecord = consent.into();
+            consent.store(conn)?;
+        }
+        Element::Group(group) => {
+            let group: StoredGroup = group.into();
+            group.store(conn)?;
+        }
+        Element::GroupMessage(message) => {
+            let message: StoredGroupMessage = message.into();
+            message.store(conn);
+        }
+        _ => {}
+    }
+
+    Ok(())
 }
