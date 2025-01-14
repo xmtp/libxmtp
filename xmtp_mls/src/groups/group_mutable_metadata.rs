@@ -11,12 +11,11 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
+use super::GroupMetadataOptions;
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     DEFAULT_GROUP_PINNED_FRAME_URL, MUTABLE_METADATA_EXTENSION_ID,
 };
-
-use super::GroupMetadataOptions;
 
 /// Errors that can occur when working with GroupMutableMetadata.
 #[derive(Debug, Error)]
@@ -69,6 +68,25 @@ impl fmt::Display for MetadataField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GroupMessageExpirationSettings {
+    pub expire_from_ms: i64,
+    pub expire_in_ms: i64,
+}
+
+impl GroupMessageExpirationSettings {
+    pub fn new(expire_from_ms: i64, expire_in_ms: i64) -> Self {
+        Self {
+            expire_from_ms,
+            expire_in_ms,
+        }
+    }
+}
+
+impl Default for GroupMessageExpirationSettings {
+    fn default() -> Self {Self::new(0, 0)}
 }
 
 /// Represents the mutable metadata for a group.
@@ -126,16 +144,14 @@ impl GroupMutableMetadata {
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
 
-        if let Some(message_expiration_from_ms) = opts.message_expiration_from_ms {
+        if let Some(message_retention_settings) = opts.message_retention_settings {
             attributes.insert(
                 MetadataField::MessageExpirationFromMillis.to_string(),
-                message_expiration_from_ms.to_string(),
+                message_retention_settings.expire_from_ms.to_string(),
             );
-        }
-        if let Some(message_expiration_ms) = opts.message_expiration_ms {
             attributes.insert(
                 MetadataField::MessageExpirationMillis.to_string(),
-                message_expiration_ms.to_string(),
+                message_retention_settings.expire_in_ms.to_string(),
             );
         }
 

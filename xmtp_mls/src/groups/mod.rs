@@ -107,6 +107,7 @@ use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 
+use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
@@ -293,8 +294,7 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
-    pub message_expiration_from_ms: Option<i64>,
-    pub message_expiration_ms: Option<i64>,
+    pub message_retention_settings: Option<GroupMessageExpirationSettings>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -1138,6 +1138,91 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    pub async fn update_group_message_expiration_settings(
+        &self,
+        settings: GroupMessageExpirationSettings,
+    ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+
+        self.update_group_message_expiration_from_ms(&provider, settings.expire_from_ms)
+            .await?;
+        self.update_group_message_expire_in_ms(&provider, settings.expire_in_ms)
+            .await
+    }
+
+    pub async fn remove_group_message_expiration_settings(&self) -> Result<(), GroupError> {
+        self.update_group_message_expiration_settings(GroupMessageExpirationSettings::default())
+            .await
+    }
+
+    async fn update_group_message_expiration_from_ms(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_from_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_message_expiration_from_ms(expire_from_ms)
+                .into();
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(&provider, intent.id).await
+    }
+
+    async fn update_group_message_expire_in_ms(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_in_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_message_expiration_in_ms(expire_in_ms)
+                .into();
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(&provider, intent.id).await
+    }
+
+    pub fn group_message_expiration_settings(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<GroupMessageExpirationSettings, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
+        let expire_from_ms = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageExpirationFromMillis.to_string());
+        let expire_in_ms = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageExpirationMillis.to_string());
+
+        if let (Some(Ok(message_expiration_from_ms)), Some(Ok(message_expiration_ms))) = (
+            expire_from_ms.map(|s| s.parse::<i64>()),
+            expire_in_ms.map(|s| s.parse::<i64>()),
+        ) {
+            Ok(GroupMessageExpirationSettings::new(
+                message_expiration_from_ms,
+                message_expiration_ms,
+            ))
+        } else {
+            Err(GroupError::GroupMetadata(
+                GroupMetadataError::MissingExtension,
+            ))
+        }
+    }
+
+    /// Check the group expiration settings, and if both are gt then 0 will return the settings
+    pub fn get_group_message_expiration_settings_if_valid(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Option<GroupMessageExpirationSettings> {
+        match self.group_message_expiration_settings(provider) {
+            Ok(expiration_settings) => {
+                if expiration_settings.expire_from_ms > 0 && expiration_settings.expire_in_ms > 0 {
+                    Some(expiration_settings)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: &XmtpOpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
@@ -1771,6 +1856,8 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
+    use super::{group_permissions::PolicySet, MlsGroup};
+    use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -1796,8 +1883,6 @@ pub(crate) mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner, StreamHandle as _,
     };
-
-    use super::{group_permissions::PolicySet, MlsGroup};
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2583,6 +2668,9 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
+        let expected_group_message_expiration_settings =
+            GroupMessageExpirationSettings::new(100, 200);
+
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
@@ -2593,8 +2681,7 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
-                    message_expiration_from_ms: None,
-                    message_expiration_ms: None,
+                    message_retention_settings: Some(expected_group_message_expiration_settings),
                 },
             )
             .unwrap();
@@ -2618,11 +2705,30 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
-
+        let amal_group_message_expiration_from_ms = binding
+            .attributes
+            .get(&MetadataField::MessageExpirationFromMillis.to_string())
+            .unwrap();
+        let amal_group_message_expire_in_ms = binding
+            .attributes
+            .get(&MetadataField::MessageExpirationMillis.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
         assert_eq!(amal_group_pinned_frame_url, "pinned frame");
+        assert_eq!(
+            amal_group_message_expiration_from_ms.clone(),
+            expected_group_message_expiration_settings
+                .expire_from_ms
+                .to_string()
+        );
+        assert_eq!(
+            amal_group_message_expire_in_ms.clone(),
+            expected_group_message_expiration_settings
+                .expire_in_ms
+                .to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -2816,6 +2922,65 @@ pub(crate) mod tests {
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
         assert_eq!(amal_group_pinned_frame_url, "a frame url");
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_update_group_message_expiration_settings() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageExpirationMillis.to_string())
+            .is_none());
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageExpirationFromMillis.to_string())
+            .is_none());
+
+        // Update group name
+        let expected_group_message_expiration_settings =
+            GroupMessageExpirationSettings::new(100, 200);
+
+        amal_group
+            .update_group_message_expiration_settings(expected_group_message_expiration_settings)
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+        let binding = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .expect("msg");
+        let amal_message_expiration_from_ms: &String = binding
+            .attributes
+            .get(&MetadataField::MessageExpirationFromMillis.to_string())
+            .unwrap();
+        let amal_message_expiration_ms: &String = binding
+            .attributes
+            .get(&MetadataField::MessageExpirationMillis.to_string())
+            .unwrap();
+        assert_eq!(
+            amal_message_expiration_from_ms.clone(),
+            expected_group_message_expiration_settings
+                .expire_from_ms
+                .to_string()
+        );
+        assert_eq!(
+            amal_message_expiration_ms.clone(),
+            expected_group_message_expiration_settings
+                .expire_in_ms
+                .to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
