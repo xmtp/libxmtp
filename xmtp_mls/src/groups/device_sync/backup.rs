@@ -28,20 +28,14 @@ impl From<BackupOptions> for BackupMetadata {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use std::sync::Arc;
-
+    use super::*;
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
     use backup_exporter::BackupExporter;
-    use wasm_bindgen_test::wasm_bindgen_test;
+    use backup_importer::BackupImporter;
+    use std::{fs::File, path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
-
-    use super::*;
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
-    #[cfg_attr(target_family = "wasm", ignore)]
+    #[tokio::test]
     async fn test_consent_sync() {
         let alix_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
@@ -50,7 +44,6 @@ mod tests {
         let bo_wallet = generate_local_wallet();
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
-        // alix.();
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -66,7 +59,18 @@ mod tests {
             elements: vec![BackupElementSelection::Messages],
         };
 
-        let exporter = BackupExporter::new(opts, &alix_provider);
-        let tempdir = tempfile::TempDir::new().unwrap();
+        let mut exporter = BackupExporter::new(opts, &alix_provider);
+        let path = Path::new("archive.zstd");
+        let _ = std::fs::remove_file(path);
+        exporter.write_to_file(&path).unwrap();
+
+        let alix2_wallet = generate_local_wallet();
+        let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
+        let alix2_provider = Arc::new(alix.mls_provider().unwrap());
+
+        let file = File::open(path).unwrap();
+        let metadata = BackupImporter::get_metadata(&file).unwrap();
+
+        tracing::info!("{:?}", metadata);
     }
 }

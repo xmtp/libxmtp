@@ -6,7 +6,7 @@ use std::{
     path::Path,
     sync::Arc,
 };
-use xmtp_proto::xmtp::device_sync::BackupMetadata;
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
 use zstd::stream::Encoder;
 
 pub(super) struct BackupExporter<'a> {
@@ -15,6 +15,7 @@ pub(super) struct BackupExporter<'a> {
     stream: BackupStream,
     position: usize,
     encoder: Encoder<'a, Vec<u8>>,
+    encoder_finished: bool,
 }
 
 #[derive(Default)]
@@ -32,6 +33,7 @@ impl<'a> BackupExporter<'a> {
             stream: BackupStream::new(&opts, provider),
             metadata: opts.into(),
             encoder: Encoder::new(Vec::new(), 0).unwrap(),
+            encoder_finished: false,
         }
     }
 
@@ -41,7 +43,7 @@ impl<'a> BackupExporter<'a> {
 
         let mut amount = self.read(&mut buffer)?;
         while amount != 0 {
-            file.write_all(&buffer[..amount])?;
+            file.write(&buffer[..amount])?;
             amount = self.read(&mut buffer)?;
         }
 
@@ -76,14 +78,25 @@ impl<'a> Read for BackupExporter<'a> {
             let bytes = match self.stage {
                 Stage::Metadata => {
                     self.stage = Stage::Elements;
-                    serde_json::to_vec(&self.metadata)?
+                    BackupElement {
+                        element: Some(Element::Metadata(self.metadata.clone())),
+                    }
+                    .encode_to_vec()
                 }
                 Stage::Elements => match self.stream.next() {
                     Some(element) => element.encode_to_vec(),
-                    None => break,
+                    None => {
+                        if !self.encoder_finished {
+                            self.encoder_finished = true;
+                            byte_count += 1;
+                            self.encoder.do_finish()?;
+                        }
+                        break;
+                    }
                 },
             };
             byte_count += bytes.len();
+            self.encoder.write(&(bytes.len() as u32).to_le_bytes())?;
             self.encoder.write(&bytes)?;
         }
         self.encoder.flush()?;

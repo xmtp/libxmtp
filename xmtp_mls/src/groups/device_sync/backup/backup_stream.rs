@@ -10,14 +10,6 @@ pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
-/// A union type that describes everything that can be backed up.
-// #[derive(Serialize, Deserialize)]
-// pub enum BackupElement {
-// Group(GroupSave),
-// Message(GroupMessageSave),
-// Consent(ConsentRecordSave),
-// }
-
 trait ExportStream {
     fn next(&mut self) -> Option<Vec<BackupElement>>;
 }
