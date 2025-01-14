@@ -727,7 +727,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
-        // self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed)?;
 
         message_id
     }
@@ -1250,15 +1250,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         );
         conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
 
-        if self.client.history_sync_url().is_some() {
-            // Dispatch an update event so it can be synced across devices
-            let _ = self
-                .client
-                .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                    UserPreferenceUpdate::ConsentUpdate(consent_record),
-                ]));
-        }
+        // if self.client.history_sync_url().is_some() {
+        //     // Dispatch an update event so it can be synced across devices
+        //     let _ = self
+        //         .client
+        //         .local_events()
+        //         .send(LocalEvents::OutgoingPreferenceUpdates(vec![
+        //             UserPreferenceUpdate::ConsentUpdate(consent_record),
+        //         ]));
+        // }
 
         Ok(())
     }
