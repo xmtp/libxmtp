@@ -907,8 +907,11 @@ impl FfiConversations {
         };
 
         let convo = if account_addresses.is_empty() {
-            self.inner_client
-                .create_group(group_permissions, metadata_options)?
+            let group = self
+                .inner_client
+                .create_group(group_permissions, metadata_options)?;
+            group.sync().await?;
+            group
         } else {
             self.inner_client
                 .create_group_with_members(&account_addresses, group_permissions, metadata_options)
@@ -5819,5 +5822,52 @@ mod tests {
             decoded_reaction.schema,
             FfiReactionSchema::Unicode
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_update_policies_empty_group() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+
+        // Create a group with amal and bola with admin-only permissions
+        let admin_only_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+            ..Default::default()
+        };
+        let amal_group = amal
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                admin_only_options.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Verify we can update the group name without syncing first
+        amal_group
+            .update_group_name("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_group.sync().await.unwrap();
+        assert_eq!(amal_group.group_name().unwrap(), "New Group Name 1");
+
+        // Create a group with just amal
+        let amal_solo_group = amal
+            .conversations()
+            .create_group(vec![], admin_only_options)
+            .await
+            .unwrap();
+
+        // Verify we can update the group name
+        amal_solo_group
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_solo_group.sync().await.unwrap();
+        assert_eq!(amal_solo_group.group_name().unwrap(), "New Group Name 2");
     }
 }
