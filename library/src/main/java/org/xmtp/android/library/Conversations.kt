@@ -42,8 +42,8 @@ data class Conversations(
     suspend fun fromWelcome(envelopeBytes: ByteArray): Conversation {
         val conversation = ffiConversations.processStreamedWelcomeMessage(envelopeBytes)
         return when (conversation.conversationType()) {
-            FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))
-            else -> Conversation.Group(Group(client, conversation))
+            FfiConversationType.DM -> Conversation.Dm(Dm(client.inboxId, conversation))
+            else -> Conversation.Group(Group(client.inboxId, conversation))
         }
     }
 
@@ -118,7 +118,7 @@ data class Conversations(
                     customPermissionPolicySet = permissionsPolicySet
                 )
             )
-        return Group(client, group)
+        return Group(client.inboxId, group)
     }
 
     // Sync from the network the latest list of conversations
@@ -152,7 +152,7 @@ data class Conversations(
         var dm = client.findDmByAddress(peerAddress)
         if (dm == null) {
             val dmConversation = ffiConversations.createDm(peerAddress.lowercase())
-            dm = Dm(client, dmConversation)
+            dm = Dm(client.inboxId, dmConversation)
         }
         return dm
     }
@@ -174,7 +174,7 @@ data class Conversations(
         )
 
         return ffiGroups.map {
-            Group(client, it.conversation(), it.lastMessage())
+            Group(client.inboxId, it.conversation(), it.lastMessage())
         }
     }
 
@@ -195,7 +195,7 @@ data class Conversations(
         )
 
         return ffiDms.map {
-            Dm(client, it.conversation(), it.lastMessage())
+            Dm(client.inboxId, it.conversation(), it.lastMessage())
         }
     }
 
@@ -220,8 +220,8 @@ data class Conversations(
 
     private suspend fun FfiConversationListItem.toConversation(): Conversation {
         return when (conversation().conversationType()) {
-            FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation(), lastMessage()))
-            else -> Conversation.Group(Group(client, conversation(), lastMessage()))
+            FfiConversationType.DM -> Conversation.Dm(Dm(client.inboxId, conversation(), lastMessage()))
+            else -> Conversation.Group(Group(client.inboxId, conversation(), lastMessage()))
         }
     }
 
@@ -234,13 +234,13 @@ data class Conversations(
                             FfiConversationType.DM -> trySend(
                                 Conversation.Dm(
                                     Dm(
-                                        client,
+                                        client.inboxId,
                                         conversation
                                     )
                                 )
                             )
 
-                            else -> trySend(Conversation.Group(Group(client, conversation)))
+                            else -> trySend(Conversation.Group(Group(client.inboxId, conversation)))
                         }
                     }
                 }

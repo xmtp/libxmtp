@@ -29,7 +29,7 @@ import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
 class Group(
-    val client: Client,
+    private val clientInboxId: String,
     private val libXMTPGroup: FfiConversation,
     private val ffiLastMessage: FfiMessage? = null,
 ) {
@@ -193,7 +193,7 @@ class Group(
     }
 
     suspend fun isCreator(): Boolean {
-        return metadata().creatorInboxId() == client.inboxId
+        return metadata().creatorInboxId() == clientInboxId
     }
 
     suspend fun addMembers(addresses: List<String>) {
@@ -234,7 +234,7 @@ class Group(
 
     suspend fun peerInboxIds(): List<String> {
         val ids = members().map { it.inboxId }.toMutableList()
-        ids.remove(client.inboxId)
+        ids.remove(clientInboxId)
         return ids
     }
 

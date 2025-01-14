@@ -86,7 +86,6 @@ class ClientTest {
                     notOnNetwork.address,
                     fixtures.bo.walletAddress
                 ),
-                context,
                 ClientOptions.Api(XMTPEnvironment.LOCAL, false)
             )
         }
@@ -109,7 +108,6 @@ class ClientTest {
         val states = runBlocking {
             Client.inboxStatesForInboxIds(
                 listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
-                context,
                 ClientOptions.Api(XMTPEnvironment.LOCAL, false)
             )
         }
