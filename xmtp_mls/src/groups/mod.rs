@@ -2745,43 +2745,68 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_update_policies_empty_group() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+        let _bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
-        // Create a group and verify it has the default group name
+        // Create a group with amal and bola
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group = amal
-            .create_group(policy_set, GroupMetadataOptions::default())
-            .unwrap();
-        amal_group.sync().await.unwrap();
-
-        let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
-            .unwrap();
-        assert!(group_mutable_metadata.attributes.len().eq(&4));
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty());
-
-        amal_group
-            .update_permission_policy(
-                PermissionUpdateType::AddMember,
-                PermissionPolicyOption::Allow,
-                None,
+            .create_group_with_members(
+                &[bola_wallet.get_address()],
+                policy_set,
+                GroupMetadataOptions::default(),
             )
             .await
             .unwrap();
 
-        // Update group name
+        // Verify we can update the group name without syncing first
         amal_group
             .update_group_name("New Group Name 1".to_string())
             .await
             .unwrap();
 
-        amal_group.send_message("hello".as_bytes()).await.unwrap();
-
-        // Verify amal group sees update
+        // Verify the name is updated
         amal_group.sync().await.unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        let group_name_1 = group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(group_name_1, "New Group Name 1");
+
+        // Create a group with just amal
+        let policy_set_2 = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group_2 = amal
+            .create_group(policy_set_2, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Verify empty group fails to update metadata before syncing
+        amal_group_2
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .expect_err("Should fail to update group name before first sync");
+
+        // Sync the group
+        amal_group_2.sync().await.unwrap();
+
+        //Verify we can now update the group name
+        amal_group_2
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_group_2.sync().await.unwrap();
+        let group_mutable_metadata = amal_group_2
+            .mutable_metadata(&amal_group_2.mls_provider().unwrap())
+            .unwrap();
+        let group_name_2 = group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(group_name_2, "New Group Name 2");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
