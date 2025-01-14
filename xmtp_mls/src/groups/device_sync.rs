@@ -106,6 +106,8 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[error(transparent)]
+    DecodeError(#[from] prost::DecodeError),
 }
 
 impl RetryableError for DeviceSyncError {

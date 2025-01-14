@@ -69,7 +69,7 @@ mod tests {
         let alix2_provider = Arc::new(alix.mls_provider().unwrap());
 
         let file = File::open(path).unwrap();
-        let metadata = BackupImporter::get_metadata(&file).unwrap();
+        let metadata = BackupImporter::get_metadata(file).unwrap();
 
         tracing::info!("{:?}", metadata);
     }

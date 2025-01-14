@@ -1,58 +1,64 @@
-use prost::Message;
-use std::{
-    collections::VecDeque,
-    io::{BufReader, Read},
-};
-use xmtp_proto::xmtp::device_sync::{
-    backup_element::Element, BackupElement, BackupElementSelection, BackupMetadata,
-};
-use zstd::Decoder;
-
 use crate::groups::device_sync::DeviceSyncError;
+use prost::Message;
+use std::io::{BufReader, Read};
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
+use zstd::stream::Decoder;
 
 pub(super) struct BackupImporter<'a> {
-    decoder: Decoder<'a, Vec<u8>>,
+    decoded: Vec<u8>,
+    decoder: Decoder<'a, BufReader<Box<dyn Read>>>,
 }
 
 impl<'a> BackupImporter<'a> {
-    pub fn get_metadata(reader: impl Read) -> Result<BackupMetadata, DeviceSyncError> {
-        let reader = BufReader::new(reader);
-        let mut decoder = Decoder::new(reader)?;
+    pub fn open(reader: impl Read + 'static) -> Result<Self, DeviceSyncError> {
+        let reader = Box::new(reader) as Box<_>;
+        let decoder = Decoder::new(reader)?;
+        Ok(Self {
+            decoder,
+            decoded: vec![],
+        })
+    }
 
-        let mut data = Vec::new();
+    pub fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
         let mut buffer = [0u8; 1024];
-        let mut len = 0;
-
+        let mut element_len = 0;
         loop {
-            let amount = decoder.read(&mut buffer)?;
-            if amount == 0 {
+            let amount = self.decoder.read(&mut buffer)?;
+            self.decoded.extend_from_slice(&buffer[..amount]);
+
+            if element_len == 0 && self.decoded.len() >= 4 {
+                let bytes = self.decoded.drain(..4).collect::<Vec<_>>();
+                element_len = u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
+            }
+
+            if element_len != 0 && self.decoded.len() >= element_len {
+                let element = BackupElement::decode(&self.decoded[..element_len]);
+                self.decoded.drain(..element_len);
+                return Ok(Some(element?));
+            }
+
+            if amount == 0 && self.decoded.len() == 0 {
                 break;
             }
-            data.extend_from_slice(&buffer[..amount]);
-
-            if len == 0 && data.len() >= 4 {
-                let bytes = data.drain(0..4).collect::<Vec<u8>>();
-                len = u32::from_le_bytes(bytes.try_into().expect("Is 4 bytes")) as usize;
-                tracing::info!("Len is {len}");
-            }
-            if len != 0 && data.len() >= len {
-                if let Ok(el) = BackupElement::decode(&data[..len]) {
-                    tracing::info!("Decoded something");
-                    let BackupElement {
-                        element: Some(Element::Metadata(metadata)),
-                    } = el
-                    else {
-                        // TODO: make an actual error for this
-                        panic!("First element is not metadata");
-                    };
-
-                    return Ok(metadata);
-                }
-            }
-
-            tracing::info!("AAC");
         }
 
-        panic!("No metadata found");
+        Ok(None)
+    }
+
+    pub fn get_metadata(
+        reader: impl Read + 'static,
+    ) -> Result<Option<BackupMetadata>, DeviceSyncError> {
+        let el = Self::open(reader)?.next_element()?;
+        let Some(el) = el else {
+            return Ok(None);
+        };
+        let BackupElement {
+            element: Some(Element::Metadata(metadata)),
+        } = el
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(metadata))
     }
 }
