@@ -623,34 +623,33 @@ describe('Conversations', () => {
   it('should update group metadata in empty group', async () => {
     const user1 = createUser()
     const client1 = await createRegisteredClient(user1)
-    
+
     // Create empty group with admin-only permissions
     const group = await client1.conversations().createGroup([], {
-      permissions: GroupPermissionsOptions.AdminOnly
+      permissions: GroupPermissionsOptions.AdminOnly,
     })
     expect(group).toBeDefined()
-    
+
     // Update group name without syncing first
     await group.updateGroupName('New Group Name 1')
     expect(group.groupName()).toBe('New Group Name 1')
-    
+
     // Verify name persists after sync
     await group.sync()
     expect(group.groupName()).toBe('New Group Name 1')
-    
+
     // Create another empty group
     const soloGroup = await client1.conversations().createGroup([], {
-      permissions: GroupPermissionsOptions.AdminOnly
+      permissions: GroupPermissionsOptions.AdminOnly,
     })
     expect(soloGroup).toBeDefined()
-    
+
     // Update and verify name
-    await soloGroup.updateGroupName('New Group Name 2') 
+    await soloGroup.updateGroupName('New Group Name 2')
     expect(soloGroup.groupName()).toBe('New Group Name 2')
-    
+
     // Verify name persists after sync
     await soloGroup.sync()
     expect(soloGroup.groupName()).toBe('New Group Name 2')
   })
-
 })
