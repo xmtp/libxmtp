@@ -56,6 +56,27 @@ class ClientTests: XCTestCase {
 				"Failed for address: \(address)")
 		}
 	}
+	
+	func testStaticInboxState() async throws {
+		let fixtures = try await fixtures()
+
+		let inboxStates = try await Client.inboxStatesForInboxIds(
+			inboxIds: [
+				fixtures.alixClient.inboxID,
+				fixtures.boClient.inboxID,
+			],
+			api: ClientOptions.Api(env: .local, isSecure: false)
+		)
+
+		XCTAssertEqual(
+			inboxStates.first!.recoveryAddress.lowercased(),
+			fixtures.alixClient.address.lowercased()
+		)
+		XCTAssertEqual(
+			inboxStates.last!.recoveryAddress.lowercased(),
+			fixtures.boClient.address.lowercased()
+		)
+	}
 
 	func testCanDeleteDatabase() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
@@ -299,6 +320,46 @@ class ClientTests: XCTestCase {
 		)
 
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
+	}
+	
+	func testRevokeInstallations() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alix = try PrivateKey.generate()
+
+		let alixClient = try await Client.create(
+			account: alix,
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key
+			)
+		)
+
+		let alixClient2 = try await Client.create(
+			account: alix,
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: "xmtp_db1"
+			)
+		)
+
+		let alixClient3 = try await Client.create(
+			account: alix,
+			options: ClientOptions.init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: "xmtp_db2"
+			)
+		)
+
+		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(state.installations.count, 3)
+
+		try await alixClient3.revokeInstallations(signingKey: alix, installationIds: [alixClient2.installationID])
+
+		let newState = try await alixClient3.inboxState(
+			refreshFromNetwork: true)
+		XCTAssertEqual(newState.installations.count, 2)
 	}
 
 	func testRevokesAllOtherInstallations() async throws {
