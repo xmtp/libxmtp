@@ -73,8 +73,7 @@ impl<'a> Read for BackupExporter<'a> {
         self.encoder.get_mut().clear();
 
         // Time to fill the buffer with more data 8kb at a time.
-        let mut byte_count = 0;
-        while byte_count < 8_000 {
+        while self.encoder.get_ref().len() < 8_000 {
             let bytes = match self.stage {
                 Stage::Metadata => {
                     self.stage = Stage::Elements;
@@ -88,23 +87,21 @@ impl<'a> Read for BackupExporter<'a> {
                     None => {
                         if !self.encoder_finished {
                             self.encoder_finished = true;
-                            byte_count += 1;
                             self.encoder.do_finish()?;
                         }
                         break;
                     }
                 },
             };
-            byte_count += bytes.len();
             self.encoder.write(&(bytes.len() as u32).to_le_bytes())?;
             self.encoder.write(&bytes)?;
         }
         self.encoder.flush()?;
 
-        if byte_count > 0 {
-            self.read(buf)
-        } else {
+        if self.encoder.get_ref().is_empty() {
             Ok(0)
+        } else {
+            self.read(buf)
         }
     }
 }
