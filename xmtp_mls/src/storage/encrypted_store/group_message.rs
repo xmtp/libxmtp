@@ -23,6 +23,7 @@ use super::{
     },
     Sqlite,
 };
+use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
 #[derive(
@@ -426,6 +427,23 @@ impl DbConnection {
                 .execute(conn)
         })?)
     }
+
+    pub fn delete_expired_messages<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        settings: GroupMessageExpirationSettings,
+    ) -> Result<usize, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::delete(dsl::group_messages)
+                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::sent_at_ns.between(
+                    settings.expire_from_ms * 1000, // convert to ns -- keep in ms to reduce the sensitivity
+                    (settings.expire_from_ms + settings.expire_in_ms) * 1000, // convert to ns
+                ))
+                .execute(conn)
+        })?)
+    }
 }
 
 #[cfg(test)]
@@ -455,7 +473,7 @@ pub(crate) mod tests {
             sender_installation_id: rand_vec::<24>(),
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
-            delivery_status: DeliveryStatus::Unpublished,
+            delivery_status: DeliveryStatus::Published,
             content_type: content_type.unwrap_or(ContentType::Unknown),
             version_major: 0,
             version_minor: 0,
@@ -585,6 +603,47 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             assert_eq!(messages.len(), 2);
+        })
+        .await
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test)]
+    async fn it_deletes_middle_message_by_expiration_time() {
+        with_connection(|conn| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(1_000_000_000), None),
+                generate_message(None, Some(&group.id), Some(1_001_000_000), None),
+                generate_message(None, Some(&group.id), Some(1_002_000_000), None),
+            ];
+            assert_ok!(messages.store(conn));
+
+            let expired_from_ms = 1_000_500; // After Message 1
+            let expired_in_ms = 500; // Before Message 3
+            let result = conn
+                .delete_expired_messages(&group.id, expired_from_ms, expired_in_ms)
+                .unwrap();
+            assert_eq!(result, 1); // Ensure exactly 1 message is deleted
+
+            let remaining_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+
+            // Verify the count and content of the remaining messages
+            assert_eq!(remaining_messages.len(), 2);
+            assert!(remaining_messages
+                .iter()
+                .any(|msg| msg.sent_at_ns == 1_000_000_000)); // Message 1
+            assert!(remaining_messages
+                .iter()
+                .any(|msg| msg.sent_at_ns == 1_002_000_000)); // Message 3
         })
         .await
     }

@@ -25,6 +25,13 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
+use super::{
+    group_membership::GroupMembership,
+    group_mutable_metadata::MetadataField,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    scoped_client::ScopedGroupClient,
+    GroupError, MlsGroup,
+};
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     storage::{
@@ -34,14 +41,6 @@ use crate::{
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpOpenMlsProvider,
-};
-
-use super::{
-    group_membership::GroupMembership,
-    group_mutable_metadata::MetadataField,
-    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    scoped_client::ScopedGroupClient,
-    GroupError, MlsGroup,
 };
 
 #[derive(Debug, Error)]
@@ -238,6 +237,19 @@ impl UpdateMetadataIntentData {
         Self {
             field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
             field_value: pinned_frame_url,
+        }
+    }
+
+    pub fn new_update_group_message_expiration_from_ms(expire_from_ms: i64) -> Self {
+        Self {
+            field_name: MetadataField::MessageExpirationFromMillis.to_string(),
+            field_value: expire_from_ms.to_string(),
+        }
+    }
+    pub fn new_update_group_message_expiration_in_ms(expire_in_ms: i64) -> Self {
+        Self {
+            field_name: MetadataField::MessageExpirationMillis.to_string(),
+            field_value: expire_in_ms.to_string(),
         }
     }
 }

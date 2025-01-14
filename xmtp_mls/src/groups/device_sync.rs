@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -107,6 +108,8 @@ pub enum DeviceSyncError {
     Bincode(#[from] bincode::Error),
 }
 
+#[derive(Debug, Error)]
+pub enum ExpirationWorkerError {}
 impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
         true
@@ -136,6 +139,19 @@ where
         let worker = SyncWorker::new(client);
         #[cfg(any(test, feature = "test-utils"))]
         self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_expired_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::debug!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaners worker"
+        );
+
+        let worker = MessageExpirationWorker::new(client);
         worker.spawn_worker();
     }
 }
@@ -350,6 +366,109 @@ where
                 }
             }
         });
+    }
+}
+
+pub struct MessageExpirationWorker<ApiClient, V> {
+    client: Client<ApiClient, V>,
+    init: OnceCell<()>,
+}
+impl<ApiClient, V> MessageExpirationWorker<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    fn new(client: Client<ApiClient, V>) -> Self {
+        Self {
+            client,
+            init: OnceCell::new(),
+        }
+    }
+    fn spawn_worker(mut self) {
+        crate::spawn(None, async move {
+            let inbox_id = self.client.inbox_id().to_string();
+            let installation_id = hex::encode(self.client.installation_public_key());
+            while let Err(err) = self.run().await {
+                tracing::info!("Running worker..");
+                match err {
+                    DeviceSyncError::Client(ClientError::Storage(
+                        StorageError::PoolNeedsConnection,
+                    )) => {
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
+                        break;
+                    }
+                    _ => {
+                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+}
+
+impl<ApiClient, V> MessageExpirationWorker<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    /// Get a list of groups with expiration_settings enabled
+    pub fn get_groups_with_expiration_enabled(
+        &mut self,
+    ) -> Result<Vec<(Vec<u8>, GroupMessageExpirationSettings)>, DeviceSyncError> {
+        let inner = self.client.clone();
+
+        let conversations = inner.find_groups(GroupQueryArgs {
+            include_duplicate_dms: true,
+            ..GroupQueryArgs::default()
+        })?;
+
+        let mut group_ids_with_expiration = Vec::new();
+
+        for group in conversations.iter() {
+            if let Ok(provider) = group.mls_provider() {
+                if let Some(settings) =
+                    group.get_group_message_expiration_settings_if_valid(&provider)
+                {
+                    //todo: I would insert the expiration settings into the db instead of getting it always from the group! probably: more info of the group can go into db!
+                    group_ids_with_expiration.push((group.group_id.clone(), settings));
+                }
+            }
+        }
+
+        Ok(group_ids_with_expiration)
+    }
+
+    /// Iterate on the list of groups and delete expired messages
+    async fn delete_expired_messages(&mut self) -> Result<(), DeviceSyncError> {
+        let groups = self.get_groups_with_expiration_enabled()?;
+        let provider = self.client.mls_provider()?;
+        for (group_id, settings) in groups {
+            if let Err(e) = provider
+                .conn_ref()
+                .delete_expired_messages(group_id.clone(), settings)
+            {
+                tracing::error!(
+                    "Failed to delete expired messages for group: {:?}, error: {:?}",
+                    group_id,
+                    e
+                );
+            }
+        }
+        Ok(())
+    }
+
+    async fn run(&mut self) -> Result<(), DeviceSyncError> {
+        // Call delete_expired_messages on every iteration
+        if let Err(err) = self.delete_expired_messages().await {
+            tracing::error!("Error during deletion of expired messages: {:?}", err);
+        }
+        Ok(())
     }
 }
 
