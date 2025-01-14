@@ -79,14 +79,28 @@ impl GenerateGroups {
             // going above 128 we hit "unable to open database errors"
             // This may be related to open file limits
             if set.len() >= 64 {
-                if let Some(Ok(group)) = set.join_next().await {
-                    groups.push(group?);
+                if let Some(group) = set.join_next().await {
+                    match group {
+                        Ok(group) => {
+                            groups.push(group?);
+                        }
+                        Err(e) => {
+                            error!("{}", e.to_string());
+                        }
+                    }
                 }
             }
         }
 
-        while let Some(Ok(group)) = set.join_next().await {
-            groups.push(group?);
+        while let Some(group) = set.join_next().await {
+            match group {
+                Ok(group) => {
+                    groups.push(group?);
+                }
+                Err(e) => {
+                    error!("{}", e.to_string());
+                }
+            }
         }
         self.group_store.set_all(groups.as_slice(), &self.network)?;
         Ok(groups)

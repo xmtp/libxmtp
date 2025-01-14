@@ -406,7 +406,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::CreateGroup { permissions } => {
             let group_permissions = match permissions {
-                Permissions::EveryoneIsAdmin => xmtp_mls::groups::PreconfiguredPolicies::AllMembers,
+                Permissions::EveryoneIsAdmin => xmtp_mls::groups::PreconfiguredPolicies::Default,
                 Permissions::GroupCreatorIsAdmin => {
                     xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly
                 }

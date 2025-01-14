@@ -392,10 +392,10 @@ where
     }
 
     /// Get the [`AssociationState`] for each `inbox_id`
-    pub async fn inbox_addresses<'a>(
+    pub async fn inbox_addresses(
         &self,
         refresh_from_network: bool,
-        inbox_ids: Vec<InboxIdRef<'a>>,
+        inbox_ids: Vec<InboxIdRef<'_>>,
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.store().conn()?;
         if refresh_from_network {
@@ -444,13 +444,11 @@ where
             }
         }
 
-        conn.insert_or_replace_consent_records(records)?;
-        conn.insert_or_replace_consent_records(&new_records)?;
+        new_records.extend_from_slice(records);
+        let changed_records = conn.insert_or_replace_consent_records(&new_records)?;
 
-        if self.history_sync_url.is_some() {
-            let mut records = records.to_vec();
-            records.append(&mut new_records);
-            let records = records
+        if self.history_sync_url.is_some() && !changed_records.is_empty() {
+            let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();

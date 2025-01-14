@@ -47,6 +47,8 @@ pub enum MetadataField {
     Description,
     GroupImageUrlSquare,
     GroupPinnedFrameUrl,
+    MessageExpirationFromMillis,
+    MessageExpirationMillis,
 }
 
 impl MetadataField {
@@ -57,6 +59,8 @@ impl MetadataField {
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
+            MetadataField::MessageExpirationFromMillis => "message_expiration_from_ms",
+            MetadataField::MessageExpirationMillis => "message_expiration_ms",
         }
     }
 }
@@ -121,6 +125,20 @@ impl GroupMutableMetadata {
             opts.pinned_frame_url
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
+
+        if let Some(message_expiration_from_ms) = opts.message_expiration_from_ms {
+            attributes.insert(
+                MetadataField::MessageExpirationFromMillis.to_string(),
+                message_expiration_from_ms.to_string(),
+            );
+        }
+        if let Some(message_expiration_ms) = opts.message_expiration_ms {
+            attributes.insert(
+                MetadataField::MessageExpirationMillis.to_string(),
+                message_expiration_ms.to_string(),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -168,6 +186,7 @@ impl GroupMutableMetadata {
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
             MetadataField::GroupPinnedFrameUrl,
+            MetadataField::MessageExpirationMillis,
         ]
     }
 

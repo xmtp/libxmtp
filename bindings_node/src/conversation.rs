@@ -642,10 +642,9 @@ impl Conversation {
       self.group_id.clone(),
       self.created_at_ns,
     );
-    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
 
     group
-      .update_consent_state(&provider, state.into())
+      .update_consent_state(state.into())
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
