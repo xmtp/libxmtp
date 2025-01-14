@@ -34,13 +34,13 @@ class RemoteAttachmentTests: XCTestCase {
 	func testBasic() async throws {
 		let fixtures = try await fixtures()
 
-		fixtures.alixClient.register(codec: AttachmentCodec())
-		fixtures.alixClient.register(codec: RemoteAttachmentCodec())
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
 
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 		let enecryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
-			content: "Hello", codec: TextCodec(), with: fixtures.alixClient)
+			content: "Hello", codec: TextCodec())
 		var remoteAttachmentContent = try RemoteAttachment(
 			url: "https://example.com",
 			encryptedEncodedContent: enecryptedEncodedContent)
@@ -57,14 +57,13 @@ class RemoteAttachmentTests: XCTestCase {
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.alixClient.register(codec: AttachmentCodec())
-		fixtures.alixClient.register(codec: RemoteAttachmentCodec())
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
 
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(
 				filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec(),
-			with: fixtures.alixClient
+			codec: AttachmentCodec()
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(
@@ -100,8 +99,7 @@ class RemoteAttachmentTests: XCTestCase {
 
 		let encodedContent: EncodedContent =
 			try await remoteAttachment.content()
-		let attachment: Attachment = try encodedContent.decoded(
-			with: fixtures.alixClient)
+		let attachment: Attachment = try encodedContent.decoded()
 
 		XCTAssertEqual("icon.png", attachment.filename)
 		XCTAssertEqual("image/png", attachment.mimeType)
@@ -114,14 +112,13 @@ class RemoteAttachmentTests: XCTestCase {
 		_ = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.alixClient.register(codec: AttachmentCodec())
-		fixtures.alixClient.register(codec: RemoteAttachmentCodec())
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
 
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(
 				filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec(),
-			with: fixtures.alixClient
+			codec: AttachmentCodec()
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(
@@ -150,8 +147,7 @@ class RemoteAttachmentTests: XCTestCase {
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(
 				filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec(),
-			with: fixtures.alixClient
+			codec: AttachmentCodec()
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(

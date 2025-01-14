@@ -4,7 +4,7 @@ import LibXMTP
 public struct Dm: Identifiable, Equatable, Hashable {
 	var ffiConversation: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
-	var client: Client
+	var clientInboxId: String
 	let streamHolder = StreamHolder()
 
 	public var id: String {
@@ -32,7 +32,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		return try await metadata().creatorInboxId() == client.inboxID
+		return try await metadata().creatorInboxId() == clientInboxId
 	}
 
 	public func creatorInboxId() async throws -> String {
@@ -74,7 +74,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		let message =
 			try await ffiConversation.processStreamedConversationMessage(
 				envelopeBytes: messageBytes)
-		return Message.create(client: client, ffiMessage: message)
+		return Message.create(ffiMessage: message)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -98,13 +98,13 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func encodeContent<T>(content: T, options: SendOptions?) async throws
 		-> EncodedContent
 	{
-		let codec = client.codecRegistry.find(for: options?.contentType)
+		let codec = Client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws
 			-> EncodedContent
 		{
 			if let content = content as? Codec.T {
-				return try codec.encode(content: content, client: client)
+				return try codec.encode(content: content)
 			} else {
 				throw CodecError.invalidContent
 			}
@@ -171,15 +171,13 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiConversation.stream(
-					messageCallback: MessageCallback(client: self.client) {
+					messageCallback: MessageCallback {
 						message in
 						guard !Task.isCancelled else {
 							continuation.finish()
 							return
 						}
-						if let message = Message.create(
-							client: self.client, ffiMessage: message)
-						{
+						if let message = Message.create(ffiMessage: message) {
 							continuation.yield(message)
 						}
 					}
@@ -199,7 +197,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func lastMessage() async throws -> Message? {
 		if let ffiMessage = ffiLastMessage {
-			return Message.create(client: self.client, ffiMessage: ffiMessage)
+			return Message.create(ffiMessage: ffiMessage)
 		} else {
 			return try await messages(limit: 1).first
 		}
@@ -262,7 +260,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return try await ffiConversation.findMessages(opts: options).compactMap
 		{
 			ffiMessage in
-			return Message.create(client: self.client, ffiMessage: ffiMessage)
+			return Message.create(ffiMessage: ffiMessage)
 		}
 	}
 }

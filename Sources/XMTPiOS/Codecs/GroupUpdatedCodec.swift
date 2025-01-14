@@ -19,7 +19,7 @@ public struct GroupUpdatedCodec: ContentCodec {
 
 	public var contentType = ContentTypeGroupUpdated
 
-	public func encode(content: GroupUpdated, client _: Client) throws -> EncodedContent {
+	public func encode(content: GroupUpdated) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeGroupUpdated
@@ -28,7 +28,7 @@ public struct GroupUpdatedCodec: ContentCodec {
 		return encodedContent
 	}
 
-	public func decode(content: EncodedContent, client _: Client) throws -> GroupUpdated {
+	public func decode(content: EncodedContent) throws -> GroupUpdated {
 		return try GroupUpdated(serializedData: content.content)
 	}
 

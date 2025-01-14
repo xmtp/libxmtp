@@ -334,7 +334,7 @@ public actor Conversations {
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
 
-			let messageCallback = MessageCallback(client: self.client) {
+			let messageCallback = MessageCallback() {
 				message in
 				guard !Task.isCancelled else {
 					continuation.finish()
@@ -343,8 +343,7 @@ public actor Conversations {
 					}
 					return
 				}
-				if let message = Message.create(
-					client: self.client, ffiMessage: message)
+				if let message = Message.create(ffiMessage: message)
 				{
 					continuation.yield(message)
 				}

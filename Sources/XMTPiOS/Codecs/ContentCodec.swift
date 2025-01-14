@@ -14,8 +14,8 @@ enum CodecError: String, Error {
 public typealias EncodedContent = Xmtp_MessageContents_EncodedContent
 
 extension EncodedContent {
-	public func decoded<T>(with client: Client) throws -> T {
-		let codec = client.codecRegistry.find(for: type)
+	public func decoded<T>() throws -> T {
+		let codec = Client.codecRegistry.find(for: type)
 
 		var encodedContent = self
 
@@ -23,7 +23,7 @@ extension EncodedContent {
 			encodedContent = try decompressContent()
 		}
 
-		if let content = try codec.decode(content: encodedContent, client: client) as? T {
+		if let content = try codec.decode(content: encodedContent) as? T {
 			return content
 		}
 
@@ -82,8 +82,8 @@ public protocol ContentCodec: Hashable, Equatable {
 	associatedtype T
 
 	var contentType: ContentTypeID { get }
-	func encode(content: T, client: Client) throws -> EncodedContent
-	func decode(content: EncodedContent, client: Client) throws -> T
+	func encode(content: T) throws -> EncodedContent
+	func decode(content: EncodedContent) throws -> T
 	func fallback(content: T) throws -> String?
 	func shouldPush(content: T) throws -> Bool
 }

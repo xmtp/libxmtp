@@ -31,7 +31,7 @@ public struct AttachmentCodec: ContentCodec {
 
 	public var contentType = ContentTypeAttachment
 
-	public func encode(content: Attachment, client _: Client) throws -> EncodedContent {
+	public func encode(content: Attachment) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeAttachment
@@ -44,7 +44,7 @@ public struct AttachmentCodec: ContentCodec {
 		return encodedContent
 	}
 
-	public func decode(content: EncodedContent, client _: Client) throws -> Attachment {
+	public func decode(content: EncodedContent) throws -> Attachment {
 		guard let mimeType = content.parameters["mimeType"],
 		      let filename = content.parameters["filename"]
 		else {

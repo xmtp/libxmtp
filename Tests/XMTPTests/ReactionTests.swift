@@ -37,9 +37,9 @@ class ReactionTests: XCTestCase {
 
 		let fixtures = try await fixtures()
 		let canonical = try codec.decode(
-			content: canonicalEncoded, client: fixtures.alixClient)
+			content: canonicalEncoded)
 		let legacy = try codec.decode(
-			content: legacyEncoded, client: fixtures.alixClient)
+			content: legacyEncoded)
 
 		XCTAssertEqual(ReactionAction.added, canonical.action)
 		XCTAssertEqual(ReactionAction.added, legacy.action)
@@ -56,7 +56,7 @@ class ReactionTests: XCTestCase {
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.alixClient.register(codec: ReactionCodec())
+		Client.register(codec: ReactionCodec())
 
 		_ = try await conversation.send(text: "hey alix 2 bo")
 
@@ -116,9 +116,9 @@ class ReactionTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let canonical = try codec.decode(
-			content: canonicalEncoded, client: fixtures.alixClient)
+			content: canonicalEncoded)
 		let legacy = try codec.decode(
-			content: legacyEncoded, client: fixtures.alixClient)
+			content: legacyEncoded)
 
 		XCTAssertEqual(ReactionAction.unknown, canonical.action)
 		XCTAssertEqual(ReactionAction.unknown, legacy.action)

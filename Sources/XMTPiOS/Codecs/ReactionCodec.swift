@@ -61,7 +61,7 @@ public struct ReactionCodec: ContentCodec {
 
     public init() {}
 
-    public func encode(content: Reaction, client _: Client) throws -> EncodedContent {
+    public func encode(content: Reaction) throws -> EncodedContent {
         var encodedContent = EncodedContent()
 
         encodedContent.type = ContentTypeReaction
@@ -70,7 +70,7 @@ public struct ReactionCodec: ContentCodec {
         return encodedContent
     }
 
-    public func decode(content: EncodedContent, client _: Client) throws -> Reaction {
+    public func decode(content: EncodedContent) throws -> Reaction {
         // First try to decode it in the canonical form.
         // swiftlint:disable no_optional_try
         if let reaction = try? JSONDecoder().decode(Reaction.self, from: content.content) {

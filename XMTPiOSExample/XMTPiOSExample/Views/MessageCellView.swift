@@ -10,7 +10,7 @@ import XMTPiOS
 
 struct MessageTextView: View {
 	var myAddress: String
-	var message: DecodedMessage
+	var message: Message
 	var isGroup: Bool = false
 	@State private var isDebugging = false
 
@@ -57,7 +57,11 @@ struct MessageTextView: View {
 		do {
 			return try message.content()
 		} catch {
-			return message.fallbackContent
+			do {
+				return try message.fallbackContent
+			} catch {
+				return "Failed to retrieve content"
+			}
 		}
 	}
 
@@ -79,7 +83,7 @@ struct MessageTextView: View {
 }
 
 struct MessageGroupMembershipChangedView: View {
-	var message: DecodedMessage
+	var message: Message
 
 	var body: some View {
 		Text(label)
@@ -110,18 +114,22 @@ struct MessageGroupMembershipChangedView: View {
 
 struct MessageCellView: View {
 	var myAddress: String
-	var message: DecodedMessage
+	var message: Message
 	var isGroup: Bool = false
 	@State private var isDebugging = false
 
 	var body: some View {
-		switch message.encodedContent.type {
-		case ContentTypeText:
-			MessageTextView(myAddress: myAddress, message: message)
-		case ContentTypeGroupUpdated:
-			MessageGroupMembershipChangedView(message: message)
-		default:
-			Text(message.fallbackContent)
+		do {
+			switch try message.encodedContent.type {
+			case ContentTypeText:
+				return AnyView(MessageTextView(myAddress: myAddress, message: message))
+			case ContentTypeGroupUpdated:
+				return AnyView(MessageGroupMembershipChangedView(message: message))
+			default:
+				return AnyView(Text(try message.fallbackContent))
+			}
+		} catch {
+			return AnyView(Text("Failed to load content"))
 		}
 	}
 }

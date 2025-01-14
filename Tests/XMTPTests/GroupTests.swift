@@ -246,7 +246,7 @@ class GroupTests: XCTestCase {
 
 	func testCanAddGroupMembers() async throws {
 		let fixtures = try await fixtures()
-		fixtures.alixClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.bo.address])
 
@@ -271,7 +271,7 @@ class GroupTests: XCTestCase {
 
 	func testCanAddGroupMembersByInboxId() async throws {
 		let fixtures = try await fixtures()
-		fixtures.alixClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.bo.address])
 
@@ -298,7 +298,7 @@ class GroupTests: XCTestCase {
 
 	func testCanRemoveMembers() async throws {
 		let fixtures = try await fixtures()
-		fixtures.alixClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.bo.address, fixtures.caro.address])
 
@@ -332,7 +332,7 @@ class GroupTests: XCTestCase {
 
 	func testCanRemoveMembersByInboxId() async throws {
 		let fixtures = try await fixtures()
-		fixtures.alixClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.bo.address, fixtures.caro.address])
 
@@ -501,8 +501,7 @@ class GroupTests: XCTestCase {
 
 	func testCanSendMessagesToGroup() async throws {
 		let fixtures = try await fixtures()
-		fixtures.boClient.register(codec: GroupUpdatedCodec())
-		fixtures.alixClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.bo.address])
 		let membershipChange = GroupUpdated()
@@ -580,7 +579,7 @@ class GroupTests: XCTestCase {
 
 	func testCanStreamGroupMessages() async throws {
 		let fixtures = try await fixtures()
-		fixtures.boClient.register(codec: GroupUpdatedCodec())
+		Client.register(codec: GroupUpdatedCodec())
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.alix.address
 		])

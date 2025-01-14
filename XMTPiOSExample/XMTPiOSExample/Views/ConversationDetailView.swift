@@ -12,7 +12,7 @@ struct ConversationDetailView: View {
 	var client: Client
 	var conversation: Conversation
 
-	@State private var messages: [DecodedMessage] = []
+	@State private var messages: [Message] = []
 
 	var body: some View {
 		VStack {

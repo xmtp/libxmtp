@@ -7,7 +7,7 @@ import XCTest
 class ReadReceiptTests: XCTestCase {
 	func testCanUseReadReceiptCodec() async throws {
 		let fixtures = try await fixtures()
-		fixtures.alixClient.register(codec: ReadReceiptCodec())
+		Client.register(codec: ReadReceiptCodec())
 
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)

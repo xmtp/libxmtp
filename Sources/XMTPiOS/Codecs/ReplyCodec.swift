@@ -26,27 +26,27 @@ public struct ReplyCodec: ContentCodec {
 
 	public init() {}
 
-	public func encode(content reply: Reply, client: Client) throws -> EncodedContent {
+	public func encode(content reply: Reply) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
-		let replyCodec = client.codecRegistry.find(for: reply.contentType)
+		let replyCodec = Client.codecRegistry.find(for: reply.contentType)
 
 		encodedContent.type = contentType
 		// TODO: cut when we're certain no one is looking for "contentType" here.
 		encodedContent.parameters["contentType"] = reply.contentType.description
 		encodedContent.parameters["reference"] = reply.reference
-		encodedContent.content = try encodeReply(codec: replyCodec, content: reply.content, client: client).serializedData()
+		encodedContent.content = try encodeReply(codec: replyCodec, content: reply.content).serializedData()
 
 		return encodedContent
 	}
 
-	public func decode(content: EncodedContent, client: Client) throws -> Reply {
+	public func decode(content: EncodedContent) throws -> Reply {
 		guard let reference = content.parameters["reference"] else {
 			throw CodecError.invalidContent
 		}
 
 		let replyEncodedContent = try EncodedContent(serializedData: content.content)
-		let replyCodec = client.codecRegistry.find(for: replyEncodedContent.type)
-		let replyContent = try replyCodec.decode(content: replyEncodedContent, client: client)
+		let replyCodec = Client.codecRegistry.find(for: replyEncodedContent.type)
+		let replyContent = try replyCodec.decode(content: replyEncodedContent)
 
 		return Reply(
 			reference: reference,
@@ -55,9 +55,9 @@ public struct ReplyCodec: ContentCodec {
 		)
 	}
 
-	func encodeReply<Codec: ContentCodec>(codec: Codec, content: Any, client: Client) throws -> EncodedContent {
+	func encodeReply<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
 		if let content = content as? Codec.T {
-			return try codec.encode(content: content, client: client)
+			return try codec.encode(content: content)
 		} else {
 			throw CodecError.invalidContent
 		}

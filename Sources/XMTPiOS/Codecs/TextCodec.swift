@@ -21,7 +21,7 @@ public struct TextCodec: ContentCodec {
 
 	public var contentType = ContentTypeText
 
-	public func encode(content: String, client _: Client) throws -> EncodedContent {
+	public func encode(content: String) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeText
@@ -31,7 +31,7 @@ public struct TextCodec: ContentCodec {
 		return encodedContent
 	}
 
-	public func decode(content: EncodedContent, client _: Client) throws -> String {
+	public func decode(content: EncodedContent) throws -> String {
 		if let encoding = content.parameters["encoding"], encoding != "UTF-8" {
 			throw TextCodecError.invalidEncoding
 		}

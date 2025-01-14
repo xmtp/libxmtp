@@ -89,7 +89,7 @@ public struct Message: Identifiable {
 		}
 	}
 
-	public static func create(client: Client, ffiMessage: FfiMessage)
+	public static func create(ffiMessage: FfiMessage)
 		-> Message?
 	{
 		do {
@@ -102,7 +102,7 @@ public struct Message: Identifiable {
 					"Error decoding group membership change")
 			}
 			// Decode the content once during creation
-			let decodedContent: Any = try encodedContent.decoded(with: client)
+			let decodedContent: Any = try encodedContent.decoded()
 			return Message(
 				ffiMessage: ffiMessage, decodedContent: decodedContent)
 		} catch {

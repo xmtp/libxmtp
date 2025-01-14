@@ -15,7 +15,7 @@ class AttachmentsTests: XCTestCase {
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.alixClient.register(codec: AttachmentCodec())
+		Client.register(codec: AttachmentCodec())
 
 		try await conversation.send(
 			content: Attachment(

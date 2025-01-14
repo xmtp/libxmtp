@@ -12,7 +12,7 @@ struct GroupDetailView: View {
 	var client: Client
 	var group: XMTPiOS.Group
 
-	@State private var messages: [DecodedMessage] = []
+	@State private var messages: [Message] = []
 	@State private var isShowingSettings = false
 
 	var body: some View {

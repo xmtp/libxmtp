@@ -19,7 +19,7 @@ struct NumberCodec: ContentCodec {
 			versionMinor: 1)
 	}
 
-	func encode(content: Double, client _: Client) throws
+	func encode(content: Double) throws
 		-> XMTPiOS.EncodedContent
 	{
 		var encodedContent = EncodedContent()
@@ -32,7 +32,7 @@ struct NumberCodec: ContentCodec {
 		return encodedContent
 	}
 
-	func decode(content: XMTPiOS.EncodedContent, client _: Client) throws
+	func decode(content: XMTPiOS.EncodedContent) throws
 		-> Double
 	{
 		return try JSONDecoder().decode(Double.self, from: content.content)
@@ -48,7 +48,7 @@ class CodecTests: XCTestCase {
 		let alixConversation = try await alixClient.conversations
 			.newConversation(with: fixtures.bo.address)
 
-		alixClient.register(codec: NumberCodec())
+		Client.register(codec: NumberCodec())
 
 		try await alixConversation.send(
 			content: 3.14,
@@ -70,14 +70,14 @@ class CodecTests: XCTestCase {
 		let alixConversation = try await alixClient.conversations
 			.newConversation(with: fixtures.bo.address)
 
-		alixClient.register(codec: NumberCodec())
+		Client.register(codec: NumberCodec())
 
 		try await alixConversation.send(
 			content: 3.14,
 			options: .init(contentType: NumberCodec().contentType))
 
 		// Remove number codec from registry
-		alixClient.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)
+		Client.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)
 
 		let messages = try await alixConversation.messages()
 		XCTAssertEqual(messages.count, 1)

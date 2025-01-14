@@ -175,10 +175,6 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public var clientAddress: String {
-		return client.address
-	}
-
 	public var topic: String {
 		switch self {
 		case let .group(group):
@@ -215,15 +211,6 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
 				direction: direction, deliveryStatus: deliveryStatus
 			)
-		}
-	}
-
-	var client: Client {
-		switch self {
-		case let .group(group):
-			return group.client
-		case let .dm(dm):
-			return dm.client
 		}
 	}
 }

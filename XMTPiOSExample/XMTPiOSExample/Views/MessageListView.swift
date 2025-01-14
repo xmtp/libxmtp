@@ -10,7 +10,7 @@ import XMTPiOS
 
 struct MessageListView: View {
 	var myAddress: String
-	var messages: [DecodedMessage]
+	var messages: [Message]
 	var isGroup: Bool = false
 
 	var body: some View {
@@ -22,7 +22,7 @@ struct MessageListView: View {
 				}
 
 				VStack {
-					ForEach(Array(messages.sorted(by: { $0.sent < $1.sent }).enumerated()), id: \.0) { i, message in
+					ForEach(Array(messages.sorted(by: { $0.sentAt < $1.sentAt }).enumerated()), id: \.0) { i, message in
 						MessageCellView(myAddress: myAddress, message: message, isGroup: isGroup)
 							.transition(.scale)
 							.id(i)

@@ -111,9 +111,9 @@ public final class Client {
 	public lazy var preferences: PrivatePreferences = .init(
 		client: self, ffiClient: ffiClient)
 
-	var codecRegistry = CodecRegistry()
+	static var codecRegistry = CodecRegistry()
 
-	public func register(codec: any ContentCodec) {
+	public static func register(codec: any ContentCodec) {
 		codecRegistry.register(codec: codec)
 	}
 
@@ -142,7 +142,7 @@ public final class Client {
 
 		// Register codecs
 		for codec in options.codecs {
-			client.register(codec: codec)
+			register(codec: codec)
 		}
 
 		return client
@@ -321,13 +321,9 @@ public final class Client {
 		let address = "0x0000000000000000000000000000000000000000"
 		let inboxId = try await getOrCreateInboxId(api: api, address: address)
 
-		let directoryURL: URL = URL.documentsDirectory
-		let alias = "xmtp-\(api.env.rawValue)-\(inboxId).db3"
-		let dbURL = directoryURL.appendingPathComponent(alias).path
-
 		let ffiClient = try await LibXMTP.createClient(
 			api: connectToApiBackend(api: api),
-			db: dbURL,
+			db: nil,
 			encryptionKey: nil,
 			inboxId: inboxId,
 			accountAddress: address,
@@ -338,10 +334,6 @@ public final class Client {
 
 		let result = try await ffiClient.canMessage(
 			accountAddresses: accountAddresses)
-
-		try ffiClient.releaseDbConnection()
-		let fm = FileManager.default
-		try fm.removeItem(atPath: dbURL)
 
 		return result
 	}
@@ -470,7 +462,7 @@ public final class Client {
 		do {
 			return Group(
 				ffiGroup: try ffiClient.conversation(
-					conversationId: groupId.hexToData), client: self)
+					conversationId: groupId.hexToData), clientInboxId: self.inboxID)
 		} catch {
 			return nil
 		}
@@ -515,7 +507,7 @@ public final class Client {
 		do {
 			let conversation = try ffiClient.dmConversation(
 				targetInboxId: inboxId)
-			return Dm(ffiConversation: conversation, client: self)
+			return Dm(ffiConversation: conversation, clientInboxId: self.inboxID)
 		} catch {
 			return nil
 		}
@@ -532,7 +524,6 @@ public final class Client {
 	public func findMessage(messageId: String) throws -> Message? {
 		do {
 			return Message.create(
-				client: self,
 				ffiMessage: try ffiClient.message(
 					messageId: messageId.hexToData))
 		} catch {

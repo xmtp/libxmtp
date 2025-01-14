@@ -10,7 +10,7 @@ class ReplyTests: XCTestCase {
 		let conversation = try await fixtures.alixClient.conversations
 			.newConversation(with: fixtures.boClient.address)
 
-		fixtures.alixClient.register(codec: ReplyCodec())
+		Client.register(codec: ReplyCodec())
 
 		_ = try await conversation.send(text: "hey alix 2 bo")
 

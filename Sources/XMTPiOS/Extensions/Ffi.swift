@@ -3,11 +3,11 @@ import LibXMTP
 
 extension FfiConversation {
 	func groupFromFFI(client: Client) -> Group {
-		Group(ffiGroup: self, client: client)
+		Group(ffiGroup: self, clientInboxId: client.inboxID)
 	}
 
 	func dmFromFFI(client: Client) -> Dm {
-		Dm(ffiConversation: self, client: client)
+		Dm(ffiConversation: self, clientInboxId: client.inboxID)
 	}
 
 	func toConversation(client: Client) async throws -> Conversation {
@@ -23,13 +23,13 @@ extension FfiConversationListItem {
 	func groupFromFFI(client: Client) -> Group {
 		Group(
 			ffiGroup: self.conversation(), ffiLastMessage: self.lastMessage(),
-			client: client)
+			clientInboxId: client.inboxID)
 	}
 
 	func dmFromFFI(client: Client) -> Dm {
 		Dm(
 			ffiConversation: self.conversation(),
-			ffiLastMessage: self.lastMessage(), client: client)
+			ffiLastMessage: self.lastMessage(), clientInboxId: client.inboxID)
 	}
 
 	func toConversation(client: Client) async throws -> Conversation {

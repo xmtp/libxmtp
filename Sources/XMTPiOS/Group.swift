@@ -6,11 +6,9 @@ final class MessageCallback: FfiMessageCallback {
 		print("Error MessageCallback \(error)")
 	}
 
-	let client: Client
 	let callback: (LibXMTP.FfiMessage) -> Void
 
-	init(client: Client, _ callback: @escaping (LibXMTP.FfiMessage) -> Void) {
-		self.client = client
+	init(_ callback: @escaping (LibXMTP.FfiMessage) -> Void) {
 		self.callback = callback
 	}
 
@@ -26,7 +24,7 @@ final class StreamHolder {
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
-	var client: Client
+	var clientInboxId: String
 	let streamHolder = StreamHolder()
 
 	public var id: String {
@@ -62,7 +60,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		return try await metadata().creatorInboxId() == client.inboxID
+		return try await metadata().creatorInboxId() == clientInboxId
 	}
 
 	public func isAdmin(inboxId: String) throws -> Bool {
@@ -121,7 +119,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var peerInboxIds: [String] {
 		get async throws {
 			var ids = try await members.map(\.inboxId)
-			if let index = ids.firstIndex(of: client.inboxID) {
+			if let index = ids.firstIndex(of: clientInboxId) {
 				ids.remove(at: index)
 			}
 			return ids
@@ -272,7 +270,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func processMessage(messageBytes: Data) async throws -> Message? {
 		let message = try await ffiGroup.processStreamedConversationMessage(
 			envelopeBytes: messageBytes)
-		return Message.create(client: client, ffiMessage: message)
+		return Message.create(ffiMessage: message)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -296,13 +294,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func encodeContent<T>(content: T, options: SendOptions?) async throws
 		-> EncodedContent
 	{
-		let codec = client.codecRegistry.find(for: options?.contentType)
+		let codec = Client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws
 			-> EncodedContent
 		{
 			if let content = content as? Codec.T {
-				return try codec.encode(content: content, client: client)
+				return try codec.encode(content: content)
 			} else {
 				throw CodecError.invalidContent
 			}
@@ -369,15 +367,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiGroup.stream(
-					messageCallback: MessageCallback(client: self.client) {
+					messageCallback: MessageCallback {
 						message in
 						guard !Task.isCancelled else {
 							continuation.finish()
 							return
 						}
-						if let message = Message.create(
-							client: self.client, ffiMessage: message)
-						{
+						if let message = Message.create(ffiMessage: message) {
 							continuation.yield(message)
 						}
 					}
@@ -397,7 +393,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func lastMessage() async throws -> Message? {
 		if let ffiMessage = ffiLastMessage {
-			return Message.create(client: self.client, ffiMessage: ffiMessage)
+			return Message.create(ffiMessage: ffiMessage)
 		} else {
 			return try await messages(limit: 1).first
 		}
@@ -459,7 +455,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 		return try await ffiGroup.findMessages(opts: options).compactMap {
 			ffiMessage in
-			return Message.create(client: self.client, ffiMessage: ffiMessage)
+			return Message.create(ffiMessage: ffiMessage)
 		}
 	}
 }
