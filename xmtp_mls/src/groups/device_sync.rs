@@ -326,30 +326,45 @@ where
     }
 
     fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
-            while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
-                match err {
-                    DeviceSyncError::Client(ClientError::Storage(
-                        StorageError::PoolNeedsConnection,
-                    )) => {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
+        // Create a new runtime for the worker
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create runtime");
+
+        // Spawn on a dedicated thread
+        std::thread::Builder::new()
+            .name("sync_worker".into())
+            .spawn(move || {
+                runtime.block_on(async move {
+                    let inbox_id = self.client.inbox_id().to_string();
+                    let installation_id = hex::encode(self.client.installation_public_key());
+
+                    while let Err(err) = self.run().await {
+                        match err {
+                            DeviceSyncError::Client(ClientError::Storage(
+                                StorageError::PoolNeedsConnection,
+                            )) => {
+                                tracing::warn!(
+                                    inbox_id,
+                                    installation_id,
+                                    "Pool disconnected. task will restart on reconnect"
+                                );
+                                break;
+                            }
+                            _ => {
+                                tracing::error!(
+                                    inbox_id,
+                                    installation_id,
+                                    "sync worker error {err}"
+                                );
+                                xmtp_common::time::sleep(Duration::from_secs(2)).await;
+                            }
+                        }
                     }
-                    _ => {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                        // Wait 2 seconds before restarting.
-                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
-                    }
-                }
-            }
-        });
+                });
+            })
+            .expect("Failed to spawn sync worker thread");
     }
 }
 

@@ -5572,9 +5572,7 @@ mod tests {
         for i in 1..=6 {
             let conversation = alix_conversation.clone();
             let message = format!("Message {}", i);
-            tasks.spawn(async move {
-                conversation.send(message.as_bytes().to_vec()).await
-            });
+            tasks.spawn(async move { conversation.send(message.as_bytes().to_vec()).await });
         }
 
         // Collect results as they complete
