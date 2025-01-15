@@ -89,6 +89,7 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
+    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
@@ -99,7 +100,6 @@ use crate::{
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store, MLS_COMMIT_LOCK,
 };
 use std::future::Future;
@@ -1791,9 +1791,9 @@ pub(crate) mod tests {
             group::{ConversationType, GroupQueryArgs},
             group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+            xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner, StreamHandle as _,
     };
 
