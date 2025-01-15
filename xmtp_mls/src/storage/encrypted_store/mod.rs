@@ -31,7 +31,7 @@ mod sqlcipher_connection;
 pub mod user_preferences;
 pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
-mod wasm;
+pub mod wasm;
 
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
