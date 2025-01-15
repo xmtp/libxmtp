@@ -2,7 +2,7 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection, StorageError,
+        DbConnection, ProviderTransactions, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
@@ -70,15 +70,12 @@ impl<'a> BackupImporter<'a> {
     }
 
     pub fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
-        let conn = provider.conn_ref();
-        conn.raw_query(|conn| {
-            conn.transaction::<(), StorageError, _>(|conn| {
-                while let Some(element) = self.next_element()? {
-                    insert(element, conn)?;
-                }
-
-                Ok(())
-            })
+        provider.transaction(|provider| {
+            let conn = provider.conn_ref();
+            while let Some(element) = self.next_element()? {
+                insert(element, conn)?;
+            }
+            Ok(())
         })
     }
 
