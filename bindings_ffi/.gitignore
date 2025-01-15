@@ -13,3 +13,6 @@ LibXMTPSwiftFFI.xcframework
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift
+
+# Ignore the generated kotlin files
+/src/uniffi/**/*
