@@ -736,9 +736,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message on this users XMTP [`Client`].
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        tracing::debug!(inbox_id = self.client.inbox_id(), "sending message");
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await
     }
 

@@ -7480,7 +7480,6 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
- "async-stream",
  "async-trait",
  "bincode",
  "chrono",

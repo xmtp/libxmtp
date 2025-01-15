@@ -9,8 +9,8 @@ use crate::{
     groups::ScopedGroupClient,
     storage::group_message::StoredGroupMessage,
     subscriptions::{
-        stream_messages::{MessagesStreamInfo, ProcessMessageFuture, StreamGroupMessages},
-        SubscribeError,
+        stream_messages::{ProcessMessageFuture, StreamGroupMessages},
+        Result, SubscribeError,
     },
 };
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
@@ -24,36 +24,34 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn process_streamed_group_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<StoredGroupMessage, SubscribeError> {
+    ) -> Result<StoredGroupMessage> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
         ProcessMessageFuture::new(&self.client, envelope)?
             .process()
             .await
+            .map(|(group, _)| group)
     }
 
     pub async fn stream<'a>(
         &'a self,
-    ) -> Result<
-        impl Stream<Item = Result<StoredGroupMessage, SubscribeError>> + use<'a, ScopedClient>,
-        SubscribeError,
-    >
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, ScopedClient>>
     where
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
     {
-        let group_list = HashMap::from([(self.group_id.clone(), MessagesStreamInfo { cursor: 0 })]);
-        Ok(StreamGroupMessages::new(&self.client, &group_list).await?)
+        let group_list = HashMap::from([(self.group_id.clone(), 0u64.into())]);
+        Ok(StreamGroupMessages::new(&self.client, group_list).await?)
     }
 
     pub fn stream_with_callback(
         client: ScopedClient,
         group_id: Vec<u8>,
-        callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>>
+        callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
+    ) -> impl crate::StreamHandle<StreamOutput = Result<()>>
     where
         ScopedClient: 'static,
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
     {
-        let group_list = HashMap::from([(group_id, MessagesStreamInfo { cursor: 0 })]);
+        let group_list = HashMap::from([(group_id, 0)]);
         stream_messages_with_callback(client, group_list, callback)
     }
 }
@@ -62,9 +60,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 /// messages along to a callback.
 pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
-    group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    mut callback: impl FnMut(Result<StoredGroupMessage, SubscribeError>) + Send + 'static,
-) -> impl crate::StreamHandle<StreamOutput = Result<(), SubscribeError>>
+    active_conversations: HashMap<Vec<u8>, u64>,
+    mut callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
+) -> impl crate::StreamHandle<StreamOutput = Result<()>>
 where
     ScopedClient: ScopedGroupClient + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'static,
@@ -73,7 +71,11 @@ where
 
     crate::spawn(Some(rx), async move {
         let client_ref = &client;
-        let stream = StreamGroupMessages::new(client_ref, &group_id_to_info).await?;
+        let active_conversations = active_conversations
+            .into_iter()
+            .map(|(g, c)| (g, c.into()))
+            .collect();
+        let stream = StreamGroupMessages::new(client_ref, active_conversations).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {
