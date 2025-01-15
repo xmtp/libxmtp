@@ -95,12 +95,10 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), StorageErro
         }
         Element::Group(group) => {
             let group: StoredGroup = group.into();
-            tracing::info!("Group: {group:?}");
             group.store(conn)?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.into();
-            tracing::info!("Message: {message:?}");
             message.store(conn)?;
         }
         _ => {}
