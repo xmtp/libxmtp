@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -129,11 +130,16 @@ pub struct CreateGroupOptions {
   pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
+  #[wasm_bindgen(js_name = messageExpirationFromMillis)]
+  pub message_expiration_from_ms: Option<i64>,
+  #[wasm_bindgen(js_name = messageExpirationMillis)]
+  pub message_expiration_ms: Option<i64>,
 }
 
 #[wasm_bindgen]
 impl CreateGroupOptions {
   #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     permissions: Option<GroupPermissionsOptions>,
     group_name: Option<String>,
@@ -141,6 +147,8 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
+    message_expiration_from_ms: Option<i64>,
+    message_expiration_ms: Option<i64>,
   ) -> Self {
     Self {
       permissions,
@@ -149,6 +157,8 @@ impl CreateGroupOptions {
       group_description,
       group_pinned_frame_url,
       custom_permission_policy_set,
+      message_expiration_from_ms,
+      message_expiration_ms,
     }
   }
 }
@@ -160,6 +170,24 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
+      message_expiration_from_ms: self.message_expiration_from_ms,
+      message_expiration_ms: self.message_expiration_ms,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(serde::Serialize)]
+pub struct HmacKey {
+  pub key: Vec<u8>,
+  pub epoch: i64,
+}
+
+impl From<XmtpHmacKey> for HmacKey {
+  fn from(value: XmtpHmacKey) -> Self {
+    Self {
+      epoch: value.epoch,
+      key: value.key.to_vec(),
     }
   }
 }
@@ -183,17 +211,16 @@ impl Conversations {
     account_addresses: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
-    let options = match options {
-      Some(options) => options,
-      None => CreateGroupOptions {
-        permissions: None,
-        group_name: None,
-        group_image_url_square: None,
-        group_description: None,
-        group_pinned_frame_url: None,
-        custom_permission_policy_set: None,
-      },
-    };
+    let options = options.unwrap_or(CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      group_pinned_frame_url: None,
+      custom_permission_policy_set: None,
+      message_expiration_from_ms: None,
+      message_expiration_ms: None,
+    });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
       if options.custom_permission_policy_set.is_none() {
@@ -206,8 +233,8 @@ impl Conversations {
     let metadata_options = options.clone().into_group_metadata_options();
 
     let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::AllMembers) => {
-        Some(PreconfiguredPolicies::AllMembers.to_policy_set())
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
       }
       Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
@@ -227,10 +254,15 @@ impl Conversations {
     };
 
     let convo = if account_addresses.is_empty() {
-      self
+      let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
     } else {
       self
         .inner_client
@@ -358,5 +390,30 @@ impl Conversations {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()
     }))
+  }
+
+  #[wasm_bindgen(js_name = getHmacKeys)]
+  pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
+    let inner = self.inner_client.as_ref();
+    let conversations = inner
+      .find_groups(GroupQueryArgs {
+        include_duplicate_dms: true,
+        ..Default::default()
+      })
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
+    for conversation in conversations {
+      let id = hex::encode(&conversation.group_id);
+      let keys = conversation
+        .hmac_keys(-1..=1)
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+      hmac_map.insert(id, keys);
+    }
+
+    Ok(serde_wasm_bindgen::to_value(&hmac_map)?)
   }
 }

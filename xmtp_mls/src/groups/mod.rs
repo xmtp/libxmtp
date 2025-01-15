@@ -89,6 +89,7 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
+    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
@@ -99,7 +100,6 @@ use crate::{
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Store, MLS_COMMIT_LOCK,
 };
 use std::future::Future;
@@ -293,6 +293,8 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
+    pub message_expiration_from_ms: Option<i64>,
+    pub message_expiration_ms: Option<i64>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -722,14 +724,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
 
         let message_id =
-            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
-        message_id
+        Ok(message_id)
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
@@ -1789,9 +1791,9 @@ pub(crate) mod tests {
             group::{ConversationType, GroupQueryArgs},
             group_intent::{IntentKind, IntentState},
             group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+            xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner, StreamHandle as _,
     };
 
@@ -2591,6 +2593,8 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
+                    message_expiration_from_ms: None,
+                    message_expiration_ms: None,
                 },
             )
             .unwrap();
@@ -2739,6 +2743,73 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_update_policies_empty_group() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+        let _bola = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // Create a group with amal and bola
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group_with_members(
+                &[bola_wallet.get_address()],
+                policy_set,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Verify we can update the group name without syncing first
+        amal_group
+            .update_group_name("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_group.sync().await.unwrap();
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        let group_name_1 = group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(group_name_1, "New Group Name 1");
+
+        // Create a group with just amal
+        let policy_set_2 = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group_2 = amal
+            .create_group(policy_set_2, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Verify empty group fails to update metadata before syncing
+        amal_group_2
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .expect_err("Should fail to update group name before first sync");
+
+        // Sync the group
+        amal_group_2.sync().await.unwrap();
+
+        //Verify we can now update the group name
+        amal_group_2
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_group_2.sync().await.unwrap();
+        let group_mutable_metadata = amal_group_2
+            .mutable_metadata(&amal_group_2.mls_provider().unwrap())
+            .unwrap();
+        let group_name_2 = group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
+        assert_eq!(group_name_2, "New Group Name 2");
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2821,7 +2892,7 @@ pub(crate) mod tests {
         let bola = ClientBuilder::new_test_client(&bola_wallet).await;
 
         // Create a group and verify it has the default group name
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
@@ -3275,7 +3346,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();
@@ -3303,7 +3374,7 @@ pub(crate) mod tests {
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let policy_set = Some(PreconfiguredPolicies::AllMembers.to_policy_set());
+        let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
         let amal_group = amal
             .create_group(policy_set, GroupMetadataOptions::default())
             .unwrap();

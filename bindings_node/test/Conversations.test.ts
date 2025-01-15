@@ -41,7 +41,7 @@ describe('Conversations', () => {
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
-      GroupPermissionsOptions.AllMembers
+      GroupPermissionsOptions.Default
     )
     expect(group.groupPermissions().policySet()).toEqual({
       addMemberPolicy: 0,
@@ -52,6 +52,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(1)
@@ -103,6 +104,7 @@ describe('Conversations', () => {
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
           updateGroupPinnedFrameUrlPolicy: 3,
+          updateMessageExpirationMsPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -118,6 +120,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
+      updateMessageExpirationMsPolicy: 2,
     })
   })
 
@@ -139,6 +142,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -155,6 +159,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -172,6 +177,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 2,
     })
   })
 
@@ -198,6 +204,7 @@ describe('Conversations', () => {
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageExpirationMsPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)
@@ -335,6 +342,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
       updateGroupPinnedFrameUrlPolicy: 2,
+      updateMessageExpirationMsPolicy: 2,
     })
 
     const groupWithDescription = await client1
@@ -610,5 +618,38 @@ describe('Conversations', () => {
     expect(group2.consentState()).toBe(ConsentState.Unknown)
     await group2.send(encodeTextMessage('gm!'))
     expect(group2.consentState()).toBe(ConsentState.Allowed)
+  })
+
+  it('should update group metadata in empty group', async () => {
+    const user1 = createUser()
+    const client1 = await createRegisteredClient(user1)
+
+    // Create empty group with admin-only permissions
+    const group = await client1.conversations().createGroup([], {
+      permissions: GroupPermissionsOptions.AdminOnly,
+    })
+    expect(group).toBeDefined()
+
+    // Update group name without syncing first
+    await group.updateGroupName('New Group Name 1')
+    expect(group.groupName()).toBe('New Group Name 1')
+
+    // Verify name persists after sync
+    await group.sync()
+    expect(group.groupName()).toBe('New Group Name 1')
+
+    // Create another empty group
+    const soloGroup = await client1.conversations().createGroup([], {
+      permissions: GroupPermissionsOptions.AdminOnly,
+    })
+    expect(soloGroup).toBeDefined()
+
+    // Update and verify name
+    await soloGroup.updateGroupName('New Group Name 2')
+    expect(soloGroup.groupName()).toBe('New Group Name 2')
+
+    // Verify name persists after sync
+    await soloGroup.sync()
+    expect(soloGroup.groupName()).toBe('New Group Name 2')
   })
 })

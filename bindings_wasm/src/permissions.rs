@@ -14,7 +14,7 @@ use xmtp_mls::groups::{
 #[wasm_bindgen]
 #[derive(Clone)]
 pub enum GroupPermissionsOptions {
-  AllMembers,
+  Default,
   AdminOnly,
   CustomPolicy,
 }
@@ -170,6 +170,8 @@ pub struct PermissionPolicySet {
   pub update_group_image_url_square_policy: PermissionPolicy,
   #[wasm_bindgen(js_name = updateGroupPinnedFrameUrlPolicy)]
   pub update_group_pinned_frame_url_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateMessageExpirationPolicy)]
+  pub update_message_expiration_ms_policy: PermissionPolicy,
 }
 
 #[wasm_bindgen]
@@ -185,6 +187,7 @@ impl PermissionPolicySet {
     update_group_description_policy: PermissionPolicy,
     update_group_image_url_square_policy: PermissionPolicy,
     update_group_pinned_frame_url_policy: PermissionPolicy,
+    update_message_expiration_ms_policy: PermissionPolicy,
   ) -> Self {
     Self {
       add_member_policy,
@@ -195,6 +198,7 @@ impl PermissionPolicySet {
       update_group_description_policy,
       update_group_image_url_square_policy,
       update_group_pinned_frame_url_policy,
+      update_message_expiration_ms_policy,
     }
   }
 }
@@ -202,7 +206,7 @@ impl PermissionPolicySet {
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissionsOptions::AllMembers,
+      PreconfiguredPolicies::Default => GroupPermissionsOptions::Default,
       PreconfiguredPolicies::AdminsOnly => GroupPermissionsOptions::AdminOnly,
     }
   }
@@ -253,6 +257,9 @@ impl GroupPermissions {
       update_group_pinned_frame_url_policy: get_policy(
         XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
       ),
+      update_message_expiration_ms_policy: get_policy(
+        XmtpMetadataField::MessageExpirationMillis.as_str(),
+      ),
     })
   }
 }
@@ -276,6 +283,10 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
     metadata_permissions_map.insert(
       XmtpMetadataField::GroupPinnedFrameUrl.to_string(),
       policy_set.update_group_pinned_frame_url_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::MessageExpirationMillis.to_string(),
+      policy_set.update_message_expiration_ms_policy.try_into()?,
     );
 
     Ok(PolicySet {

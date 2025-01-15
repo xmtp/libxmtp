@@ -17,14 +17,12 @@ pub mod subscriptions;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package_v2;
-mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
-use storage::{DuplicateItem, StorageError};
+use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;

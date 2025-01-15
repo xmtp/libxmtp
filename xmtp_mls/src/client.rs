@@ -33,7 +33,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -51,14 +50,15 @@ use crate::{
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         wallet_addresses::WalletEntry,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         EncryptedMessageStore, NotFound, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
 };
+use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -444,13 +444,11 @@ where
             }
         }
 
-        conn.insert_or_replace_consent_records(records)?;
-        conn.insert_or_replace_consent_records(&new_records)?;
+        new_records.extend_from_slice(records);
+        let changed_records = conn.insert_or_replace_consent_records(&new_records)?;
 
-        if self.history_sync_url.is_some() {
-            let mut records = records.to_vec();
-            records.append(&mut new_records);
-            let records = records
+        if self.history_sync_url.is_some() && !changed_records.is_empty() {
+            let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
@@ -740,8 +738,8 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        self.store()
-            .transaction_async(provider, move |provider| {
+        provider
+            .transaction_async(move |provider| {
                 let provider = &provider;
                 async {
                     self.identity()
@@ -848,8 +846,8 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &WelcomeMessageV1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        self.store()
-            .transaction_async(provider, |provider| async move {
+        provider
+            .transaction_async(|provider| async move {
                 let cursor = welcome.id;
                 let is_updated = provider.conn_ref().update_cursor(
                     self.installation_public_key(),
