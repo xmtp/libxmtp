@@ -2,11 +2,10 @@
 use crate::storage::native::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::wasm::WasmDb;
+use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use std::marker::PhantomData;
-
-use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 
 #[cfg(target_arch = "wasm32")]
 pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<WasmDb, crate::storage::RawDbConnection>;
