@@ -546,6 +546,9 @@ where
                             let message_id =
                                 calculate_message_id(&self.group_id, &content, &idempotency_key);
                             let queryable_content_fields = Self::extract_queryable_content_fields(&content);
+                            tracing::info!("External msg - QueryableContentFields - content type extracted: {:?}", queryable_content_fields.content_type);
+                            tracing::info!("External msg - QueryableContentFields - content version extracted: {:?}", queryable_content_fields.version_major);
+                            tracing::info!("External msg - QueryableContentFields - reference id extracted: {:?}", queryable_content_fields.reference_id);
                             StoredGroupMessage {
                                 id: message_id,
                                 group_id: self.group_id.clone(),

@@ -827,6 +827,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
+        tracing::info!("Prepare msg - QueryableContentFields - content type extracted: {:?}", queryable_content_fields.content_type);
+        tracing::info!("Prepare msg - QueryableContentFields - content version extracted: {:?}", queryable_content_fields.version_major);
+        tracing::info!("Prepare msg - QueryableContentFields - reference id extracted: {:?}", queryable_content_fields.reference_id);
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),
