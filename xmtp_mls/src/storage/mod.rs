@@ -2,6 +2,7 @@ pub(super) mod encrypted_store;
 mod errors;
 pub mod serialization;
 pub mod sql_key_store;
+pub mod xmtp_openmls_provider;
 
 pub use encrypted_store::*;
 pub use errors::*;

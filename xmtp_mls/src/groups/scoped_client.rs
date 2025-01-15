@@ -3,11 +3,13 @@ use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::{DbConnection, EncryptedMessageStore, StorageError},
+    storage::{
+        xmtp_openmls_provider::XmtpOpenMlsProvider, DbConnection, EncryptedMessageStore,
+        StorageError,
+    },
     subscriptions::LocalEvents,
     types::InstallationId,
     verified_key_package_v2::VerifiedKeyPackageV2,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client,
 };
 use std::sync::Arc;
