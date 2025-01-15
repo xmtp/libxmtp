@@ -8,10 +8,10 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         DbConnection, NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
 use aes_gcm::aead::generic_array::GenericArray;

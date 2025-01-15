@@ -50,12 +50,12 @@ use crate::{
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         wallet_addresses::WalletEntry,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         EncryptedMessageStore, NotFound, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
 };
 use crate::{groups::ConversationListItem, storage::ProviderTransactions};

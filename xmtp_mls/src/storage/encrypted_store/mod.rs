@@ -22,7 +22,7 @@ pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod native;
+pub(super) mod native;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
@@ -31,7 +31,7 @@ mod sqlcipher_connection;
 pub mod user_preferences;
 pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
-pub mod wasm;
+pub(super) mod wasm;
 
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,8 +46,8 @@ pub use self::wasm::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use sqlite_web::{connection::WasmSqliteConnection as RawDbConnection, WasmSqlite as Sqlite};
 
-use super::StorageError;
-use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
+use super::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, StorageError};
+use crate::Store;
 use db_connection::DbConnectionPrivate;
 use diesel::{
     connection::{LoadConnection, TransactionManager},
@@ -159,6 +159,8 @@ impl EncryptedMessageStore {
 
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
 pub mod private {
+    use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
+
     use super::*;
     use diesel::connection::SimpleConnection;
     use diesel_migrations::MigrationHarness;
@@ -197,7 +199,7 @@ pub mod private {
             &self,
         ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
             let conn = self.conn()?;
-            Ok(crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate::new(conn))
+            Ok(XmtpOpenMlsProviderPrivate::new(conn))
         }
 
         /// Pulls a new connection from the store

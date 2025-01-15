@@ -22,6 +22,7 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
+    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -34,7 +35,6 @@ use crate::{
     },
     subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
 use futures::future::try_join_all;
