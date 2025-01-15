@@ -58,6 +58,7 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::sync::Arc;
+use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -330,6 +331,22 @@ pub mod private {
                     }
                 }
             }
+        }
+
+        pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
+            &self,
+            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
+            fun: F,
+        ) -> Result<T, E>
+        where
+            F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+            Fut: futures::Future<Output = Result<T, E>>,
+            E: From<diesel::result::Error> + From<StorageError> + RetryableError,
+        {
+            retry_async!(
+                Retry::default(),
+                (async { self.transaction_async(provider, fun).await })
+            )
         }
 
         /// Release connection to the database, closing it

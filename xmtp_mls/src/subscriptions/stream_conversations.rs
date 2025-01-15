@@ -1,26 +1,47 @@
-use std::{collections::HashSet, future::Future, pin::Pin, task::Poll};
+use std::{
+    collections::HashSet,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{group::ConversationType, NotFound},
     Client, XmtpOpenMlsProvider,
 };
-use futures::{future::FutureExt, prelude::stream::Select, Stream};
+use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{retry_async, Retry};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::{welcome_message::V1 as WelcomeMessageV1, WelcomeMessage},
+    xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
 };
 
-use super::{temp::Result, LocalEvents, SubscribeError};
+use super::{FutureWrapper, LocalEvents, Result, SubscribeError};
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConversationStreamError {
+    #[error("unexpected message type in welcome")]
+    InvalidPayload,
+    #[error("the conversation was filtered because of the given conversation type")]
+    InvalidConversationType,
+}
+
+impl xmtp_common::RetryableError for ConversationStreamError {
+    fn is_retryable(&self) -> bool {
+        use ConversationStreamError::*;
+        match self {
+            InvalidPayload | InvalidConversationType => false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(super) enum WelcomeOrGroup {
     Group(Vec<u8>),
-    Welcome(Result<WelcomeMessage>),
+    Welcome(WelcomeMessage),
 }
 
 pin_project! {
@@ -37,21 +58,17 @@ impl BroadcastGroupStream {
 }
 
 impl Stream for BroadcastGroupStream {
-    type Item = WelcomeOrGroup;
+    type Item = Result<WelcomeOrGroup>;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
-
         match this.inner.poll_next(cx) {
             Ready(Some(event)) => {
                 let ev = xmtp_common::optify!(event, "Missed messages due to event queue lag")
                     .and_then(LocalEvents::group_filter);
                 if let Some(g) = ev {
-                    Ready(Some(WelcomeOrGroup::Group(g)))
+                    Ready(Some(Ok(WelcomeOrGroup::Group(g))))
                 } else {
                     // skip this item since it was either missed due to lag, or not a group
                     Pending
@@ -80,19 +97,16 @@ impl<S> Stream for SubscriptionStream<S>
 where
     S: Stream<Item = std::result::Result<WelcomeMessage, xmtp_proto::Error>>,
 {
-    type Item = WelcomeOrGroup;
+    type Item = Result<WelcomeOrGroup>;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
 
         match this.inner.poll_next(cx) {
             Ready(Some(welcome)) => {
-                let welcome = welcome.map_err(SubscribeError::from);
-                Ready(Some(WelcomeOrGroup::Welcome(welcome)))
+                let welcome = welcome.map_err(SubscribeError::from)?;
+                Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
             }
             Pending => Pending,
             Ready(None) => Ready(None),
@@ -113,12 +127,12 @@ pin_project! {
 pin_project! {
     #[project = ProcessProject]
     enum ProcessState<'a, C> {
-        /// State where we are waiting on the next Message from the network
+        /// State that indicates the stream is waiting on the next message from the network
         Waiting,
-        /// State where we are waiting on an IO/Network future to finish processing the current message
+        /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, C>
+            #[pin] future: FutureWrapper<'a, Result<Option<(MlsGroup<C>, Option<i64>)>>>
         }
     }
 }
@@ -135,50 +149,7 @@ pin_project! {
 // Another option is to make processing a welcome syncronous which
 // might be possible with some kind of a cached identity strategy
 
-// Wrappers to deal with Send Bounds
-#[cfg(not(target_arch = "wasm32"))]
-pub struct FutureWrapper<'a, C> {
-    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a>>,
-}
-
-#[cfg(target_arch = "wasm32")]
-pub struct FutureWrapper<'a, C> {
-    inner: Pin<Box<dyn Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a>>,
-}
-
-impl<'a, C> Future for FutureWrapper<'a, C> {
-    type Output = Result<(MlsGroup<C>, Option<i64>)>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let inner = &mut self.inner;
-        futures::pin_mut!(inner);
-        inner.as_mut().poll(cx)
-    }
-}
-
-impl<'a, C> FutureWrapper<'a, C> {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + Send + 'a,
-    {
-        Self {
-            inner: future.boxed(),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = Result<(MlsGroup<C>, Option<i64>)>> + 'a,
-    {
-        Self {
-            inner: future.boxed_local(),
-        }
-    }
-}
-
-impl<'a, C> Default for ProcessState<'a, C> {
+impl<'a, O> Default for ProcessState<'a, O> {
     fn default() -> Self {
         ProcessState::Waiting
     }
@@ -186,12 +157,11 @@ impl<'a, C> Default for ProcessState<'a, C> {
 
 type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
 
-impl<'a, A, V>
-    StreamConversations<
-        'a,
-        Client<A, V>,
-        MultiplexedSelect<<A as XmtpMlsStreams>::WelcomeMessageStream<'a>>,
-    >
+pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+>;
+
+impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
@@ -234,35 +204,29 @@ where
 impl<'a, C, Subscription> Stream for StreamConversations<'a, C, Subscription>
 where
     C: ScopedGroupClient + Clone + 'a,
-    Subscription: Stream<Item = WelcomeOrGroup> + 'a,
+    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
     type Item = Result<MlsGroup<C>>;
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
-
         match this.state.as_mut().project() {
             ProcessProject::Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
-                        let future =
-                            // need to clone client into Arc<> here b/c:
-                            // otherwise the `'1` ref for `Pin<&mut Self>` in arg to `poll_next` needs to
-                            // live as long as `'a` ref for `Client`.
-                            // This is because we're boxing this future (i.e `Box<dyn Future + 'a>`).
-                            // There maybe a way to avoid it, but we need to `Box<>` the type
-                            // b/c there's no way to get the anonymous future type on the stack generated by an
-                            // `async fn`. If we can somehow store `impl Trait` on a struct (or
-                           // something similar), we could avoid the `Clone` + `Arc`ing.
-                            // TODO: try ref here?
-                            Self::process_new_item(this.known_welcome_ids.clone(), this.client.clone(), item);
+                        let future = ProcessWelcomeFuture::new(
+                            this.known_welcome_ids.clone(),
+                            this.client.clone(),
+                            item?,
+                            *this.conversation_type,
+                        )?;
 
                         this.state.set(ProcessState::Processing {
-                            future: FutureWrapper::new(future),
+                            future: FutureWrapper::new(future.process()),
                         });
                         cx.waker().wake_by_ref();
                         Pending
@@ -276,106 +240,169 @@ where
                 }
             }
             ProcessProject::Processing { future } => match future.poll(cx) {
-                Ready(Ok((group, welcome_id))) => {
+                Ready(Ok(Some((group, welcome_id)))) => {
                     if let Some(id) = welcome_id {
                         this.known_welcome_ids.insert(id);
                     }
                     this.state.set(ProcessState::Waiting);
                     Ready(Some(Ok(group)))
                 }
+                // we are ignoring this payload
+                Ready(Ok(None)) => {
+                    this.state.set(ProcessState::Waiting);
+                    cx.waker().wake_by_ref();
+                    Pending
+                }
                 Ready(Err(e)) => Ready(Some(Err(e))),
-                Pending => Pending,
+                Pending => {
+                    cx.waker().wake_by_ref();
+                    Pending
+                }
             },
         }
     }
 }
 
-/// bulk of the processing for a new welcome/group
-impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
+fn extract_welcome_message<'a>(welcome: &'a WelcomeMessage) -> Result<&'a welcome_message::V1> {
+    match welcome.version {
+        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
+        _ => Err(ConversationStreamError::InvalidPayload.into()),
+    }
+}
+
+/// Future for processing `WelcomeorGroup`
+pub struct ProcessWelcomeFuture<Client> {
+    /// welcome ids in DB and which are already processed
+    known_welcome_ids: HashSet<i64>,
+    /// The libxmtp client
+    client: Client,
+    /// the welcome or group being processed in this future
+    item: WelcomeOrGroup,
+    /// the xmtp mls provider
+    provider: XmtpOpenMlsProvider,
+    /// Conversation type to filter for, if any.
+    conversation_type: Option<ConversationType>,
+}
+
+impl<C> ProcessWelcomeFuture<C>
 where
     C: ScopedGroupClient + Clone,
 {
-    async fn process_new_item(
+    pub fn new(
         known_welcome_ids: HashSet<i64>,
         client: C,
         item: WelcomeOrGroup,
-    ) -> Result<(MlsGroup<C>, Option<i64>)> {
-        use WelcomeOrGroup::*;
+        conversation_type: Option<ConversationType>,
+    ) -> Result<ProcessWelcomeFuture<C>> {
         let provider = client.context().mls_provider()?;
-        match item {
-            Welcome(w) => Self::on_welcome(&known_welcome_ids, client, &provider, w?)
-                .await
-                .map(|(g, w_id)| (g, Some(w_id))),
-            Group(id) => {
-                let (group, stored_group) = MlsGroup::new_validated(client, id, &provider)?;
-                Ok((group, stored_group.welcome_id))
+
+        Ok(Self {
+            known_welcome_ids,
+            client,
+            item,
+            provider,
+            conversation_type,
+        })
+    }
+}
+
+/// bulk of the processing for a new welcome/group
+impl<C> ProcessWelcomeFuture<C>
+where
+    C: ScopedGroupClient + Clone,
+{
+    /// Process the welcome. if its a group, create the group and return it.
+    pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
+        use WelcomeOrGroup::*;
+        let (group, welcome_id) = match self.item {
+            Welcome(ref w) => {
+                let (group, id) = self.on_welcome(w).await?;
+                (group, Some(id))
             }
-        }
+            Group(id) => {
+                let (group, stored_group) =
+                    MlsGroup::new_validated(self.client, id, &self.provider)?;
+                (group, stored_group.welcome_id)
+            }
+        };
+
+        let metadata = group.metadata(&self.provider).await?;
+        Ok(self
+            .conversation_type
+            .map_or(true, |ct| ct == metadata.conversation_type)
+            .then_some((group, welcome_id)))
     }
 
     /// process a new welcome, returning the Group & Welcome ID
-    pub(super) async fn on_welcome(
-        known_welcome_ids: &HashSet<i64>,
-        client: C,
-        provider: &XmtpOpenMlsProvider,
-        welcome: WelcomeMessage,
-    ) -> Result<(MlsGroup<C>, i64)> {
-        let WelcomeMessageV1 {
+    async fn on_welcome(&self, welcome: &WelcomeMessage) -> Result<(MlsGroup<C>, i64)> {
+        let welcome_message::V1 {
             id,
             created_ns: _,
             ref installation_key,
             ref data,
             ref hpke_public_key,
-        } = super::extract_welcome_message(welcome)?;
-        let id = id as i64;
+        } = extract_welcome_message(welcome)?;
+        let id = *id as i64;
 
-        // TODO: Test multiple streams at once
-        if known_welcome_ids.contains(&id) {
-            let conn = provider.conn_ref();
-            let group = conn
-                .find_group_by_welcome_id(id)?
-                .ok_or(NotFound::GroupByWelcome(id))?;
-            tracing::info!(
-                inbox_id = client.inbox_id(),
-                group_id = hex::encode(&group.id),
-                welcome_id = ?group.welcome_id,
-                "Loading existing group for welcome_id: {:?}",
-                group.welcome_id
-            );
-            return Ok((
-                MlsGroup::new(client.clone(), group.id, group.created_at_ns),
-                id,
-            ));
+        // try to load it from store first and avoid overhead
+        // of processing a welcome & erroring
+        if self.known_welcome_ids.contains(&id) {
+            return self.load_from_store(id);
         }
 
-        let c = &client;
-        let mls_group = retry_async!(
-            Retry::default(),
-            (async {
-                tracing::info!(
-                    installation_id = hex::encode(installation_key),
-                    welcome_id = &id,
-                    "Trying to process streamed welcome"
-                );
+        let Self {
+            ref client,
+            ref provider,
+            ..
+        } = self;
+        tracing::info!(
+            installation_id = hex::encode(installation_key),
+            welcome_id = &id,
+            "Trying to process streamed welcome"
+        );
 
-                client
-                    .context()
-                    .store()
-                    .transaction_async(provider, |provider| async move {
-                        MlsGroup::create_from_encrypted_welcome(
-                            c,
-                            provider,
-                            hpke_public_key.as_slice(),
-                            data,
-                            id,
-                        )
-                        .await
-                    })
-                    .await
+        let group = client
+            .context()
+            .store()
+            .retryable_transaction_async(provider, |provider| async {
+                MlsGroup::create_from_encrypted_welcome(
+                    client,
+                    provider,
+                    hpke_public_key.as_slice(),
+                    data,
+                    id,
+                )
+                .await
             })
-        )?;
+            .await;
 
-        Ok((mls_group, id))
+        if let Err(e) = group {
+            // try to load it from the store again
+            return self
+                .load_from_store(id)
+                .map_err(|_| SubscribeError::from(e));
+        }
+
+        Ok((group?, id))
+    }
+
+    /// Load a group from disk by its welcome_id
+    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<C>, i64)> {
+        let conn = self.provider.conn_ref();
+        let group = conn
+            .find_group_by_welcome_id(id)?
+            .ok_or(NotFound::GroupByWelcome(id))?;
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&group.id),
+            welcome_id = ?group.welcome_id,
+            "Loading existing group for welcome_id: {:?}",
+            group.welcome_id
+        );
+        return Ok((
+            MlsGroup::new(self.client.clone(), group.id, group.created_at_ns),
+            id,
+        ));
     }
 }
 
@@ -386,6 +413,8 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::GroupMetadataOptions;
+    use crate::storage::group::GroupQueryArgs;
+
     use futures::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -410,5 +439,132 @@ mod test {
             .unwrap();
         let bob_received_groups = stream.next().await.unwrap().unwrap();
         assert_eq!(bob_received_groups.group_id, group_id);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", ignore)]
+    async fn test_dm_streaming() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let stream = alix
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+            .await
+            .unwrap();
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        assert!(result.is_err(), "Stream unexpectedly received a DM group");
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+
+        // Start a stream with only dms
+        // Start a stream with conversation_type DM
+        let stream = alix
+            .stream_conversations(Some(ConversationType::Dm))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // we should not get a message
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        assert!(result.is_err(), "Stream unexpectedly received a Group");
+
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+            .await
+            .unwrap();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+
+        // Start a stream with all conversations
+        let mut groups = Vec::new();
+        // Wait for 2 seconds for the group creation to be streamed
+        let stream = alix.stream_conversations(None).await.unwrap();
+        futures::pin_mut!(stream);
+
+        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+            .await
+            .unwrap();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
+
+        let dm = bo
+            .create_dm_by_inbox_id(&bo.mls_provider().unwrap(), alix.inbox_id().to_string())
+            .await
+            .unwrap();
+        dm.add_members_by_inbox_id(&[alix.inbox_id()])
+            .await
+            .unwrap();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+        groups.push(group.unwrap());
+
+        assert_eq!(groups.len(), 3);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    async fn test_self_group_creation() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let stream = alix
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        alix.create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let _self_group = stream.next().await.unwrap();
+
+        let group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[alix.inbox_id()])
+            .await
+            .unwrap();
+        let _bo_group = stream.next().await.unwrap();
+
+        // Verify syncing welcomes while streaming causes no issues
+        alix.sync_welcomes(&alix.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(2, find_groups_results.len());
     }
 }

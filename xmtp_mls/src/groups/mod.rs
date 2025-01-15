@@ -60,15 +60,9 @@ use self::{
 };
 use crate::storage::{group::DmIdExt, group_message::ContentType, NotFound, StorageError};
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
-    message_contents::{
-        plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
-    },
+use xmtp_proto::xmtp::mls::message_contents::{
+    plaintext_envelope::{Content, V1},
+    EncodedContent, PlaintextEnvelope,
 };
 
 use crate::{
@@ -356,7 +350,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
     }
 
-    // Creates a new group instance. Validate that the group exists in the DB
+    /// Creates a new group instance. Validate that the group exists in the DB before constructing
+    /// the group.
+    ///
+    /// # Returns
+    ///
+    /// Returns the Group and the stored group information as a tuple.
     pub fn new_validated(
         client: ScopedClient,
         group_id: Vec<u8>,
@@ -373,7 +372,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub(crate) fn new_from_arc(
+        client: Arc<ScopedClient>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+    ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),
@@ -703,9 +706,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message on this users XMTP [`Client`].
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        tracing::debug!(inbox_id = self.client.inbox_id(), "sending message");
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await
     }
 
@@ -720,14 +721,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
 
         let message_id =
-            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
-
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
+        tracing::debug!(
+            inbox_id = self.client.inbox_id(),
+            message_id = hex::encode(&message_id),
+            "sending message"
+        );
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
-        message_id
+        Ok(message_id)
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
@@ -1349,22 +1354,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id,
             stored_group.created_at_ns,
         ))
-    }
-}
-
-fn extract_message_v1(
-    message: GroupMessage,
-) -> Result<GroupMessageV1, GroupMessageProcessingError> {
-    match message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
-    }
-}
-
-pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, GroupMessageProcessingError> {
-    match &message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
     }
 }
 
