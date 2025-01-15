@@ -71,9 +71,6 @@ class Group(
     }
 
     suspend fun send(encodedContent: EncodedContent): String {
-        if (consentState() == ConsentState.UNKNOWN) {
-            updateConsentState(ConsentState.ALLOWED)
-        }
         val messageId = libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
         return messageId.toHex()
     }
@@ -103,16 +100,10 @@ class Group(
     }
 
     fun prepareMessage(encodedContent: EncodedContent): String {
-        if (consentState() == ConsentState.UNKNOWN) {
-            updateConsentState(ConsentState.ALLOWED)
-        }
         return libXMTPGroup.sendOptimistic(encodedContent.toByteArray()).toHex()
     }
 
     fun <T> prepareMessage(content: T, options: SendOptions? = null): String {
-        if (consentState() == ConsentState.UNKNOWN) {
-            updateConsentState(ConsentState.ALLOWED)
-        }
         val encodeContent = encodeContent(content = content, options = options)
         return libXMTPGroup.sendOptimistic(encodeContent.toByteArray()).toHex()
     }

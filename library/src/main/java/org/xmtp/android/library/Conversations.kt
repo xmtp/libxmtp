@@ -169,7 +169,7 @@ data class Conversations(
         return dm
     }
 
-    suspend fun listGroups(
+    fun listGroups(
         after: Date? = null,
         before: Date? = null,
         limit: Int? = null,
@@ -190,7 +190,7 @@ data class Conversations(
         }
     }
 
-    suspend fun listDms(
+    fun listDms(
         after: Date? = null,
         before: Date? = null,
         limit: Int? = null,
