@@ -18,6 +18,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::backup::BackupOptions;
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
@@ -49,6 +50,7 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -555,6 +557,47 @@ impl FfiXmtpClient {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
             scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
+    }
+
+    pub async fn backup(&self, path: String, opts: FfiBackupOptions) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        tokio::task::spawn_blocking(move || {
+            let opts: BackupOptions = opts.into();
+            opts.export_to_file(provider, path)
+        })
+        .await??;
+
+        Ok(())
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiBackupOptions {
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+    elements: Vec<FfiBackupElementSelection>,
+}
+impl From<FfiBackupOptions> for BackupOptions {
+    fn from(value: FfiBackupOptions) -> Self {
+        Self {
+            start_ns: value.start_ns,
+            end_ns: value.start_ns,
+            elements: value.elements.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiBackupElementSelection {
+    Messages,
+    Consent,
+}
+impl From<FfiBackupElementSelection> for BackupElementSelection {
+    fn from(value: FfiBackupElementSelection) -> Self {
+        match value {
+            FfiBackupElementSelection::Consent => Self::Consent,
+            FfiBackupElementSelection::Messages => Self::Messages,
+        }
     }
 }
 

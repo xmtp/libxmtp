@@ -56,6 +56,8 @@ pub enum GenericError {
     DeviceSync(#[from] xmtp_mls::groups::device_sync::DeviceSyncError),
     #[error(transparent)]
     Identity(#[from] xmtp_mls::identity::IdentityError),
+    #[error(transparent)]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

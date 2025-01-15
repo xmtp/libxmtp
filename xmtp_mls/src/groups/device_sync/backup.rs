@@ -1,3 +1,6 @@
+use std::{path::Path, sync::Arc};
+
+use backup_exporter::BackupExporter;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
@@ -9,6 +12,10 @@ mod backup_exporter;
 mod backup_importer;
 mod export_stream;
 
+use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
+
+use super::DeviceSyncError;
+
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error("Missing metadata")]
@@ -16,9 +23,9 @@ pub enum BackupError {
 }
 
 pub struct BackupOptions {
-    start_ns: Option<i64>,
-    end_ns: Option<i64>,
-    elements: Vec<BackupElementSelection>,
+    pub start_ns: Option<i64>,
+    pub end_ns: Option<i64>,
+    pub elements: Vec<BackupElementSelection>,
 }
 
 impl From<BackupOptions> for BackupMetadata {
@@ -30,6 +37,20 @@ impl From<BackupOptions> for BackupMetadata {
             elements: value.elements.iter().map(|&e| e as i32).collect(),
             exported_at_ns: now_ns(),
         }
+    }
+}
+
+impl BackupOptions {
+    pub fn export_to_file(
+        self,
+        provider: XmtpOpenMlsProvider,
+        path: impl AsRef<Path>,
+    ) -> Result<(), DeviceSyncError> {
+        let provider = Arc::new(provider);
+        let mut exporter = BackupExporter::new(self, &provider);
+        exporter.write_to_file(path)?;
+
+        Ok(())
     }
 }
 
