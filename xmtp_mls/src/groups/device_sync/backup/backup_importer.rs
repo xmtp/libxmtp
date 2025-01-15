@@ -2,9 +2,11 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
+        DbConnection, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
+use diesel::Connection;
 use prost::Message;
 use std::io::{BufReader, Read};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
@@ -39,7 +41,7 @@ impl<'a> BackupImporter<'a> {
         Ok(importer)
     }
 
-    fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
+    fn next_element(&mut self) -> Result<Option<BackupElement>, StorageError> {
         let mut buffer = [0u8; 1024];
         let mut element_len = 0;
         loop {
@@ -54,7 +56,9 @@ impl<'a> BackupImporter<'a> {
             if element_len != 0 && self.decoded.len() >= element_len {
                 let element = BackupElement::decode(&self.decoded[..element_len]);
                 self.decoded.drain(..element_len);
-                return Ok(Some(element?));
+                return Ok(Some(
+                    element.map_err(|e| StorageError::Deserialization(e.to_string()))?,
+                ));
             }
 
             if amount == 0 && self.decoded.len() == 0 {
@@ -65,12 +69,17 @@ impl<'a> BackupImporter<'a> {
         Ok(None)
     }
 
-    pub fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        while let Some(element) = self.next_element()? {
-            insert(element, provider)?;
-        }
+    pub fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
+        let conn = provider.conn_ref();
+        conn.raw_query(|conn| {
+            conn.transaction::<(), StorageError, _>(|conn| {
+                while let Some(element) = self.next_element()? {
+                    insert(element, conn)?;
+                }
 
-        Ok(())
+                Ok(())
+            })
+        })
     }
 
     pub fn metadata(&self) -> &BackupMetadata {
@@ -78,12 +87,11 @@ impl<'a> BackupImporter<'a> {
     }
 }
 
-fn insert(element: BackupElement, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), StorageError> {
     let Some(element) = element.element else {
         return Ok(());
     };
 
-    let conn = provider.conn_ref();
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.into();
@@ -95,7 +103,7 @@ fn insert(element: BackupElement, provider: &XmtpOpenMlsProvider) -> Result<(), 
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.into();
-            message.store(conn);
+            message.store(conn)?;
         }
         _ => {}
     }
