@@ -848,3 +848,110 @@ pub(crate) mod tests {
         assert_eq!(groups, None);
     }
 }
+
+pub trait ProviderTransactions<Db>
+where
+    Db: XmtpDb,
+{
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError>;
+    async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError>,
+        <Db as XmtpDb>::Connection: 'a;
+}
+
+impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>
+where
+    Db: XmtpDb,
+{
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError>,
+    {
+        tracing::debug!("Transaction beginning");
+        {
+            let connection = self.conn_ref();
+            let mut connection = connection.inner_mut_ref();
+            <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
+        }
+
+        let conn = self.conn_ref();
+
+        match fun(self) {
+            Ok(value) => {
+                conn.raw_query(|conn| {
+                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                })?;
+                tracing::debug!("Transaction being committed");
+                Ok(value)
+            }
+            Err(err) => {
+                tracing::debug!("Transaction being rolled back");
+                match conn.raw_query(|conn| {
+                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
+        }
+    }
+
+    async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError>,
+        <Db as XmtpDb>::Connection: 'a,
+    {
+        tracing::debug!("Transaction async beginning");
+        {
+            let connection = self.conn_ref();
+            let mut connection = connection.inner_mut_ref();
+            <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
+        }
+
+        // ensuring we have only one strong reference
+        let result = fun(self).await;
+        let local_connection = self.conn_ref().inner_ref();
+        if Arc::strong_count(&local_connection) > 1 {
+            tracing::warn!(
+                "More than 1 strong connection references still exist during async transaction"
+            );
+        }
+
+        if Arc::weak_count(&local_connection) > 1 {
+            tracing::warn!("More than 1 weak connection references still exist during transaction");
+        }
+
+        // after the closure finishes, `local_provider` should have the only reference ('strong')
+        // to `XmtpOpenMlsProvider` inner `DbConnection`..
+        let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
+        match result {
+            Ok(value) => {
+                local_connection.raw_query(|conn| {
+                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                })?;
+                tracing::debug!("Transaction async being committed");
+                Ok(value)
+            }
+            Err(err) => {
+                tracing::debug!("Transaction async being rolled back");
+                match local_connection.raw_query(|conn| {
+                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
+        }
+    }
+}
