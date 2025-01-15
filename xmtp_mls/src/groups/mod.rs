@@ -724,14 +724,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
 
         let message_id =
-            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
-        message_id
+        Ok(message_id)
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
