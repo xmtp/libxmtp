@@ -1,10 +1,18 @@
-use std::{collections::HashMap, future::Future, pin::Pin, task::Poll};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use super::{temp::Result, FutureWrapper, SubscribeError};
+use super::{FutureWrapper, Result, SubscribeError};
 use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError},
+    storage::{
+        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
+        StorageError,
+    },
     XmtpOpenMlsProvider,
 };
 use futures::Stream;
@@ -40,20 +48,56 @@ fn extract_message_v1(message: GroupMessage) -> Result<group_message::V1> {
     }
 }
 
-type GroupId = Vec<u8>;
+pub(super) type GroupId = Vec<u8>;
 
-/// Information about the current position
-/// in a stream of messages from a single group.
-#[derive(Debug)]
-pub(crate) struct MessagesStreamInfo {
-    pub cursor: u64,
+/// the position of this message in the backend topic
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MessagePositionCursor(u64);
+
+impl MessagePositionCursor {
+    pub(super) fn set(&mut self, cursor: u64) {
+        self.0 = cursor;
+    }
+}
+
+impl std::fmt::Display for MessagePositionCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<StoredGroup> for (Vec<u8>, u64) {
+    fn from(group: StoredGroup) -> (Vec<u8>, u64) {
+        (group.id, 0u64)
+    }
+}
+
+impl From<StoredGroup> for (Vec<u8>, MessagePositionCursor) {
+    fn from(group: StoredGroup) -> (Vec<u8>, MessagePositionCursor) {
+        (group.id, 0u64.into())
+    }
+}
+
+impl std::ops::Deref for MessagePositionCursor {
+    type Target = u64;
+
+    fn deref(&self) -> &u64 {
+        &self.0
+    }
+}
+
+impl From<u64> for MessagePositionCursor {
+    fn from(v: u64) -> MessagePositionCursor {
+        Self(v)
+    }
 }
 
 pin_project! {
     pub struct StreamGroupMessages<'a, C, Subscription> {
         #[pin] inner: Subscription,
+        #[pin] state: ProcessState<'a>,
         client: &'a C,
-        #[pin] state: ProcessState<'a>
+        group_list: HashMap<GroupId, MessagePositionCursor>,
     }
 }
 
@@ -67,7 +111,7 @@ pin_project! {
         /// state that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<StoredGroupMessage>>
+            #[pin] future: FutureWrapper<'a, Result<(StoredGroupMessage, u64)>>
         }
     }
 }
@@ -82,11 +126,11 @@ where
 {
     pub async fn new(
         client: &'a C,
-        group_list: &HashMap<GroupId, MessagesStreamInfo>,
+        group_list: HashMap<GroupId, MessagePositionCursor>,
     ) -> Result<Self> {
         let filters: Vec<GroupFilter> = group_list
             .iter()
-            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
+            .map(|(group_id, cursor)| GroupFilter::new(group_id.clone(), Some(**cursor)))
             .collect();
         let subscription = client.api().subscribe_group_messages(filters).await?;
 
@@ -94,6 +138,7 @@ where
             inner: subscription,
             client,
             state: Default::default(),
+            group_list: group_list.into_iter().map(|(g, c)| (g, c.into())).collect(),
         })
     }
 }
@@ -105,10 +150,8 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // tracing::debug!("POLLING STREAM MESSAGES");
         use std::task::Poll::*;
         use ProcessProject::*;
         let mut this = self.as_mut().project();
@@ -116,6 +159,7 @@ where
         match this.state.as_mut().project() {
             Waiting => match this.inner.poll_next(cx) {
                 Ready(Some(envelope)) => {
+                    tracing::debug!("processing message in stream");
                     let future = ProcessMessageFuture::new(*this.client, envelope?)?;
                     let future = future.process();
                     this.state.set(ProcessState::Processing {
@@ -131,8 +175,14 @@ where
                 Ready(None) => Ready(None),
             },
             Processing { future } => match future.poll(cx) {
-                Ready(Ok(msg)) => {
+                Ready(Ok((msg, new_cursor))) => {
                     this.state.set(ProcessState::Waiting);
+                    if let Some(tracked_cursor) = this.group_list.get_mut(&msg.group_id) {
+                        tracked_cursor.set(new_cursor)
+                    } else {
+                        this.group_list
+                            .insert(msg.group_id.clone(), new_cursor.into());
+                    }
                     Ready(Some(Ok(msg)))
                 }
                 // skip if payload GroupMessageNotFound
@@ -149,6 +199,29 @@ where
                 }
             },
         }
+    }
+}
+
+impl<'a, C, S> StreamGroupMessages<'a, C, S> {
+    pub(super) fn group_list(&self) -> &HashMap<GroupId, MessagePositionCursor> {
+        &self.group_list
+    }
+}
+
+impl<'a, C, S> StreamGroupMessages<'a, C, S>
+where
+    S: Stream<Item = std::result::Result<GroupMessage, xmtp_proto::Error>> + 'a,
+    C: ScopedGroupClient + 'a,
+{
+    pub(super) fn drain(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Vec<Option<Result<StoredGroupMessage>>> {
+        let mut drained = Vec::new();
+        while let Poll::Ready(msg) = self.as_mut().poll_next(cx) {
+            drained.push(msg);
+        }
+        drained
     }
 }
 
@@ -184,9 +257,11 @@ where
         self.client.inbox_id()
     }
 
-    pub(crate) async fn process(self) -> Result<StoredGroupMessage> {
+    /// process a message, returning the message from the database and the cursor of the message.
+    pub(crate) async fn process(self) -> Result<(StoredGroupMessage, u64)> {
         let group_message::V1 {
-            id: ref msg_id,
+            // the cursor ID is the position in the monolithic backend topic
+            id: ref cursor_id,
             ref created_ns,
             ..
         } = self.msg;
@@ -194,13 +269,13 @@ where
         tracing::info!(
             inbox_id = self.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
-            msg_id,
+            cursor_id,
             "client [{}]  is about to process streamed envelope: [{}]",
             self.inbox_id(),
-            &msg_id
+            &cursor_id
         );
 
-        if !self.has_already_synced(*msg_id).await? {
+        if self.needs_to_sync(*cursor_id).await? {
             self.process_stream_entry().await
         }
 
@@ -214,14 +289,14 @@ where
             .inspect_err(|e| {
                 if matches!(e, SubscribeError::GroupMessageNotFound) {
                     tracing::warn!(
-                        msg_id,
+                        cursor_id,
                         inbox_id = self.inbox_id(),
                         group_id = hex::encode(&self.msg.group_id),
                         "group message not found"
                     );
                 }
             })?;
-        return Ok(new_message);
+        return Ok((new_message, *cursor_id));
     }
 
     /// stream processing function
@@ -235,7 +310,7 @@ where
                 tracing::info!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
-                    msg_id = self.msg.id,
+                    cursor_id = self.msg.id,
                     "current epoch for [{}] in process_stream_entry()",
                     self.inbox_id(),
                 );
@@ -255,14 +330,14 @@ where
             tracing::error!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                msg_id = self.msg.id,
+                cursor_id = self.msg.id,
                 err = e.to_string(),
                 "process stream entry {:?}",
                 e
             );
         } else {
             tracing::trace!(
-                msg_id = self.msg.id,
+                cursor_id = self.msg.id,
                 inbox_id = self.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 "message process in stream success"
@@ -270,16 +345,16 @@ where
         }
     }
 
-    // Checks if a message has already been processed through a sync
-    async fn has_already_synced(&self, id: u64) -> Result<bool> {
+    /// Checks if a message has already been processed through a sync
+    async fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
         let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
             self.provider
                 .conn_ref()
                 .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)
         };
 
-        let last_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
-        Ok(last_id >= id as i64)
+        let last_synced_id = retry_async!(Retry::default(), (async { check_for_last_cursor() }))?;
+        Ok(last_synced_id < current_msg_cursor as i64)
     }
 
     /// Attempt a recovery sync if a group message failed to process
@@ -292,7 +367,7 @@ where
         tracing::debug!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
-            msg_id = self.msg.id,
+            cursor_id = self.msg.id,
             "attempting recovery sync"
         );
         // Swallow errors here, since another process may have successfully saved the message
@@ -301,7 +376,7 @@ where
             tracing::warn!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                msg_id = self.msg.id,
+                cursor_id = self.msg.id,
                 err = %err,
                 "recovery sync triggered by streamed message failed: {}", err
             );
@@ -309,7 +384,7 @@ where
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                msg_id = self.msg.id,
+                cursor_id = self.msg.id,
                 "recovery sync triggered by streamed message successful"
             )
         }
@@ -323,6 +398,7 @@ mod tests {
     use futures::stream::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
 
+    use crate::assert_msg;
     use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -354,11 +430,9 @@ mod tests {
 
         // implicitly skips the first message (add bob to group message)
         // since that is an epoch increment.
-        let message = stream.next().await.unwrap().unwrap();
-        assert_eq!(message.decrypted_message_bytes, b"hello");
+        assert_msg!(stream, "hello");
 
         bob_group.send_message(b"hello2").await.unwrap();
-        let message = stream.next().await.unwrap().unwrap();
-        assert_eq!(message.decrypted_message_bytes, b"hello2");
+        assert_msg!(stream, "hello2");
     }
 }
