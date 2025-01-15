@@ -22,7 +22,7 @@ pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
 #[cfg(not(target_arch = "wasm32"))]
-mod native;
+pub mod native;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
@@ -36,6 +36,7 @@ mod wasm;
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
+use native::NativeDb;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::RawDbConnection;
 #[cfg(not(target_arch = "wasm32"))]
@@ -195,7 +196,7 @@ pub mod private {
 
         pub fn mls_provider(
             &self,
-        ) -> Result<XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+        ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
             let conn = self.conn()?;
             Ok(crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate::new(conn))
         }
@@ -205,129 +206,6 @@ pub mod private {
             &self,
         ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
             self.db.conn()
-        }
-
-        /// Start a new database transaction with the OpenMLS Provider from XMTP
-        /// with the provided connection
-        /// # Arguments
-        /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-        ///
-        /// # Examples
-        ///
-        /// ```ignore
-        /// store.transaction(|provider| {
-        ///     // do some operations requiring provider
-        ///     // access the connection with .conn()
-        ///     provider.conn().db_operation()?;
-        /// })
-        /// ```
-        pub fn transaction<T, F, E>(
-            &self,
-            provider: &XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
-            E: From<diesel::result::Error> + From<StorageError>,
-        {
-            tracing::debug!("Transaction beginning");
-            {
-                let connection = provider.conn_ref();
-                let mut connection = connection.inner_mut_ref();
-                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-            }
-
-            let conn = provider.conn_ref();
-
-            match fun(provider) {
-                Ok(value) => {
-                    conn.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                    })?;
-                    tracing::debug!("Transaction being committed");
-                    Ok(value)
-                }
-                Err(err) => {
-                    tracing::debug!("Transaction being rolled back");
-                    match conn.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                    }) {
-                        Ok(()) => Err(err),
-                        Err(Error::BrokenTransactionManager) => Err(err),
-                        Err(rollback) => Err(rollback.into()),
-                    }
-                }
-            }
-        }
-
-        /// Start a new database transaction with the OpenMLS Provider from XMTP
-        /// # Arguments
-        /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
-        /// async context.
-        ///
-        /// # Examples
-        ///
-        /// ```ignore
-        /// store.transaction_async(|provider| async move {
-        ///     // do some operations requiring provider
-        ///     // access the connection with .conn()
-        ///     provider.conn().db_operation()?;
-        /// }).await
-        /// ```
-        pub async fn transaction_async<'a, T, F, E, Fut>(
-            &self,
-            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
-            Fut: futures::Future<Output = Result<T, E>>,
-            E: From<diesel::result::Error> + From<StorageError>,
-        {
-            tracing::debug!("Transaction async beginning");
-            {
-                let connection = provider.conn_ref();
-                let mut connection = connection.inner_mut_ref();
-                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-            }
-
-            // ensuring we have only one strong reference
-            let result = fun(provider).await;
-            let local_connection = provider.conn_ref().inner_ref();
-            if Arc::strong_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 strong connection references still exist during async transaction"
-                );
-            }
-
-            if Arc::weak_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 weak connection references still exist during transaction"
-                );
-            }
-
-            // after the closure finishes, `local_provider` should have the only reference ('strong')
-            // to `XmtpOpenMlsProvider` inner `DbConnection`..
-            let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
-            match result {
-                Ok(value) => {
-                    local_connection.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                    })?;
-                    tracing::debug!("Transaction async being committed");
-                    Ok(value)
-                }
-                Err(err) => {
-                    tracing::debug!("Transaction async being rolled back");
-                    match local_connection.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                    }) {
-                        Ok(()) => Err(err),
-                        Err(Error::BrokenTransactionManager) => Err(err),
-                        Err(rollback) => Err(rollback.into()),
-                    }
-                }
-            }
         }
 
         /// Release connection to the database, closing it
@@ -750,7 +628,7 @@ pub(crate) mod tests {
         let store_pointer = store.clone();
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
-            store_pointer.transaction(&provider, |provider| {
+            provider.transaction(|provider| {
                 let conn1 = provider.conn_ref();
                 StoredIdentity::new("correct".to_string(), rand_vec::<24>(), rand_vec::<24>())
                     .store(conn1)
@@ -767,19 +645,18 @@ pub(crate) mod tests {
         let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
-            let result =
-                store_pointer.transaction(&provider, |provider| -> Result<(), anyhow::Error> {
-                    let connection = provider.conn_ref();
-                    let group = StoredGroup::new(
-                        b"should not exist".to_vec(),
-                        0,
-                        GroupMembershipState::Allowed,
-                        "goodbye".to_string(),
-                        None,
-                    );
-                    group.store(connection)?;
-                    Ok(())
-                });
+            let result = provider.transaction(|provider| -> Result<(), anyhow::Error> {
+                let connection = provider.conn_ref();
+                let group = StoredGroup::new(
+                    b"should not exist".to_vec(),
+                    0,
+                    GroupMembershipState::Allowed,
+                    "goodbye".to_string(),
+                    None,
+                );
+                group.store(connection)?;
+                Ok(())
+            });
             barrier.wait();
             result
         });
@@ -817,8 +694,8 @@ pub(crate) mod tests {
         let store_pointer = store.clone();
         let provider = XmtpOpenMlsProvider::new(store_pointer.conn().unwrap());
         let handle = crate::spawn(None, async move {
-            store_pointer
-                .transaction_async(&provider, |provider| async move {
+            provider
+                .transaction_async(|provider| async move {
                     let conn1 = provider.conn_ref();
                     StoredIdentity::new("crab".to_string(), rand_vec::<24>(), rand_vec::<24>())
                         .store(conn1)
@@ -849,29 +726,43 @@ pub(crate) mod tests {
     }
 }
 
-pub trait ProviderTransactions<Db>
+pub trait ProviderTransactions<Db = NativeDb>
 where
     Db: XmtpDb,
 {
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>;
     async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
-        <Db as XmtpDb>::Connection: 'a;
+        Db: 'a;
 }
 
-impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>
+impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
 where
     Db: XmtpDb,
 {
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// with the provided connection
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction(|provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// })
+    /// ```
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>,
     {
         tracing::debug!("Transaction beginning");
@@ -904,12 +795,26 @@ where
         }
     }
 
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
+    /// async context.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction_async(|provider| async move {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// }).await
+    /// ```
     async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
+        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
-        <Db as XmtpDb>::Connection: 'a,
+        Db: 'a,
     {
         tracing::debug!("Transaction async beginning");
         {

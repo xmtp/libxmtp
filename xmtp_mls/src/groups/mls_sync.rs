@@ -30,7 +30,7 @@ use crate::{
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
         user_preferences::StoredUserPreferences,
-        StorageError,
+        ProviderTransactions, StorageError,
     },
     subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
@@ -834,7 +834,7 @@ where
             // Download all unread welcome messages and convert to groups.
             // In a database transaction, increment the cursor for a given entity and
             // apply the update after the provided `ProcessingFn` has completed successfully.
-            self.client.store().transaction_async(provider, |provider| async move {
+            provider.transaction_async(|provider| async move {
                 let is_updated =
                     provider
                         .conn_ref()

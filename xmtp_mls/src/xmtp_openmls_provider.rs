@@ -1,21 +1,28 @@
+use std::marker::PhantomData;
+
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
+use crate::storage::{
+    db_connection::DbConnectionPrivate, native::NativeDb, sql_key_store::SqlKeyStore,
+};
 
-pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::storage::RawDbConnection>;
+pub type XmtpOpenMlsProvider =
+    XmtpOpenMlsProviderPrivate<NativeDb, crate::storage::RawDbConnection>;
 
 #[derive(Debug)]
-pub struct XmtpOpenMlsProviderPrivate<C> {
+pub struct XmtpOpenMlsProviderPrivate<Db, C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
+    _phantom: PhantomData<Db>,
 }
 
-impl<C> XmtpOpenMlsProviderPrivate<C> {
+impl<Db, C> XmtpOpenMlsProviderPrivate<Db, C> {
     pub fn new(conn: DbConnectionPrivate<C>) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
+            _phantom: PhantomData,
         }
     }
 
@@ -28,7 +35,7 @@ impl<C> XmtpOpenMlsProviderPrivate<C> {
     }
 }
 
-impl<C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<C>
+impl<Db, C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<Db, C>
 where
     C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
 {
@@ -49,7 +56,7 @@ where
     }
 }
 
-impl<C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<C>
+impl<Db, C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<Db, C>
 where
     C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
 {

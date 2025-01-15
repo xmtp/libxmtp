@@ -33,7 +33,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -59,6 +58,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, Store, XmtpApi,
 };
+use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -738,8 +738,8 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        self.store()
-            .transaction_async(provider, move |provider| {
+        provider
+            .transaction_async(move |provider| {
                 let provider = &provider;
                 async {
                     self.identity()
@@ -846,8 +846,8 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &WelcomeMessageV1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        self.store()
-            .transaction_async(provider, |provider| async move {
+        provider
+            .transaction_async(|provider| async move {
                 let cursor = welcome.id;
                 let is_updated = provider.conn_ref().update_cursor(
                     self.installation_public_key(),
