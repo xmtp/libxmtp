@@ -1,9 +1,12 @@
-use std::{path::Path, sync::Arc};
-
+use super::DeviceSyncError;
+use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use backup_exporter::BackupExporter;
+use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
+
+pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u32 = 0;
@@ -11,10 +14,6 @@ const BACKUP_VERSION: u32 = 0;
 mod backup_exporter;
 mod backup_importer;
 mod export_stream;
-
-use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
-
-use super::DeviceSyncError;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
@@ -90,14 +89,14 @@ mod tests {
         let mut exporter = BackupExporter::new(opts, &alix_provider);
         let path = Path::new("archive.zstd");
         let _ = std::fs::remove_file(path);
-        exporter.write_to_file(&path).unwrap();
+        exporter.write_to_file(path).unwrap();
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
         let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
 
-        let file = File::open(path).unwrap();
-        let mut importer = BackupImporter::open(file).unwrap();
-        importer.insert(&alix2_provider).unwrap();
+        let file = tokio::fs::File::open(path).await.unwrap();
+        let mut importer = BackupImporter::open(file).await.unwrap();
+        importer.insert(&alix2_provider).await.unwrap();
     }
 }

@@ -58,6 +58,8 @@ pub enum GenericError {
     Identity(#[from] xmtp_mls::identity::IdentityError),
     #[error(transparent)]
     JoinError(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    IoError(#[from] tokio::io::Error),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

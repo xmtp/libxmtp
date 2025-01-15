@@ -18,7 +18,7 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::BackupOptions;
+use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
@@ -50,7 +50,7 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::device_sync::BackupElementSelection;
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -569,6 +569,31 @@ impl FfiXmtpClient {
 
         Ok(())
     }
+
+    pub async fn metadata(&self, path: String) -> Result<FfiBackupMetadata, GenericError> {
+        let file = tokio::fs::File::open(path).await?;
+        let importer = BackupImporter::open(file).await?;
+        Ok(importer.metadata.into())
+    }
+}
+#[derive(uniffi::Record)]
+pub struct FfiBackupMetadata {
+    backup_version: u32,
+    elements: Vec<FfiBackupElementSelection>,
+    exported_at_ns: i64,
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+}
+impl From<BackupMetadata> for FfiBackupMetadata {
+    fn from(value: BackupMetadata) -> Self {
+        Self {
+            backup_version: value.backup_version,
+            elements: value.elements().into_iter().map(Into::into).collect(),
+            start_ns: value.start_ns,
+            end_ns: value.end_ns,
+            exported_at_ns: value.exported_at_ns,
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -597,6 +622,14 @@ impl From<FfiBackupElementSelection> for BackupElementSelection {
         match value {
             FfiBackupElementSelection::Consent => Self::Consent,
             FfiBackupElementSelection::Messages => Self::Messages,
+        }
+    }
+}
+impl From<BackupElementSelection> for FfiBackupElementSelection {
+    fn from(value: BackupElementSelection) -> Self {
+        match value {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
         }
     }
 }

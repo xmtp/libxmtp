@@ -6,23 +6,26 @@ use crate::{
     },
     Store, XmtpOpenMlsProvider,
 };
+use async_compression::tokio::bufread::ZstdDecoder;
 use prost::Message;
-use std::io::{BufReader, Read};
+use std::pin::Pin;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, BufReader};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
-use zstd::stream::Decoder;
 
 use super::BackupError;
 
-pub(super) struct BackupImporter<'a> {
+pub struct BackupImporter {
     decoded: Vec<u8>,
-    decoder: Decoder<'a, BufReader<Box<dyn Read>>>,
-    metadata: BackupMetadata,
+    decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
+    pub metadata: BackupMetadata,
 }
 
-impl<'a> BackupImporter<'a> {
-    pub fn open(reader: impl Read + 'static) -> Result<Self, DeviceSyncError> {
-        let reader = Box::new(reader) as Box<_>;
-        let decoder = Decoder::new(reader)?;
+impl BackupImporter {
+    pub async fn open(reader: impl AsyncRead + Send + 'static) -> Result<Self, DeviceSyncError> {
+        let reader = BufReader::new(reader);
+        let reader = Box::pin(reader) as Pin<Box<_>>;
+        let decoder = ZstdDecoder::new(reader);
+
         let mut importer = Self {
             decoder,
             decoded: vec![],
@@ -31,7 +34,7 @@ impl<'a> BackupImporter<'a> {
 
         let Some(BackupElement {
             element: Some(Element::Metadata(metadata)),
-        }) = importer.next_element()?
+        }) = importer.next_element().await?
         else {
             return Err(BackupError::MissingMetadata)?;
         };
@@ -40,11 +43,11 @@ impl<'a> BackupImporter<'a> {
         Ok(importer)
     }
 
-    fn next_element(&mut self) -> Result<Option<BackupElement>, StorageError> {
+    async fn next_element(&mut self) -> Result<Option<BackupElement>, StorageError> {
         let mut buffer = [0u8; 1024];
         let mut element_len = 0;
         loop {
-            let amount = self.decoder.read(&mut buffer)?;
+            let amount = self.decoder.read(&mut buffer).await?;
             self.decoded.extend_from_slice(&buffer[..amount]);
 
             if element_len == 0 && self.decoded.len() >= 4 {
@@ -68,14 +71,16 @@ impl<'a> BackupImporter<'a> {
         Ok(None)
     }
 
-    pub fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
-        provider.transaction(|provider| {
-            let conn = provider.conn_ref();
-            while let Some(element) = self.next_element()? {
-                insert(element, conn)?;
-            }
-            Ok(())
-        })
+    pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
+        provider
+            .transaction_async(|provider| async move {
+                let conn = provider.conn_ref();
+                while let Some(element) = self.next_element().await? {
+                    insert(element, conn)?;
+                }
+                Ok(())
+            })
+            .await
     }
 
     pub fn metadata(&self) -> &BackupMetadata {

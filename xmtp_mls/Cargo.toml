@@ -45,6 +45,7 @@ update-schema = ["toml"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
+async-compression.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
