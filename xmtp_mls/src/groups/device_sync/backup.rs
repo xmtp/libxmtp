@@ -7,7 +7,7 @@ const BACKUP_VERSION: u32 = 0;
 
 mod backup_exporter;
 mod backup_importer;
-mod backup_stream;
+mod export_stream;
 
 #[derive(Debug, Error)]
 pub enum BackupError {

@@ -1,4 +1,4 @@
-use super::{backup_stream::BackupStream, BackupOptions};
+use super::{export_stream::BatchExportStream, BackupOptions};
 use crate::{groups::device_sync::DeviceSyncError, XmtpOpenMlsProvider};
 use prost::Message;
 use std::{
@@ -12,7 +12,7 @@ use zstd::stream::Encoder;
 pub(super) struct BackupExporter<'a> {
     stage: Stage,
     metadata: BackupMetadata,
-    stream: BackupStream,
+    stream: BatchExportStream,
     position: usize,
     encoder: Encoder<'a, Vec<u8>>,
     encoder_finished: bool,
@@ -30,7 +30,7 @@ impl<'a> BackupExporter<'a> {
         Self {
             position: 0,
             stage: Stage::default(),
-            stream: BackupStream::new(&opts, provider),
+            stream: BatchExportStream::new(&opts, provider),
             metadata: opts.into(),
             encoder: Encoder::new(Vec::new(), 0).unwrap(),
             encoder_finished: false,

@@ -16,12 +16,12 @@ pub(super) trait ExportStream {
 type BackupInputStream = Box<dyn ExportStream>;
 
 /// A stream that curates a collection of streams for backup.
-pub(super) struct BackupStream {
+pub(super) struct BatchExportStream {
     pub(super) buffer: Vec<BackupElement>,
     pub(super) input_streams: Vec<BackupInputStream>,
 }
 
-impl BackupStream {
+impl BatchExportStream {
     pub(super) fn new(opts: &BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
         let input_streams = opts
             .elements
@@ -31,8 +31,9 @@ impl BackupStream {
                     vec![BackupRecordStreamer::<ConsentSave>::new(provider, opts)]
                 }
                 BackupElementSelection::Messages => vec![
-                    BackupRecordStreamer::<GroupSave>::new(provider, opts),
+                    // Order matters here. Don't put groups before messages.
                     BackupRecordStreamer::<GroupMessageSave>::new(provider, opts),
+                    BackupRecordStreamer::<GroupSave>::new(provider, opts),
                 ],
             })
             .collect();
@@ -44,7 +45,7 @@ impl BackupStream {
     }
 }
 
-impl BackupStream {
+impl BatchExportStream {
     pub(super) fn next(&mut self) -> Option<BackupElement> {
         if let Some(element) = self.buffer.pop() {
             return Some(element);
