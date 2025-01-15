@@ -7,8 +7,7 @@ use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_R
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::StorageError,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
     Fetch, Store, XmtpApi,
 };
 use openmls::prelude::hash_ref::HashReference;

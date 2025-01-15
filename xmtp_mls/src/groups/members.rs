@@ -2,11 +2,9 @@ use xmtp_id::InboxId;
 
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
 
-use crate::{
-    storage::{
-        association_state::StoredAssociationState,
-        consent_record::{ConsentState, ConsentType},
-    },
+use crate::storage::{
+    association_state::StoredAssociationState,
+    consent_record::{ConsentState, ConsentType},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 

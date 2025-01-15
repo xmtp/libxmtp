@@ -254,10 +254,15 @@ impl Conversations {
     };
 
     let convo = if account_addresses.is_empty() {
-      self
+      let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
     } else {
       self
         .inner_client
