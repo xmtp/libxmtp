@@ -36,7 +36,6 @@ pub mod wasm;
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
-use native::NativeDb;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::RawDbConnection;
 #[cfg(not(target_arch = "wasm32"))]
@@ -625,7 +624,6 @@ pub(crate) mod tests {
 
         let barrier = Arc::new(Barrier::new(2));
         let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
-        let store_pointer = store.clone();
         let barrier_pointer = barrier.clone();
         let handle = std::thread::spawn(move || {
             provider.transaction(|provider| {
@@ -641,7 +639,6 @@ pub(crate) mod tests {
             })
         });
 
-        let store_pointer = store.clone();
         let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
         let handle2 = std::thread::spawn(move || {
             barrier.wait();
@@ -726,7 +723,7 @@ pub(crate) mod tests {
     }
 }
 
-pub trait ProviderTransactions<Db = NativeDb>
+pub trait ProviderTransactions<Db>
 where
     Db: XmtpDb,
 {
@@ -734,6 +731,7 @@ where
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>;
+    #[allow(async_fn_in_trait)]
     async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
