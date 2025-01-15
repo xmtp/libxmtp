@@ -54,6 +54,8 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
+        messageExpirationFromMs: Long? = null,
+        messageExpirationMs: Long? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -62,7 +64,9 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             groupPinnedFrameUrl,
-            null
+            null,
+            messageExpirationFromMs,
+            messageExpirationMs,
         )
     }
 
@@ -73,6 +77,8 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
+        messageExpirationFromMs: Long? = null,
+        messageExpirationMs: Long? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -81,7 +87,9 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             groupPinnedFrameUrl,
-            PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet)
+            PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
+            messageExpirationFromMs,
+            messageExpirationMs
         )
     }
 
@@ -93,6 +101,8 @@ data class Conversations(
         groupDescription: String,
         groupPinnedFrameUrl: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
+        messageExpirationFromMs: Long?,
+        messageExpirationMs: Long?,
     ): Group {
         if (accountAddresses.size == 1 &&
             accountAddresses.first().lowercase() == client.address.lowercase()
@@ -115,7 +125,9 @@ data class Conversations(
                     groupImageUrlSquare = groupImageUrlSquare,
                     groupDescription = groupDescription,
                     groupPinnedFrameUrl = groupPinnedFrameUrl,
-                    customPermissionPolicySet = permissionsPolicySet
+                    customPermissionPolicySet = permissionsPolicySet,
+                    messageExpirationFromMs = messageExpirationFromMs,
+                    messageExpirationMs = messageExpirationMs,
                 )
             )
         return Group(client.inboxId, group)
