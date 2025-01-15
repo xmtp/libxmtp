@@ -59,7 +59,7 @@ mod tests {
     use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
     use backup_exporter::BackupExporter;
     use backup_importer::BackupImporter;
-    use std::{fs::File, path::Path, sync::Arc};
+    use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test]

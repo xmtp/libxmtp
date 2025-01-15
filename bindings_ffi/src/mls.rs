@@ -379,11 +379,13 @@ impl FfiXmtpClient {
         Ok(result.into())
     }
 
+    /// A utility function to sign a piece of text with this installation's private key.
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
         Ok(inner.context().sign_with_public_context(text)?)
     }
 
+    /// A utility function to easily verify that a piece of text was signed by this installation.
     pub fn verify_signed_with_installation_key(
         &self,
         signature_text: &str,
@@ -395,6 +397,8 @@ impl FfiXmtpClient {
         self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
     }
 
+    /// A utility function to easily verify that a string has been signed by another libXmtp installation.
+    /// Only works for verifying libXmtp public context signatures.
     pub fn verify_signed_with_public_key(
         &self,
         signature_text: &str,
