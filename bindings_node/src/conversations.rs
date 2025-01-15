@@ -201,10 +201,15 @@ impl Conversations {
     };
 
     let convo = if account_addresses.is_empty() {
-      self
+      let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
     } else {
       self
         .inner_client

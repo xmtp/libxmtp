@@ -11,6 +11,7 @@ use crate::client::ClientError;
 use crate::groups::extract_group_id;
 use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
+use crate::storage::ProviderTransactions;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
 use crate::subscriptions::SubscribeError;
@@ -45,9 +46,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 (async {
                     let client_id = &client_id;
                     let msgv1 = &msgv1;
-                    self.context()
-                        .store()
-                        .transaction_async(provider, |provider| async move {
+                    provider
+                        .transaction_async(|provider| async move {
                             tracing::info!(
                                 inbox_id = self.client.inbox_id(),
                                 group_id = hex::encode(&self.group_id),

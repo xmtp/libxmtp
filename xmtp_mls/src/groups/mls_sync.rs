@@ -22,6 +22,7 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
+    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -30,11 +31,10 @@ use crate::{
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
         user_preferences::StoredUserPreferences,
-        StorageError,
+        ProviderTransactions, StorageError,
     },
     subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, StoreOrIgnore,
 };
 use futures::future::try_join_all;
@@ -834,7 +834,7 @@ where
             // Download all unread welcome messages and convert to groups.
             // In a database transaction, increment the cursor for a given entity and
             // apply the update after the provided `ProcessingFn` has completed successfully.
-            self.client.store().transaction_async(provider, |provider| async move {
+            provider.transaction_async(|provider| async move {
                 let is_updated =
                     provider
                         .conn_ref()

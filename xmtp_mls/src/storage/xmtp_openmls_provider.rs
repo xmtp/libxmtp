@@ -1,20 +1,31 @@
+#[cfg(not(target_arch = "wasm32"))]
+use crate::storage::native::NativeDb;
+#[cfg(target_arch = "wasm32")]
+use crate::storage::wasm::WasmDb;
 use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
+use std::marker::PhantomData;
 
-pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::storage::RawDbConnection>;
+#[cfg(target_arch = "wasm32")]
+pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<WasmDb, crate::storage::RawDbConnection>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type XmtpOpenMlsProvider =
+    XmtpOpenMlsProviderPrivate<NativeDb, crate::storage::RawDbConnection>;
 
 #[derive(Debug)]
-pub struct XmtpOpenMlsProviderPrivate<C> {
+pub struct XmtpOpenMlsProviderPrivate<Db, C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
+    _phantom: PhantomData<Db>,
 }
 
-impl<C> XmtpOpenMlsProviderPrivate<C> {
+impl<Db, C> XmtpOpenMlsProviderPrivate<Db, C> {
     pub fn new(conn: DbConnectionPrivate<C>) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
+            _phantom: PhantomData,
         }
     }
 
@@ -27,7 +38,7 @@ impl<C> XmtpOpenMlsProviderPrivate<C> {
     }
 }
 
-impl<C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<C>
+impl<Db, C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<Db, C>
 where
     C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
 {
@@ -48,7 +59,7 @@ where
     }
 }
 
-impl<C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<C>
+impl<Db, C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<Db, C>
 where
     C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
 {

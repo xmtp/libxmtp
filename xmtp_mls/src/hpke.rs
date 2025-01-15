@@ -1,7 +1,9 @@
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
-    storage::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{
+        sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+    },
 };
 use openmls::{
     ciphersuite::hash_ref::KeyPackageRef,
