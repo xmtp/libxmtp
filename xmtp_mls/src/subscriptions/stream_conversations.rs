@@ -19,7 +19,7 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
 };
 
-use super::{temp::Result, FutureWrapper, LocalEvents, SubscribeError};
+use super::{FutureWrapper, LocalEvents, Result, SubscribeError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -63,7 +63,6 @@ impl Stream for BroadcastGroupStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
-
         match this.inner.poll_next(cx) {
             Ready(Some(event)) => {
                 let ev = xmtp_common::optify!(event, "Missed messages due to event queue lag")
@@ -158,10 +157,11 @@ impl<'a, O> Default for ProcessState<'a, O> {
 
 type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
 
-pub(super) type WelcomesApiSubscription<'a, A> =
-    MultiplexedSelect<<A as XmtpMlsStreams>::WelcomeMessageStream<'a>>;
+pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+>;
 
-impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, A>>
+impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
@@ -214,7 +214,6 @@ where
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
-
         match this.state.as_mut().project() {
             ProcessProject::Waiting => {
                 match this.inner.poll_next(cx) {
@@ -255,7 +254,10 @@ where
                     Pending
                 }
                 Ready(Err(e)) => Ready(Some(Err(e))),
-                Pending => Pending,
+                Pending => {
+                    cx.waker().wake_by_ref();
+                    Pending
+                }
             },
         }
     }
@@ -270,10 +272,15 @@ fn extract_welcome_message<'a>(welcome: &'a WelcomeMessage) -> Result<&'a welcom
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Client> {
+    /// welcome ids in DB and which are already processed
     known_welcome_ids: HashSet<i64>,
+    /// The libxmtp client
     client: Client,
+    /// the welcome or group being processed in this future
     item: WelcomeOrGroup,
+    /// the xmtp mls provider
     provider: XmtpOpenMlsProvider,
+    /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
 }
 
@@ -371,7 +378,9 @@ where
 
         if let Err(e) = group {
             // try to load it from the store again
-            return self.load_from_store(id).map_err(|_| SubscribeError::from(e));
+            return self
+                .load_from_store(id)
+                .map_err(|_| SubscribeError::from(e));
         }
 
         Ok((group?, id))
@@ -404,7 +413,7 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::GroupMetadataOptions;
-    use crate::subscriptions::GroupQueryArgs;
+    use crate::storage::group::GroupQueryArgs;
 
     use futures::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;

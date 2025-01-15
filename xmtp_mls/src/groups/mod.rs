@@ -706,9 +706,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message on this users XMTP [`Client`].
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        tracing::debug!(inbox_id = self.client.inbox_id(), "sending message");
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await
     }
 
@@ -723,14 +721,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
 
         let message_id =
-            self.prepare_message(message, provider, |now| Self::into_envelope(message, now));
-
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
+        tracing::debug!(
+            inbox_id = self.client.inbox_id(),
+            message_id = hex::encode(&message_id),
+            "sending message"
+        );
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
-        message_id
+        Ok(message_id)
     }
 
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
