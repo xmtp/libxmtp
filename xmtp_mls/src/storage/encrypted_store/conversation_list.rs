@@ -112,7 +112,11 @@ impl DbConnection {
         }
 
         let mut conversations = if let Some(consent_states) = consent_states {
-            if consent_states.contains(&ConsentState::Unknown) {
+            if consent_states
+                .iter()
+                .any(|state| *state == ConsentState::Unknown)
+            {
+                // Include both `Unknown`, `null`, and other specified states
                 let query = query
                     .left_join(
                         consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
@@ -123,13 +127,21 @@ impl DbConnection {
                     .filter(
                         consent_dsl::state
                             .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown)),
+                            .or(consent_dsl::state.eq(ConsentState::Unknown))
+                            .or(consent_dsl::state.eq_any(
+                                consent_states
+                                    .iter()
+                                    .filter(|state| **state != ConsentState::Unknown)
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                            )),
                     )
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
                 self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
             } else {
+                // Only include the specified states
                 let query = query
                     .inner_join(
                         consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
@@ -137,7 +149,7 @@ impl DbConnection {
                         )
                         .eq(consent_dsl::entity)),
                     )
-                    .filter(consent_dsl::state.eq_any(consent_states))
+                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
