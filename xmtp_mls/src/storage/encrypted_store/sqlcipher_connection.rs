@@ -117,6 +117,7 @@ impl EncryptedConnection {
             {}
             {}
             PRAGMA journal_mode = WAL;
+            PRAGMA query_only = ON;
         "#,
             pragma_key(hex::encode(key)),
             pragma_plaintext_header()
