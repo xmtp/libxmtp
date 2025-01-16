@@ -37,6 +37,7 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+        ProviderTransactions,
     },
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -62,7 +63,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        self.context().store().transaction(provider, |provider| {
+        provider.transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
         })

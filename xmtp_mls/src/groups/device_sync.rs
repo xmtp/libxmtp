@@ -9,10 +9,10 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         DbConnection, NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
 use aes_gcm::aead::generic_array::GenericArray;
@@ -198,8 +198,16 @@ where
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
                     tracing::error!("Outgoing preference update {preference_updates:?}");
-                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
-                        .await?;
+                    retry_async!(
+                        self.retry,
+                        (async {
+                            UserPreferenceUpdate::sync_across_devices(
+                                preference_updates.clone(),
+                                &self.client,
+                            )
+                            .await
+                        })
+                    )?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
                     tracing::error!("Incoming preference update");

@@ -1040,8 +1040,10 @@ pub(crate) mod tests {
     use super::SqlKeyStore;
     use crate::{
         configuration::CIPHERSUITE,
-        storage::{sql_key_store::SqlKeyStoreError, EncryptedMessageStore, StorageOption},
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        storage::{
+            sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
+            EncryptedMessageStore, StorageOption,
+        },
     };
     use xmtp_common::tmp_path;
 
