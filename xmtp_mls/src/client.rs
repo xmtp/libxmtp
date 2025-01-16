@@ -958,11 +958,11 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         provider: &XmtpOpenMlsProvider,
-        consent_state: Option<ConsentState>,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(provider).await?;
         let query_args = GroupQueryArgs {
-            consent_state,
+            consent_states,
             include_sync_groups: true,
             include_duplicate_dms: true,
             ..GroupQueryArgs::default()
@@ -1346,7 +1346,10 @@ pub(crate) mod tests {
 
         // Sync with `Unknown`: Bob should not fetch new messages
         let bob_received_groups_unknown = bo
-            .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), Some(ConsentState::Allowed))
+            .sync_all_welcomes_and_groups(
+                &bo.mls_provider().unwrap(),
+                Some([ConsentState::Allowed].to_vec()),
+            )
             .await
             .unwrap();
         assert_eq!(bob_received_groups_unknown, 0);
@@ -1379,7 +1382,10 @@ pub(crate) mod tests {
 
         // Sync with `None`: Bob should fetch all messages
         let bob_received_groups_all = bo
-            .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), Some(ConsentState::Unknown))
+            .sync_all_welcomes_and_groups(
+                &bo.mls_provider().unwrap(),
+                Some([ConsentState::Unknown].to_vec()),
+            )
             .await
             .unwrap();
         assert_eq!(bob_received_groups_all, 2);
