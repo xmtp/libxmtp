@@ -155,7 +155,11 @@ impl NativeDb {
             pool.state().connections
         );
 
-        Ok(pool.get()?)
+        // Turn of writitng by default
+        let mut conn = pool.get()?;
+        conn.batch_execute("PRAGMA query_only = ON;")?;
+
+        Ok(conn)
     }
 }
 
