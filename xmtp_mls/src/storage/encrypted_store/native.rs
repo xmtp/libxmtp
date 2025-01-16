@@ -92,7 +92,7 @@ impl StorageOption {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
+    pub(super) write_conn: Option<Arc<Mutex<RawDbConnection>>>,
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
@@ -110,7 +110,7 @@ impl NativeDb {
             let enc_connection = EncryptedConnection::new(key, opts)?;
             builder = builder.connection_customizer(Box::new(enc_connection.clone()));
             Some(Box::new(enc_connection) as Box<dyn XmtpConnection>)
-        } else if matches!(opts, StorageOption::Persistent { .. }) {
+        } else if matches!(opts, StorageOption::Persistent(_)) {
             builder = builder.connection_customizer(Box::new(UnencryptedConnection));
             Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
         } else {
@@ -126,9 +126,13 @@ impl NativeDb {
                 .build(ConnectionManager::new(path))?,
         };
 
-        let mut write_conn = pool.get()?;
-        write_conn.batch_execute("PRAGMA query_only = OFF;")?;
-        let write_conn = Arc::new(Mutex::new(write_conn));
+        let write_conn = if matches!(opts, StorageOption::Persistent(_)) {
+            let mut write_conn = pool.get()?;
+            write_conn.batch_execute("PRAGMA query_only = OFF;")?;
+            Some(Arc::new(Mutex::new(write_conn)))
+        } else {
+            None
+        };
 
         Ok(Self {
             write_conn,
