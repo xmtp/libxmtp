@@ -1,5 +1,6 @@
 use parking_lot::Mutex;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
@@ -21,13 +22,18 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 pub struct DbConnectionPrivate<C> {
     read: Arc<Mutex<C>>,
     write: Option<Arc<Mutex<C>>>,
+    pub(super) in_transaction: Arc<AtomicBool>,
 }
 
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
     pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Option<Arc<Mutex<C>>>) -> Self {
-        Self { read, write }
+        Self {
+            read,
+            write,
+            in_transaction: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
@@ -35,6 +41,17 @@ impl<C> DbConnectionPrivate<C>
 where
     C: diesel::Connection,
 {
+    fn in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn start_transaction(&self) -> TransactionGuard {
+        self.in_transaction.store(true, Ordering::SeqCst);
+        TransactionGuard {
+            in_transaction: self.in_transaction.clone(),
+        }
+    }
+
     /// Do a scoped query with a mutable [`diesel::Connection`]
     /// reference
     pub(crate) fn raw_query<T, E, F>(&self, write: bool, fun: F) -> Result<T, E>
@@ -57,13 +74,34 @@ where
     /// Must be used with care. holding this reference while calling `raw_query`
     /// will cause a deadlock.
     pub(super) fn read_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
+        if self.in_transaction() {
+            if let Some(write) = &self.write {
+                return write.lock();
+            }
+        }
         self.read.lock()
     }
 
     /// Internal-only API to get the underlying `diesel::Connection` reference
     /// without a scope
     pub(super) fn read_ref(&self) -> Arc<Mutex<C>> {
+        if self.in_transaction() {
+            if let Some(write) = &self.write {
+                return write.clone();
+            };
+        }
         self.read.clone()
+    }
+
+    /// Internal-only API to get the underlying `diesel::Connection` reference
+    /// without a scope
+    /// Must be used with care. holding this reference while calling `raw_query`
+    /// will cause a deadlock.
+    pub(super) fn write_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
+        let Some(write) = &self.write else {
+            return self.read_mut_ref();
+        };
+        write.lock()
     }
 
     /// Internal-only API to get the underlying `diesel::Connection` reference
@@ -89,5 +127,14 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
         f.debug_struct("DbConnection")
             .field("wrapped_conn", &"DbConnection")
             .finish()
+    }
+}
+
+pub struct TransactionGuard {
+    in_transaction: Arc<AtomicBool>,
+}
+impl Drop for TransactionGuard {
+    fn drop(&mut self) {
+        self.in_transaction.store(false, Ordering::SeqCst);
     }
 }

@@ -935,6 +935,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data.into(),
         )?;
 
+        tracing::warn!("This makes it here?");
+
         self.sync_until_intent_resolved(provider, intent.id).await
     }
 
