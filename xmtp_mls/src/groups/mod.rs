@@ -33,7 +33,6 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
@@ -360,7 +359,10 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             (ReactionCodec::TYPE_ID, _) => {
                 // Try to decode the content as UTF-8 string first
                 if let Ok(decoded_content) = String::from_utf8(content.content) {
-                    tracing::info!("attempting legacy json deserialization: {}", decoded_content);
+                    tracing::info!(
+                        "attempting legacy json deserialization: {}",
+                        decoded_content
+                    );
                     // Try parsing as canonical JSON format first
                     if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
                         hex::decode(reaction.reference).ok()
@@ -786,7 +788,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
         EncodedContent::decode(message)
-            .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .inspect_err(|_| {
+                tracing::debug!("No queryable content fields, msg not formatted as encoded content")
+            })
             .and_then(|content| {
                 QueryableContentFields::try_from(content).inspect_err(|e| {
                     tracing::debug!(
