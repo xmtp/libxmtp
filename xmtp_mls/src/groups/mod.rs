@@ -2149,14 +2149,13 @@ pub(crate) mod tests {
 
         let bo_wallet = generate_local_wallet();
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-        let bo_provider = bo.mls_provider().unwrap();
 
         let bo_dm = bo
-            .create_dm_by_inbox_id(&bo_provider, alix.inbox_id().to_string())
+            .create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         let alix_dm = alix
-            .create_dm_by_inbox_id(&alix_provider, bo.inbox_id().to_string())
+            .create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -3605,7 +3604,7 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .create_dm_by_inbox_id(&amal.mls_provider().unwrap(), bola.inbox_id().to_string())
+            .create_dm_by_inbox_id(bola.inbox_id().to_string())
             .await
             .unwrap();
 
