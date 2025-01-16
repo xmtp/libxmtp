@@ -943,11 +943,11 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         provider: &XmtpOpenMlsProvider,
-        consent_state: Option<ConsentState>,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(provider).await?;
         let query_args = GroupQueryArgs {
-            consent_state,
+            consent_states,
             include_sync_groups: true,
             include_duplicate_dms: true,
             ..GroupQueryArgs::default()

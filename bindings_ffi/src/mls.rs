@@ -959,13 +959,15 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(
         &self,
-        consent_state: Option<FfiConsentState>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let consent: Option<ConsentState> = consent_state.map(|state| state.into());
+        let consents: Option<Vec<ConsentState>> = consent_states.map(|states| {
+            states.into_iter().map(|state| state.into()).collect()
+        });        
         let num_groups_synced: usize = inner
-            .sync_all_welcomes_and_groups(&provider, consent)
+            .sync_all_welcomes_and_groups(&provider, consents)
             .await?;
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
