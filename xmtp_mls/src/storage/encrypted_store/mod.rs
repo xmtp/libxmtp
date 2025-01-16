@@ -179,7 +179,7 @@ pub mod private {
         #[tracing::instrument(level = "trace", skip_all)]
         pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
-            self.db.conn()?.raw_query_write( |conn| {
+            self.db.conn()?.raw_query_write(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
                 tracing::info!("Running DB migrations");
                 conn.run_pending_migrations(MIGRATIONS)?;
@@ -305,7 +305,7 @@ macro_rules! impl_store {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query_write( |conn| {
+                into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -327,7 +327,7 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query_write( |conn| {
+                into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -404,7 +404,7 @@ where
 
         match fun(self) {
             Ok(value) => {
-                conn.raw_query_write( |conn| {
+                conn.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                 })?;
                 tracing::debug!("Transaction being committed");
@@ -412,7 +412,7 @@ where
             }
             Err(err) => {
                 tracing::debug!("Transaction being rolled back");
-                match conn.raw_query_write( |conn| {
+                match conn.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                 }) {
                     Ok(()) => Err(err),
@@ -444,7 +444,7 @@ where
         E: From<diesel::result::Error> + From<StorageError>,
         Db: 'a,
     {
-        tracing::debug!("Transaction async beginning");
+        tracing::info!("Transaction async beginning");
         let _guard = {
             let wrapper = self.conn_ref();
             let mut connection = wrapper.write_mut_ref();
@@ -472,15 +472,15 @@ where
             DbConnectionPrivate::from_arc_mutex(local_read_connection, local_write_connection);
         match result {
             Ok(value) => {
-                local_connection.raw_query_write( |conn| {
+                local_connection.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                 })?;
-                tracing::debug!("Transaction async being committed");
+                tracing::info!("Transaction async being committed");
                 Ok(value)
             }
             Err(err) => {
-                tracing::debug!("Transaction async being rolled back");
-                match local_connection.raw_query_write( |conn| {
+                tracing::info!("Transaction async being rolled back");
+                match local_connection.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                 }) {
                     Ok(()) => Err(err),
@@ -630,7 +630,7 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query_write( |conn| {
+            .raw_query_write(|conn| {
                 for _ in 0..15 {
                     conn.run_next_migration(MIGRATIONS)?;
                 }
@@ -676,7 +676,7 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query_write( |conn| {
+            .raw_query_write(|conn| {
                 conn.run_pending_migrations(MIGRATIONS)?;
                 Ok::<_, StorageError>(())
             })
