@@ -148,7 +148,7 @@ where
         tracing::debug!(
             inbox_id = client.inbox_id(),
             installation_id = hex::encode(client.installation_public_key()),
-            "starting expired messages cleaners worker"
+            "starting expired messages cleaner worker"
         );
 
         let worker = MessageExpirationWorker::new(client);
@@ -425,48 +425,14 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
-    /// Get a list of groups with expiration_settings enabled
-    pub fn get_groups_with_expiration_enabled(
-        &mut self,
-    ) -> Result<Vec<(Vec<u8>, GroupMessageExpirationSettings)>, DeviceSyncError> {
-        let inner = self.client.clone();
-
-        let conversations = inner.find_groups(GroupQueryArgs {
-            include_duplicate_dms: true,
-            ..GroupQueryArgs::default()
-        })?;
-
-        let mut group_ids_with_expiration = Vec::new();
-
-        for group in conversations.iter() {
-            if let Ok(provider) = group.mls_provider() {
-                if let Some(settings) =
-                    group.get_group_message_expiration_settings_if_valid(&provider)
-                {
-                    //todo: I would insert the expiration settings into the db instead of getting it always from the group! probably: more info of the group can go into db!
-                    group_ids_with_expiration.push((group.group_id.clone(), settings));
-                }
-            }
-        }
-
-        Ok(group_ids_with_expiration)
-    }
-
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DeviceSyncError> {
-        let groups = self.get_groups_with_expiration_enabled()?;
         let provider = self.client.mls_provider()?;
-        for (group_id, settings) in groups {
-            if let Err(e) = provider
-                .conn_ref()
-                .delete_expired_messages(group_id.clone(), settings)
-            {
-                tracing::error!(
-                    "Failed to delete expired messages for group: {:?}, error: {:?}",
-                    group_id,
-                    e
-                );
-            }
+        if let Err(e) = provider.conn_ref().delete_expired_messages() {
+            tracing::error!(
+                "Failed to delete expired messages for group: {:?}, error: {:?}",
+                e
+            );
         }
         Ok(())
     }

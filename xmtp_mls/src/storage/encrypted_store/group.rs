@@ -51,6 +51,10 @@ pub struct StoredGroup {
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: Option<i64>,
+    /// The Time in MS when the message expiration starts for the group
+    pub message_expire_from_ms: i64,
+    /// How long a message in the group can live in MS
+    pub message_expire_in_ms: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -78,6 +82,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_expire_from_ms: 0,
+            message_expire_in_ms: 0,
         }
     }
 
@@ -103,6 +109,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_expire_from_ms: 0,
+            message_expire_in_ms: 0,
         }
     }
 
@@ -124,6 +132,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: None,
             last_message_ns: Some(now_ns()),
+            message_expire_from_ms: 0,
+            message_expire_in_ms: 0,
         }
     }
 }

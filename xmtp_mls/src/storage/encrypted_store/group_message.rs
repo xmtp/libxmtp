@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use diesel::dsl::sql;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -8,8 +7,8 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
     text, transaction_reference,
@@ -23,7 +22,6 @@ use super::{
     },
     Sqlite,
 };
-use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
 #[derive(
@@ -428,19 +426,26 @@ impl DbConnection {
         })?)
     }
 
-    pub fn delete_expired_messages<GroupId: AsRef<[u8]>>(
-        &self,
-        group_id: GroupId,
-        settings: GroupMessageExpirationSettings,
-    ) -> Result<usize, StorageError> {
+    pub fn delete_expired_messages(&self) -> Result<usize, StorageError> {
         Ok(self.raw_query(|conn| {
-            diesel::delete(dsl::group_messages)
-                .filter(dsl::group_id.eq(group_id.as_ref()))
+            use diesel::prelude::*;
+            let expire_messages = dsl::group_messages
+                .left_join(
+                    groups_dsl::groups.on(sql::<diesel::sql_types::Text>(
+                        "lower(hex(group_messages.group_id))",
+                    )
+                    .eq(sql::<diesel::sql_types::Text>("lower(hex(groups.id))"))),
+                )
                 .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
                 .filter(dsl::sent_at_ns.between(
-                    settings.expire_from_ms * 1000, // convert to ns -- keep in ms to reduce the sensitivity
-                    (settings.expire_from_ms + settings.expire_in_ms) * 1000, // convert to ns
+                    groups_dsl::message_expire_from_ms * 1_000, // Convert ms to ns
+                    (groups_dsl::message_expire_from_ms + groups_dsl::message_expire_in_ms) * 1_000, // Add duration and convert
                 ))
+                .select(dsl::id);
+            let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;
+
+            // Then delete the rows by their IDs
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
                 .execute(conn)
         })?)
     }
@@ -610,7 +615,13 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test)]
     async fn it_deletes_middle_message_by_expiration_time() {
         with_connection(|conn| {
-            let group = generate_group(None);
+            let mut group = generate_group(None);
+
+            let expired_from_ms = 1_000_500; // After Message 1
+            let expired_in_ms = 500; // Before Message 3
+            group.message_expire_from_ms = expired_from_ms;
+            group.message_expire_in_ms = expired_in_ms;
+
             group.store(conn).unwrap();
 
             let messages = vec![
@@ -620,11 +631,7 @@ pub(crate) mod tests {
             ];
             assert_ok!(messages.store(conn));
 
-            let expired_from_ms = 1_000_500; // After Message 1
-            let expired_in_ms = 500; // Before Message 3
-            let result = conn
-                .delete_expired_messages(&group.id, expired_from_ms, expired_in_ms)
-                .unwrap();
+            let result = conn.delete_expired_messages().unwrap();
             assert_eq!(result, 1); // Ensure exactly 1 message is deleted
 
             let remaining_messages = conn
