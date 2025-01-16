@@ -17,6 +17,8 @@ pub type XmtpOpenMlsProvider =
 pub struct XmtpOpenMlsProviderPrivate<Db, C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
+    // This is here for the ProviderTransaction trait
+    // to avoid having to put explicit type annotations everywhere.
     _phantom: PhantomData<Db>,
 }
 
