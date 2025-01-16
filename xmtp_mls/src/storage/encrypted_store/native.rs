@@ -9,6 +9,7 @@ use diesel::{
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
@@ -75,7 +76,7 @@ impl StorageOption {
     pub(super) fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
         use StorageOption::*;
         match self {
-            Persistent(path) => SqliteConnection::establish(path),
+            Persistent { path, .. } => SqliteConnection::establish(path),
             Ephemeral => SqliteConnection::establish(":memory:"),
         }
     }
@@ -83,15 +84,16 @@ impl StorageOption {
     pub(super) fn path(&self) -> Option<&String> {
         use StorageOption::*;
         match self {
-            Persistent(path) => Some(path),
+            Persistent { path, .. } => Some(path),
             _ => None,
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
+    pub(super) write_conn: Arc<Mutex<Box<dyn XmtpConnection>>>,
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
@@ -109,7 +111,7 @@ impl NativeDb {
             let enc_opts = EncryptedConnection::new(key, opts)?;
             builder = builder.connection_customizer(Box::new(enc_opts.clone()));
             Some(Box::new(enc_opts) as Box<dyn XmtpConnection>)
-        } else if matches!(opts, StorageOption::Persistent(_)) {
+        } else if matches!(opts, StorageOption::Persistent { .. }) {
             builder = builder.connection_customizer(Box::new(UnencryptedConnection));
             Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
         } else {
@@ -120,12 +122,13 @@ impl NativeDb {
             StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
+            StorageOption::Persistent { ref path, .. } => builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
                 .build(ConnectionManager::new(path))?,
         };
 
         Ok(Self {
+            write_conn:
             pool: Arc::new(Some(pool).into()),
             customizer,
             opts: opts.clone(),
@@ -186,7 +189,7 @@ impl XmtpDb for NativeDb {
             StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
+            StorageOption::Persistent { ref path, .. } => builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
                 .build(ConnectionManager::new(path))?,
         };

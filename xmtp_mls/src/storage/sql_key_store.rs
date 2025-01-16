@@ -1052,7 +1052,10 @@ pub(crate) mod tests {
     async fn store_read_delete() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
+            StorageOption::Persistent {
+                path: db_path,
+                read_only: false,
+            },
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -1103,7 +1106,10 @@ pub(crate) mod tests {
     async fn list_append_remove() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
+            StorageOption::Persistent {
+                path: db_path,
+                read_only: false,
+            },
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -1187,7 +1193,10 @@ pub(crate) mod tests {
     async fn group_state() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
+            StorageOption::Persistent {
+                path: db_path,
+                read_only: false,
+            },
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
