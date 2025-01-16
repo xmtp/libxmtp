@@ -7342,6 +7342,7 @@ dependencies = [
  "tokio",
  "tracing",
  "wasm-bindgen-test",
+ "xmtp_common",
  "xmtp_proto",
 ]
 
