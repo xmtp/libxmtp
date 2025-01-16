@@ -2145,7 +2145,6 @@ pub(crate) mod tests {
 
         let bo_wallet = generate_local_wallet();
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-        let bo_provider = bo.mls_provider().unwrap();
 
         let bo_dm = bo
             .create_dm_by_inbox_id(alix.inbox_id().to_string())
