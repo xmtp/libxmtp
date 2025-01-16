@@ -74,8 +74,8 @@ pub fn logger() {
 
     INIT.get_or_init(|| {
         let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::DEBUG.into())
-            .from_env_lossy();
+            .parse_lossy("xmtp_mls::subscriptions=TRACE,xmtp_api_http=TRACE");
+            // .with_default_directive(tracing::metadata::LevelFilter::DEBUG.into())
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())
