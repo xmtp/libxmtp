@@ -16,23 +16,13 @@ use crate::{
     groups::{
         device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
         intents::UpdateMetadataIntentData,
-        validated_commit::ValidatedCommit,
+        validated_commit::ValidatedCommit, QueryableContentFields,
     },
     hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
-    storage::{
-        db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        refresh_state::EntityKind,
-        serialization::{db_deserialize, db_serialize},
-        sql_key_store,
-        user_preferences::StoredUserPreferences,
-        ProviderTransactions, StorageError,
-    },
+    storage::{db_connection::DbConnection, group_intent::{IntentKind, IntentState, StoredGroupIntent, ID}, group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage}, refresh_state::EntityKind, serialization::{db_deserialize, db_serialize}, sql_key_store, user_preferences::StoredUserPreferences, xmtp_openmls_provider::XmtpOpenMlsProvider, ProviderTransactions, StorageError},
     subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
@@ -545,7 +535,8 @@ where
                                          })) => {
                             let message_id =
                                 calculate_message_id(&self.group_id, &content, &idempotency_key);
-                            let queryable_content_fields = Self::extract_queryable_content_fields(&content);
+                            // let queryable_content_fields = Self::extract_queryable_content_fields(&content);
+                            let queryable_content_fields = QueryableContentFields::default();
                             tracing::info!("External msg - QueryableContentFields - content type extracted: {:?}", queryable_content_fields.content_type);
                             tracing::info!("External msg - QueryableContentFields - content version extracted: {:?}", queryable_content_fields.version_major);
                             tracing::info!("External msg - QueryableContentFields - reference id extracted: {:?}", queryable_content_fields.reference_id);
