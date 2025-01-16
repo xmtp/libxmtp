@@ -66,10 +66,7 @@ impl<A, V> ClientBuilder<A, V> {
         let tmpdb = xmtp_common::tmp_path();
         self.store(
             EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: tmpdb,
-                    read_only: false,
-                },
+                StorageOption::Persistent(tmpdb),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await

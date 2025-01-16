@@ -40,7 +40,6 @@ pub struct EncryptedConnection {
     key: EncryptionKey,
     /// We don't store the salt for Ephemeral Dbs
     salt: Option<Salt>,
-    read_only: bool,
 }
 
 impl EncryptedConnection {
@@ -49,12 +48,9 @@ impl EncryptedConnection {
         use super::StorageOption::*;
         Self::check_for_sqlcipher(opts)?;
 
-        let (salt, read_only) = match opts {
-            Ephemeral => (None, false),
-            Persistent {
-                path: ref db_path,
-                read_only,
-            } => {
+        let salt = match opts {
+            Ephemeral => None,
+            Persistent(ref db_path) => {
                 let mut salt = [0u8; 16];
                 let db_pathbuf = PathBuf::from(db_path);
                 let salt_path = Self::salt_file(db_path)?;
@@ -90,7 +86,7 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display()
                         );
-                        Self::create(db_path, key, &mut salt, *read_only)?;
+                        Self::create(db_path, key, &mut salt)?;
                     }
                     // the db doesn't exist but the salt does
                     // This generally doesn't make sense & shouldn't happen.
@@ -102,42 +98,30 @@ impl EncryptedConnection {
                             salt_path.display(),
                         );
                         std::fs::remove_file(salt_path)?;
-                        Self::create(db_path, key, &mut salt, *read_only)?;
+                        Self::create(db_path, key, &mut salt)?;
                     }
                 }
-                (Some(salt), *read_only)
+                Some(salt)
             }
         };
 
-        Ok(Self {
-            key,
-            salt,
-            read_only,
-        })
+        Ok(Self { key, salt })
     }
 
     /// create a new database + salt file.
     /// writes the 16-bytes hex-encoded salt to `salt`
-    fn create(
-        path: &String,
-        key: EncryptionKey,
-        salt: &mut [u8],
-        read_only: bool,
-    ) -> Result<(), StorageError> {
+    fn create(path: &String, key: EncryptionKey, salt: &mut [u8]) -> Result<(), StorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
         conn.batch_execute(&format!(
             r#"
             {}
             {}
             PRAGMA journal_mode = WAL;
+            PRAGMA query_only = ON;
         "#,
             pragma_key(hex::encode(key)),
             pragma_plaintext_header()
         ))?;
-
-        if read_only {
-            conn.batch_execute("PRAGMA query_only = ON;")?;
-        }
 
         Self::write_salt(path, conn, salt)?;
         Ok(())
@@ -337,10 +321,7 @@ mod tests {
         let db_path = tmp_path();
         {
             let _ = EncryptedMessageStore::new(
-                Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
+                Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await
@@ -389,15 +370,9 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(
-                Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
-                key,
-            )
-            .await
-            .unwrap();
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
+                .await
+                .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();

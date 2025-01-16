@@ -464,10 +464,7 @@ pub(crate) mod tests {
             Some(legacy_key.clone()),
         );
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmp_path(),
-                read_only: false,
-            },
+            StorageOption::Persistent(tmp_path()),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -536,10 +533,7 @@ pub(crate) mod tests {
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb,
-                read_only: false,
-            },
+            StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -580,10 +574,7 @@ pub(crate) mod tests {
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb,
-                read_only: false,
-            },
+            StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -623,10 +614,7 @@ pub(crate) mod tests {
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb,
-                read_only: false,
-            },
+            StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -666,10 +654,7 @@ pub(crate) mod tests {
 
         let tmpdb = tmp_path();
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb,
-                read_only: false,
-            },
+            StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -709,15 +694,9 @@ pub(crate) mod tests {
         let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
-        let store_a = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb.clone(),
-                read_only: false,
-            },
-            db_key,
-        )
-        .await
-        .unwrap();
+        let store_a = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let nonce = 1;
         let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
@@ -741,15 +720,9 @@ pub(crate) mod tests {
         drop(client_a);
 
         // Reload the existing store and wallet
-        let store_b = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb.clone(),
-                read_only: false,
-            },
-            db_key,
-        )
-        .await
-        .unwrap();
+        let store_b = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let client_b = Client::builder(IdentityStrategy::new(
             inbox_id,
@@ -786,15 +759,9 @@ pub(crate) mod tests {
         // .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
-        let store_d = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: tmpdb.clone(),
-                read_only: false,
-            },
-            db_key,
-        )
-        .await
-        .unwrap();
+        let store_d = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
         let client_d = Client::builder(IdentityStrategy::CachedOnly)
             .api_client(<TestClient as XmtpTestClient>::create_local().await)
             .store(store_d)

@@ -74,10 +74,7 @@ struct SqliteVersion {
 pub enum StorageOption {
     #[default]
     Ephemeral,
-    Persistent {
-        path: String,
-        read_only: bool,
-    },
+    Persistent(String),
 }
 
 #[allow(async_fn_in_trait)]
@@ -453,20 +450,22 @@ where
 
         // ensuring we have only one strong reference
         let result = fun(self).await;
-        let local_connection = self.conn_ref().read_ref();
-        if Arc::strong_count(&local_connection) > 1 {
+        let local_read_connection = self.conn_ref().read_ref();
+        let local_write_connection = self.conn_ref().write_ref();
+        if Arc::strong_count(&local_read_connection) > 1 {
             tracing::warn!(
                 "More than 1 strong connection references still exist during async transaction"
             );
         }
 
-        if Arc::weak_count(&local_connection) > 1 {
+        if Arc::weak_count(&local_read_connection) > 1 {
             tracing::warn!("More than 1 weak connection references still exist during transaction");
         }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
         // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
+        let local_connection =
+            DbConnectionPrivate::from_arc_mutex(local_read_connection, local_write_connection);
         match result {
             Ok(value) => {
                 local_connection.raw_query(|conn| {
@@ -527,10 +526,7 @@ pub(crate) mod tests {
         pub async fn new_test() -> Self {
             let tmp_path = tmp_path();
             EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: tmp_path,
-                    read_only: true,
-                },
+                StorageOption::Persistent(tmp_path),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await
@@ -562,10 +558,7 @@ pub(crate) mod tests {
         let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
+                StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await
@@ -588,10 +581,7 @@ pub(crate) mod tests {
         let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
+                StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await
@@ -621,10 +611,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test(unsupported = tokio::test)]
     async fn test_dm_id_migration() {
         let db_path = tmp_path();
-        let opts = StorageOption::Persistent {
-            path: db_path.clone(),
-            read_only: false,
-        };
+        let opts = StorageOption::Persistent(db_path.clone());
 
         #[cfg(not(target_arch = "wasm32"))]
         let db =
@@ -705,15 +692,10 @@ pub(crate) mod tests {
         let db_path = tmp_path();
         {
             // Setup a persistent store
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
-                enc_key,
-            )
-            .await
-            .unwrap();
+            let store =
+                EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
+                    .await
+                    .unwrap();
 
             StoredIdentity::new(
                 "dummy_address".to_string(),
@@ -725,14 +707,8 @@ pub(crate) mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: db_path.clone(),
-                read_only: false,
-            },
-            enc_key,
-        )
-        .await;
+        let res =
+            EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails
         assert!(
@@ -747,10 +723,7 @@ pub(crate) mod tests {
         let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
-                StorageOption::Persistent {
-                    path: db_path.clone(),
-                    read_only: false,
-                },
+                StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .await
@@ -783,10 +756,7 @@ pub(crate) mod tests {
 
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: db_path.clone(),
-                read_only: false,
-            },
+            StorageOption::Persistent(db_path.clone()),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
@@ -852,10 +822,7 @@ pub(crate) mod tests {
         let db_path = tmp_path();
 
         let store = EncryptedMessageStore::new(
-            StorageOption::Persistent {
-                path: db_path.clone(),
-                read_only: false,
-            },
+            StorageOption::Persistent(db_path.clone()),
             EncryptedMessageStore::generate_enc_key(),
         )
         .await
