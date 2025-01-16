@@ -1,6 +1,6 @@
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use prost::Message;
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc, task::Poll};
+use std::{collections::HashSet, sync::Arc};
 use tokio::{
     sync::{broadcast, oneshot},
     task::JoinHandle,
@@ -44,49 +44,6 @@ pub enum LocalEventError {
 impl RetryableError for LocalEventError {
     fn is_retryable(&self) -> bool {
         true
-    }
-}
-
-// Wrappers to deal with Send Bounds
-#[cfg(not(target_arch = "wasm32"))]
-pub struct FutureWrapper<'a, O> {
-    inner: Pin<Box<dyn Future<Output = O> + Send + 'a>>,
-}
-
-#[cfg(target_arch = "wasm32")]
-pub struct FutureWrapper<'a, O> {
-    inner: Pin<Box<dyn Future<Output = O> + 'a>>,
-}
-
-impl<'a, O> Future for FutureWrapper<'a, O> {
-    type Output = O;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let inner = &mut self.inner;
-        futures::pin_mut!(inner);
-        inner.as_mut().poll(cx)
-    }
-}
-
-impl<'a, O> FutureWrapper<'a, O> {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = O> + Send + 'a,
-    {
-        Self {
-            inner: future.boxed(),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn new<F>(future: F) -> Self
-    where
-        F: Future<Output = O> + 'a,
-    {
-        Self {
-            inner: future.boxed_local(),
-        }
     }
 }
 

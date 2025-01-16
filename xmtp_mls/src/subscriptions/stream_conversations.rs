@@ -19,7 +19,8 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
 };
 
-use super::{FutureWrapper, LocalEvents, Result, SubscribeError};
+use super::{LocalEvents, Result, SubscribeError};
+use xmtp_common::FutureWrapper;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -137,6 +138,15 @@ pin_project! {
     }
 }
 
+impl<'a, C> ProcessState<'a, C> {
+    fn try_poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Option<Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>> {
+        match self.as_mut().project() {
+            ProcessProject::Waiting => None,
+            ProcessProject::Processing { future } => Some(future.poll(cx))
+        }
+    }
+}
+
 // we can't avoid the cfg(target_arch) without making the entire
 // 'process_new_item' flow a Future, which makes this code
 // significantly more difficult to modify. The other option is storing a
@@ -173,7 +183,8 @@ where
         let provider = client.mls_provider()?;
         let conn = provider.conn_ref();
         let installation_key = client.installation_public_key();
-        let id_cursor = 0;
+        // _NOTE_ IdCursor should be one
+        let id_cursor = 1;
         tracing::info!(
             inbox_id = client.inbox_id(),
             "Setting up conversation stream"
@@ -213,11 +224,16 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use std::task::Poll::*;
-        let mut this = self.as_mut().project();
-        match this.state.as_mut().project() {
-            ProcessProject::Waiting => {
+        use ProcessProject::*;
+
+        let this = self.as_mut().project();
+        let state = this.state.project();
+
+        match state {
+            Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
+                        let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
                             this.client.clone(),
@@ -228,37 +244,62 @@ where
                         this.state.set(ProcessState::Processing {
                             future: FutureWrapper::new(future.process()),
                         });
-                        cx.waker().wake_by_ref();
-                        Pending
+                        // try to process the future immediately
+                        // this will return immediately if we have already processed the welcome
+                        // and it exists in the db
+                        let poll = this.state.try_poll(cx).expect("future just set & pinned in state");
+                        self.as_mut().try_process(poll, cx)
                     }
                     // stream ended
-                    Ready(None) => Ready(None),
+                    Ready(None) => {
+                        Ready(None)
+                    },
                     Pending => {
                         cx.waker().wake_by_ref();
                         Pending
                     }
                 }
-            }
-            ProcessProject::Processing { future } => match future.poll(cx) {
-                Ready(Ok(Some((group, welcome_id)))) => {
-                    if let Some(id) = welcome_id {
-                        this.known_welcome_ids.insert(id);
-                    }
-                    this.state.set(ProcessState::Waiting);
-                    Ready(Some(Ok(group)))
-                }
-                // we are ignoring this payload
-                Ready(Ok(None)) => {
-                    this.state.set(ProcessState::Waiting);
-                    cx.waker().wake_by_ref();
-                    Pending
-                }
-                Ready(Err(e)) => Ready(Some(Err(e))),
-                Pending => {
-                    cx.waker().wake_by_ref();
-                    Pending
-                }
             },
+            Processing { future } => {
+                let poll = future.poll(cx);
+                self.as_mut().try_process(poll, cx)
+            }
+        }
+    }
+}
+
+impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
+where
+    C: ScopedGroupClient + Clone + 'a,
+    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
+{
+    /// Try to process the welcome future
+    fn try_process(
+        mut self: Pin<&mut Self>,
+        poll: Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<<Self as Stream>::Item>> {
+        use Poll::*;
+        let mut this = self.as_mut().project();
+        match poll {
+            Ready(Ok(Some((group, welcome_id)))) => {
+                if let Some(id) = welcome_id {
+                    this.known_welcome_ids.insert(id);
+                }
+                this.state.set(ProcessState::Waiting);
+                Ready(Some(Ok(group)))
+            }
+            // we are ignoring this payload
+            Ready(Ok(None)) => {
+                this.state.as_mut().set(ProcessState::Waiting);
+                cx.waker().wake_by_ref();
+                Pending
+            }
+            Ready(Err(e)) => Ready(Some(Err(e))),
+            Pending => {
+                cx.waker().wake_by_ref();
+                Pending
+            }
         }
     }
 }
@@ -316,10 +357,22 @@ where
         use WelcomeOrGroup::*;
         let (group, welcome_id) = match self.item {
             Welcome(ref w) => {
-                let (group, id) = self.on_welcome(w).await?;
+                let welcome = extract_welcome_message(w)?;
+                let id = welcome.id as i64;
+                 // try to load it from store first and avoid overhead
+                // of processing a welcome & erroring
+                // for immediate return, this must stay in the top-level future,
+                // to avoid a possible yield on the await in on_welcome.
+                if self.known_welcome_ids.contains(&id) {
+                    tracing::debug!("Found existing welcome. Returning from db & skipping processing");
+                    return Ok(Some(self.load_from_store(id).map(|(g, v)| (g, Some(v)))?));
+                }
+
+                let (group, id) = self.on_welcome(welcome).await?;
                 (group, Some(id))
             }
             Group(id) => {
+                tracing::debug!("Stream conversations got existing group, pulling from db.");
                 let (group, stored_group) =
                     MlsGroup::new_validated(self.client, id, &self.provider)?;
                 (group, stored_group.welcome_id)
@@ -334,21 +387,15 @@ where
     }
 
     /// process a new welcome, returning the Group & Welcome ID
-    async fn on_welcome(&self, welcome: &WelcomeMessage) -> Result<(MlsGroup<C>, i64)> {
+    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<C>, i64)> {
         let welcome_message::V1 {
             id,
             created_ns: _,
             ref installation_key,
             ref data,
             ref hpke_public_key,
-        } = extract_welcome_message(welcome)?;
+        } = welcome;
         let id = *id as i64;
-
-        // try to load it from store first and avoid overhead
-        // of processing a welcome & erroring
-        if self.known_welcome_ids.contains(&id) {
-            return self.load_from_store(id);
-        }
 
         let Self {
             ref client,
@@ -377,7 +424,8 @@ where
             .await;
 
         if let Err(e) = group {
-            // try to load it from the store again
+            tracing::info!("Processing welcome failed, trying to load existing..");
+            // try to load it from the store again in case of race
             return self
                 .load_from_store(id)
                 .map_err(|_| SubscribeError::from(e));
@@ -424,6 +472,7 @@ mod test {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_welcomes() {
+        xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let alice_bob_group = alice

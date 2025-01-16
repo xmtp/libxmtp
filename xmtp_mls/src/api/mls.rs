@@ -298,11 +298,14 @@ where
         ApiClient: XmtpMlsStreams,
     {
         tracing::debug!(inbox_id = self.inbox_id, "subscribing to welcome messages");
+        // _NOTE_:
+        // Default ID Cursor should be one
+        // else we miss welcome messages
         self.api_client
             .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
                 filters: vec![WelcomeFilterProto {
                     installation_key: installation_key.to_vec(),
-                    id_cursor: id_cursor.unwrap_or(0),
+                    id_cursor: id_cursor.unwrap_or(1),
                 }],
             })
             .await
