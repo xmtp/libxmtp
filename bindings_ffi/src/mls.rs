@@ -613,7 +613,7 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub consent_state: Option<FfiConsentState>,
+    pub consent_states: Option<Vec<FfiConsentState>>,
     pub include_duplicate_dms: bool,
 }
 
@@ -623,7 +623,9 @@ impl From<FfiListConversationsOptions> for GroupQueryArgs {
             created_before_ns: opts.created_before_ns,
             created_after_ns: opts.created_after_ns,
             limit: opts.limit,
-            consent_state: opts.consent_state.map(Into::into),
+            consent_states: opts
+                .consent_states
+                .map(|vec| vec.into_iter().map(Into::into).collect()),
             include_duplicate_dms: opts.include_duplicate_dms,
             ..Default::default()
         }
@@ -963,9 +965,8 @@ impl FfiConversations {
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let consents: Option<Vec<ConsentState>> = consent_states.map(|states| {
-            states.into_iter().map(|state| state.into()).collect()
-        });        
+        let consents: Option<Vec<ConsentState>> =
+            consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let num_groups_synced: usize = inner
             .sync_all_welcomes_and_groups(&provider, consents)
             .await?;
