@@ -57,12 +57,12 @@ pub mod test_util {
 
             for query in queries {
                 let query = diesel::sql_query(query);
-                let _ = self.raw_query(true, |conn| query.execute(conn)).unwrap();
+                let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
             }
         }
 
         pub fn intents_published(&self) -> i32 {
-            self.raw_query(false, |conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
@@ -78,7 +78,7 @@ pub mod test_util {
         }
 
         pub fn intents_deleted(&self) -> i32 {
-            self.raw_query(false, |conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
@@ -92,7 +92,7 @@ pub mod test_util {
         }
 
         pub fn intents_created(&self) -> i32 {
-            self.raw_query(false, |conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();

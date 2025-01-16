@@ -54,15 +54,23 @@ where
 
     /// Do a scoped query with a mutable [`diesel::Connection`]
     /// reference
-    pub(crate) fn raw_query<T, E, F>(&self, write: bool, fun: F) -> Result<T, E>
+    pub(crate) fn raw_query_read<T, E, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        if write {
-            if let Some(write_conn) = &self.write {
-                let mut lock = write_conn.lock();
-                return fun(&mut lock);
-            }
+        let mut lock = self.read.lock();
+        fun(&mut lock)
+    }
+
+    /// Do a scoped query with a mutable [`diesel::Connection`]
+    /// reference
+    pub(crate) fn raw_query_write<T, E, F>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut C) -> Result<T, E>,
+    {
+        if let Some(write_conn) = &self.write {
+            let mut lock = write_conn.lock();
+            return fun(&mut lock);
         }
 
         let mut lock = self.read.lock();
