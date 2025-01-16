@@ -64,7 +64,7 @@ impl ValidatedConnection for UnencryptedConnection {}
 
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnection {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")
+        conn.batch_execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")
             .map_err(r2d2::Error::QueryError)?;
         Ok(())
     }
@@ -155,11 +155,7 @@ impl NativeDb {
             pool.state().connections
         );
 
-        // Turn of writitng by default
-        let mut conn = pool.get()?;
-        conn.batch_execute("PRAGMA query_only = ON;")?;
-
-        Ok(conn)
+        Ok(pool.get()?)
     }
 }
 
