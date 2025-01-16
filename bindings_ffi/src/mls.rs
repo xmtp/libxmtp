@@ -920,6 +920,62 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
+    pub async fn create_group_with_inbox_ids(
+        &self,
+        inbox_ids: Vec<String>,
+        opts: FfiCreateGroupOptions,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!(
+            "creating group with account inbox ids: {}",
+            inbox_ids.join(", ")
+        );
+        
+        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
+            if opts.custom_permission_policy_set.is_none() {
+                return Err(GenericError::Generic {
+                    err: "CustomPolicy must include policy set".to_string(),
+                });
+            }
+        } else if opts.custom_permission_policy_set.is_some() {
+            return Err(GenericError::Generic {
+                err: "Only CustomPolicy may specify a policy set".to_string(),
+            });
+        }
+
+        let metadata_options = opts.clone().into_group_metadata_options();
+
+        let group_permissions = match opts.permissions {
+            Some(FfiGroupPermissionsOptions::Default) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::AdminOnly) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::CustomPolicy) => {
+                if let Some(policy_set) = opts.custom_permission_policy_set {
+                    Some(policy_set.try_into()?)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let convo = if inbox_ids.is_empty() {
+            let group = self
+                .inner_client
+                .create_group(group_permissions, metadata_options)?;
+            group.sync().await?;
+            group
+        } else {
+            self.inner_client
+                .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+                .await?
+        };
+
+        Ok(Arc::new(convo.into()))
+    }
+
     pub async fn create_dm(
         &self,
         account_address: String,
@@ -927,6 +983,18 @@ impl FfiConversations {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
             .create_dm(account_address)
+            .await
+            .map(|g| Arc::new(g.into()))
+            .map_err(Into::into)
+    }
+
+    pub async fn create_dm_with_inbox_id(
+        &self,
+        inbox_id: String,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!("creating dm with target inbox_id: {}", inbox_id);
+        self.inner_client
+            .create_dm_by_inbox_id(inbox_id)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
