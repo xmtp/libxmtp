@@ -283,7 +283,7 @@ impl DbConnection {
                             .or(consent_dsl::state.eq(ConsentState::Unknown))
                             .or(consent_dsl::state.eq_any(
                                 consent_states
-                                    .into_iter()
+                                    .iter()
                                     .filter(|state| **state != ConsentState::Unknown)
                                     .cloned()
                                     .collect::<Vec<_>>(),
