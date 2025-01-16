@@ -7410,6 +7410,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.6",
  "tonic",
+ "tracing",
  "xmtp_common",
  "xmtp_proto",
 ]

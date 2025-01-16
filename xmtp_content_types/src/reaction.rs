@@ -63,6 +63,26 @@ pub struct LegacyReaction {
     pub schema: String,
 }
 
+impl LegacyReaction {
+    pub fn try_decode_legacy(content: &[u8]) -> Option<String> {
+        // Try to decode the content as UTF-8 string first
+        if let Ok(decoded_content) = String::from_utf8(content.to_vec()) {
+            tracing::info!(
+                "attempting legacy json deserialization: {}",
+                decoded_content
+            );
+            // Try parsing as canonical JSON format
+            if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
+                return Some(reaction.reference);
+            }
+            tracing::error!("legacy json deserialization failed");
+        } else {
+            tracing::error!("utf-8 deserialization failed");
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -72,6 +92,7 @@ pub(crate) mod tests {
         ReactionAction, ReactionSchema, ReactionV2,
     };
 
+    use serde_json::json;
     use xmtp_common::rand_string;
 
     use super::*;
@@ -95,5 +116,29 @@ pub(crate) mod tests {
         assert_eq!(decoded.action, ReactionAction::Added as i32);
         assert_eq!(decoded.content, "👍".to_string());
         assert_eq!(decoded.schema, ReactionSchema::Unicode as i32);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_legacy_reaction_deserialization() {
+        let reference = "0123456789abcdef";
+        let legacy_json = json!({
+            "reference": reference,
+            "referenceInboxId": "some_inbox_id",
+            "action": "added",
+            "content": "👍",
+            "schema": "unicode"
+        });
+
+        let content = legacy_json.to_string().into_bytes();
+        let decoded_reference: Option<String> = LegacyReaction::try_decode_legacy(&content);
+
+        assert!(decoded_reference.is_some());
+        assert_eq!(decoded_reference.unwrap(), reference);
+
+        // Test invalid JSON
+        let invalid_content = b"invalid json";
+        let failed_decode = LegacyReaction::try_decode_legacy(invalid_content);
+        assert!(failed_decode.is_none());
     }
 }

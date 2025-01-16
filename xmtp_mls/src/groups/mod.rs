@@ -353,29 +353,12 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             content_type_id.version_major,
         ) {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
-                let reaction = ReactionV2::decode(content.content.as_slice())?;
-                hex::decode(reaction.reference).ok()
+                ReactionV2::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|r| hex::decode(r.reference).ok())
             }
-            (ReactionCodec::TYPE_ID, _) => {
-                // Try to decode the content as UTF-8 string first
-                if let Ok(decoded_content) = String::from_utf8(content.content) {
-                    tracing::info!(
-                        "attempting legacy json deserialization: {}",
-                        decoded_content
-                    );
-                    // Try parsing as canonical JSON format first
-                    if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
-                        hex::decode(reaction.reference).ok()
-                    } else {
-                        tracing::error!("legacy json deserialization failed");
-                        // If canonical format fails, try legacy format using parameters
-                        None
-                    }
-                } else {
-                    tracing::error!("utf-8 deserialization failed");
-                    None
-                }
-            }
+            (ReactionCodec::TYPE_ID, _) => LegacyReaction::try_decode_legacy(&content.content)
+                .and_then(|reference| hex::decode(reference).ok()),
             _ => None,
         };
 
