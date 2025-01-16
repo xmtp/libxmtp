@@ -448,13 +448,14 @@ where
         let changed_records = conn.insert_or_replace_consent_records(&new_records)?;
 
         if self.history_sync_url.is_some() && !changed_records.is_empty() {
-            let records = changed_records
+            let records: Vec<UserPreferenceUpdate> = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
-            let _ = self
-                .local_events
-                .send(LocalEvents::OutgoingPreferenceUpdates(records));
+            retry_async!(
+                Retry::default(),
+                (async { UserPreferenceUpdate::sync_across_devices(records.clone(), self,).await })
+            );
         }
 
         Ok(())

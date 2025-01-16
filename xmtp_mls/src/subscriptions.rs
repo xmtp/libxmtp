@@ -55,7 +55,6 @@ pub enum LocalEvents<C> {
     // a new group was created
     NewGroup(MlsGroup<C>),
     SyncMessage(SyncMessage),
-    OutgoingPreferenceUpdates(Vec<UserPreferenceUpdate>),
     IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
 }
 
@@ -80,7 +79,6 @@ impl<C> LocalEvents<C> {
 
         match &self {
             SyncMessage(_) => Some(self),
-            OutgoingPreferenceUpdates(_) => Some(self),
             IncomingPreferenceUpdate(_) => Some(self),
             _ => None,
         }
@@ -90,16 +88,6 @@ impl<C> LocalEvents<C> {
         use LocalEvents::*;
 
         match self {
-            OutgoingPreferenceUpdates(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                        _ => None,
-                    })
-                    .collect();
-                Some(updates)
-            }
             IncomingPreferenceUpdate(updates) => {
                 let updates = updates
                     .into_iter()
@@ -118,16 +106,6 @@ impl<C> LocalEvents<C> {
         use LocalEvents::*;
 
         match self {
-            OutgoingPreferenceUpdates(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
             IncomingPreferenceUpdate(updates) => {
                 let updates = updates
                     .into_iter()

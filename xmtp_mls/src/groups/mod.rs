@@ -459,7 +459,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Create a new group and save it to the DB
-    pub(crate) fn create_and_insert(
+    pub(crate) async fn create_and_insert(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         membership_state: GroupMembershipState,
@@ -503,12 +503,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
 
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        new_group
+            .update_consent_state(ConsentState::Allowed)
+            .await?;
         Ok(new_group)
     }
 
     // Create a new DM and save it to the DB
-    pub(crate) fn create_dm_and_insert(
+    pub(crate) async fn create_dm_and_insert(
         provider: &XmtpOpenMlsProvider,
         client: Arc<ScopedClient>,
         membership_state: GroupMembershipState,
@@ -556,7 +558,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        new_group
+            .update_consent_state(ConsentState::Allowed)
+            .await?;
         Ok(new_group)
     }
 
@@ -729,7 +733,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(message_id)
     }
@@ -745,7 +749,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_last_intent_resolved(&provider).await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        self.update_consent_state(ConsentState::Allowed).await?;
 
         Ok(())
     }
@@ -1242,7 +1246,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
 
         let consent_record = StoredConsentRecord::new(
@@ -1254,12 +1258,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
-            let _ = self
-                .client
-                .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                    UserPreferenceUpdate::ConsentUpdate(consent_record),
-                ]));
+            UserPreferenceUpdate::sync_across_devices(
+                vec![UserPreferenceUpdate::ConsentUpdate(consent_record)],
+                self.client,
+            )
+            .await?;
         }
 
         Ok(())

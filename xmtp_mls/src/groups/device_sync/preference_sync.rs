@@ -22,23 +22,30 @@ impl UserPreferenceUpdate {
         updates: Vec<Self>,
         client: &Client<C, V>,
     ) -> Result<(), DeviceSyncError> {
-        let provider = client.mls_provider()?;
-        let sync_group = client.ensure_sync_group(&provider).await?;
+        retry_async!(
+            Retry::default(),
+            (async {
+                let provider = client.mls_provider()?;
+                let sync_group = client.ensure_sync_group(&provider).await?;
 
-        let updates = updates
-            .iter()
-            .map(bincode::serialize)
-            .collect::<Result<Vec<_>, _>>()?;
-        let update_proto = UserPreferenceUpdateProto { contents: updates };
-        let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+                let updates = updates
+                    .iter()
+                    .map(bincode::serialize)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let update_proto = UserPreferenceUpdateProto { contents: updates };
+                let content_bytes = serde_json::to_vec(&update_proto)?;
+                sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
+                        idempotency_key: now.to_string(),
+                    })),
+                })?;
 
-        sync_group.publish_intents(&provider).await?;
+                sync_group.publish_intents(&provider).await?;
+
+                Ok::<_, DeviceSyncError>(())
+            })
+        )?;
 
         Ok(())
     }

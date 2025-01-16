@@ -180,19 +180,6 @@ where
                         self.on_request(message_id, &provider).await?
                     }
                 },
-                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::error!("Outgoing preference update {preference_updates:?}");
-                    retry_async!(
-                        self.retry,
-                        (async {
-                            UserPreferenceUpdate::sync_across_devices(
-                                preference_updates.clone(),
-                                &self.client,
-                            )
-                            .await
-                        })
-                    )?;
-                }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
                     tracing::error!("Incoming preference update");
                 }
@@ -709,11 +696,14 @@ where
                     {
                         if existing_consent_record.state != consent_record.state {
                             warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                            self.local_events
-                                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                                    UserPreferenceUpdate::ConsentUpdate(existing_consent_record),
-                                ]))
-                                .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
+
+                            UserPreferenceUpdate::sync_across_devices(
+                                vec![UserPreferenceUpdate::ConsentUpdate(
+                                    existing_consent_record.clone(),
+                                )],
+                                self,
+                            )
+                            .await?;
                         }
                     }
                 }
