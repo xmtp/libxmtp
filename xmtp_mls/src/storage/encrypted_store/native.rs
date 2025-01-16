@@ -7,9 +7,8 @@ use diesel::{
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
     Connection,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
@@ -93,7 +92,7 @@ impl StorageOption {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) write_conn: Arc<Mutex<SqliteConnection>>,
+    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
@@ -127,8 +126,12 @@ impl NativeDb {
                 .build(ConnectionManager::new(path))?,
         };
 
+        let mut write_conn = pool.get()?;
+        write_conn.batch_execute("PRAGMA query_only = OFF;")?;
+        let write_conn = Arc::new(Mutex::new(write_conn));
+
         Ok(Self {
-            // write_conn:
+            write_conn,
             pool: Arc::new(Some(pool).into()),
             customizer,
             opts: opts.clone(),
@@ -159,9 +162,10 @@ impl XmtpDb for NativeDb {
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnectionPrivate::from_arc_mutex(Arc::new(
-            parking_lot::Mutex::new(conn),
-        )))
+        Ok(DbConnectionPrivate::from_arc_mutex(
+            Arc::new(parking_lot::Mutex::new(conn)),
+            self.write_conn.clone(),
+        ))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
