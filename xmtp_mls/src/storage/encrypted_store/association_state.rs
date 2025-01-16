@@ -107,8 +107,9 @@ impl StoredAssociationState {
                     .and(dsl::sequence_id.eq_any(sequence_ids)),
             );
 
-        let association_states =
-            conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+        let association_states = conn.raw_query(false, |query_conn| {
+            query.load::<StoredAssociationState>(query_conn)
+        })?;
 
         association_states
             .into_iter()

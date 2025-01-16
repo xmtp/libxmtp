@@ -128,7 +128,7 @@ impl DbConnection {
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
+                self.raw_query(false, |conn| query.load::<ConversationListItem>(conn))?
             } else {
                 let query = query
                     .inner_join(
@@ -141,10 +141,10 @@ impl DbConnection {
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
+                self.raw_query(false, |conn| query.load::<ConversationListItem>(conn))?
             }
         } else {
-            self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
+            self.raw_query(false, |conn| query.load::<ConversationListItem>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -152,7 +152,7 @@ impl DbConnection {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query(false, |conn| query.load(conn))?;
             conversations.append(&mut sync_groups);
         }
 

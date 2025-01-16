@@ -179,7 +179,7 @@ pub mod private {
         #[tracing::instrument(level = "trace", skip_all)]
         pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
-            self.db.conn()?.raw_query(|conn| {
+            self.db.conn()?.raw_query(true, |conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
                 tracing::info!("Running DB migrations");
                 conn.run_pending_migrations(MIGRATIONS)?;
@@ -242,7 +242,7 @@ macro_rules! impl_fetch {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.first(conn).optional())?)
+                Ok(self.raw_query(false, |conn| $table.first(conn).optional())?)
             }
         }
     };
@@ -254,7 +254,9 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.find(key.clone()).first(conn).optional())?)
+                Ok(self.raw_query(false, |conn| {
+                    $table.find(key.clone()).first(conn).optional()
+                })?)
             }
         }
     };
@@ -286,8 +288,9 @@ macro_rules! impl_fetch_list_with_key {
                 keys: &[Self::Key],
             ) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::{$column, *};
-                Ok(self
-                    .raw_query(|conn| $table.filter($column.eq_any(keys)).load::<$model>(conn))?)
+                Ok(self.raw_query(false, |conn| {
+                    $table.filter($column.eq_any(keys)).load::<$model>(conn)
+                })?)
             }
         }
     };
@@ -304,7 +307,7 @@ macro_rules! impl_store {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query(|conn| {
+                into.raw_query(true, |conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -326,7 +329,7 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query(|conn| {
+                into.raw_query(true, |conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -401,7 +404,7 @@ where
 
         match fun(self) {
             Ok(value) => {
-                conn.raw_query(|conn| {
+                conn.raw_query(true, |conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                 })?;
                 tracing::debug!("Transaction being committed");
@@ -409,7 +412,7 @@ where
             }
             Err(err) => {
                 tracing::debug!("Transaction being rolled back");
-                match conn.raw_query(|conn| {
+                match conn.raw_query(true, |conn| {
                     <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                 }) {
                     Ok(()) => Err(err),
@@ -468,7 +471,7 @@ where
             DbConnectionPrivate::from_arc_mutex(local_read_connection, local_write_connection);
         match result {
             Ok(value) => {
-                local_connection.raw_query(|conn| {
+                local_connection.raw_query(true, |conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                 })?;
                 tracing::debug!("Transaction async being committed");
@@ -476,7 +479,7 @@ where
             }
             Err(err) => {
                 tracing::debug!("Transaction async being rolled back");
-                match local_connection.raw_query(|conn| {
+                match local_connection.raw_query(true, |conn| {
                     <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                 }) {
                     Ok(()) => Err(err),
@@ -626,7 +629,7 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query(|conn| {
+            .raw_query(true, |conn| {
                 for _ in 0..15 {
                     conn.run_next_migration(MIGRATIONS)?;
                 }
@@ -672,14 +675,14 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query(|conn| {
+            .raw_query(true, |conn| {
                 conn.run_pending_migrations(MIGRATIONS)?;
                 Ok::<_, StorageError>(())
             })
             .unwrap();
 
         let groups = conn
-            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query(false, |conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");

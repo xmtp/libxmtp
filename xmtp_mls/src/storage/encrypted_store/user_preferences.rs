@@ -37,7 +37,7 @@ impl<'a> From<&'a StoredUserPreferences> for NewStoredUserPreferences<'a> {
 
 impl Store<DbConnection> for StoredUserPreferences {
     fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
-        conn.raw_query(|conn| {
+        conn.raw_query(true, |conn| {
             diesel::update(dsl::user_preferences)
                 .set(self)
                 .execute(conn)
@@ -50,7 +50,7 @@ impl Store<DbConnection> for StoredUserPreferences {
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
         let query = dsl::user_preferences.order(dsl::id.desc()).limit(1);
-        let mut result = conn.raw_query(|conn| query.load::<StoredUserPreferences>(conn))?;
+        let mut result = conn.raw_query(false, |conn| query.load::<StoredUserPreferences>(conn))?;
 
         Ok(result.pop().unwrap_or_default())
     }
@@ -73,7 +73,7 @@ impl StoredUserPreferences {
         ]));
 
         let to_insert: NewStoredUserPreferences = (&preferences).into();
-        conn.raw_query(|conn| {
+        conn.raw_query(true, |conn| {
             diesel::insert_into(dsl::user_preferences)
                 .values(to_insert)
                 .execute(conn)
@@ -115,7 +115,7 @@ mod tests {
         // check that there are two preferences stored
         let query = dsl::user_preferences.order(dsl::id.desc());
         let result = conn
-            .raw_query(|conn| query.load::<StoredUserPreferences>(conn))
+            .raw_query(false, |conn| query.load::<StoredUserPreferences>(conn))
             .unwrap();
         assert_eq!(result.len(), 1);
     }

@@ -39,7 +39,7 @@ impl DbConnection {
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        let result = self.raw_query(|conn| {
+        let result = self.raw_query(false, |conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::key_package_hash_ref.eq(hash_ref))
                 .first::<StoredKeyPackageHistoryEntry>(conn)
@@ -52,7 +52,7 @@ impl DbConnection {
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        let result = self.raw_query(|conn| {
+        let result = self.raw_query(false, |conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::id.lt(id))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
@@ -65,7 +65,7 @@ impl DbConnection {
         &self,
         id: i32,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query(true, |conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.lt(id)),

@@ -1078,8 +1078,10 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.store().conn().unwrap();
-        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
-            .unwrap();
+        conn.raw_query(true, |conn| {
+            diesel::delete(identity_updates::table).execute(conn)
+        })
+        .unwrap();
 
         let members = group.members().await.unwrap();
         // // The three installations should count as two members
