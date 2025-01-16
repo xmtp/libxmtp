@@ -560,7 +560,6 @@ where
         Ok(group)
     }
 
-
     /// Create a new Direct Message with the default settings
     pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with address: {}", account_address);
@@ -588,7 +587,7 @@ where
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
         let provider = self.mls_provider()?;
-        
+
         let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_dm_and_insert(
             &provider,
             Arc::new(self.clone()),

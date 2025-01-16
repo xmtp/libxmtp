@@ -929,7 +929,7 @@ impl FfiConversations {
             "creating group with account inbox ids: {}",
             inbox_ids.join(", ")
         );
-        
+
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
             if opts.custom_permission_policy_set.is_none() {
                 return Err(GenericError::Generic {
