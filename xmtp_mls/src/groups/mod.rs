@@ -1335,16 +1335,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             state,
             hex::encode(self.group_id.clone()),
         );
-        conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
+        let new_records = conn
+            .insert_or_replace_consent_records(&[consent_record.clone()])?
+            .into_iter()
+            .map(UserPreferenceUpdate::ConsentUpdate)
+            .collect();
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .client
                 .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                    UserPreferenceUpdate::ConsentUpdate(consent_record),
-                ]));
+                .send(LocalEvents::OutgoingPreferenceUpdates(new_records));
         }
 
         Ok(())
