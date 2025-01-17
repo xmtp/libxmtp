@@ -2252,7 +2252,13 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
-    use xmtp_content_types::{read_receipt, text::TextCodec, ContentCodec};
+    use xmtp_content_types::{
+        attachment::AttachmentCodec, encoded_content_to_bytes, group_updated::GroupUpdatedCodec,
+        membership_change::GroupMembershipChangeCodec, reaction::ReactionCodec,
+        read_receipt::ReadReceiptCodec, remote_attachment::RemoteAttachmentCodec,
+        reply::ReplyCodec, text::TextCodec, transaction_reference::TransactionReferenceCodec,
+        ContentCodec,
+    };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -3205,6 +3211,272 @@ mod tests {
             conversations[2].last_message.is_none(),
             "Group B should have no messages"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_list_filters_readable_messages() {
+        // Step 1: Setup test client
+        let client = new_test_client().await;
+        let conversations_api = client.conversations();
+
+        // Step 2: Create 9 groups
+        let mut groups = Vec::with_capacity(9);
+        for _ in 0..9 {
+            let group = conversations_api
+                .create_group(vec![], FfiCreateGroupOptions::default())
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        // Step 3: Each group gets a message sent in it by type following the pattern:
+        //   group[0] -> TextCodec                    (readable)
+        //   group[1] -> ReactionCodec                (readable)
+        //   group[2] -> AttachmentCodec              (readable)
+        //   group[3] -> RemoteAttachmentCodec        (readable)
+        //   group[4] -> ReplyCodec                   (readable)
+        //   group[5] -> TransactionReferenceCodec    (readable)
+        //   group[6] -> GroupUpdatedCodec            (not readable)
+        //   group[7] -> GroupMembershipUpdatedCodec  (not readable)
+        //   group[8] -> ReadReceiptCodec             (not readable)
+
+        // group[0] sends TextCodec message
+        let text_message = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
+        groups[0]
+            .send(encoded_content_to_bytes(text_message))
+            .await
+            .unwrap();
+
+        // group[1] sends ReactionCodec message
+        let reaction_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReactionCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reaction_encoded_content = EncodedContent {
+            r#type: Some(reaction_content_type_id),
+            content: "reaction content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[1]
+            .send(encoded_content_to_bytes(reaction_encoded_content))
+            .await
+            .unwrap();
+
+        // group[2] sends AttachmentCodec message
+        let attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: AttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let attachment_encoded_content = EncodedContent {
+            r#type: Some(attachment_content_type_id),
+            content: "attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[2]
+            .send(encoded_content_to_bytes(attachment_encoded_content))
+            .await
+            .unwrap();
+
+        // group[3] sends RemoteAttachmentCodec message
+        let remote_attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: RemoteAttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let remote_attachment_encoded_content = EncodedContent {
+            r#type: Some(remote_attachment_content_type_id),
+            content: "remote attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[3]
+            .send(encoded_content_to_bytes(remote_attachment_encoded_content))
+            .await
+            .unwrap();
+
+        // group[4] sends ReplyCodec message
+        let reply_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReplyCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reply_encoded_content = EncodedContent {
+            r#type: Some(reply_content_type_id),
+            content: "reply content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[4]
+            .send(encoded_content_to_bytes(reply_encoded_content))
+            .await
+            .unwrap();
+
+        // group[5] sends TransactionReferenceCodec message
+        let transaction_reference_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: TransactionReferenceCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let transaction_reference_encoded_content = EncodedContent {
+            r#type: Some(transaction_reference_content_type_id),
+            content: "transaction reference".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[5]
+            .send(encoded_content_to_bytes(
+                transaction_reference_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[6] sends GroupUpdatedCodec message
+        let group_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupUpdatedCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_updated_encoded_content = EncodedContent {
+            r#type: Some(group_updated_content_type_id),
+            content: "group updated content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[6]
+            .send(encoded_content_to_bytes(group_updated_encoded_content))
+            .await
+            .unwrap();
+
+        // group[7] sends GroupMembershipUpdatedCodec message
+        let group_membership_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupMembershipChangeCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_membership_updated_encoded_content = EncodedContent {
+            r#type: Some(group_membership_updated_content_type_id),
+            content: "group membership updated".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[7]
+            .send(encoded_content_to_bytes(
+                group_membership_updated_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[8] sends ReadReceiptCodec message
+        let read_receipt_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let read_receipt_encoded_content = EncodedContent {
+            r#type: Some(read_receipt_content_type_id),
+            content: "read receipt content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[8]
+            .send(encoded_content_to_bytes(read_receipt_encoded_content))
+            .await
+            .unwrap();
+
+        // Step 4: Synchronize all conversations
+        conversations_api
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Step 5: Fetch the list of conversations
+        let conversations = conversations_api
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+
+        // Step 6: Verify the order of conversations by last readable message sent (or recently created if no readable message)
+        // The order should be: 5, 4, 3, 2, 1, 0, 8, 7, 6
+        assert_eq!(
+            conversations.len(),
+            9,
+            "There should be exactly 9 conversations"
+        );
+
+        assert_eq!(
+            conversations[0].conversation.inner.group_id, groups[5].inner.group_id,
+            "Group 6 should be the first conversation"
+        );
+        assert_eq!(
+            conversations[1].conversation.inner.group_id, groups[4].inner.group_id,
+            "Group 5 should be the second conversation"
+        );
+        assert_eq!(
+            conversations[2].conversation.inner.group_id, groups[3].inner.group_id,
+            "Group 4 should be the third conversation"
+        );
+        assert_eq!(
+            conversations[3].conversation.inner.group_id, groups[2].inner.group_id,
+            "Group 3 should be the fourth conversation"
+        );
+        assert_eq!(
+            conversations[4].conversation.inner.group_id, groups[1].inner.group_id,
+            "Group 2 should be the fifth conversation"
+        );
+        assert_eq!(
+            conversations[5].conversation.inner.group_id, groups[0].inner.group_id,
+            "Group 1 should be the sixth conversation"
+        );
+        assert_eq!(
+            conversations[6].conversation.inner.group_id, groups[8].inner.group_id,
+            "Group 9 should be the seventh conversation"
+        );
+        assert_eq!(
+            conversations[7].conversation.inner.group_id, groups[7].inner.group_id,
+            "Group 8 should be the eighth conversation"
+        );
+        assert_eq!(
+            conversations[8].conversation.inner.group_id, groups[6].inner.group_id,
+            "Group 7 should be the ninth conversation"
+        );
+
+        // Step 7: Verify that for conversations 0 through 5, last_message is Some
+        // Index of group[0] in conversations -> 5
+        for i in 0..=5 {
+            assert!(
+                conversations[5 - i].last_message.is_some(),
+                "Group {} should have a last message",
+                i + 1
+            );
+        }
+
+        // Step 8: Verify that for conversations 6, 7, 8, last_message is None
+        for i in 6..=8 {
+            assert!(
+                conversations[i].last_message.is_none(),
+                "Group {} should have no last message",
+                i + 1
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -5543,7 +5815,7 @@ mod tests {
         // Bo sends read receipt
         let read_receipt_content_id = ContentTypeId {
             authority_id: "xmtp.org".to_string(),
-            type_id: read_receipt::ReadReceiptCodec::TYPE_ID.to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
             version_major: 1,
             version_minor: 0,
         };

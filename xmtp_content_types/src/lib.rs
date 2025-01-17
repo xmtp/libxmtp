@@ -8,6 +8,7 @@ pub mod reply;
 pub mod text;
 pub mod transaction_reference;
 
+use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
@@ -23,4 +24,10 @@ pub trait ContentCodec<T> {
     fn content_type() -> ContentTypeId;
     fn encode(content: T) -> Result<EncodedContent, CodecError>;
     fn decode(content: EncodedContent) -> Result<T, CodecError>;
+}
+
+pub fn encoded_content_to_bytes(content: EncodedContent) -> Vec<u8> {
+    let mut buf = Vec::new();
+    content.encode(&mut buf).unwrap();
+    buf
 }
