@@ -81,7 +81,61 @@ class GroupTests: XCTestCase {
 			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssert(
 			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+	}
 
+	func testCanCreateAGroupWithInboxIdDefaultPermissions() async throws {
+		let fixtures = try await fixtures()
+		let boGroup = try await fixtures.boClient.conversations
+			.newGroupWithInboxIds(
+				with: [fixtures.alixClient.inboxID])
+		try await fixtures.alixClient.conversations.sync()
+		let alixGroup = try await fixtures.alixClient.conversations
+			.listGroups().first!
+		XCTAssert(!boGroup.id.isEmpty)
+		XCTAssert(!alixGroup.id.isEmpty)
+
+		try await alixGroup.addMembers(addresses: [fixtures.caro.address])
+		try await boGroup.sync()
+
+		var alixMembersCount = try await alixGroup.members.count
+		var boMembersCount = try await boGroup.members.count
+		XCTAssertEqual(alixMembersCount, 3)
+		XCTAssertEqual(boMembersCount, 3)
+
+		try await boGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
+
+		try await alixGroup.removeMembers(addresses: [fixtures.caro.address])
+		try await boGroup.sync()
+
+		alixMembersCount = try await alixGroup.members.count
+		boMembersCount = try await boGroup.members.count
+		XCTAssertEqual(alixMembersCount, 2)
+		XCTAssertEqual(boMembersCount, 2)
+
+		try await boGroup.addMembers(addresses: [fixtures.caro.address])
+		try await alixGroup.sync()
+
+		try await boGroup.removeAdmin(inboxId: fixtures.alixClient.inboxID)
+		try await alixGroup.sync()
+
+		alixMembersCount = try await alixGroup.members.count
+		boMembersCount = try await boGroup.members.count
+		XCTAssertEqual(alixMembersCount, 3)
+		XCTAssertEqual(boMembersCount, 3)
+
+		XCTAssertEqual(
+			try boGroup.permissionPolicySet().addMemberPolicy, .allow)
+		XCTAssertEqual(
+			try alixGroup.permissionPolicySet().addMemberPolicy, .allow)
+
+		XCTAssert(
+			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+		XCTAssert(
+			try !boGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+		XCTAssert(
+			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
+		XCTAssert(
+			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
 	}
 
 	func testCanCreateAGroupWithAdminPermissions() async throws {
@@ -175,7 +229,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(1, alixGroupCount)
 		XCTAssertEqual(1, boGroupCount)
 	}
-	
+
 	func testCanListGroupsFiltered() async throws {
 		let fixtures = try await fixtures()
 
@@ -191,7 +245,7 @@ class GroupTests: XCTestCase {
 		let convoCount = try await fixtures.boClient.conversations
 			.listGroups().count
 		let convoCountConsent = try await fixtures.boClient.conversations
-			.listGroups(consentState: .allowed).count
+			.listGroups(consentStates: [.allowed]).count
 
 		XCTAssertEqual(convoCount, 2)
 		XCTAssertEqual(convoCountConsent, 2)
@@ -199,12 +253,15 @@ class GroupTests: XCTestCase {
 		try await group.updateConsentState(state: .denied)
 
 		let convoCountAllowed = try await fixtures.boClient.conversations
-			.listGroups(consentState: .allowed).count
+			.listGroups(consentStates: [.allowed]).count
 		let convoCountDenied = try await fixtures.boClient.conversations
-			.listGroups(consentState: .denied).count
+			.listGroups(consentStates: [.denied]).count
+		let convoCountCombined = try await fixtures.boClient.conversations
+			.listGroups(consentStates: [.denied, .allowed]).count
 
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountCombined, 2)
 	}
 
 	func testCanListGroupsOrder() async throws {

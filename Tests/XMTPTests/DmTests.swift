@@ -6,15 +6,18 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DmTests: XCTestCase {
-	
+
 	func testCanFindDmByInboxId() async throws {
 		let fixtures = try await fixtures()
 
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(with: fixtures.caro.walletAddress)
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caro.walletAddress)
 
-		let caroDm = try fixtures.boClient.findDmByInboxId(inboxId: fixtures.caroClient.inboxID)
-		let alixDm = try fixtures.boClient.findDmByInboxId(inboxId: fixtures.alixClient.inboxID)
-		
+		let caroDm = try fixtures.boClient.findDmByInboxId(
+			inboxId: fixtures.caroClient.inboxID)
+		let alixDm = try fixtures.boClient.findDmByInboxId(
+			inboxId: fixtures.alixClient.inboxID)
+
 		XCTAssertNil(alixDm)
 		XCTAssertEqual(caroDm?.id, dm.id)
 	}
@@ -22,11 +25,14 @@ class DmTests: XCTestCase {
 	func testCanFindDmByAddress() async throws {
 		let fixtures = try await fixtures()
 
-		let dm = try await fixtures.boClient.conversations.findOrCreateDm(with: fixtures.caro.walletAddress)
+		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caro.walletAddress)
 
-		let caroDm = try await fixtures.boClient.findDmByAddress(address: fixtures.caroClient.address)
-		let alixDm = try await fixtures.boClient.findDmByAddress(address: fixtures.alixClient.address)
-		
+		let caroDm = try await fixtures.boClient.findDmByAddress(
+			address: fixtures.caroClient.address)
+		let alixDm = try await fixtures.boClient.findDmByAddress(
+			address: fixtures.alixClient.address)
+
 		XCTAssertNil(alixDm)
 		XCTAssertEqual(caroDm?.id, dm.id)
 	}
@@ -39,6 +45,18 @@ class DmTests: XCTestCase {
 		try await fixtures.alixClient.conversations.sync()
 		let sameConvo1 = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.bo.walletAddress)
+		XCTAssertEqual(convo1.id, sameConvo1.id)
+	}
+
+	func testCanCreateADmWithInboxId() async throws {
+		let fixtures = try await fixtures()
+
+		let convo1 = try await fixtures.boClient.conversations
+			.findOrCreateDmWithInboxId(
+				with: fixtures.alixClient.inboxID)
+		try await fixtures.alixClient.conversations.sync()
+		let sameConvo1 = try await fixtures.alixClient.conversations
+			.findOrCreateDmWithInboxId(with: fixtures.boClient.inboxID)
 		XCTAssertEqual(convo1.id, sameConvo1.id)
 	}
 
@@ -87,7 +105,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(dmState, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
 	}
-	
+
 	func testCanListDmsFiltered() async throws {
 		let fixtures = try await fixtures()
 
@@ -102,7 +120,7 @@ class DmTests: XCTestCase {
 		let convoCount = try await fixtures.boClient.conversations
 			.listDms().count
 		let convoCountConsent = try await fixtures.boClient.conversations
-			.listDms(consentState: .allowed).count
+			.listDms(consentStates: [.allowed]).count
 
 		XCTAssertEqual(convoCount, 2)
 		XCTAssertEqual(convoCountConsent, 2)
@@ -110,12 +128,15 @@ class DmTests: XCTestCase {
 		try await dm2.updateConsentState(state: .denied)
 
 		let convoCountAllowed = try await fixtures.boClient.conversations
-			.listDms(consentState: .allowed).count
+			.listDms(consentStates: [.allowed]).count
 		let convoCountDenied = try await fixtures.boClient.conversations
-			.listDms(consentState: .denied).count
+			.listDms(consentStates: [.denied]).count
+		let convoCountCombined = try await fixtures.boClient.conversations
+			.listDms(consentStates: [.denied, .allowed]).count
 
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountCombined, 2)
 	}
 
 	func testCanListConversationsOrder() async throws {
@@ -184,7 +205,7 @@ class DmTests: XCTestCase {
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
-	
+
 	func testCanStreamDms() async throws {
 		let fixtures = try await fixtures()
 

@@ -282,10 +282,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func send(encodedContent: EncodedContent) async throws -> String {
-		if try consentState() == .unknown {
-			try await updateConsentState(state: .allowed)
-		}
-
 		let messageId = try await ffiGroup.send(
 			contentBytes: encodedContent.serializedData())
 		return messageId.toHex
@@ -332,10 +328,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func prepareMessage(encodedContent: EncodedContent) async throws
 		-> String
 	{
-		if try consentState() == .unknown {
-			try await updateConsentState(state: .allowed)
-		}
-
 		let messageId = try ffiGroup.sendOptimistic(
 			contentBytes: encodedContent.serializedData())
 		return messageId.toHex
@@ -344,10 +336,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func prepareMessage<T>(content: T, options: SendOptions? = nil)
 		async throws -> String
 	{
-		if try consentState() == .unknown {
-			try await updateConsentState(state: .allowed)
-		}
-
 		let encodeContent = try await encodeContent(
 			content: content, options: options)
 		return try ffiGroup.sendOptimistic(

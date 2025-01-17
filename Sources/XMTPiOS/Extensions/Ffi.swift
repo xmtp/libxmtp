@@ -47,6 +47,12 @@ extension FfiConversationMember {
 	}
 }
 
+extension Array where Element == ConsentState {
+	var toFFI: [FfiConsentState] {
+		return self.map { $0.toFFI }
+	}
+}
+
 extension ConsentState {
 	var toFFI: FfiConsentState {
 		switch self {

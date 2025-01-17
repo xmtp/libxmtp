@@ -64,7 +64,7 @@ class ConversationTests: XCTestCase {
 		let convoCount = try await fixtures.boClient.conversations
 			.list().count
 		let convoCountConsent = try await fixtures.boClient.conversations
-			.list(consentState: .allowed).count
+			.list(consentStates: [.allowed]).count
 
 		XCTAssertEqual(convoCount, 2)
 		XCTAssertEqual(convoCountConsent, 2)
@@ -72,12 +72,15 @@ class ConversationTests: XCTestCase {
 		try await group.updateConsentState(state: .denied)
 
 		let convoCountAllowed = try await fixtures.boClient.conversations
-			.list(consentState: .allowed).count
+			.list(consentStates: [.allowed]).count
 		let convoCountDenied = try await fixtures.boClient.conversations
-			.list(consentState: .denied).count
+			.list(consentStates: [.denied]).count
+		let convoCountCombined = try await fixtures.boClient.conversations
+			.list(consentStates: [.denied, .allowed]).count
 
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountCombined, 2)
 	}
 
 	func testCanSyncAllConversationsFiltered() async throws {
@@ -92,20 +95,23 @@ class ConversationTests: XCTestCase {
 		let convoCount = try await fixtures.boClient.conversations
 			.syncAllConversations()
 		let convoCountConsent = try await fixtures.boClient.conversations
-			.syncAllConversations(consentState: .allowed)
+			.syncAllConversations(consentStates: [.allowed])
 
-		XCTAssertEqual(convoCount, 3)
-		XCTAssertEqual(convoCountConsent, 3)
+		XCTAssertEqual(convoCount, 2)
+		XCTAssertEqual(convoCountConsent, 2)
 
 		try await group.updateConsentState(state: .denied)
 
 		let convoCountAllowed = try await fixtures.boClient.conversations
-			.syncAllConversations(consentState: .allowed)
+			.syncAllConversations(consentStates: [.allowed])
 		let convoCountDenied = try await fixtures.boClient.conversations
-			.syncAllConversations(consentState: .denied)
+			.syncAllConversations(consentStates: [.denied])
+		let convoCountCombined = try await fixtures.boClient.conversations
+			.syncAllConversations(consentStates: [.denied, .allowed])
 
-		XCTAssertEqual(convoCountAllowed, 2)
-		XCTAssertEqual(convoCountDenied, 2)
+		XCTAssertEqual(convoCountAllowed, 1)
+		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountCombined, 2)
 	}
 
 	func testCanListConversationsOrder() async throws {
