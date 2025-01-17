@@ -76,7 +76,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test]
-    async fn test_consent_sync() {
+    async fn test_backup() {
         let alix_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
