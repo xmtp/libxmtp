@@ -14,7 +14,7 @@ impl BackupExporter {
 
         let mut amount = self.read(&mut buffer).await?;
         while amount != 0 {
-            file.write(&buffer[..amount]).await?;
+            let _ = file.write(&buffer[..amount]).await?;
             amount = self.read(&mut buffer).await?;
         }
 

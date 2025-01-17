@@ -20,10 +20,10 @@ impl BackupRecordProvider for GroupMessageSave {
             .into_boxed();
 
         if let Some(start_ns) = streamer.start_ns {
-            query = query.filter(group_messages::sent_at_ns.gt(start_ns as i64));
+            query = query.filter(group_messages::sent_at_ns.gt(start_ns));
         }
         if let Some(end_ns) = streamer.end_ns {
-            query = query.filter(group_messages::sent_at_ns.le(end_ns as i64));
+            query = query.filter(group_messages::sent_at_ns.le(end_ns));
         }
 
         query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);

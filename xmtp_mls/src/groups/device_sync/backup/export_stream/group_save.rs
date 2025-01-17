@@ -18,10 +18,10 @@ impl BackupRecordProvider for GroupSave {
         let mut query = groups::table.order_by(groups::id).into_boxed();
 
         if let Some(start_ns) = streamer.start_ns {
-            query = query.filter(groups::created_at_ns.gt(start_ns as i64));
+            query = query.filter(groups::created_at_ns.gt(start_ns));
         }
         if let Some(end_ns) = streamer.end_ns {
-            query = query.filter(groups::created_at_ns.le(end_ns as i64));
+            query = query.filter(groups::created_at_ns.le(end_ns));
         }
 
         query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);

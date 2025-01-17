@@ -79,7 +79,7 @@ impl BackupImporter {
                 ));
             }
 
-            if amount == 0 && self.decoded.len() == 0 {
+            if amount == 0 && self.decoded.is_empty() {
                 break;
             }
         }
@@ -101,7 +101,7 @@ impl BackupImporter {
                 Ok(())
             })
             .await
-            .map_err(|e| DeviceSyncError::Storage(e))?;
+            .map_err(DeviceSyncError::Storage)?;
         Ok(())
     }
 
