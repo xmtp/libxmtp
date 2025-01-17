@@ -506,4 +506,38 @@ class GroupPermissionsTest {
         runBlocking { alixClient.conversations.sync() }
         assert(runBlocking { alixClient.conversations.listGroups() }.size == 1)
     }
+
+    @Test
+    fun canCreateGroupWithInboxIdCustomPermissions() {
+        val permissionPolicySet = PermissionPolicySet(
+            addMemberPolicy = PermissionOption.Admin,
+            removeMemberPolicy = PermissionOption.Deny,
+            addAdminPolicy = PermissionOption.Admin,
+            removeAdminPolicy = PermissionOption.SuperAdmin,
+            updateGroupNamePolicy = PermissionOption.Admin,
+            updateGroupDescriptionPolicy = PermissionOption.Allow,
+            updateGroupImagePolicy = PermissionOption.Admin,
+            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
+            updateMessageExpirationPolicy = PermissionOption.Admin,
+        )
+        val boGroup = runBlocking {
+            boClient.conversations.newGroupCustomPermissionsWithInboxIds(
+                inboxIds = listOf(alixClient.inboxId, caroClient.inboxId),
+                permissionPolicySet = permissionPolicySet,
+            )
+        }
+        runBlocking { alixClient.conversations.sync() }
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+
+        // Verify permission look correct
+        val alixPermissionSet = alixGroup.permissionPolicySet()
+        assert(alixPermissionSet.addMemberPolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.removeMemberPolicy == PermissionOption.Deny)
+        assert(alixPermissionSet.addAdminPolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.removeAdminPolicy == PermissionOption.SuperAdmin)
+        assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
+        assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
+        assert(alixPermissionSet.updateGroupPinnedFrameUrlPolicy == PermissionOption.Deny)
+    }
 }

@@ -27,11 +27,7 @@ data class ClientOptions(
     val preAuthenticateToInboxCallback: PreEventCallback? = null,
     val appContext: Context,
     val dbEncryptionKey: ByteArray,
-    val historySyncUrl: String = when (api.env) {
-        XMTPEnvironment.PRODUCTION -> "https://message-history.production.ephemera.network/"
-        XMTPEnvironment.LOCAL -> "http://10.0.2.2:5558"
-        else -> "https://message-history.dev.ephemera.network/"
-    },
+    val historySyncUrl: String? = null,
     val dbDirectory: String? = null,
 ) {
     data class Api(

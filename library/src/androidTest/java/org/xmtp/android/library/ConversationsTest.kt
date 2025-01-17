@@ -78,17 +78,28 @@ class ConversationsTest {
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
         assertEquals(runBlocking { boClient.conversations.list().size }, 2)
         assertEquals(
-            runBlocking { boClient.conversations.list(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.list(consentStates = listOf(ConsentState.ALLOWED)).size },
             2
         )
         runBlocking { group.updateConsentState(ConsentState.DENIED) }
         assertEquals(
-            runBlocking { boClient.conversations.list(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.list(consentStates = listOf(ConsentState.ALLOWED)).size },
             1
         )
         assertEquals(
-            runBlocking { boClient.conversations.list(consentState = ConsentState.DENIED).size },
+            runBlocking { boClient.conversations.list(consentStates = listOf(ConsentState.DENIED)).size },
             1
+        )
+        assertEquals(
+            runBlocking {
+                boClient.conversations.list(
+                    consentStates = listOf(
+                        ConsentState.DENIED,
+                        ConsentState.ALLOWED
+                    )
+                ).size
+            },
+            2
         )
         assertEquals(runBlocking { boClient.conversations.list().size }, 2)
     }
@@ -119,17 +130,51 @@ class ConversationsTest {
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
         assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 2)
         assert(
-            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.ALLOWED) }.toInt() >= 2
+            runBlocking {
+                boClient.conversations.syncAllConversations(
+                    consentStates = listOf(
+                        ConsentState.ALLOWED
+                    )
+                )
+            }.toInt() >= 2
         )
         assert(
-            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.DENIED) }.toInt() <= 1
+            runBlocking {
+                boClient.conversations.syncAllConversations(
+                    consentStates = listOf(
+                        ConsentState.DENIED
+                    )
+                )
+            }.toInt() <= 1
         )
         runBlocking { group.updateConsentState(ConsentState.DENIED) }
         assert(
-            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.ALLOWED) }.toInt() <= 2
+            runBlocking {
+                boClient.conversations.syncAllConversations(
+                    consentStates = listOf(
+                        ConsentState.ALLOWED
+                    )
+                )
+            }.toInt() <= 2
         )
         assert(
-            runBlocking { boClient.conversations.syncAllConversations(consentState = ConsentState.DENIED) }.toInt() <= 2
+            runBlocking {
+                boClient.conversations.syncAllConversations(
+                    consentStates = listOf(
+                        ConsentState.DENIED
+                    )
+                )
+            }.toInt() <= 2
+        )
+        assert(
+            runBlocking {
+                boClient.conversations.syncAllConversations(
+                    consentStates = listOf(
+                        ConsentState.DENIED,
+                        ConsentState.ALLOWED
+                    )
+                )
+            }.toInt() >= 2
         )
         assert(runBlocking { boClient.conversations.syncAllConversations() }.toInt() >= 2)
     }

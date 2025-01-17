@@ -62,6 +62,16 @@ class DmTest {
     }
 
     @Test
+    fun testCanCreateADmWithInboxId() {
+        runBlocking {
+            val convo1 = boClient.conversations.findOrCreateDmWithInboxId(alixClient.inboxId)
+            alixClient.conversations.sync()
+            val sameConvo1 = alixClient.conversations.findOrCreateDmWithInboxId(boClient.inboxId)
+            assertEquals(convo1.id, sameConvo1.id)
+        }
+    }
+
+    @Test
     fun testsCanFindDmByInboxId() {
         runBlocking {
             val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
@@ -156,17 +166,28 @@ class DmTest {
         val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
         assertEquals(runBlocking { boClient.conversations.listDms().size }, 2)
         assertEquals(
-            runBlocking { boClient.conversations.listDms(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.listDms(consentStates = listOf(ConsentState.ALLOWED)).size },
             2
         )
         runBlocking { dm.updateConsentState(ConsentState.DENIED) }
         assertEquals(
-            runBlocking { boClient.conversations.listDms(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.listDms(consentStates = listOf(ConsentState.ALLOWED)).size },
             1
         )
         assertEquals(
-            runBlocking { boClient.conversations.listDms(consentState = ConsentState.DENIED).size },
+            runBlocking { boClient.conversations.listDms(consentStates = listOf(ConsentState.DENIED)).size },
             1
+        )
+        assertEquals(
+            runBlocking {
+                boClient.conversations.listDms(
+                    consentStates = listOf(
+                        ConsentState.ALLOWED,
+                        ConsentState.DENIED
+                    )
+                ).size
+            },
+            2
         )
         assertEquals(runBlocking { boClient.conversations.listDms().size }, 2)
     }

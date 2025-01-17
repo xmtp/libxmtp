@@ -18,26 +18,31 @@ class ReadReceiptTest {
         Client.register(codec = ReadReceiptCodec())
 
         val fixtures = fixtures()
-        val aliceClient = fixtures.alixClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+        val alixClient = fixtures.alixClient
+        val alixConversation = runBlocking {
+            alixClient.conversations.newConversation(fixtures.bo.walletAddress)
         }
 
-        runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
+        runBlocking { alixConversation.send(text = "hey alice 2 bob") }
 
         val readReceipt = ReadReceipt
 
         runBlocking {
-            aliceConversation.send(
+            alixConversation.send(
                 content = readReceipt,
                 options = SendOptions(contentType = ContentTypeReadReceipt),
             )
         }
-        val messages = runBlocking { aliceConversation.messages() }
+        val messages = runBlocking { alixConversation.messages() }
         assertEquals(messages.size, 2)
         if (messages.size == 2) {
             val contentType: String = messages.first().encodedContent.type.typeId
             assertEquals(contentType, "readReceipt")
         }
+        val convos = runBlocking { alixClient.conversations.list() }
+        assertEquals(
+            runBlocking { convos.first().lastMessage() }!!.encodedContent.type.typeId,
+            "text"
+        )
     }
 }

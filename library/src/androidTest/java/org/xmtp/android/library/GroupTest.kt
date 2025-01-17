@@ -165,6 +165,46 @@ class GroupTest {
     }
 
     @Test
+    fun testCanCreateAGroupWithInboxIdsDefaultPermissions() {
+        val boGroup = runBlocking {
+            boClient.conversations.newGroupWithInboxIds(listOf(alixClient.inboxId))
+        }
+        runBlocking {
+            alixClient.conversations.sync()
+            boGroup.sync()
+        }
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+        assert(boGroup.id.isNotEmpty())
+        assert(alixGroup.id.isNotEmpty())
+
+        runBlocking {
+            alixGroup.addMembers(listOf(caro.walletAddress))
+            boGroup.sync()
+        }
+        assertEquals(runBlocking { alixGroup.members().size }, 3)
+        assertEquals(runBlocking { boGroup.members().size }, 3)
+
+        // All members also defaults remove to admin only now.
+        assertThrows(XMTPException::class.java) {
+            runBlocking {
+                alixGroup.removeMembers(listOf(caro.walletAddress))
+                boGroup.sync()
+            }
+        }
+
+        assertEquals(runBlocking { alixGroup.members().size }, 3)
+        assertEquals(runBlocking { boGroup.members().size }, 3)
+
+        assertEquals(boGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
+        assertEquals(alixGroup.permissionPolicySet().addMemberPolicy, PermissionOption.Allow)
+        assertEquals(boGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(boGroup.isSuperAdmin(alixClient.inboxId), false)
+        assertEquals(alixGroup.isSuperAdmin(boClient.inboxId), true)
+        assertEquals(alixGroup.isSuperAdmin(alixClient.inboxId), false)
+        assert(!runBlocking { alixGroup.isCreator() })
+    }
+
+    @Test
     fun testCanListGroupMembers() {
         val group = runBlocking {
             boClient.conversations.newGroup(
@@ -488,17 +528,28 @@ class GroupTest {
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
         assertEquals(runBlocking { boClient.conversations.listGroups().size }, 2)
         assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.ALLOWED)).size },
             2
         )
         runBlocking { group.updateConsentState(ConsentState.DENIED) }
         assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentState = ConsentState.ALLOWED).size },
+            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.ALLOWED)).size },
             1
         )
         assertEquals(
-            runBlocking { boClient.conversations.listGroups(consentState = ConsentState.DENIED).size },
+            runBlocking { boClient.conversations.listGroups(consentStates = listOf(ConsentState.DENIED)).size },
             1
+        )
+        assertEquals(
+            runBlocking {
+                boClient.conversations.listGroups(
+                    consentStates = listOf(
+                        ConsentState.ALLOWED,
+                        ConsentState.DENIED
+                    )
+                ).size
+            },
+            2
         )
         assertEquals(runBlocking { boClient.conversations.listGroups().size }, 2)
     }
