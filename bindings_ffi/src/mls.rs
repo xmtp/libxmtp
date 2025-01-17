@@ -3470,6 +3470,7 @@ mod tests {
         }
 
         // Step 8: Verify that for conversations 6, 7, 8, last_message is None
+        #[allow(clippy::needless_range_loop)]
         for i in 6..=8 {
             assert!(
                 conversations[i].last_message.is_none(),
