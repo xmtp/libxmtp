@@ -116,6 +116,7 @@ openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
 tokio = { workspace = true, features = [
+    "io-util",
     "macros",
     "tracing",
     "rt",
