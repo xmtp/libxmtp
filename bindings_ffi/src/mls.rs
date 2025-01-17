@@ -614,7 +614,7 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub consent_state: Option<FfiConsentState>,
+    pub consent_states: Option<Vec<FfiConsentState>>,
     pub include_duplicate_dms: bool,
 }
 
@@ -624,7 +624,9 @@ impl From<FfiListConversationsOptions> for GroupQueryArgs {
             created_before_ns: opts.created_before_ns,
             created_after_ns: opts.created_after_ns,
             limit: opts.limit,
-            consent_state: opts.consent_state.map(Into::into),
+            consent_states: opts
+                .consent_states
+                .map(|vec| vec.into_iter().map(Into::into).collect()),
             include_duplicate_dms: opts.include_duplicate_dms,
             ..Default::default()
         }
@@ -921,6 +923,62 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
+    pub async fn create_group_with_inbox_ids(
+        &self,
+        inbox_ids: Vec<String>,
+        opts: FfiCreateGroupOptions,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!(
+            "creating group with account inbox ids: {}",
+            inbox_ids.join(", ")
+        );
+
+        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
+            if opts.custom_permission_policy_set.is_none() {
+                return Err(GenericError::Generic {
+                    err: "CustomPolicy must include policy set".to_string(),
+                });
+            }
+        } else if opts.custom_permission_policy_set.is_some() {
+            return Err(GenericError::Generic {
+                err: "Only CustomPolicy may specify a policy set".to_string(),
+            });
+        }
+
+        let metadata_options = opts.clone().into_group_metadata_options();
+
+        let group_permissions = match opts.permissions {
+            Some(FfiGroupPermissionsOptions::Default) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::AdminOnly) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::CustomPolicy) => {
+                if let Some(policy_set) = opts.custom_permission_policy_set {
+                    Some(policy_set.try_into()?)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let convo = if inbox_ids.is_empty() {
+            let group = self
+                .inner_client
+                .create_group(group_permissions, metadata_options)?;
+            group.sync().await?;
+            group
+        } else {
+            self.inner_client
+                .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+                .await?
+        };
+
+        Ok(Arc::new(convo.into()))
+    }
+
     pub async fn create_dm(
         &self,
         account_address: String,
@@ -928,6 +986,18 @@ impl FfiConversations {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
             .create_dm(account_address)
+            .await
+            .map(|g| Arc::new(g.into()))
+            .map_err(Into::into)
+    }
+
+    pub async fn create_dm_with_inbox_id(
+        &self,
+        inbox_id: String,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!("creating dm with target inbox_id: {}", inbox_id);
+        self.inner_client
+            .create_dm_by_inbox_id(inbox_id)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -960,13 +1030,14 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(
         &self,
-        consent_state: Option<FfiConsentState>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let consent: Option<ConsentState> = consent_state.map(|state| state.into());
+        let consents: Option<Vec<ConsentState>> =
+            consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let num_groups_synced: usize = inner
-            .sync_all_welcomes_and_groups(&provider, consent)
+            .sync_all_welcomes_and_groups(&provider, consents)
             .await?;
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
@@ -2240,7 +2311,13 @@ mod tests {
     use tokio::{sync::Notify, time::error::Elapsed};
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
-    use xmtp_content_types::{read_receipt, text::TextCodec, ContentCodec};
+    use xmtp_content_types::{
+        attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
+        group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
+        reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
+        remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
+    };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -3068,12 +3145,14 @@ mod tests {
             .unwrap();
 
         // Add messages to the group
+        let text_message_1 = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
         group
-            .send("First message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_1))
             .await
             .unwrap();
+        let text_message_2 = TextCodec::encode("Text message for Group 2".to_string()).unwrap();
         group
-            .send("Second message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_2))
             .await
             .unwrap();
 
@@ -3093,8 +3172,8 @@ mod tests {
 
         let last_message = conversations[0].last_message.as_ref().unwrap();
         assert_eq!(
-            last_message.content,
-            "Second message".as_bytes().to_vec(),
+            TextCodec::decode(bytes_to_encoded_content(last_message.content.clone())).unwrap(),
+            "Text message for Group 2".to_string(),
             "Last message content should be the most recent"
         );
     }
@@ -3138,85 +3217,270 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_conversation_list_ordering() {
+    async fn test_conversation_list_filters_readable_messages() {
         // Step 1: Setup test client
         let client = new_test_client().await;
         let conversations_api = client.conversations();
 
-        // Step 2: Create Group A
-        let group_a = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // Step 2: Create 9 groups
+        let mut groups = Vec::with_capacity(9);
+        for _ in 0..9 {
+            let group = conversations_api
+                .create_group(vec![], FfiCreateGroupOptions::default())
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        // Step 3: Each group gets a message sent in it by type following the pattern:
+        //   group[0] -> TextCodec                    (readable)
+        //   group[1] -> ReactionCodec                (readable)
+        //   group[2] -> AttachmentCodec              (readable)
+        //   group[3] -> RemoteAttachmentCodec        (readable)
+        //   group[4] -> ReplyCodec                   (readable)
+        //   group[5] -> TransactionReferenceCodec    (readable)
+        //   group[6] -> GroupUpdatedCodec            (not readable)
+        //   group[7] -> GroupMembershipUpdatedCodec  (not readable)
+        //   group[8] -> ReadReceiptCodec             (not readable)
+
+        // group[0] sends TextCodec message
+        let text_message = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
+        groups[0]
+            .send(encoded_content_to_bytes(text_message))
             .await
             .unwrap();
 
-        // Step 3: Create Group B
-        let group_b = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // group[1] sends ReactionCodec message
+        let reaction_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReactionCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reaction_encoded_content = EncodedContent {
+            r#type: Some(reaction_content_type_id),
+            content: "reaction content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[1]
+            .send(encoded_content_to_bytes(reaction_encoded_content))
             .await
             .unwrap();
 
-        // Step 4: Send a message to Group A
-        group_a
-            .send("Message to Group A".as_bytes().to_vec())
+        // group[2] sends AttachmentCodec message
+        let attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: AttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let attachment_encoded_content = EncodedContent {
+            r#type: Some(attachment_content_type_id),
+            content: "attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[2]
+            .send(encoded_content_to_bytes(attachment_encoded_content))
             .await
             .unwrap();
 
-        // Step 5: Create Group C
-        let group_c = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // group[3] sends RemoteAttachmentCodec message
+        let remote_attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: RemoteAttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let remote_attachment_encoded_content = EncodedContent {
+            r#type: Some(remote_attachment_content_type_id),
+            content: "remote attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[3]
+            .send(encoded_content_to_bytes(remote_attachment_encoded_content))
             .await
             .unwrap();
 
-        // Step 6: Synchronize conversations
+        // group[4] sends ReplyCodec message
+        let reply_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReplyCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reply_encoded_content = EncodedContent {
+            r#type: Some(reply_content_type_id),
+            content: "reply content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[4]
+            .send(encoded_content_to_bytes(reply_encoded_content))
+            .await
+            .unwrap();
+
+        // group[5] sends TransactionReferenceCodec message
+        let transaction_reference_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: TransactionReferenceCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let transaction_reference_encoded_content = EncodedContent {
+            r#type: Some(transaction_reference_content_type_id),
+            content: "transaction reference".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[5]
+            .send(encoded_content_to_bytes(
+                transaction_reference_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[6] sends GroupUpdatedCodec message
+        let group_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupUpdatedCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_updated_encoded_content = EncodedContent {
+            r#type: Some(group_updated_content_type_id),
+            content: "group updated content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[6]
+            .send(encoded_content_to_bytes(group_updated_encoded_content))
+            .await
+            .unwrap();
+
+        // group[7] sends GroupMembershipUpdatedCodec message
+        let group_membership_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupMembershipChangeCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_membership_updated_encoded_content = EncodedContent {
+            r#type: Some(group_membership_updated_content_type_id),
+            content: "group membership updated".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[7]
+            .send(encoded_content_to_bytes(
+                group_membership_updated_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[8] sends ReadReceiptCodec message
+        let read_receipt_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let read_receipt_encoded_content = EncodedContent {
+            r#type: Some(read_receipt_content_type_id),
+            content: "read receipt content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[8]
+            .send(encoded_content_to_bytes(read_receipt_encoded_content))
+            .await
+            .unwrap();
+
+        // Step 4: Synchronize all conversations
         conversations_api
             .sync_all_conversations(None)
             .await
             .unwrap();
 
-        // Step 7: Fetch the conversation list
+        // Step 5: Fetch the list of conversations
         let conversations = conversations_api
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        // Step 8: Assert the correct order of conversations
+        // Step 6: Verify the order of conversations by last readable message sent (or recently created if no readable message)
+        // The order should be: 5, 4, 3, 2, 1, 0, 8, 7, 6
         assert_eq!(
             conversations.len(),
-            3,
-            "There should be exactly 3 conversations"
+            9,
+            "There should be exactly 9 conversations"
         );
 
-        // Verify the order: Group C, Group A, Group B
         assert_eq!(
-            conversations[0].conversation.inner.group_id, group_c.inner.group_id,
-            "Group C should be the first conversation"
+            conversations[0].conversation.inner.group_id, groups[5].inner.group_id,
+            "Group 6 should be the first conversation"
         );
         assert_eq!(
-            conversations[1].conversation.inner.group_id, group_a.inner.group_id,
-            "Group A should be the second conversation"
+            conversations[1].conversation.inner.group_id, groups[4].inner.group_id,
+            "Group 5 should be the second conversation"
         );
         assert_eq!(
-            conversations[2].conversation.inner.group_id, group_b.inner.group_id,
-            "Group B should be the third conversation"
+            conversations[2].conversation.inner.group_id, groups[3].inner.group_id,
+            "Group 4 should be the third conversation"
+        );
+        assert_eq!(
+            conversations[3].conversation.inner.group_id, groups[2].inner.group_id,
+            "Group 3 should be the fourth conversation"
+        );
+        assert_eq!(
+            conversations[4].conversation.inner.group_id, groups[1].inner.group_id,
+            "Group 2 should be the fifth conversation"
+        );
+        assert_eq!(
+            conversations[5].conversation.inner.group_id, groups[0].inner.group_id,
+            "Group 1 should be the sixth conversation"
+        );
+        assert_eq!(
+            conversations[6].conversation.inner.group_id, groups[8].inner.group_id,
+            "Group 9 should be the seventh conversation"
+        );
+        assert_eq!(
+            conversations[7].conversation.inner.group_id, groups[7].inner.group_id,
+            "Group 8 should be the eighth conversation"
+        );
+        assert_eq!(
+            conversations[8].conversation.inner.group_id, groups[6].inner.group_id,
+            "Group 7 should be the ninth conversation"
         );
 
-        // Verify the last_message field for Group A and None for others
-        assert!(
-            conversations[0].last_message.is_none(),
-            "Group C should have no messages"
-        );
-        assert!(
-            conversations[1].last_message.is_some(),
-            "Group A should have a last message"
-        );
-        assert_eq!(
-            conversations[1].last_message.as_ref().unwrap().content,
-            "Message to Group A".as_bytes().to_vec(),
-            "Group A's last message content should match"
-        );
-        assert!(
-            conversations[2].last_message.is_none(),
-            "Group B should have no messages"
-        );
+        // Step 7: Verify that for conversations 0 through 5, last_message is Some
+        // Index of group[0] in conversations -> 5
+        for i in 0..=5 {
+            assert!(
+                conversations[5 - i].last_message.is_some(),
+                "Group {} should have a last message",
+                i + 1
+            );
+        }
+
+        // Step 8: Verify that for conversations 6, 7, 8, last_message is None
+        #[allow(clippy::needless_range_loop)]
+        for i in 6..=8 {
+            assert!(
+                conversations[i].last_message.is_none(),
+                "Group {} should have no last message",
+                i + 1
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -5642,7 +5906,7 @@ mod tests {
         // Bo sends read receipt
         let read_receipt_content_id = ContentTypeId {
             authority_id: "xmtp.org".to_string(),
-            type_id: read_receipt::ReadReceiptCodec::TYPE_ID.to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
             version_major: 1,
             version_minor: 0,
         };

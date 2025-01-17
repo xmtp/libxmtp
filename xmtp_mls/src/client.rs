@@ -546,6 +546,20 @@ where
         Ok(group)
     }
 
+    pub async fn create_group_with_inbox_ids(
+        &self,
+        inbox_ids: &[InboxId],
+        permissions_policy_set: Option<PolicySet>,
+        opts: GroupMetadataOptions,
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        tracing::info!("creating group");
+        let group = self.create_group(permissions_policy_set, opts)?;
+
+        group.add_members_by_inbox_id(inbox_ids).await?;
+
+        Ok(group)
+    }
+
     /// Create a new Direct Message with the default settings
     pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with address: {}", account_address);
@@ -563,25 +577,26 @@ where
             }
         };
 
-        self.create_dm_by_inbox_id(&provider, inbox_id).await
+        self.create_dm_by_inbox_id(inbox_id).await
     }
 
     /// Create a new Direct Message with the default settings
-    pub(crate) async fn create_dm_by_inbox_id(
+    pub async fn create_dm_by_inbox_id(
         &self,
-        provider: &XmtpOpenMlsProvider,
         dm_target_inbox_id: InboxId,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
+        let provider = self.mls_provider()?;
+
         let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_dm_and_insert(
-            provider,
+            &provider,
             Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
         )?;
 
         group
-            .add_members_by_inbox_id_with_provider(provider, &[dm_target_inbox_id])
+            .add_members_by_inbox_id_with_provider(&provider, &[dm_target_inbox_id])
             .await?;
 
         // notify any streams of the new group
@@ -943,11 +958,11 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         provider: &XmtpOpenMlsProvider,
-        consent_state: Option<ConsentState>,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(provider).await?;
         let query_args = GroupQueryArgs {
-            consent_state,
+            consent_states,
             include_sync_groups: true,
             include_duplicate_dms: true,
             ..GroupQueryArgs::default()
@@ -1331,7 +1346,10 @@ pub(crate) mod tests {
 
         // Sync with `Unknown`: Bob should not fetch new messages
         let bob_received_groups_unknown = bo
-            .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), Some(ConsentState::Allowed))
+            .sync_all_welcomes_and_groups(
+                &bo.mls_provider().unwrap(),
+                Some([ConsentState::Allowed].to_vec()),
+            )
             .await
             .unwrap();
         assert_eq!(bob_received_groups_unknown, 0);
@@ -1364,7 +1382,10 @@ pub(crate) mod tests {
 
         // Sync with `None`: Bob should fetch all messages
         let bob_received_groups_all = bo
-            .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), Some(ConsentState::Unknown))
+            .sync_all_welcomes_and_groups(
+                &bo.mls_provider().unwrap(),
+                Some([ConsentState::Unknown].to_vec()),
+            )
             .await
             .unwrap();
         assert_eq!(bob_received_groups_all, 2);

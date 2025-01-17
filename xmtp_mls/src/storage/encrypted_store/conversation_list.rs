@@ -70,7 +70,7 @@ impl DbConnection {
             created_before_ns,
             limit,
             conversation_type,
-            consent_state,
+            consent_states,
             include_sync_groups,
             include_duplicate_dms,
         } = args.as_ref();
@@ -111,8 +111,12 @@ impl DbConnection {
             query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut conversations = if let Some(consent_state) = consent_state {
-            if *consent_state == ConsentState::Unknown {
+        let mut conversations = if let Some(consent_states) = consent_states {
+            if consent_states
+                .iter()
+                .any(|state| *state == ConsentState::Unknown)
+            {
+                // Include both `Unknown`, `null`, and other specified states
                 let query = query
                     .left_join(
                         consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
@@ -123,13 +127,21 @@ impl DbConnection {
                     .filter(
                         consent_dsl::state
                             .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown)),
+                            .or(consent_dsl::state.eq(ConsentState::Unknown))
+                            .or(consent_dsl::state.eq_any(
+                                consent_states
+                                    .iter()
+                                    .filter(|state| **state != ConsentState::Unknown)
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                            )),
                     )
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
                 self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
             } else {
+                // Only include the specified states
                 let query = query
                     .inner_join(
                         consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
@@ -137,13 +149,14 @@ impl DbConnection {
                         )
                         .eq(consent_dsl::entity)),
                     )
-                    .filter(consent_dsl::state.eq(*consent_state))
+                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
                     .select(conversation_list::all_columns())
                     .order(conversation_list_dsl::created_at_ns.asc());
 
                 self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
             }
         } else {
+            // Handle the case where `consent_states` is `None`
             self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
         };
 
@@ -167,6 +180,7 @@ pub(crate) mod tests {
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
     };
     use crate::storage::group::{GroupMembershipState, GroupQueryArgs};
+    use crate::storage::group_message::ContentType;
     use crate::storage::tests::with_connection;
     use crate::Store;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -185,7 +199,7 @@ pub(crate) mod tests {
                         None,
                         Some(&group.id),
                         Some(i * 1000),
-                        None,
+                        Some(ContentType::Text),
                     );
                 message.store(conn).unwrap();
             }
@@ -261,7 +275,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(1000),
-                    None,
+                    Some(ContentType::Text),
                 );
             first_message.store(conn).unwrap();
 
@@ -282,7 +296,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(2000),
-                    None,
+                    Some(ContentType::Text),
                 );
             second_message.store(conn).unwrap();
 
@@ -338,14 +352,22 @@ pub(crate) mod tests {
 
             let allowed_results = conn
                 .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_state(ConsentState::Allowed),
+                    GroupQueryArgs::default().consent_states([ConsentState::Allowed].to_vec()),
                 )
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
+            let allowed_unknown_results = conn
+                .fetch_conversation_list(
+                    GroupQueryArgs::default()
+                        .consent_states([ConsentState::Allowed, ConsentState::Unknown].to_vec()),
+                )
+                .unwrap();
+            assert_eq!(allowed_unknown_results.len(), 3);
+
             let denied_results = conn
                 .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_state(ConsentState::Denied),
+                    GroupQueryArgs::default().consent_states([ConsentState::Denied].to_vec()),
                 )
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
@@ -353,7 +375,7 @@ pub(crate) mod tests {
 
             let unknown_results = conn
                 .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_state(ConsentState::Unknown),
+                    GroupQueryArgs::default().consent_states([ConsentState::Unknown].to_vec()),
                 )
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
