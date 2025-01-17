@@ -64,7 +64,7 @@ pub struct LegacyReaction {
 }
 
 impl LegacyReaction {
-    pub fn try_decode_legacy(content: &[u8]) -> Option<String> {
+    pub fn decode(content: &[u8]) -> Option<LegacyReaction> {
         // Try to decode the content as UTF-8 string first
         if let Ok(decoded_content) = String::from_utf8(content.to_vec()) {
             tracing::info!(
@@ -73,7 +73,7 @@ impl LegacyReaction {
             );
             // Try parsing as canonical JSON format
             if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
-                return Some(reaction.reference);
+                return Some(reaction);
             }
             tracing::error!("legacy json deserialization failed");
         } else {
@@ -131,14 +131,13 @@ pub(crate) mod tests {
         });
 
         let content = legacy_json.to_string().into_bytes();
-        let decoded_reference: Option<String> = LegacyReaction::try_decode_legacy(&content);
+        let decoded_reference: String = LegacyReaction::decode(&content).unwrap().reference;
 
-        assert!(decoded_reference.is_some());
-        assert_eq!(decoded_reference.unwrap(), reference);
+        assert_eq!(decoded_reference, reference);
 
         // Test invalid JSON
         let invalid_content = b"invalid json";
-        let failed_decode = LegacyReaction::try_decode_legacy(invalid_content);
+        let failed_decode = LegacyReaction::decode(invalid_content);
         assert!(failed_decode.is_none());
     }
 }

@@ -355,10 +355,10 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
                 ReactionV2::decode(content.content.as_slice())
                     .ok()
-                    .and_then(|r| hex::decode(r.reference).ok())
+                    .and_then(|reaction| hex::decode(reaction.reference).ok())
             }
-            (ReactionCodec::TYPE_ID, _) => LegacyReaction::try_decode_legacy(&content.content)
-                .and_then(|reference| hex::decode(reference).ok()),
+            (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
+                .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
             _ => None,
         };
 
