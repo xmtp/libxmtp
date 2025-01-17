@@ -2174,7 +2174,7 @@ impl FfiStreamCloser {
         self.abort_handle.end();
     }
 
-    /// End the stream and asyncronously wait for it to shutdown
+    /// End the stream and asynchronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
         use xmtp_mls::StreamHandleError::*;
         use GenericError::Generic;
