@@ -565,11 +565,8 @@ impl FfiXmtpClient {
 
     pub async fn backup(&self, path: String, opts: FfiBackupOptions) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        tokio::task::spawn_blocking(move || {
-            let opts: BackupOptions = opts.into();
-            opts.export_to_file(provider, path)
-        })
-        .await??;
+        let opts: BackupOptions = opts.into();
+        opts.export_to_file(provider, path).await?;
 
         Ok(())
     }

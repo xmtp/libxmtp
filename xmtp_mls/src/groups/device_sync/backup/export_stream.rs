@@ -11,7 +11,7 @@ pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
-type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>;
+type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>> + Send>>;
 
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BatchExportStream {
@@ -79,7 +79,7 @@ impl Stream for BatchExportStream {
     }
 }
 
-pub(crate) trait BackupRecordProvider {
+pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
     fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
     where
@@ -117,7 +117,7 @@ where
 
 impl<R> Stream for BackupRecordStreamer<R>
 where
-    R: BackupRecordProvider + Unpin,
+    R: BackupRecordProvider + Unpin + Send,
 {
     type Item = Vec<BackupElement>;
     fn poll_next(
