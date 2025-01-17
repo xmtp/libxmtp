@@ -39,7 +39,7 @@ impl StreamCloser {
 
   /// End the stream and `await` for it to shutdown
   /// Returns the `Result` of the task.
-  /// End the stream and asyncronously wait for it to shutdown
+  /// End the stream and asynchronously wait for it to shutdown
   #[napi]
   pub async fn end_and_wait(&self) -> Result<(), Error> {
     use StreamHandleError::*;
