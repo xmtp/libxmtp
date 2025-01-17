@@ -26,12 +26,14 @@ impl BatchExportStream {
             .iter()
             .flat_map(|&e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave>::new(provider, opts)]
+                    vec![BackupRecordStreamer::<ConsentSave>::new_stream(
+                        provider, opts,
+                    )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put groups before messages.
-                    BackupRecordStreamer::<GroupMessageSave>::new(provider, opts),
-                    BackupRecordStreamer::<GroupSave>::new(provider, opts),
+                    BackupRecordStreamer::<GroupMessageSave>::new_stream(provider, opts),
+                    BackupRecordStreamer::<GroupSave>::new_stream(provider, opts),
                 ],
             })
             .collect();
@@ -99,7 +101,7 @@ impl<R> BackupRecordStreamer<R>
 where
     R: BackupRecordProvider + Unpin + 'static,
 {
-    pub(super) fn new(
+    pub(super) fn new_stream(
         provider: &Arc<XmtpOpenMlsProvider>,
         opts: &BackupOptions,
     ) -> BackupInputStream {
