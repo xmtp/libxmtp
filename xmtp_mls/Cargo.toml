@@ -71,7 +71,6 @@ tracing.workspace = true
 trait-variant.workspace = true
 xmtp_common.workspace = true
 zeroize.workspace = true
-zstd.workspace = true
 
 # XMTP/Local
 xmtp_content_types = { path = "../xmtp_content_types" }

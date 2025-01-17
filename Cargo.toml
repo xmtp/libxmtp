@@ -104,7 +104,6 @@ wasm-bindgen-futures = "0.4.50"
 wasm-bindgen-test = "0.3.50"
 web-sys = "0.3"
 zeroize = "1.8"
-zstd = "0.13"
 
 # Internal Crate Dependencies
 xmtp_api_grpc = { path = "xmtp_api_grpc" }

@@ -7552,7 +7552,6 @@ dependencies = [
  "xmtp_id",
  "xmtp_proto",
  "zeroize",
- "zstd 0.13.2",
 ]
 
 [[package]]
