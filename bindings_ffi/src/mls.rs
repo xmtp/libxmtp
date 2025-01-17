@@ -20,6 +20,7 @@ use xmtp_id::{
 };
 use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -569,21 +570,39 @@ impl FfiXmtpClient {
         &self,
         path: String,
         opts: FfiBackupOptions,
+        key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let opts: BackupOptions = opts.into();
-        opts.export_to_file(provider, path).await?;
+        opts.export_to_file(provider, path, &check_key(key)?)
+            .await?;
 
         Ok(())
     }
 
     /// Load the metadata for a backup to see what it contains.
     /// Reads only the metadata without loading the entire file, so this function is quick.
-    pub async fn backup_metadata(&self, path: String) -> Result<FfiBackupMetadata, GenericError> {
-        let file = tokio::fs::File::open(path).await?;
-        let importer = BackupImporter::open(file).await?;
+    pub async fn backup_metadata(
+        &self,
+        path: String,
+        key: Vec<u8>,
+    ) -> Result<FfiBackupMetadata, GenericError> {
+        let importer = BackupImporter::from_file(path, &check_key(key)?).await?;
         Ok(importer.metadata.into())
     }
+}
+
+fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+    if key.len() < 32 {
+        return Err(GenericError::Generic {
+            err: format!(
+                "The encryption key must be at least {} bytes long.",
+                ENC_KEY_SIZE
+            ),
+        });
+    }
+    key.truncate(ENC_KEY_SIZE);
+    Ok(key)
 }
 
 #[derive(uniffi::Record)]
