@@ -1699,30 +1699,48 @@ fn validate_dm_group(
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {
+    // Validate dm specific immutable metadata
     let metadata = extract_group_metadata(mls_group)?;
 
-    // Check if the conversation type is DM
+    // 1) Check if the conversation type is DM
     if metadata.conversation_type != ConversationType::Dm {
         return Err(GroupError::Generic(
             "Invalid conversation type for DM group".to_string(),
         ));
     }
 
-    // Check if DmMembers are set and validate their contents
-    if let Some(dm_members) = metadata.dm_members {
-        let our_inbox_id = client.inbox_id();
-        if !((dm_members.member_one_inbox_id == added_by_inbox
-            && dm_members.member_two_inbox_id == our_inbox_id)
-            || (dm_members.member_one_inbox_id == our_inbox_id
-                && dm_members.member_two_inbox_id == added_by_inbox))
-        {
+    // 2) If `dm_members` is not set, return an error immediately
+    let dm_members = match &metadata.dm_members {
+        Some(dm) => dm,
+        None => {
             return Err(GroupError::Generic(
-                "DM members do not match expected inboxes".to_string(),
+                "DM group must have DmMembers set".to_string(),
             ));
         }
-    } else {
+    };
+
+    // 3) If the inbox that added this group is our inbox, make sure that
+    //    one of the `dm_members` is our inbox id
+    if added_by_inbox == client.inbox_id() {
+        if !(dm_members.member_one_inbox_id == client.inbox_id()
+            || dm_members.member_two_inbox_id == client.inbox_id())
+        {
+            return Err(GroupError::Generic(
+                "DM group must have our inbox as one of the dm members".to_string(),
+            ));
+        }
+        return Ok(());
+    }
+
+    // 4) Otherwise, make sure one of the `dm_members` is ours, and the other is `added_by_inbox`
+    let is_expected_pair = (dm_members.member_one_inbox_id == added_by_inbox
+        && dm_members.member_two_inbox_id == client.inbox_id())
+        || (dm_members.member_one_inbox_id == client.inbox_id()
+            && dm_members.member_two_inbox_id == added_by_inbox);
+
+    if !is_expected_pair {
         return Err(GroupError::Generic(
-            "DM group must have DmMembers set".to_string(),
+            "DM members do not match expected inboxes".to_string(),
         ));
     }
 
