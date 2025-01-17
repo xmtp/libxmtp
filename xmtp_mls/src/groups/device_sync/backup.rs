@@ -59,9 +59,19 @@ impl BackupOptions {
 #[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{
+        builder::ClientBuilder,
+        groups::GroupMetadataOptions,
+        storage::{
+            consent_record::StoredConsentRecord,
+            group::StoredGroup,
+            group_message::StoredGroupMessage,
+            schema::{consent_records, group_messages, groups},
+        },
+    };
     use backup_exporter::BackupExporter;
     use backup_importer::BackupImporter;
+    use diesel::RunQueryDsl;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -83,10 +93,33 @@ mod tests {
             .unwrap();
         alix_group.send_message(b"hello there").await.unwrap();
 
+        let mut consent_records: Vec<StoredConsentRecord> = alix_provider
+            .conn_ref()
+            .raw_query(|conn| consent_records::table.load(conn))
+            .unwrap();
+        assert_eq!(consent_records.len(), 1);
+        let old_consent_record = consent_records.pop().unwrap();
+
+        let mut groups: Vec<StoredGroup> = alix_provider
+            .conn_ref()
+            .raw_query(|conn| groups::table.load(conn))
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        let old_group = groups.pop().unwrap();
+
+        let old_messages: Vec<StoredGroupMessage> = alix_provider
+            .conn_ref()
+            .raw_query(|conn| group_messages::table.load(conn))
+            .unwrap();
+        assert_eq!(old_messages.len(), 2);
+
         let opts = BackupOptions {
             start_ns: None,
             end_ns: None,
-            elements: vec![BackupElementSelection::Messages],
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
         };
 
         let key = vec![7; 32];
@@ -99,8 +132,47 @@ mod tests {
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
         let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
 
+        // No consent before
+        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+            .conn_ref()
+            .raw_query(|conn| consent_records::table.load(conn))
+            .unwrap();
+        assert_eq!(consent_records.len(), 0);
+
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
         importer.insert(&alix2_provider).await.unwrap();
+
+        // Consent is there after the import
+        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+            .conn_ref()
+            .raw_query(|conn| consent_records::table.load(conn))
+            .unwrap();
+        assert_eq!(consent_records.len(), 1);
+        // It's the same consent record.
+        assert_eq!(consent_records[0], old_consent_record);
+
+        let groups: Vec<StoredGroup> = alix2_provider
+            .conn_ref()
+            .raw_query(|conn| groups::table.load(conn))
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        // It's the same group
+        assert_eq!(groups[0].id, old_group.id);
+
+        let messages: Vec<StoredGroupMessage> = alix2_provider
+            .conn_ref()
+            .raw_query(|conn| group_messages::table.load(conn))
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+        for msg in messages {
+            let old_msg = old_messages.iter().find(|m| msg.id == m.id).unwrap();
+            assert_eq!(old_msg.authority_id, msg.authority_id);
+            assert_eq!(old_msg.decrypted_message_bytes, msg.decrypted_message_bytes);
+            assert_eq!(old_msg.sent_at_ns, msg.sent_at_ns);
+            assert_eq!(old_msg.sender_installation_id, msg.sender_installation_id);
+            assert_eq!(old_msg.sender_inbox_id, msg.sender_inbox_id);
+            assert_eq!(old_msg.group_id, msg.group_id);
+        }
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;
