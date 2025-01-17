@@ -31,3 +31,7 @@ pub fn encoded_content_to_bytes(content: EncodedContent) -> Vec<u8> {
     content.encode(&mut buf).unwrap();
     buf
 }
+
+pub fn bytes_to_encoded_content(bytes: Vec<u8>) -> EncodedContent {
+    EncodedContent::decode(&mut bytes.as_slice()).unwrap()
+}

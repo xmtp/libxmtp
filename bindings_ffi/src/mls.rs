@@ -2253,11 +2253,11 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
-        attachment::AttachmentCodec, encoded_content_to_bytes, group_updated::GroupUpdatedCodec,
-        membership_change::GroupMembershipChangeCodec, reaction::ReactionCodec,
-        read_receipt::ReadReceiptCodec, remote_attachment::RemoteAttachmentCodec,
-        reply::ReplyCodec, text::TextCodec, transaction_reference::TransactionReferenceCodec,
-        ContentCodec,
+        attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
+        group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
+        reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
+        remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
@@ -3062,12 +3062,14 @@ mod tests {
             .unwrap();
 
         // Add messages to the group
+        let text_message_1 = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
         group
-            .send("First message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_1))
             .await
             .unwrap();
+        let text_message_2 = TextCodec::encode("Text message for Group 2".to_string()).unwrap();
         group
-            .send("Second message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_2))
             .await
             .unwrap();
 
@@ -3087,8 +3089,8 @@ mod tests {
 
         let last_message = conversations[0].last_message.as_ref().unwrap();
         assert_eq!(
-            last_message.content,
-            "Second message".as_bytes().to_vec(),
+            TextCodec::decode(bytes_to_encoded_content(last_message.content.clone())).unwrap(),
+            "Text message for Group 2".to_string(),
             "Last message content should be the most recent"
         );
     }
