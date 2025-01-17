@@ -580,6 +580,14 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Import a previous backup
+    pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        importer.insert(&provider).await?;
+        Ok(())
+    }
+
     /// Load the metadata for a backup to see what it contains.
     /// Reads only the metadata without loading the entire file, so this function is quick.
     pub async fn backup_metadata(
