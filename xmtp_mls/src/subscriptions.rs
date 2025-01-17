@@ -988,7 +988,7 @@ pub(crate) mod tests {
             },
         );
 
-        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -1038,7 +1038,7 @@ pub(crate) mod tests {
         let result = notify.wait_for_delivery().await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -1061,7 +1061,7 @@ pub(crate) mod tests {
                 notify_pointer.notify_one();
             });
 
-        alix.create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         notify.wait_for_delivery().await.unwrap();
@@ -1071,7 +1071,7 @@ pub(crate) mod tests {
         }
 
         let dm = bo
-            .create_dm_by_inbox_id(&bo.mls_provider().unwrap(), alix.inbox_id().to_string())
+            .create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
@@ -1114,7 +1114,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+            .create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 

@@ -1250,16 +1250,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             state,
             hex::encode(self.group_id.clone()),
         );
-        conn.insert_or_replace_consent_records(&[consent_record.clone()])?;
+        let new_records = conn
+            .insert_or_replace_consent_records(&[consent_record.clone()])?
+            .into_iter()
+            .map(UserPreferenceUpdate::ConsentUpdate)
+            .collect();
 
         if self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .client
                 .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                    UserPreferenceUpdate::ConsentUpdate(consent_record),
-                ]));
+                .send(LocalEvents::OutgoingPreferenceUpdates(new_records));
         }
 
         Ok(())
@@ -2145,14 +2147,13 @@ pub(crate) mod tests {
 
         let bo_wallet = generate_local_wallet();
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-        let bo_provider = bo.mls_provider().unwrap();
 
         let bo_dm = bo
-            .create_dm_by_inbox_id(&bo_provider, alix.inbox_id().to_string())
+            .create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         let alix_dm = alix
-            .create_dm_by_inbox_id(&alix_provider, bo.inbox_id().to_string())
+            .create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -3601,7 +3602,7 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .create_dm_by_inbox_id(&amal.mls_provider().unwrap(), bola.inbox_id().to_string())
+            .create_dm_by_inbox_id(bola.inbox_id().to_string())
             .await
             .unwrap();
 
