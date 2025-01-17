@@ -110,7 +110,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Backup(#[from] BackupError),
     #[error(transparent)]
-    DecodeError(#[from] prost::DecodeError),
+    Decode(#[from] prost::DecodeError),
 }
 
 impl RetryableError for DeviceSyncError {

@@ -45,9 +45,10 @@ impl BackupOptions {
         self,
         provider: XmtpOpenMlsProvider,
         path: impl AsRef<Path>,
+        key: &[u8],
     ) -> Result<(), DeviceSyncError> {
         let provider = Arc::new(provider);
-        let mut exporter = BackupExporter::new(self, &provider);
+        let mut exporter = BackupExporter::new(self, &provider, key);
         exporter.write_to_file(path).await?;
 
         Ok(())
@@ -88,7 +89,8 @@ mod tests {
             elements: vec![BackupElementSelection::Messages],
         };
 
-        let mut exporter = BackupExporter::new(opts, &alix_provider);
+        let key = vec![7; 32];
+        let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
         let path = Path::new("archive.zstd");
         let _ = std::fs::remove_file(path);
         exporter.write_to_file(path).await.unwrap();
@@ -97,8 +99,10 @@ mod tests {
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
         let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
 
-        let file = tokio::fs::File::open(path).await.unwrap();
-        let mut importer = BackupImporter::open(file).await.unwrap();
+        let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
         importer.insert(&alix2_provider).await.unwrap();
+
+        // cleanup
+        let _ = tokio::fs::remove_file(path).await;
     }
 }

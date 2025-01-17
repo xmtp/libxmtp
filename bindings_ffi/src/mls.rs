@@ -460,6 +460,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         self.inner_client
@@ -499,7 +500,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Revokes or removes an identity - really a wallet address - from the existing client
+    /// Revokes or removes an identity from the existing client
     pub async fn revoke_wallet(
         &self,
         wallet_address: &str,
@@ -563,7 +564,12 @@ impl FfiXmtpClient {
         }))
     }
 
-    pub async fn backup(&self, path: String, opts: FfiBackupOptions) -> Result<(), GenericError> {
+    /// Backup your application to file for later restoration.
+    pub async fn backup_to_file(
+        &self,
+        path: String,
+        opts: FfiBackupOptions,
+    ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let opts: BackupOptions = opts.into();
         opts.export_to_file(provider, path).await?;
@@ -571,12 +577,15 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    pub async fn metadata(&self, path: String) -> Result<FfiBackupMetadata, GenericError> {
+    /// Load the metadata for a backup to see what it contains.
+    /// Reads only the metadata without loading the entire file, so this function is quick.
+    pub async fn backup_metadata(&self, path: String) -> Result<FfiBackupMetadata, GenericError> {
         let file = tokio::fs::File::open(path).await?;
         let importer = BackupImporter::open(file).await?;
         Ok(importer.metadata.into())
     }
 }
+
 #[derive(uniffi::Record)]
 pub struct FfiBackupMetadata {
     backup_version: u32,

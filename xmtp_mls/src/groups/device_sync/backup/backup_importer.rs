@@ -1,27 +1,62 @@
 use crate::{
+    groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
         DbConnection, ProviderTransactions, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
+use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
+use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
+
+use super::BackupError;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
 
 pub struct BackupImporter {
+    pub metadata: BackupMetadata,
     decoded: Vec<u8>,
     decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
-    pub metadata: BackupMetadata,
+
+    cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
+    nonce: GenericArray<u8, typenum::U12>,
 }
 
 impl BackupImporter {
-    async fn next_element(&mut self) -> Result<Option<BackupElement>, StorageError> {
+    pub(super) async fn load(
+        mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
+        key: &[u8],
+    ) -> Result<Self, DeviceSyncError> {
+        let mut nonce = [0; NONCE_SIZE];
+        reader.read_exact(&mut nonce).await?;
+
+        let mut importer = Self {
+            decoder: ZstdDecoder::new(reader),
+            decoded: vec![],
+            metadata: BackupMetadata::default(),
+
+            cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+            nonce: GenericArray::from(nonce),
+        };
+
+        let Some(BackupElement {
+            element: Some(Element::Metadata(metadata)),
+        }) = importer.next_element().await?
+        else {
+            return Err(BackupError::MissingMetadata)?;
+        };
+
+        importer.metadata = metadata;
+        Ok(importer)
+    }
+
+    async fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
         let mut buffer = [0u8; 1024];
         let mut element_len = 0;
         loop {
@@ -34,7 +69,10 @@ impl BackupImporter {
             }
 
             if element_len != 0 && self.decoded.len() >= element_len {
-                let element = BackupElement::decode(&self.decoded[..element_len]);
+                let decrypted = self
+                    .cipher
+                    .decrypt(&self.nonce, &self.decoded[..element_len])?;
+                let element = BackupElement::decode(&*decrypted);
                 self.decoded.drain(..element_len);
                 return Ok(Some(
                     element.map_err(|e| StorageError::Deserialization(e.to_string()))?,
@@ -49,16 +87,22 @@ impl BackupImporter {
         Ok(None)
     }
 
-    pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
+    pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
         provider
             .transaction_async(|provider| async move {
                 let conn = provider.conn_ref();
-                while let Some(element) = self.next_element().await? {
+                while let Some(element) = self
+                    .next_element()
+                    .await
+                    .map_err(|e| StorageError::Generic(e.to_string()))?
+                {
                     insert(element, conn)?;
                 }
                 Ok(())
             })
             .await
+            .map_err(|e| DeviceSyncError::Storage(e))?;
+        Ok(())
     }
 
     pub fn metadata(&self) -> &BackupMetadata {
