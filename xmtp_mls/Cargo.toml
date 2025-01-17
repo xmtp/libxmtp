@@ -122,6 +122,9 @@ tokio = { workspace = true, features = [
     "rt",
     "rt-multi-thread",
 ] }
+tokio-util = { version = "0.7", default-features = false, features = [
+    "compat",
+] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

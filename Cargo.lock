@@ -245,9 +245,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df895a515f70646414f4b45c0b79082783b80552b373a68283012928df56f522"
 dependencies = [
  "futures-core",
+ "futures-io",
  "memchr",
  "pin-project-lite",
- "tokio",
  "zstd 0.13.2",
  "zstd-safe 7.2.1",
 ]
@@ -6072,6 +6072,7 @@ checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -7536,6 +7537,7 @@ dependencies = [
  "tls_codec",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",

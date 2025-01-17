@@ -1,14 +1,13 @@
 use super::{export_stream::BatchExportStream, BackupOptions};
 use crate::{groups::device_sync::DeviceSyncError, XmtpOpenMlsProvider};
-use async_compression::tokio::write::ZstdEncoder;
-use futures::{pin_mut, StreamExt};
+use async_compression::futures::write::ZstdEncoder;
+use futures::{pin_mut, task::Context, AsyncRead, AsyncReadExt, AsyncWriteExt, StreamExt};
 use prost::Message;
-use std::{future::Future, path::Path, pin::Pin, sync::Arc, task::Poll};
-use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
-};
+use std::{future::Future, io, path::Path, pin::Pin, sync::Arc, task::Poll};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
+
+#[cfg(not(target_arch = "wasm32"))]
+mod file_export;
 
 pub(super) struct BackupExporter {
     stage: Stage,
@@ -37,29 +36,14 @@ impl BackupExporter {
             encoder_finished: false,
         }
     }
-
-    pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
-        let mut file = File::create(path.as_ref()).await?;
-        let mut buffer = [0u8; 1024];
-
-        let mut amount = self.read(&mut buffer).await?;
-        while amount != 0 {
-            file.write(&buffer[..amount]).await?;
-            amount = self.read(&mut buffer).await?;
-        }
-
-        file.flush().await?;
-
-        Ok(())
-    }
 }
 
 impl AsyncRead for BackupExporter {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
 
         {
@@ -67,11 +51,11 @@ impl AsyncRead for BackupExporter {
             let buffer_inner = this.zstd_encoder.get_ref();
             if this.position < buffer_inner.len() {
                 let available = &buffer_inner[this.position..];
-                let amount = available.len().min(buf.remaining());
-                buf.put_slice(&available[..amount]);
+                let amount = available.len().min(buf.len());
+                buf[..amount].copy_from_slice(&available[..amount]);
                 this.position += amount;
 
-                return Poll::Ready(Ok(()));
+                return Poll::Ready(Ok(amount));
             }
         }
 
@@ -95,7 +79,7 @@ impl AsyncRead for BackupExporter {
                     Poll::Ready(None) => {
                         if !this.encoder_finished {
                             this.encoder_finished = true;
-                            let fut = this.zstd_encoder.shutdown();
+                            let fut = this.zstd_encoder.close();
                             pin_mut!(fut);
                             let _ = fut.poll(cx)?;
                         }
@@ -106,6 +90,7 @@ impl AsyncRead for BackupExporter {
 
             let mut bytes = (element.len() as u32).to_le_bytes().to_vec();
             bytes.append(&mut element);
+
             let fut = this.zstd_encoder.write(&bytes);
             pin_mut!(fut);
             match fut.poll(cx) {
@@ -123,7 +108,7 @@ impl AsyncRead for BackupExporter {
         }
 
         if this.zstd_encoder.get_ref().is_empty() {
-            Poll::Ready(Ok(()))
+            Poll::Ready(Ok(0))
         } else {
             Pin::new(&mut *this).poll_read(cx, buf)
         }
