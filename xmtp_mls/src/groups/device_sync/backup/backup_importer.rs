@@ -1,6 +1,4 @@
-use super::BackupError;
 use crate::{
-    groups::device_sync::DeviceSyncError,
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
         DbConnection, ProviderTransactions, StorageError,
@@ -8,10 +6,9 @@ use crate::{
     Store, XmtpOpenMlsProvider,
 };
 use async_compression::futures::bufread::ZstdDecoder;
-use futures::{io::BufReader, AsyncBufRead, AsyncRead, AsyncReadExt};
+use futures::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use std::pin::Pin;
-use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
 
 #[cfg(not(target_arch = "wasm32"))]
