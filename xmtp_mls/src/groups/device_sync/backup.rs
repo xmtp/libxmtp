@@ -40,14 +40,14 @@ impl From<BackupOptions> for BackupMetadata {
 }
 
 impl BackupOptions {
-    pub fn export_to_file(
+    pub async fn export_to_file(
         self,
         provider: XmtpOpenMlsProvider,
         path: impl AsRef<Path>,
     ) -> Result<(), DeviceSyncError> {
         let provider = Arc::new(provider);
         let mut exporter = BackupExporter::new(self, &provider);
-        exporter.write_to_file(path)?;
+        exporter.write_to_file(path).await?;
 
         Ok(())
     }
@@ -89,7 +89,7 @@ mod tests {
         let mut exporter = BackupExporter::new(opts, &alix_provider);
         let path = Path::new("archive.zstd");
         let _ = std::fs::remove_file(path);
-        exporter.write_to_file(path).unwrap();
+        exporter.write_to_file(path).await.unwrap();
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;

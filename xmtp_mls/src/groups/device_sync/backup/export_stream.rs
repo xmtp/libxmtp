@@ -1,6 +1,7 @@
 use super::BackupOptions;
 use crate::XmtpOpenMlsProvider;
-use std::{marker::PhantomData, sync::Arc};
+use futures::{Stream, StreamExt};
+use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
     BackupElement, BackupElementSelection,
@@ -10,10 +11,7 @@ pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
-pub(super) trait ExportStream {
-    fn next(&mut self) -> Option<Vec<BackupElement>>;
-}
-type BackupInputStream = Box<dyn ExportStream>;
+type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>>>>;
 
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BatchExportStream {
@@ -45,26 +43,38 @@ impl BatchExportStream {
     }
 }
 
-impl BatchExportStream {
-    pub(super) fn next(&mut self) -> Option<BackupElement> {
-        if let Some(element) = self.buffer.pop() {
-            return Some(element);
+impl Stream for BatchExportStream {
+    type Item = BackupElement;
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if let Some(element) = this.buffer.pop() {
+            return Poll::Ready(Some(element));
         }
 
         loop {
-            let Some(last) = self.input_streams.last_mut() else {
+            let Some(last) = this.input_streams.last_mut() else {
                 // No streams left, we're done.
-                return None;
+                return Poll::Ready(None);
             };
 
-            if let Some(buffer) = last.next() {
-                self.buffer = buffer;
-                if let Some(element) = self.buffer.pop() {
-                    return Some(element);
+            match last.poll_next_unpin(cx) {
+                Poll::Ready(Some(buffer)) => {
+                    this.buffer = buffer;
+                    if let Some(element) = this.buffer.pop() {
+                        return Poll::Ready(Some(element));
+                    }
                 }
+                Poll::Ready(None) => {
+                    // It's ended - pop the stream off below and continue
+                }
+                Poll::Pending => return Poll::Pending,
             }
 
-            self.input_streams.pop();
+            this.input_streams.pop();
         }
     }
 }
@@ -87,7 +97,7 @@ pub(crate) struct BackupRecordStreamer<R> {
 
 impl<R> BackupRecordStreamer<R>
 where
-    R: BackupRecordProvider + 'static,
+    R: BackupRecordProvider + Unpin + 'static,
 {
     pub(super) fn new(
         provider: &Arc<XmtpOpenMlsProvider>,
@@ -101,26 +111,27 @@ where
             _phantom: PhantomData,
         };
 
-        Box::new(stream)
+        Box::pin(stream)
     }
 }
 
-impl<R> ExportStream for BackupRecordStreamer<R>
+impl<R> Stream for BackupRecordStreamer<R>
 where
-    R: BackupRecordProvider,
+    R: BackupRecordProvider + Unpin,
 {
-    fn next(&mut self) -> Option<Vec<BackupElement>> {
-        let batch = R::backup_records(self);
+    type Item = Vec<BackupElement>;
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let batch = R::backup_records(this);
 
-        // If no records found, we've reached the end of the stream
         if batch.is_empty() {
-            return None;
+            return Poll::Ready(None);
         }
 
-        // Update offset for next batch
-        self.offset += R::BATCH_SIZE;
-
-        // Return the current batch
-        Some(batch)
+        this.offset += R::BATCH_SIZE;
+        Poll::Ready(Some(batch))
     }
 }
