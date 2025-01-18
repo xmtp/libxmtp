@@ -14,7 +14,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use xmtp_common::StreamWrapper;
+use xmtp_common::{StreamWrapper, Fairness};
 use xmtp_proto::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -50,6 +50,7 @@ where
         let this = self.as_mut().project();
         match this.inner.poll(cx) {
             Ready(response) => {
+                tracing::info!("ESTABLISH READY");
                 let stream = response
                     .inspect_err(|e| {
                         tracing::error!(
@@ -57,10 +58,11 @@ where
                         );
                     })
                     .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
+                tracing::info!("Calling bytes stream!");
                 Ready(Ok(StreamWrapper::new(stream.bytes_stream())))
             }
             Pending => {
-                cx.waker().wake_by_ref();
+                Fairness::wake();
                 Pending
             }
         }
@@ -89,22 +91,27 @@ where
         let this = self.project();
         match this.http.poll_next(cx) {
             Ready(Some(bytes)) => {
+                tracing::info!("READY THIS IS WHAT WE WANT");
                 let bytes = bytes
                     .inspect_err(|e| tracing::error!("Error in http stream to grpc gateway {e}"))
                     .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
                 match Self::on_bytes(bytes, this.remaining)? {
                     None => {
-                        cx.waker().wake_by_ref();
+                        tracing::info!("ON BYTES NONE PENDING");
+                        xmtp_common::Fairness::wake();
                         Pending
                     },
-                    Some(r) => Ready(Some(Ok(r))),
+                    Some(r) => {
+                        tracing::info!("READY");
+                        Ready(Some(Ok(r)))
+                    },
                 }
             }
             Ready(None) => Ready(None),
             Pending => {
-                cx.waker().wake_by_ref();
+                xmtp_common::Fairness::wake();
                 Pending
-            }
+            },
         }
     }
 }
@@ -114,6 +121,7 @@ where
     R: Send + 'static,
 {
     pub fn new(establish: StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>) -> Self {
+        tracing::info!("New post stream");
         Self {
             http: establish,
             remaining: Vec::new(),
@@ -162,10 +170,10 @@ pin_project! {
     #[project = ProjectHttpStream]
     enum HttpStream<'a, F, R> {
         NotStarted {
-            #[pin] future: HttpStreamEstablish<'a, F>
+            #[pin] future: HttpStreamEstablish<'a, F>,
         },
         Started {
-            #[pin] stream: HttpPostStream<'a, R>
+            #[pin] stream: HttpPostStream<'a, R>,
         }
     }
 }
@@ -196,16 +204,26 @@ where
         match this {
             NotStarted { future } => match future.poll(cx) {
                 Ready(stream) => {
-                    self.set(Self::Started { stream: HttpPostStream::new(stream?)} );
+                    tracing::info!("READY TOP LEVEL");
+                    self.set(Self::Started { stream: HttpPostStream::new(stream?) } );
+                    // cx.waker().wake_by_ref();
+                    // tracing::info!("POLLING STREAM NEXT");
                     self.poll_next(cx)
                 },
                 Pending => {
+                    Fairness::wake();
                     cx.waker().wake_by_ref();
                     Pending
                 }
             },
             Started { stream } => {
-                stream.poll_next(cx)
+                Fairness::wake();
+                let p = stream.poll_next(cx);
+                if let Pending = p {
+                    Fairness::wake();
+                    cx.waker().wake_by_ref();
+                }
+                p
             }
         }
     }
@@ -220,7 +238,6 @@ impl<'a, F, R> std::fmt::Debug for HttpStream<'a, F, R> {
     }
 }
 
-
 #[cfg(not(target_arch = "wasm32"))]
 impl<'a, F, R> HttpStream<'a, F, R>
 where
@@ -228,7 +245,7 @@ where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
     /// Establish the initial HTTP Stream connection
-    fn establish(&mut self) -> () {
+    async fn establish(&mut self) {
         // we need to poll the future once to progress the future state &
         // establish the initial POST request.
         // It should always be pending
@@ -249,15 +266,16 @@ where
     F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
-    fn establish(&mut self) -> () {
+    async fn establish(&mut self) {
+        tracing::info!("Establishing...");
         // we need to poll the future once to progress the future state &
         // establish the initial POST request.
         // It should always be pending
         let noop_waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&noop_waker);
         let mut this = unsafe { Pin::new_unchecked(self) };
-        if let Poll::Ready(_) =  this.as_mut().poll_next(&mut cx) {
-            tracing::error!("stream ready before establish");
+        if let Poll::Ready(_) = this.as_mut().poll_next(&mut cx) {
+            tracing::info!("stream ready before established...");
             unreachable!()
         }
     }
@@ -305,6 +323,6 @@ where
     tracing::info!("CREATING STREAM");
     let request = http_client.post(endpoint).json(&request).send();
     let mut http = HttpStream::new(request);
-    http.establish();
+    http.establish().await;
     Ok(http)
 }
