@@ -2,7 +2,6 @@
 , sqlite
 , perl
 , binutils
-, libiconv
 , lib
 , pkg-config
 , stdenv
@@ -29,8 +28,6 @@ let
       stdenv.cc
       perl
       binutils
-    ] ++ lib.optionals isDarwin [
-      libiconv
     ];
 
     # Dependencies which need to be built for the platform on which
@@ -41,13 +38,13 @@ let
       openssl
       sqlite
     ] ++ lib.optionals isDarwin [
-      libiconv
       frameworks.Security
       frameworks.SystemConfiguration
     ];
   };
 
   linkerArgs = {
+    # MAYBE INCORRECT DEPENDING ON MEANING OF HOST/TARGET in stdenv.cc/gcc
     HOST_CC = "${stdenv.cc.nativePrefix}cc";
     TARGET_CC = "${stdenv.cc.targetPrefix}cc";
     "${upperTarget}_OPENSSL_DIR" = "${openssl.out}";
@@ -58,17 +55,6 @@ let
     # See: https://doc.rust-lang.org/cargo/reference/config.html#target
     # "CARGO_TARGET_${upperTarget}_LINKER" = "${cross.stdenv.cc.targetPrefix}cc";
     "CARGO_TARGET_${upperTarget}_LINKER" = "${stdenv.cc.targetPrefix}cc";
-    # CARGO_BUILD_RUSTFLAGS = [
-    #   # "-C" "target-feature=+crt-static"
-    #
-    #   # -latomic is required to build openssl-sys for armv6l-linux, but
-    #   # it doesn't seem to hurt any other builds.
-    #   # "-C" "link-args=-static -latomic"
-    #
-    #   # https://github.com/rust-lang/cargo/issues/4133
-    #   # "-C"
-    #   # "linker=${TARGET_CC}"
-    # ];
   };
 
   cargoArtifacts = craneLib.buildDepsOnly (commonArgs // linkerArgs);
