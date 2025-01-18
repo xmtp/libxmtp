@@ -91,17 +91,23 @@ impl BackupImporter {
         provider
             .transaction_async(|provider| async move {
                 let conn = provider.conn_ref();
-                while let Some(element) = self
-                    .next_element()
-                    .await
-                    .map_err(|e| StorageError::Generic(e.to_string()))?
-                {
-                    insert(element, conn)?;
+
+                loop {
+                    match self.next_element().await {
+                        Ok(Some(element)) => {
+                            insert(element, conn)?;
+                        }
+                        Ok(None) => break,
+                        Err(err) => {
+                            return Ok::<Result<(), DeviceSyncError>, StorageError>(Err(err))
+                        }
+                    }
                 }
-                Ok(())
+
+                Ok(Ok(()))
             })
-            .await
-            .map_err(DeviceSyncError::Storage)?;
+            .await??;
+
         Ok(())
     }
 
