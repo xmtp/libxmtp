@@ -122,6 +122,7 @@ pin_project! {
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
         #[pin] state: ProcessState<'a, C>,
+        // fairness: xmtp_common::Fairness
     }
 }
 
@@ -180,6 +181,7 @@ where
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
+
         let provider = client.mls_provider()?;
         let conn = provider.conn_ref();
         let installation_key = client.installation_public_key();
@@ -208,6 +210,7 @@ where
             known_welcome_ids,
             conversation_type,
             state: ProcessState::Waiting,
+            // fairness: xmtp_common::Fairness::default(),
         })
     }
 }
@@ -233,6 +236,7 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
+                        tracing::info!("READY, STARTING TO PROCESS");
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
@@ -252,16 +256,20 @@ where
                     }
                     // stream ended
                     Ready(None) => {
+                        tracing::info!("READY NONE");
                         Ready(None)
                     },
                     Pending => {
+                        xmtp_common::Fairness::wake();
                         cx.waker().wake_by_ref();
                         Pending
                     }
                 }
             },
             Processing { future } => {
+                tracing::info!("PROCESSING");
                 let poll = future.poll(cx);
+                // this.fairness.wake();
                 self.as_mut().try_process(poll, cx)
             }
         }
@@ -283,6 +291,7 @@ where
         let mut this = self.as_mut().project();
         match poll {
             Ready(Ok(Some((group, welcome_id)))) => {
+                tracing::info!("finished processing with group, returning");
                 if let Some(id) = welcome_id {
                     this.known_welcome_ids.insert(id);
                 }
@@ -291,12 +300,14 @@ where
             }
             // we are ignoring this payload
             Ready(Ok(None)) => {
+                tracing::info!("Ignoring this payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 cx.waker().wake_by_ref();
                 Pending
             }
             Ready(Err(e)) => Ready(Some(Err(e))),
             Pending => {
+                xmtp_common::Fairness::wake();
                 cx.waker().wake_by_ref();
                 Pending
             }
@@ -355,6 +366,7 @@ where
     /// Process the welcome. if its a group, create the group and return it.
     pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
         use WelcomeOrGroup::*;
+        xmtp_common::yield_().await;
         let (group, welcome_id) = match self.item {
             Welcome(ref w) => {
                 let welcome = extract_welcome_message(w)?;
@@ -470,7 +482,7 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_welcomes() {
         xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -480,12 +492,12 @@ mod test {
             .unwrap();
 
         let mut stream = StreamConversations::new(&bob, None).await.unwrap();
-        // futures::pin_mut!(stream);
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
+        tracing::info!("WAITING FOR NEXT STREAM ITEM");
         let bob_received_groups = stream.next().await.unwrap().unwrap();
         assert_eq!(bob_received_groups.group_id, group_id);
     }
