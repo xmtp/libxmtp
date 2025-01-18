@@ -72,12 +72,11 @@ impl Stream for BatchExportStream {
                     }
                 }
                 Poll::Ready(None) => {
-                    // It's ended - pop the stream off below and continue
+                    // It's ended - pop the stream off and continue
+                    this.input_streams.pop();
                 }
                 Poll::Pending => return Poll::Pending,
             }
-
-            this.input_streams.pop();
         }
     }
 }
