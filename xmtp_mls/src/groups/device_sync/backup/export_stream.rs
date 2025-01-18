@@ -31,11 +31,12 @@ impl BatchExportStream {
                     )]
                 }
                 BackupElementSelection::Messages => vec![
-                    // Order matters here. Don't put groups before messages.
-                    BackupRecordStreamer::<GroupMessageSave>::new_stream(provider, opts),
+                    // Order matters here. Don't put messages before groups.
                     BackupRecordStreamer::<GroupSave>::new_stream(provider, opts),
+                    BackupRecordStreamer::<GroupMessageSave>::new_stream(provider, opts),
                 ],
             })
+            .rev()
             .collect();
 
         Self {
