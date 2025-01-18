@@ -56,7 +56,7 @@ openmls_traits = { workspace = true }
 parking_lot.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { version = "0.12.4", features = ["stream"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
 sha2.workspace = true

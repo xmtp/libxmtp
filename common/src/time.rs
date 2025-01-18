@@ -80,7 +80,6 @@ pub async fn sleep(duration: Duration) {
         let worker = js_sys::global()
             .dyn_into::<WorkerGlobalScope>()
             .expect("xmtp_mls should always act in worker in browser");
-
         worker
             .set_timeout_with_callback_and_timeout_and_arguments_0(
                 &resolve,

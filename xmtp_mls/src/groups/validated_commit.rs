@@ -94,13 +94,32 @@ impl RetryableError for CommitValidationError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Hash)]
 pub struct CommitParticipant {
     pub inbox_id: String,
     pub installation_id: Vec<u8>,
     pub is_creator: bool,
     pub is_admin: bool,
     pub is_super_admin: bool,
+}
+
+impl std::fmt::Debug for CommitParticipant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            ref inbox_id,
+            ref installation_id,
+            ref is_creator,
+            ref is_admin,
+            ref is_super_admin,
+        } = self;
+        write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
+            inbox_id,
+            hex::encode(&installation_id),
+            is_creator,
+            is_admin,
+            is_super_admin,
+        )
+    }
 }
 
 impl CommitParticipant {

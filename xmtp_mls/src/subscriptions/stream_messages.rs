@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use super::{FutureWrapper, Result, SubscribeError};
+use super::{Result, SubscribeError};
 use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
@@ -17,6 +17,7 @@ use crate::{
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
+use xmtp_common::FutureWrapper;
 use xmtp_common::{retry_async, Retry};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
