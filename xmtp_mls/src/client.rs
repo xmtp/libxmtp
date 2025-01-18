@@ -910,8 +910,7 @@ where
         &self,
         groups: Vec<MlsGroup<Self>>,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<usize, GroupError> {
-        let active_group_count = Arc::new(AtomicUsize::new(0));
+    ) -> Result<usize, GroupError> { let active_group_count = Arc::new(AtomicUsize::new(0));
 
         let sync_futures = groups
             .into_iter()

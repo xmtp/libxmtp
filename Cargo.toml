@@ -100,6 +100,7 @@ wasm-bindgen-test = "0.3.50"
 web-sys = "0.3"
 zeroize = "1.8"
 pin-project-lite = "0.2"
+reqwest = { version = "0.12.5", features = ["json", "stream"] }
 
 # Internal Crate Dependencies
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
@@ -156,3 +157,6 @@ diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 sqlite-web = { git = "https://github.com/xmtp/sqlite-web-rs", branch = "main" }
+reqwest = { path = "/Users/insipx/Projects/seanmonster/reqwest" }
+wasm-streams = { path = "/Users/insipx/Projects/wasm-streams" }
+

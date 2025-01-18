@@ -4818,8 +4818,6 @@ dependencies = [
 [[package]]
 name = "reqwest"
 version = "0.12.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4852,6 +4850,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-util",
  "tower-service",
+ "tracing",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -6907,11 +6906,10 @@ dependencies = [
 [[package]]
 name = "wasm-streams"
 version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
 dependencies = [
  "futures-util",
  "js-sys",
+ "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -7395,6 +7393,7 @@ dependencies = [
  "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
