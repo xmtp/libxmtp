@@ -3745,6 +3745,90 @@ mod tests {
         assert_eq!(client2_members.len(), 2);
     }
 
+    // ... existing code ...
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_create_new_installation_can_see_dm() {
+        // Create two wallets
+        let wallet1_key = &mut rng();
+        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
+        let wallet2_key = &mut rng();
+        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+
+        // Create initial clients
+        let client1 = new_test_client_with_wallet(wallet1.clone()).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Create DM from client1 to client2
+        let dm_group = client1
+            .conversations()
+            .create_dm(client2.account_address.clone())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Verify both clients can see the DM
+        let client1_groups = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        let client2_groups = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(client1_groups.len(), 1, "Client1 should see 1 conversation");
+        assert_eq!(client2_groups.len(), 1, "Client2 should see 1 conversation");
+
+        // Create a second client1 with same wallet
+        let client1_second = new_test_client_with_wallet(wallet1).await;
+
+        // Verify client1_second starts with no conversations
+        let initial_conversations = client1_second
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            initial_conversations.len(),
+            0,
+            "New client should start with no conversations"
+        );
+
+        // Send message from client1 to client2
+        dm_group
+            .send("Hello from client1".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Sync all clients
+        client1.conversations().sync().await.unwrap();
+        // client2.conversations().sync().await.unwrap();
+
+        tracing::info!(
+            "ABOUT TO SYNC CLIENT 1 SECOND: {}",
+            client1_second.inbox_id().to_string()
+        );
+        client1_second.conversations().sync().await.unwrap();
+
+        // Verify second client1 can see the DM
+        let client1_second_groups = client1_second
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            client1_second_groups.len(),
+            1,
+            "Second client1 should see 1 conversation"
+        );
+        assert_eq!(
+            client1_second_groups[0].conversation.id(),
+            dm_group.id(),
+            "Second client1's conversation should match original DM"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installations_does_not_fork_group() {
         let bo_wallet_key = &mut rng();
