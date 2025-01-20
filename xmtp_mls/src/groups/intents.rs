@@ -243,13 +243,13 @@ impl UpdateMetadataIntentData {
 
     pub fn new_update_group_message_expiration_from_ms(expire_from_ms: i64) -> Self {
         Self {
-            field_name: MetadataField::MessageExpirationFromMillis.to_string(),
+            field_name: MetadataField::MessageDisappearFromNS.to_string(),
             field_value: expire_from_ms.to_string(),
         }
     }
     pub fn new_update_group_message_expiration_in_ms(expire_in_ms: i64) -> Self {
         Self {
-            field_name: MetadataField::MessageExpirationMillis.to_string(),
+            field_name: MetadataField::MessageDisappearInNS.to_string(),
             field_value: expire_in_ms.to_string(),
         }
     }

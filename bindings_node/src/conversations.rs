@@ -16,6 +16,7 @@ use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use crate::conversation::ConversationMessageDisappearingSettings;
 
 #[napi]
 #[derive(Debug)]
@@ -122,8 +123,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub group_pinned_frame_url: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  pub message_expiration_from_ms: Option<i64>,
-  pub message_expiration_ms: Option<i64>,
+  pub message_disappearing_settings: Option<ConversationMessageDisappearingSettings>,
 }
 
 impl CreateGroupOptions {
@@ -133,8 +133,7 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_expiration_from_ms: self.message_expiration_from_ms,
-      message_expiration_ms: self.message_expiration_ms,
+      message_disappearing_settings: None //todo: fix mapping,
     }
   }
 }
@@ -163,8 +162,7 @@ impl Conversations {
       group_description: None,
       group_pinned_frame_url: None,
       custom_permission_policy_set: None,
-      message_expiration_from_ms: None,
-      message_expiration_ms: None,
+      message_disappearing_settings: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {

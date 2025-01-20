@@ -46,8 +46,8 @@ pub enum MetadataField {
     Description,
     GroupImageUrlSquare,
     GroupPinnedFrameUrl,
-    MessageExpirationFromMillis,
-    MessageExpirationMillis,
+    MessageDisappearFromNS,
+    MessageDisappearInNS,
 }
 
 impl MetadataField {
@@ -58,8 +58,8 @@ impl MetadataField {
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
-            MetadataField::MessageExpirationFromMillis => "message_expiration_from_ms",
-            MetadataField::MessageExpirationMillis => "message_expiration_ms",
+            MetadataField::MessageDisappearFromNS => "message_expiration_from_ms",
+            MetadataField::MessageDisappearInNS => "message_expiration_ms",
         }
     }
 }
@@ -71,22 +71,24 @@ impl fmt::Display for MetadataField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GroupMessageExpirationSettings {
-    pub expire_from_ms: i64,
-    pub expire_in_ms: i64,
+pub struct ConversationMessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
 }
 
-impl GroupMessageExpirationSettings {
-    pub fn new(expire_from_ms: i64, expire_in_ms: i64) -> Self {
+impl ConversationMessageDisappearingSettings {
+    pub fn new(from_ns: i64, in_ns: i64) -> Self {
         Self {
-            expire_from_ms,
-            expire_in_ms,
+            from_ns,
+            in_ns,
         }
     }
 }
 
-impl Default for GroupMessageExpirationSettings {
-    fn default() -> Self {Self::new(0, 0)}
+impl Default for ConversationMessageDisappearingSettings {
+    fn default() -> Self {
+        Self::new(0, 0)
+    }
 }
 
 /// Represents the mutable metadata for a group.
@@ -144,14 +146,14 @@ impl GroupMutableMetadata {
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
 
-        if let Some(message_retention_settings) = opts.message_retention_settings {
+        if let Some(message_retention_settings) = opts.message_disappearing_settings {
             attributes.insert(
-                MetadataField::MessageExpirationFromMillis.to_string(),
-                message_retention_settings.expire_from_ms.to_string(),
+                MetadataField::MessageDisappearFromNS.to_string(),
+                message_retention_settings.from_ns.to_string(),
             );
             attributes.insert(
-                MetadataField::MessageExpirationMillis.to_string(),
-                message_retention_settings.expire_in_ms.to_string(),
+                MetadataField::MessageDisappearInNS.to_string(),
+                message_retention_settings.in_ns.to_string(),
             );
         }
 
@@ -202,7 +204,8 @@ impl GroupMutableMetadata {
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
             MetadataField::GroupPinnedFrameUrl,
-            MetadataField::MessageExpirationMillis,
+            MetadataField::MessageDisappearFromNS,
+            MetadataField::MessageDisappearInNS,
         ]
     }
 

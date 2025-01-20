@@ -1,5 +1,4 @@
 use super::{GroupError, MlsGroup};
-use crate::groups::group_mutable_metadata::GroupMessageExpirationSettings;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -429,10 +428,7 @@ where
     async fn delete_expired_messages(&mut self) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Err(e) = provider.conn_ref().delete_expired_messages() {
-            tracing::error!(
-                "Failed to delete expired messages for group: {:?}, error: {:?}",
-                e
-            );
+            tracing::error!("Failed to delete expired messages, error: {:?}", e);
         }
         Ok(())
     }

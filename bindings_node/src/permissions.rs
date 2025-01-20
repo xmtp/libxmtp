@@ -217,7 +217,7 @@ impl GroupPermissions {
         XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
       ),
       update_message_expiration_ms_policy: get_policy(
-        XmtpMetadataField::MessageExpirationMillis.as_str(),
+        XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
     })
   }
@@ -246,7 +246,7 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       policy_set.update_group_pinned_frame_url_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      XmtpMetadataField::MessageExpirationMillis.to_string(),
+      XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_expiration_ms_policy.try_into()?,
     );
 

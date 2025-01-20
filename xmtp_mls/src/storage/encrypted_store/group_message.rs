@@ -1,4 +1,5 @@
 use diesel::dsl::sql;
+use diesel::sql_types::BigInt;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -429,6 +430,13 @@ impl DbConnection {
     pub fn delete_expired_messages(&self) -> Result<usize, StorageError> {
         Ok(self.raw_query(|conn| {
             use diesel::prelude::*;
+            let disappear_from_ns = groups_dsl::message_disappear_from_ns
+                .assume_not_null()
+                .into_sql::<BigInt>();
+            let disappear_duration_ns = groups_dsl::message_disappear_in_ns
+                .assume_not_null()
+                .into_sql::<BigInt>();
+
             let expire_messages = dsl::group_messages
                 .left_join(
                     groups_dsl::groups.on(sql::<diesel::sql_types::Text>(
@@ -437,10 +445,15 @@ impl DbConnection {
                     .eq(sql::<diesel::sql_types::Text>("lower(hex(groups.id))"))),
                 )
                 .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
-                .filter(dsl::sent_at_ns.between(
-                    groups_dsl::message_expire_from_ms * 1_000, // Convert ms to ns
-                    (groups_dsl::message_expire_from_ms + groups_dsl::message_expire_in_ms) * 1_000, // Add duration and convert
-                ))
+                .filter(
+                    groups_dsl::message_disappear_from_ns
+                        .is_not_null()
+                        .and(groups_dsl::message_disappear_in_ns.is_not_null()),
+                )
+                .filter(
+                    dsl::sent_at_ns
+                        .between(disappear_from_ns, disappear_from_ns + disappear_duration_ns),
+                )
                 .select(dsl::id);
             let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;
 
@@ -617,10 +630,10 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let mut group = generate_group(None);
 
-            let expired_from_ms = 1_000_500; // After Message 1
-            let expired_in_ms = 500; // Before Message 3
-            group.message_expire_from_ms = expired_from_ms;
-            group.message_expire_in_ms = expired_in_ms;
+            let disappear_from_ns = Some(1_000_500_000); // After Message 1
+            let disappear_in_ns = Some(500_000); // Before Message 3
+            group.message_disappear_from_ns = disappear_from_ns;
+            group.message_disappear_in_ns = disappear_in_ns;
 
             group.store(conn).unwrap();
 

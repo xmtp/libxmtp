@@ -19,7 +19,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use xmtp_mls::groups::group_mutable_metadata::GroupMessageExpirationSettings;
+use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -824,14 +824,14 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
         );
         // MessageExpirationFromMillis follows the same policy as MessageExpirationMillis
         metadata_permissions_map.insert(
-            MetadataField::MessageExpirationFromMillis.to_string(),
+            MetadataField::MessageDisappearFromNS.to_string(),
             policy_set
                 .update_message_expiration_ms_policy
                 .clone()
                 .try_into()?,
         );
         metadata_permissions_map.insert(
-            MetadataField::MessageExpirationMillis.to_string(),
+            MetadataField::MessageDisappearInNS.to_string(),
             policy_set.update_message_expiration_ms_policy.try_into()?,
         );
 
@@ -1423,9 +1423,9 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
-impl From<FfiGroupMessageExpirationSettings> for GroupMessageExpirationSettings {
+impl From<FfiGroupMessageExpirationSettings> for ConversationMessageDisappearingSettings {
     fn from(settings: FfiGroupMessageExpirationSettings) -> Self {
-        GroupMessageExpirationSettings::new(settings.expire_from_ms, settings.expire_in_ms)
+        ConversationMessageDisappearingSettings::new(settings.expire_from_ms, settings.expire_in_ms)
     }
 }
 
@@ -1484,11 +1484,11 @@ pub struct FfiCreateGroupOptions {
 
 impl FfiCreateGroupOptions {
     pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
-        let message_retention_settings: Option<GroupMessageExpirationSettings> =
+        let message_retention_settings: Option<ConversationMessageDisappearingSettings> =
             if let (Some(message_expiration_from_ms), Some(message_expiration_ms)) =
                 (self.message_expiration_from_ms, self.message_expiration_ms)
             {
-                Some(GroupMessageExpirationSettings::new(
+                Some(ConversationMessageDisappearingSettings::new(
                     message_expiration_from_ms,
                     message_expiration_ms,
                 ))
@@ -1500,7 +1500,7 @@ impl FfiCreateGroupOptions {
             image_url_square: self.group_image_url_square,
             description: self.group_description,
             pinned_frame_url: self.group_pinned_frame_url,
-            message_retention_settings,
+            message_disappearing_settings: None//todo: fix mapping,
         }
     }
 }
@@ -1736,7 +1736,7 @@ impl FfiConversation {
         settings: FfiGroupMessageExpirationSettings,
     ) -> Result<(), GenericError> {
         self.inner
-            .update_group_message_expiration_settings(GroupMessageExpirationSettings::from(
+            .update_group_message_expiration_settings(ConversationMessageDisappearingSettings::from(
                 settings,
             ))
             .await?;
@@ -1752,8 +1752,8 @@ impl FfiConversation {
             self.inner.group_message_expiration_settings(&provider)?; // Use `?` to handle the Result
 
         Ok(FfiGroupMessageExpirationSettings::new(
-            group_message_expiration_settings.expire_from_ms,
-            group_message_expiration_settings.expire_in_ms,
+            group_message_expiration_settings.from_ns,
+            group_message_expiration_settings.in_ns,
         ))
     }
 
@@ -2277,7 +2277,7 @@ impl FfiGroupPermissions {
                 MetadataField::GroupPinnedFrameUrl.as_str(),
             ),
             update_message_expiration_ms_policy: get_policy(
-                MetadataField::MessageExpirationMillis.as_str(),
+                MetadataField::MessageDisappearInNS.as_str(),
             ),
         })
     }
@@ -2723,7 +2723,7 @@ mod tests {
     }
 
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_mls::groups::group_mutable_metadata::{GroupMessageExpirationSettings, MetadataField};
+    use xmtp_mls::groups::group_mutable_metadata::{ConversationMessageDisappearingSettings, MetadataField};
     use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

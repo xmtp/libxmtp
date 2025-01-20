@@ -18,10 +18,17 @@ use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind,
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
+use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings as XmtpGroupMessageDisappearingSettings;
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
+}
+
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct ConversationMessageDisappearingSettings {
+  inner: XmtpGroupMessageDisappearingSettings,
 }
 
 #[wasm_bindgen]
