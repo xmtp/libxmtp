@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.34
+
+- Fixed DM group validation across installations
+
 ## 0.0.33
 
 - Added installation ID `bytes` to return value of `inboxState`
