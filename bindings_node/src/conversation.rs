@@ -28,8 +28,8 @@ use crate::{
   streams::StreamCloser,
   ErrorWrapper,
 };
-use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
 use prost::Message as ProstMessage;
+use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
 
 use napi_derive::napi;
 
@@ -48,10 +48,7 @@ pub struct ConversationMessageDisappearingSettings {
 impl ConversationMessageDisappearingSettings {
   #[napi]
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
-    let inner = XmtpConversationMessageDisappearingSettings {
-      from_ns,
-      in_ns,
-    };
+    let inner = XmtpConversationMessageDisappearingSettings { from_ns, in_ns };
     Self { inner }
   }
 }

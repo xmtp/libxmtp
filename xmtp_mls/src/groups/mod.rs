@@ -1138,48 +1138,56 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    pub async fn update_group_message_expiration_settings(
+    pub async fn update_conversation_message_disappearing_settings(
         &self,
         settings: ConversationMessageDisappearingSettings,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
 
-        self.update_group_message_expiration_from_ms(&provider, settings.from_ns)
+        self.update_conversation_message_disappear_from_ns(&provider, settings.from_ns)
             .await?;
-        self.update_group_message_expire_in_ms(&provider, settings.in_ns)
+        self.update_conversation_message_disappear_in_ns(&provider, settings.in_ns)
             .await
+
+        //todo: update db here for the current user
     }
 
-    pub async fn remove_group_message_expiration_settings(&self) -> Result<(), GroupError> {
-        self.update_group_message_expiration_settings(ConversationMessageDisappearingSettings::default())
-            .await
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GroupError> {
+        self.update_conversation_message_disappearing_settings(
+            ConversationMessageDisappearingSettings::default(),
+        )
+        .await
     }
 
-    async fn update_group_message_expiration_from_ms(
+    async fn update_conversation_message_disappear_from_ns(
         &self,
         provider: &XmtpOpenMlsProvider,
         expire_from_ms: i64,
     ) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_message_expiration_from_ms(expire_from_ms)
-                .into();
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
+                expire_from_ms,
+            )
+            .into();
         let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
-    async fn update_group_message_expire_in_ms(
+    async fn update_conversation_message_disappear_in_ns(
         &self,
         provider: &XmtpOpenMlsProvider,
         expire_in_ms: i64,
     ) -> Result<(), GroupError> {
         let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_message_expiration_in_ms(expire_in_ms)
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
         let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
-    pub fn group_message_expiration_settings(
+    pub fn conversation_message_disappearing_settings(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<ConversationMessageDisappearingSettings, GroupError> {
@@ -1211,7 +1219,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Option<ConversationMessageDisappearingSettings> {
-        match self.group_message_expiration_settings(provider) {
+        match self.conversation_message_disappearing_settings(provider) {
             Ok(expiration_settings) => {
                 if expiration_settings.from_ns > 0 && expiration_settings.in_ns > 0 {
                     Some(expiration_settings)
@@ -2700,7 +2708,9 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
-                    message_disappearing_settings: Some(expected_group_message_disappearing_settings),
+                    message_disappearing_settings: Some(
+                        expected_group_message_disappearing_settings,
+                    ),
                 },
             )
             .unwrap();
@@ -3038,7 +3048,9 @@ pub(crate) mod tests {
             ConversationMessageDisappearingSettings::new(100, 200);
 
         amal_group
-            .update_group_message_expiration_settings(expected_group_message_expiration_settings)
+            .update_conversation_message_disappearing_settings(
+                expected_group_message_expiration_settings,
+            )
             .await
             .unwrap();
 
@@ -3063,9 +3075,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             amal_message_expiration_ms.clone(),
-            expected_group_message_expiration_settings
-                .in_ns
-                .to_string()
+            expected_group_message_expiration_settings.in_ns.to_string()
         );
     }
 

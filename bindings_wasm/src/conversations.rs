@@ -167,7 +167,7 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_disappearing_settings: None// todo: fix mapping,
+      message_disappearing_settings: None, // todo: fix mapping,
     }
   }
 }

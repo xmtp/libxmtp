@@ -78,10 +78,7 @@ pub struct ConversationMessageDisappearingSettings {
 
 impl ConversationMessageDisappearingSettings {
     pub fn new(from_ns: i64, in_ns: i64) -> Self {
-        Self {
-            from_ns,
-            in_ns,
-        }
+        Self { from_ns, in_ns }
     }
 }
 

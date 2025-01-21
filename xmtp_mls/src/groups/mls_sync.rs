@@ -699,6 +699,7 @@ where
                         "[{}] staged commit is valid, will attempt to merge",
                         self.context().inbox_id()
                     );
+
                     mls_group.merge_staged_commit(provider, sc)?;
                     self.save_transcript_message(
                         provider.conn_ref(),
@@ -768,6 +769,7 @@ where
                     }
                     IntentState::Committed => {
                         Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
+                        //todo: update the group based on the intent here?
                     }
                     IntentState::Published => {
                         tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -976,7 +978,7 @@ where
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
         };
-
+        //todo: update the db? conversation disappearing settings
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }

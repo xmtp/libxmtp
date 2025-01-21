@@ -1299,17 +1299,14 @@ impl FfiConversationListItem {
 }
 
 #[derive(uniffi::Record, Debug)]
-pub struct FfiGroupMessageExpirationSettings {
-    pub expire_from_ms: i64,
-    pub expire_in_ms: i64,
+pub struct FfiConversationMessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
 }
 
-impl FfiGroupMessageExpirationSettings {
-    fn new(expire_from_ms: i64, expire_in_ms: i64) -> Self {
-        Self {
-            expire_from_ms,
-            expire_in_ms,
-        }
+impl FfiConversationMessageDisappearingSettings {
+    fn new(from_ns: i64, in_ns: i64) -> Self {
+        Self { from_ns, in_ns }
     }
 }
 
@@ -1423,9 +1420,9 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
-impl From<FfiGroupMessageExpirationSettings> for ConversationMessageDisappearingSettings {
-    fn from(settings: FfiGroupMessageExpirationSettings) -> Self {
-        ConversationMessageDisappearingSettings::new(settings.expire_from_ms, settings.expire_in_ms)
+impl From<FfiConversationMessageDisappearingSettings> for ConversationMessageDisappearingSettings {
+    fn from(settings: FfiConversationMessageDisappearingSettings) -> Self {
+        ConversationMessageDisappearingSettings::new(settings.from_ns, settings.from_ns)
     }
 }
 
@@ -1478,29 +1475,18 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
-    pub message_expiration_from_ms: Option<i64>,
-    pub message_expiration_ms: Option<i64>,
+    pub message_disappear_from_ns: Option<i64>,
+    pub message_disappear_in_ns: Option<i64>,
 }
 
 impl FfiCreateGroupOptions {
     pub fn into_group_metadata_options(self) -> GroupMetadataOptions {
-        let message_retention_settings: Option<ConversationMessageDisappearingSettings> =
-            if let (Some(message_expiration_from_ms), Some(message_expiration_ms)) =
-                (self.message_expiration_from_ms, self.message_expiration_ms)
-            {
-                Some(ConversationMessageDisappearingSettings::new(
-                    message_expiration_from_ms,
-                    message_expiration_ms,
-                ))
-            } else {
-                None
-            };
         GroupMetadataOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
             description: self.group_description,
             pinned_frame_url: self.group_pinned_frame_url,
-            message_disappearing_settings: None//todo: fix mapping,
+            message_disappearing_settings: None,
         }
     }
 }
@@ -1731,27 +1717,28 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
-    pub async fn update_group_message_expiration_settings(
+    pub async fn update_conversation_message_disappearing_settings(
         &self,
-        settings: FfiGroupMessageExpirationSettings,
+        settings: FfiConversationMessageDisappearingSettings,
     ) -> Result<(), GenericError> {
         self.inner
-            .update_group_message_expiration_settings(ConversationMessageDisappearingSettings::from(
-                settings,
-            ))
+            .update_conversation_message_disappearing_settings(
+                ConversationMessageDisappearingSettings::from(settings),
+            )
             .await?;
 
         Ok(())
     }
 
-    pub fn group_message_expiration_settings(
+    pub fn conversation_message_disappearing_settings(
         &self,
-    ) -> Result<FfiGroupMessageExpirationSettings, GenericError> {
+    ) -> Result<FfiConversationMessageDisappearingSettings, GenericError> {
         let provider = self.inner.mls_provider()?;
-        let group_message_expiration_settings =
-            self.inner.group_message_expiration_settings(&provider)?; // Use `?` to handle the Result
+        let group_message_expiration_settings = self
+            .inner
+            .conversation_message_disappearing_settings(&provider)?; // Use `?` to handle the Result
 
-        Ok(FfiGroupMessageExpirationSettings::new(
+        Ok(FfiConversationMessageDisappearingSettings::new(
             group_message_expiration_settings.from_ns,
             group_message_expiration_settings.in_ns,
         ))
@@ -2292,12 +2279,12 @@ mod tests {
     use crate::{
         connect_to_backend, decode_reaction, encode_reaction, get_inbox_id_for_address,
         inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupMessageExpirationSettings,
-        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiSubscribeError,
+        FfiContentType, FfiConversation, FfiConversationCallback,
+        FfiConversationMessageDisappearingSettings, FfiConversationMessageKind,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageWithReactions,
+        FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
+        FfiReaction, FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2723,7 +2710,9 @@ mod tests {
     }
 
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_mls::groups::group_mutable_metadata::{ConversationMessageDisappearingSettings, MetadataField};
+    use xmtp_mls::groups::group_mutable_metadata::{
+        ConversationMessageDisappearingSettings, MetadataField,
+    };
     use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -2997,7 +2986,8 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let group_message_expiration_settings = FfiGroupMessageExpirationSettings::new(10, 100);
+        let conversation_message_disappearing_settings =
+            FfiConversationMessageDisappearingSettings::new(10, 100);
 
         let group = amal
             .conversations()
@@ -3010,10 +3000,12 @@ mod tests {
                     group_description: Some("group description".to_string()),
                     group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
-                    message_expiration_from_ms: Some(
-                        group_message_expiration_settings.expire_from_ms,
+                    message_disappear_from_ns: Some(
+                        conversation_message_disappearing_settings.from_ns,
                     ),
-                    message_expiration_ms: Some(group_message_expiration_settings.expire_in_ms),
+                    message_disappear_in_ns: Some(
+                        conversation_message_disappearing_settings.from_ns,
+                    ),
                 },
             )
             .await
@@ -3028,17 +3020,17 @@ mod tests {
         assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
         assert_eq!(
             group
-                .group_message_expiration_settings()
+                .conversation_message_disappearing_settings()
                 .unwrap()
-                .expire_from_ms,
-            group_message_expiration_settings.expire_from_ms
+                .from_ns,
+            conversation_message_disappearing_settings.from_ns
         );
         assert_eq!(
             group
-                .group_message_expiration_settings()
+                .conversation_message_disappearing_settings()
                 .unwrap()
-                .expire_in_ms,
-            group_message_expiration_settings.expire_in_ms
+                .from_ns,
+            conversation_message_disappearing_settings.from_ns
         );
     }
 
@@ -4759,8 +4751,8 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         };
 
         let alix_group = alix
@@ -4888,8 +4880,8 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         };
 
         let results_1 = alix
@@ -4909,8 +4901,8 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         };
 
         let results_2 = alix
@@ -4930,8 +4922,8 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         };
 
         let results_3 = alix
@@ -4951,8 +4943,8 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         };
 
         let results_4 = alix
@@ -5125,93 +5117,6 @@ mod tests {
             .unwrap();
         assert_eq!(bola_conversations.len(), 1);
     }
-
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    // async fn test_groups_with_expiration_settings() {
-    //     // Step 1: Setup test clients
-    //     let amal = new_test_client().await;
-    //
-    //     // Step 2: Create policy set and groups
-    //     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    //     let group1 = amal
-    //         .inner_client
-    //         .create_group(policy_set.clone(), GroupMetadataOptions::default())
-    //         .expect("Failed to create group1");
-    //     let group2 = amal
-    //         .inner_client
-    //         .create_group(policy_set.clone(), GroupMetadataOptions::default())
-    //         .expect("Failed to create group2");
-    //     let group3 = amal
-    //         .inner_client
-    //         .create_group(policy_set, GroupMetadataOptions::default())
-    //         .expect("Failed to create group3");
-    //
-    //     // Sync groups
-    //     group1.sync().await.expect("Failed to sync group1");
-    //     group2.sync().await.expect("Failed to sync group2");
-    //     group3.sync().await.expect("Failed to sync group3");
-    //
-    //     // Step 3: Verify metadata and set expiration for group1
-    //     let group1_metadata = group1
-    //         .mutable_metadata(&group1.mls_provider().expect("Missing MLS provider"))
-    //         .expect("Failed to fetch metadata for group1");
-    //     assert_eq!(group1_metadata.attributes.len(), 4);
-    //     assert!(group1_metadata
-    //         .attributes
-    //         .get(&MetadataField::GroupName.to_string())
-    //         .expect("Missing group name field")
-    //         .is_empty());
-    //
-    //     // Enable expiration settings for group1
-    //     let expiration_settings = GroupMessageExpirationSettings {
-    //         expire_from_ms: 1000,
-    //         expire_in_ms: 1000,
-    //     };
-    //     group1
-    //         .update_group_message_expiration_settings(expiration_settings)
-    //         .await
-    //         .expect("Failed to update expiration settings for group1");
-    //
-    //     // Verify only group1 is returned
-    //     let groups_with_expiration = amal
-    //         .conversations()
-    //         .get_groups_with_expiration_enabled()
-    //         .expect("Failed to fetch groups with expiration enabled");
-    //     assert_eq!(groups_with_expiration.len(), 1);
-    //     assert!(groups_with_expiration.contains(&group1.group_id));
-    //
-    //     // Step 4: Remove expiration settings from group1
-    //     group1
-    //         .remove_group_message_expiration_settings()
-    //         .await
-    //         .expect("Failed to remove expiration settings for group1");
-    //
-    //     // Verify no groups are returned
-    //     let groups_with_expiration = amal
-    //         .conversations()
-    //         .get_groups_with_expiration_enabled()
-    //         .expect("Failed to fetch groups with expiration enabled");
-    //     assert_eq!(groups_with_expiration.len(), 0);
-    //
-    //     // Step 5: Enable expiration settings for group1 and group2
-    //     group1
-    //         .update_group_message_expiration_settings(expiration_settings)
-    //         .await
-    //         .expect("Failed to update expiration settings for group1");
-    //     group2
-    //         .update_group_message_expiration_settings(expiration_settings)
-    //         .await
-    //         .expect("Failed to update expiration settings for group2");
-    //
-    //     // Verify group1 and group2 are returned
-    //     let groups_with_expiration = amal
-    //         .conversations()
-    //         .get_groups_with_expiration_enabled()
-    //         .expect("Failed to fetch groups with expiration enabled");
-    //     assert_eq!(groups_with_expiration.len(), 2);
-    //     assert!(groups_with_expiration.contains(&group1.group_id));
-    //     assert!(groups_with_expiration.contains(&group2.group_id));
-    // }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_dm_streaming() {

@@ -12,11 +12,11 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::conversation::ConversationMessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
-use crate::conversation::ConversationMessageDisappearingSettings;
 
 #[napi]
 #[derive(Debug)]
@@ -133,7 +133,7 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_disappearing_settings: None //todo: fix mapping,
+      message_disappearing_settings: None, //todo: fix mapping,
     }
   }
 }
