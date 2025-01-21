@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -107,8 +108,6 @@ pub enum DeviceSyncError {
     Bincode(#[from] bincode::Error),
 }
 
-#[derive(Debug, Error)]
-pub enum ExpirationWorkerError {}
 impl RetryableError for DeviceSyncError {
     fn is_retryable(&self) -> bool {
         true
@@ -142,7 +141,7 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub fn start_expired_messages_cleaner_worker(&self) {
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
         let client = self.clone();
         tracing::debug!(
             inbox_id = client.inbox_id(),
@@ -150,7 +149,7 @@ where
             "starting expired messages cleaner worker"
         );
 
-        let worker = MessageExpirationWorker::new(client);
+        let worker = DisappearingMessagesCleanerWorker::new(client);
         worker.spawn_worker();
     }
 }
@@ -373,72 +372,6 @@ where
                 }
             }
         });
-    }
-}
-
-pub struct MessageExpirationWorker<ApiClient, V> {
-    client: Client<ApiClient, V>,
-    init: OnceCell<()>,
-}
-impl<ApiClient, V> MessageExpirationWorker<ApiClient, V>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
-{
-    fn new(client: Client<ApiClient, V>) -> Self {
-        Self {
-            client,
-            init: OnceCell::new(),
-        }
-    }
-    fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
-            while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
-                match err {
-                    DeviceSyncError::Client(ClientError::Storage(
-                        StorageError::PoolNeedsConnection,
-                    )) => {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
-                    }
-                    _ => {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                        // Wait 2 seconds before restarting.
-                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
-                    }
-                }
-            }
-        });
-    }
-}
-
-impl<ApiClient, V> MessageExpirationWorker<ApiClient, V>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
-{
-    /// Iterate on the list of groups and delete expired messages
-    async fn delete_expired_messages(&mut self) -> Result<(), DeviceSyncError> {
-        let provider = self.client.mls_provider()?;
-        if let Err(e) = provider.conn_ref().delete_expired_messages() {
-            tracing::error!("Failed to delete expired messages, error: {:?}", e);
-        }
-        Ok(())
-    }
-
-    async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        // Call delete_expired_messages on every iteration
-        if let Err(err) = self.delete_expired_messages().await {
-            tracing::error!("Error during deletion of expired messages: {:?}", err);
-        }
-        Ok(())
     }
 }
 

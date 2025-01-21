@@ -7,6 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
+mod disappearing_messages;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
