@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.13
+
+- Fixed DM group validation across installations
+
 ## 0.0.12
 
 - Added `getHmacKeys` to `Conversations`
