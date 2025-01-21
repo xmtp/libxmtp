@@ -41,7 +41,7 @@ impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
                     key_package,
-                )?)),
+                )?, None)),
                 payload: Some(Payload::UploadKeyPackage(req)),
             })
         } else {
@@ -58,6 +58,7 @@ impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(
                     build_identity_topic_from_hex_encoded(&identity_update.inbox_id)?,
+                    None
                 )),
                 payload: Some(Payload::IdentityUpdate(identity_update)),
             })
@@ -75,7 +76,7 @@ impl TryFrom<GroupMessageInput> for ClientEnvelope {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
                     version.data.clone(),
-                )?)),
+                )?, None)),
                 payload: Some(Payload::GroupMessage(req)),
             })
         } else {
@@ -92,7 +93,7 @@ impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(build_welcome_message_topic(
                     version.installation_key.as_slice(),
-                ))),
+                ), None)),
                 payload: Some(Payload::WelcomeMessage(req)),
             })
         } else {
@@ -102,10 +103,9 @@ impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
 }
 
 impl AuthenticatedData {
-    pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
+    pub fn with_topic(topic: Vec<u8>, originator: Option<i32>) -> AuthenticatedData {
         AuthenticatedData {
-            //TODO(mkysel) originator is hardcoded for now, but will have to become configurable
-            target_originator: 100,
+            target_originator: originator.unwrap_or(100),
             target_topic: topic,
             last_seen: None,
         }
