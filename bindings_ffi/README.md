@@ -21,7 +21,7 @@ The generated artifacts of this crate are the bindings interface (`xmtpv3.kt`) g
 
 The cross-compiled binaries (`jniLibs`) have been committed alongside the crate so you do not need to rebuild unless you make changes. The build is very slow (~3 mins on incremental builds, ~30 mins on full builds, per-target). Future changes will simplify the process and improve the build time as well as setting up async builds in CI.
 
-- Run `./gen_kotlin.sh` to re-generate the bindings
+- Run `./gen_kotlin.sh` to regenerate the bindings
 - Install Docker
 - Install Cross for zero setup cross-platform builds: `cargo install cross --git https://github.com/cross-rs/cross`
 - Run `./cross_build.sh` to cross-compile (this is SLOW)
@@ -69,7 +69,7 @@ The Release github workflow will run the following jobs:
   - make a release tagged the same way with the artifact attached
 
 - swift
-  - downloads the `libxmtp-swift.zip`` build artifact
+  - downloads the `libxmtp-swift.zip` build artifact
   - checks out `libxmtp-swift` repo and updates it with the contents of the zip file
   - pushes new commit to the `libxmtp-swift` repo and tags it with the same tag
 

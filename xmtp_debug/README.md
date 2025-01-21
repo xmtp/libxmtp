@@ -32,7 +32,7 @@ to inspect
 ./xdbg generate --entity identity --amount 1000
 ```
 
-##### Generate 100 random groups, inviting 50 random identiies to each
+##### Generate 100 random groups, inviting 50 random identities to each
 
 ```
 ./xdbg generate --entity group --amount 100 --invite 50
