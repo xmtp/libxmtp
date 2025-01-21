@@ -206,7 +206,7 @@ impl<'de> serde::Deserialize<'de> for BackupElementSelection {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for BackupMetadata {
+impl serde::Serialize for BackupMetadataSave {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -214,9 +214,6 @@ impl serde::Serialize for BackupMetadata {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.backup_version != 0 {
-            len += 1;
-        }
         if !self.elements.is_empty() {
             len += 1;
         }
@@ -229,10 +226,7 @@ impl serde::Serialize for BackupMetadata {
         if self.end_ns.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.BackupMetadata", len)?;
-        if self.backup_version != 0 {
-            struct_ser.serialize_field("backupVersion", &self.backup_version)?;
-        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.BackupMetadataSave", len)?;
         if !self.elements.is_empty() {
             let v = self.elements.iter().cloned().map(|v| {
                 BackupElementSelection::try_from(v)
@@ -258,15 +252,13 @@ impl serde::Serialize for BackupMetadata {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for BackupMetadata {
+impl<'de> serde::Deserialize<'de> for BackupMetadataSave {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "backup_version",
-            "backupVersion",
             "elements",
             "exported_at_ns",
             "exportedAtNs",
@@ -278,7 +270,6 @@ impl<'de> serde::Deserialize<'de> for BackupMetadata {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            BackupVersion,
             Elements,
             ExportedAtNs,
             StartNs,
@@ -304,7 +295,6 @@ impl<'de> serde::Deserialize<'de> for BackupMetadata {
                         E: serde::de::Error,
                     {
                         match value {
-                            "backupVersion" | "backup_version" => Ok(GeneratedField::BackupVersion),
                             "elements" => Ok(GeneratedField::Elements),
                             "exportedAtNs" | "exported_at_ns" => Ok(GeneratedField::ExportedAtNs),
                             "startNs" | "start_ns" => Ok(GeneratedField::StartNs),
@@ -318,31 +308,22 @@ impl<'de> serde::Deserialize<'de> for BackupMetadata {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = BackupMetadata;
+            type Value = BackupMetadataSave;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.device_sync.BackupMetadata")
+                formatter.write_str("struct xmtp.device_sync.BackupMetadataSave")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<BackupMetadata, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<BackupMetadataSave, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut backup_version__ = None;
                 let mut elements__ = None;
                 let mut exported_at_ns__ = None;
                 let mut start_ns__ = None;
                 let mut end_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::BackupVersion => {
-                            if backup_version__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("backupVersion"));
-                            }
-                            backup_version__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                         GeneratedField::Elements => {
                             if elements__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("elements"));
@@ -375,8 +356,7 @@ impl<'de> serde::Deserialize<'de> for BackupMetadata {
                         }
                     }
                 }
-                Ok(BackupMetadata {
-                    backup_version: backup_version__.unwrap_or_default(),
+                Ok(BackupMetadataSave {
                     elements: elements__.unwrap_or_default(),
                     exported_at_ns: exported_at_ns__.unwrap_or_default(),
                     start_ns: start_ns__,
@@ -384,6 +364,6 @@ impl<'de> serde::Deserialize<'de> for BackupMetadata {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.device_sync.BackupMetadata", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.device_sync.BackupMetadataSave", FIELDS, GeneratedVisitor)
     }
 }

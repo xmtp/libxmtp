@@ -1,4 +1,4 @@
-use super::{export_stream::BatchExportStream, BackupOptions};
+use super::{export_stream::BatchExportStream, BackupOptions, BACKUP_VERSION};
 use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::write::ZstdEncoder;
@@ -6,14 +6,14 @@ use futures::{pin_mut, task::Context, AsyncRead, AsyncWriteExt, StreamExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadataSave};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
 pub(super) struct BackupExporter {
     stage: Stage,
-    metadata: BackupMetadata,
+    metadata: BackupMetadataSave,
     stream: BatchExportStream,
     position: usize,
     zstd_encoder: ZstdEncoder<Vec<u8>>,
@@ -41,6 +41,9 @@ impl BackupExporter {
         key: &[u8],
     ) -> Self {
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
+        let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
+        nonce_buffer.extend_from_slice(&nonce);
+
         Self {
             position: 0,
             stage: Stage::default(),
@@ -51,7 +54,7 @@ impl BackupExporter {
 
             cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
             nonce: GenericArray::clone_from_slice(&nonce),
-            nonce_buffer: nonce.to_vec(),
+            nonce_buffer,
         }
     }
 }
