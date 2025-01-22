@@ -183,7 +183,8 @@ mod tests {
             .conn_ref()
             .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
-        assert_eq!(messages.len(), 2);
+        // Only the application messages should sync
+        assert_eq!(messages.len(), 1);
         for msg in messages {
             let old_msg = old_messages.iter().find(|m| msg.id == m.id).unwrap();
             assert_eq!(old_msg.authority_id, msg.authority_id);
