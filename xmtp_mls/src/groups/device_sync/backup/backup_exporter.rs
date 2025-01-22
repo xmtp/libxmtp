@@ -40,8 +40,8 @@ impl BackupExporter {
         provider: &Arc<XmtpOpenMlsProvider>,
         key: &[u8],
     ) -> Self {
-        let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
         let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
+        let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
         nonce_buffer.extend_from_slice(&nonce);
 
         Self {

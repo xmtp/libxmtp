@@ -12,7 +12,7 @@ use futures::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
 use super::{BackupError, BackupMetadata};
 
