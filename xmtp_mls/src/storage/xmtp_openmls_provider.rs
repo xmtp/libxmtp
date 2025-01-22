@@ -2,11 +2,10 @@
 use crate::storage::native::NativeDb;
 #[cfg(target_arch = "wasm32")]
 use crate::storage::wasm::WasmDb;
+use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use std::marker::PhantomData;
-
-use crate::storage::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 
 #[cfg(target_arch = "wasm32")]
 pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<WasmDb, crate::storage::RawDbConnection>;
@@ -18,6 +17,8 @@ pub type XmtpOpenMlsProvider =
 pub struct XmtpOpenMlsProviderPrivate<Db, C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
+    // This is here for the ProviderTransaction trait
+    // to avoid having to put explicit type annotations everywhere.
     _phantom: PhantomData<Db>,
 }
 

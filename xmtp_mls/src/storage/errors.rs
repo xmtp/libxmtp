@@ -50,6 +50,8 @@ pub enum StorageError {
     Duplicate(DuplicateItem),
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
+    #[error("generic:{0}")]
+    Generic(String),
 }
 
 #[derive(Error, Debug)]

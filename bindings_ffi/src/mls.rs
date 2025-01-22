@@ -18,7 +18,9 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -49,6 +51,7 @@ use xmtp_mls::{
     },
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -377,11 +380,13 @@ impl FfiXmtpClient {
         Ok(result.into())
     }
 
+    /// A utility function to sign a piece of text with this installation's private key.
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
         Ok(inner.context().sign_with_public_context(text)?)
     }
 
+    /// A utility function to easily verify that a piece of text was signed by this installation.
     pub fn verify_signed_with_installation_key(
         &self,
         signature_text: &str,
@@ -393,6 +398,8 @@ impl FfiXmtpClient {
         self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
     }
 
+    /// A utility function to easily verify that a string has been signed by another libXmtp installation.
+    /// Only works for verifying libXmtp public context signatures.
     pub fn verify_signed_with_public_key(
         &self,
         signature_text: &str,
@@ -454,6 +461,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         self.inner_client
@@ -493,7 +501,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Revokes or removes an identity - really a wallet address - from the existing client
+    /// Revokes or removes an identity from the existing client
     pub async fn revoke_wallet(
         &self,
         wallet_address: &str,
@@ -555,6 +563,111 @@ impl FfiXmtpClient {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
             scw_verifier: self.inner_client.scw_verifier().clone().clone(),
         }))
+    }
+
+    /// Backup your application to file for later restoration.
+    pub async fn backup_to_file(
+        &self,
+        path: String,
+        opts: FfiBackupOptions,
+        key: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        let opts: BackupOptions = opts.into();
+        opts.export_to_file(provider, path, &check_key(key)?)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Import a previous backup
+    pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        importer.insert(&provider).await?;
+        Ok(())
+    }
+
+    /// Load the metadata for a backup to see what it contains.
+    /// Reads only the metadata without loading the entire file, so this function is quick.
+    pub async fn backup_metadata(
+        &self,
+        path: String,
+        key: Vec<u8>,
+    ) -> Result<FfiBackupMetadata, GenericError> {
+        let importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        Ok(importer.metadata.into())
+    }
+}
+
+fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+    if key.len() < 32 {
+        return Err(GenericError::Generic {
+            err: format!(
+                "The encryption key must be at least {} bytes long.",
+                ENC_KEY_SIZE
+            ),
+        });
+    }
+    key.truncate(ENC_KEY_SIZE);
+    Ok(key)
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiBackupMetadata {
+    backup_version: u16,
+    elements: Vec<FfiBackupElementSelection>,
+    exported_at_ns: i64,
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+}
+impl From<BackupMetadata> for FfiBackupMetadata {
+    fn from(value: BackupMetadata) -> Self {
+        Self {
+            backup_version: value.backup_version,
+            elements: value.elements.into_iter().map(Into::into).collect(),
+            start_ns: value.start_ns,
+            end_ns: value.end_ns,
+            exported_at_ns: value.exported_at_ns,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiBackupOptions {
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+    elements: Vec<FfiBackupElementSelection>,
+}
+impl From<FfiBackupOptions> for BackupOptions {
+    fn from(value: FfiBackupOptions) -> Self {
+        Self {
+            start_ns: value.start_ns,
+            end_ns: value.start_ns,
+            elements: value.elements.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiBackupElementSelection {
+    Messages,
+    Consent,
+}
+impl From<FfiBackupElementSelection> for BackupElementSelection {
+    fn from(value: FfiBackupElementSelection) -> Self {
+        match value {
+            FfiBackupElementSelection::Consent => Self::Consent,
+            FfiBackupElementSelection::Messages => Self::Messages,
+        }
+    }
+}
+impl From<BackupElementSelection> for FfiBackupElementSelection {
+    fn from(value: BackupElementSelection) -> Self {
+        match value {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+        }
     }
 }
 
