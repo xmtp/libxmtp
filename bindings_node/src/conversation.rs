@@ -522,37 +522,6 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi]
-  pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
-    let group = MlsGroup::new(
-      self.inner_client.clone(),
-      self.group_id.clone(),
-      self.created_at_ns,
-    );
-
-    group
-      .update_group_pinned_frame_url(pinned_frame_url)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  #[napi]
-  pub fn group_pinned_frame_url(&self) -> Result<String> {
-    let group = MlsGroup::new(
-      self.inner_client.clone(),
-      self.group_id.clone(),
-      self.created_at_ns,
-    );
-
-    let group_pinned_frame_url = group
-      .group_pinned_frame_url(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(group_pinned_frame_url)
-  }
-
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<StreamCloser> {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =

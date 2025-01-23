@@ -51,7 +51,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
       updateMessageExpirationMsPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
@@ -103,7 +102,6 @@ describe('Conversations', () => {
           updateGroupNamePolicy: 2,
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
-          updateGroupPinnedFrameUrlPolicy: 3,
           updateMessageExpirationMsPolicy: 2,
         },
       })
@@ -119,7 +117,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 3,
       updateMessageExpirationMsPolicy: 2,
     })
   })
@@ -141,7 +138,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
       updateMessageExpirationMsPolicy: 2,
     })
 
@@ -158,7 +154,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
       updateMessageExpirationMsPolicy: 2,
     })
 
@@ -176,7 +171,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 1,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
       updateMessageExpirationMsPolicy: 2,
     })
   })
@@ -203,7 +197,6 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
       updateMessageExpirationMsPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
@@ -341,7 +334,6 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
-      updateGroupPinnedFrameUrlPolicy: 2,
       updateMessageExpirationMsPolicy: 2,
     })
 
@@ -354,19 +346,6 @@ describe('Conversations', () => {
     expect(groupWithDescription.groupName()).toBe('')
     expect(groupWithDescription.groupImageUrlSquare()).toBe('')
     expect(groupWithDescription.groupDescription()).toBe('foo')
-
-    const groupWithPinnedFrameUrl = await client1
-      .conversations()
-      .createGroup([user2.account.address], {
-        groupPinnedFrameUrl: 'https://frameurl.xyz',
-      })
-    expect(groupWithPinnedFrameUrl).toBeDefined()
-    expect(groupWithPinnedFrameUrl.groupName()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupImageUrlSquare()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupDescription()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupPinnedFrameUrl()).toBe(
-      'https://frameurl.xyz'
-    )
   })
 
   it('should update group metadata', async () => {
@@ -386,9 +365,6 @@ describe('Conversations', () => {
 
     await group.updateGroupDescription('bar')
     expect(group.groupDescription()).toBe('bar')
-
-    await group.updateGroupPinnedFrameUrl('https://frameurl.xyz')
-    expect(group.groupPinnedFrameUrl()).toBe('https://frameurl.xyz')
   })
 
   it('should stream all groups', async () => {

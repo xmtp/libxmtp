@@ -474,36 +474,6 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[wasm_bindgen(js_name = updateGroupPinnedFrameUrl)]
-  pub async fn update_group_pinned_frame_url(
-    &self,
-    pinned_frame_url: String,
-  ) -> Result<(), JsError> {
-    let group = self.to_mls_group();
-
-    group
-      .update_group_pinned_frame_url(pinned_frame_url)
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = groupPinnedFrameUrl)]
-  pub fn group_pinned_frame_url(&self) -> Result<String, JsError> {
-    let group = self.to_mls_group();
-
-    let group_pinned_frame_url = group
-      .group_pinned_frame_url(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(group_pinned_frame_url)
-  }
-
   #[wasm_bindgen(js_name = createdAtNs)]
   pub fn created_at_ns(&self) -> i64 {
     self.created_at_ns
