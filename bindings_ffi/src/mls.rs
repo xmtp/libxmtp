@@ -1736,7 +1736,7 @@ impl FfiConversation {
         let provider = self.inner.mls_provider()?;
         let group_message_expiration_settings = self
             .inner
-            .conversation_message_disappearing_settings(&provider)?; // Use `?` to handle the Result
+            .conversation_message_disappearing_settings(&provider)?;
 
         Ok(FfiConversationMessageDisappearingSettings::new(
             group_message_expiration_settings.from_ns,
@@ -3033,9 +3033,6 @@ mod tests {
             conversation_message_disappearing_settings.from_ns
         );
     }
-
-    //test to stream the metadata
-    //test the policy if someone can change the settings
 
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

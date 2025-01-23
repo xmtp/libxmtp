@@ -1009,7 +1009,6 @@ where
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
         };
-        //todo: update the db? conversation disappearing settings
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }

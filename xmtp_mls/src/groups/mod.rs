@@ -1149,8 +1149,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .await?;
         self.update_conversation_message_disappear_in_ns(&provider, settings.in_ns)
             .await
-
-        //todo: update db here for the current user
     }
 
     pub async fn remove_conversation_message_disappearing_settings(
