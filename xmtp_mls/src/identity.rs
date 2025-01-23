@@ -533,16 +533,16 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_key_package(provider, api_client).await?;
+        let kp_bytes = self.rotate_key_package::<ApiClient>(provider)?;
+        api_client.upload_key_package(kp_bytes, true).await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
     /// Upload a new key package to the network, which will replace any existing key packages for the installation.
-    pub(crate) async fn rotate_key_package<ApiClient: XmtpApi>(
+    pub(crate) fn rotate_key_package<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
-        api_client: &ApiClientWrapper<ApiClient>,
-    ) -> Result<(), IdentityError> {
+    ) -> Result<Vec<u8>, IdentityError> {
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         let conn = provider.conn_ref();
@@ -559,8 +559,7 @@ impl Identity {
         }
         conn.delete_key_package_history_entries_before_id(old_id)?;
 
-        api_client.upload_key_package(kp_bytes, true).await?;
-        Ok(())
+        Ok(kp_bytes)
     }
 
     /// Delete a key package from the local database.

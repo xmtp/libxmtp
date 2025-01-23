@@ -753,17 +753,8 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        provider
-            .transaction_async(move |provider| {
-                let provider = &provider;
-                async {
-                    self.identity()
-                        .rotate_key_package(provider, &self.api_client)
-                        .await?;
-                    Ok::<_, IdentityError>(())
-                }
-            })
-            .await?;
+        let kp_bytes = self.identity().rotate_key_package::<ApiClient>(provider)?;
+        self.api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(())
     }
@@ -861,46 +852,42 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &WelcomeMessageV1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        provider
-            .transaction_async(|provider| async move {
-                let cursor = welcome.id;
-                let is_updated = provider.conn_ref().update_cursor(
-                    self.installation_public_key(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        let cursor = welcome.id;
+        let is_updated = provider.conn_ref().update_cursor(
+            self.installation_public_key(),
+            EntityKind::Welcome,
+            welcome.id as i64,
+        )?;
+        if !is_updated {
+            return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        }
+        let result = MlsGroup::create_from_encrypted_welcome(
+            Arc::new(self.clone()),
+            provider,
+            welcome.hpke_public_key.as_slice(),
+            &welcome.data,
+            welcome.id as i64,
+        )
+        .await;
+
+        match result {
+            Ok(mls_group) => Ok(mls_group),
+            Err(err) => {
+                use crate::DuplicateItem::*;
+                use crate::StorageError::*;
+
+                if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                    tracing::warn!(
+                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        err
+                    );
+                } else {
+                    tracing::error!("failed to create group from welcome: {}", err);
                 }
-                let result = MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
-                    provider,
-                    welcome.hpke_public_key.as_slice(),
-                    &welcome.data,
-                    welcome.id as i64,
-                )
-                .await;
 
-                match result {
-                    Ok(mls_group) => Ok(mls_group),
-                    Err(err) => {
-                        use crate::DuplicateItem::*;
-                        use crate::StorageError::*;
-
-                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                            tracing::warn!(
-                            "failed to create group from welcome due to duplicate welcome ID: {}",
-                            err
-                        );
-                        } else {
-                            tracing::error!("failed to create group from welcome: {}", err);
-                        }
-
-                        Err(err)
-                    }
-                }
-            })
-            .await
+                Err(err)
+            }
+        }
     }
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
