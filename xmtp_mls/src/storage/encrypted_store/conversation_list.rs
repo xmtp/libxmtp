@@ -180,6 +180,7 @@ pub(crate) mod tests {
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
     };
     use crate::storage::group::{GroupMembershipState, GroupQueryArgs};
+    use crate::storage::group_message::ContentType;
     use crate::storage::tests::with_connection;
     use crate::Store;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -198,7 +199,7 @@ pub(crate) mod tests {
                         None,
                         Some(&group.id),
                         Some(i * 1000),
-                        None,
+                        Some(ContentType::Text),
                     );
                 message.store(conn).unwrap();
             }
@@ -274,7 +275,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(1000),
-                    None,
+                    Some(ContentType::Text),
                 );
             first_message.store(conn).unwrap();
 
@@ -295,7 +296,7 @@ pub(crate) mod tests {
                     None,
                     Some(&group.id),
                     Some(2000),
-                    None,
+                    Some(ContentType::Text),
                 );
             second_message.store(conn).unwrap();
 
