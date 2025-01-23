@@ -69,7 +69,7 @@ impl fmt::Display for MetadataField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConversationMessageDisappearingSettings {
     pub from_ns: i64,
     pub in_ns: i64,

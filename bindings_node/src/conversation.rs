@@ -38,10 +38,11 @@ pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
 }
 
-#[napi]
+#[napi(object)]
 #[derive(Clone)]
 pub struct ConversationMessageDisappearingSettings {
-  inner: XmtpConversationMessageDisappearingSettings,
+  #[napi]
+  pub inner: XmtpConversationMessageDisappearingSettings,
 }
 
 #[napi]
@@ -50,6 +51,12 @@ impl ConversationMessageDisappearingSettings {
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
     let inner = XmtpConversationMessageDisappearingSettings { from_ns, in_ns };
     Self { inner }
+  }
+}
+
+impl From<ConversationMessageDisappearingSettings> for XmtpConversationMessageDisappearingSettings {
+  fn from(value: ConversationMessageDisappearingSettings) -> Self {
+    XmtpConversationMessageDisappearingSettings::new(value.inner.from_ns, value.inner.in_ns)
   }
 }
 

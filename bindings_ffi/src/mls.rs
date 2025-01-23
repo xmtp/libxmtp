@@ -822,7 +822,7 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
             MetadataField::GroupPinnedFrameUrl.to_string(),
             policy_set.update_group_pinned_frame_url_policy.try_into()?,
         );
-        // MessageExpirationFromMillis follows the same policy as MessageExpirationMillis
+        // MessageDisappearFromNS follows the same policy as MessageDisappearInNS
         metadata_permissions_map.insert(
             MetadataField::MessageDisappearFromNS.to_string(),
             policy_set
@@ -1298,7 +1298,7 @@ impl FfiConversationListItem {
     }
 }
 
-#[derive(uniffi::Record, Debug)]
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiConversationMessageDisappearingSettings {
     pub from_ns: i64,
     pub in_ns: i64,
@@ -1307,6 +1307,12 @@ pub struct FfiConversationMessageDisappearingSettings {
 impl FfiConversationMessageDisappearingSettings {
     fn new(from_ns: i64, in_ns: i64) -> Self {
         Self { from_ns, in_ns }
+    }
+}
+
+impl From<ConversationMessageDisappearingSettings> for FfiConversationMessageDisappearingSettings {
+    fn from(value: ConversationMessageDisappearingSettings) -> Self {
+        FfiConversationMessageDisappearingSettings::new(value.from_ns, value.in_ns)
     }
 }
 
@@ -1475,8 +1481,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
-    pub message_disappear_from_ns: Option<i64>,
-    pub message_disappear_in_ns: Option<i64>,
+    pub message_disappearing_settings: Option<FfiConversationMessageDisappearingSettings>,
 }
 
 impl FfiCreateGroupOptions {
@@ -1486,7 +1491,9 @@ impl FfiCreateGroupOptions {
             image_url_square: self.group_image_url_square,
             description: self.group_description,
             pinned_frame_url: self.group_pinned_frame_url,
-            message_disappearing_settings: None,
+            message_disappearing_settings: self
+                .message_disappearing_settings
+                .map(|settings| settings.into()),
         }
     }
 }
