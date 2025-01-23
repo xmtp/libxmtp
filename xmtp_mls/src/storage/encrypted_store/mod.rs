@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::sync::{atomic::Ordering, Arc};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -486,6 +485,7 @@ pub(crate) mod tests {
     use diesel::sql_types::{BigInt, Blob, Integer, Text};
     use group::ConversationType;
     use schema::groups;
+    use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;

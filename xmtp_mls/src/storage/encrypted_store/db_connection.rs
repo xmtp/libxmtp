@@ -62,12 +62,12 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        // if self.in_transaction() {
-        // if let Some(write) = &self.write {
-        // let mut lock = write.lock();
-        // return fun(&mut lock);
-        // };
-        // }
+        if self.in_transaction() {
+            if let Some(write) = &self.write {
+                let mut lock = write.lock();
+                return fun(&mut lock);
+            };
+        }
 
         let mut lock = self.read.lock();
         fun(&mut lock)
