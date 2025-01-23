@@ -468,6 +468,34 @@ impl DbConnection {
         Ok(())
     }
 
+    pub fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_from_ns.eq(from_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_in_ns.eq(in_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
         let stored_group = self.raw_query(|conn| {

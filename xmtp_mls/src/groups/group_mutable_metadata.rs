@@ -6,7 +6,6 @@ use openmls::{
 };
 use prost::Message;
 use thiserror::Error;
-
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
@@ -58,8 +57,8 @@ impl MetadataField {
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
-            MetadataField::MessageDisappearFromNS => "message_expiration_from_ms",
-            MetadataField::MessageDisappearInNS => "message_expiration_ms",
+            MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
+            MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
         }
     }
 }
@@ -143,14 +142,18 @@ impl GroupMutableMetadata {
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
 
-        if let Some(message_retention_settings) = opts.message_disappearing_settings {
+        if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
+            println!(
+                "message_disappearing_setting:{:?}",
+                message_disappearing_settings.clone()
+            );
             attributes.insert(
                 MetadataField::MessageDisappearFromNS.to_string(),
-                message_retention_settings.from_ns.to_string(),
+                message_disappearing_settings.from_ns.to_string(),
             );
             attributes.insert(
                 MetadataField::MessageDisappearInNS.to_string(),
-                message_retention_settings.in_ns.to_string(),
+                message_disappearing_settings.in_ns.to_string(),
             );
         }
 

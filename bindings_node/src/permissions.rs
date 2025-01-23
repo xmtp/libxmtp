@@ -161,7 +161,7 @@ pub struct PermissionPolicySet {
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
   pub update_group_pinned_frame_url_policy: PermissionPolicy,
-  pub update_message_expiration_ms_policy: PermissionPolicy,
+  pub update_message_disappearing_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -216,7 +216,7 @@ impl GroupPermissions {
       update_group_pinned_frame_url_policy: get_policy(
         XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
       ),
-      update_message_expiration_ms_policy: get_policy(
+      update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
     })
@@ -247,7 +247,7 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
     );
     metadata_permissions_map.insert(
       XmtpMetadataField::MessageDisappearInNS.to_string(),
-      policy_set.update_message_expiration_ms_policy.try_into()?,
+      policy_set.update_message_disappearing_policy.try_into()?,
     );
 
     Ok(PolicySet {

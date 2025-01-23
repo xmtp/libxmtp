@@ -790,7 +790,7 @@ pub struct FfiPermissionPolicySet {
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
     pub update_group_pinned_frame_url_policy: FfiPermissionPolicy,
-    pub update_message_expiration_ms_policy: FfiPermissionPolicy,
+    pub update_message_disappearing_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
@@ -826,13 +826,13 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
         metadata_permissions_map.insert(
             MetadataField::MessageDisappearFromNS.to_string(),
             policy_set
-                .update_message_expiration_ms_policy
+                .update_message_disappearing_policy
                 .clone()
                 .try_into()?,
         );
         metadata_permissions_map.insert(
             MetadataField::MessageDisappearInNS.to_string(),
-            policy_set.update_message_expiration_ms_policy.try_into()?,
+            policy_set.update_message_disappearing_policy.try_into()?,
         );
 
         Ok(PolicySet {
@@ -2263,7 +2263,7 @@ impl FfiGroupPermissions {
             update_group_pinned_frame_url_policy: get_policy(
                 MetadataField::GroupPinnedFrameUrl.as_str(),
             ),
-            update_message_expiration_ms_policy: get_policy(
+            update_message_disappearing_policy: get_policy(
                 MetadataField::MessageDisappearInNS.as_str(),
             ),
         })
@@ -4534,7 +4534,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -4564,7 +4564,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -4595,7 +4595,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Allow,
+            update_message_disappearing_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -4625,7 +4625,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -4659,7 +4659,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -4687,7 +4687,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 
@@ -4741,7 +4741,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options = FfiCreateGroupOptions {
@@ -4792,7 +4792,7 @@ mod tests {
             FfiPermissionPolicy::Admin
         );
         assert_eq!(
-            group_permissions_policy_set.update_message_expiration_ms_policy,
+            group_permissions_policy_set.update_message_disappearing_policy,
             FfiPermissionPolicy::Admin
         );
         assert_eq!(
@@ -4858,7 +4858,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let custom_permissions_valid = FfiPermissionPolicySet {
@@ -4870,7 +4870,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options_invalid_1 = FfiCreateGroupOptions {

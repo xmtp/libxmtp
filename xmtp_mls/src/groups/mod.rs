@@ -1193,20 +1193,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
     ) -> Result<ConversationMessageDisappearingSettings, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
-        let expire_from_ms = mutable_metadata
+        let disappear_from_ns = mutable_metadata
             .attributes
             .get(&MetadataField::MessageDisappearFromNS.to_string());
-        let expire_in_ms = mutable_metadata
+        let disappear_in_ns = mutable_metadata
             .attributes
             .get(&MetadataField::MessageDisappearInNS.to_string());
 
-        if let (Some(Ok(message_expiration_from_ms)), Some(Ok(message_expiration_ms))) = (
-            expire_from_ms.map(|s| s.parse::<i64>()),
-            expire_in_ms.map(|s| s.parse::<i64>()),
+        if let (Some(Ok(message_disappear_from_ns)), Some(Ok(message_disappear_in_ns))) = (
+            disappear_from_ns.map(|s| s.parse::<i64>()),
+            disappear_in_ns.map(|s| s.parse::<i64>()),
         ) {
             Ok(ConversationMessageDisappearingSettings::new(
-                message_expiration_from_ms,
-                message_expiration_ms,
+                message_disappear_from_ns,
+                message_disappear_in_ns,
             ))
         } else {
             Err(GroupError::GroupMetadata(
@@ -3064,7 +3064,7 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::MessageDisappearFromNS.to_string())
             .unwrap();
-        let amal_message_expiration_ms: &String = binding
+        let amal_message_disappear_in_ns: &String = binding
             .attributes
             .get(&MetadataField::MessageDisappearInNS.to_string())
             .unwrap();
@@ -3075,7 +3075,7 @@ pub(crate) mod tests {
                 .to_string()
         );
         assert_eq!(
-            amal_message_expiration_ms.clone(),
+            amal_message_disappear_in_ns.clone(),
             expected_group_message_expiration_settings.in_ns.to_string()
         );
     }
