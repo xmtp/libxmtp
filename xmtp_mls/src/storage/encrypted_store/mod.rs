@@ -57,7 +57,7 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -454,21 +454,14 @@ where
 
         // ensuring we have only one strong reference
         let result = fun(self).await;
-        let local_read_connection = self.conn_ref().read_ref();
-        let local_write_connection = self.conn_ref().write_ref();
 
-        // after the closure finishes, `local_provider` should have the only reference ('strong')
-        // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection = DbConnectionPrivate::from_arc_mutex(
-            local_read_connection,
-            local_write_connection,
-            true,
-        );
+        let local_connection = self.conn_ref();
         match result {
             Ok(value) => {
                 local_connection.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
                 })?;
+
                 tracing::info!("Transaction async being committed");
                 Ok(value)
             }

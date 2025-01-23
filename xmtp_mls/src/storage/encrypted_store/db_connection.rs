@@ -46,7 +46,7 @@ where
     C: diesel::Connection,
 {
     fn in_transaction(&self) -> bool {
-        self.transaction_count.load(Ordering::SeqCst) == 0
+        self.transaction_count.load(Ordering::SeqCst) != 0
     }
 
     pub(crate) fn start_transaction(&self) -> TransactionGuard {
@@ -62,6 +62,13 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
+        if self.in_transaction() {
+            if let Some(write) = &self.write {
+                let mut lock = write.lock();
+                return fun(&mut lock);
+            };
+        }
+
         let mut lock = self.read.lock();
         fun(&mut lock)
     }
