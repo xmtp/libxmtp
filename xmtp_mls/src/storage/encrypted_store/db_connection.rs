@@ -25,6 +25,16 @@ pub struct DbConnectionPrivate<C> {
     pub(super) transaction_count: Arc<AtomicI32>,
 }
 
+impl<C> Clone for DbConnectionPrivate<C> {
+    fn clone(&self) -> Self {
+        Self {
+            read: self.read.clone(),
+            write: self.write.clone(),
+            transaction_count: self.transaction_count.clone(),
+        }
+    }
+}
+
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
