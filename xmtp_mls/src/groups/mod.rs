@@ -570,10 +570,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
         tracing::info!("Creating from welcome");
-        let mls_welcome =
+        let staged_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
-        let mls_group = mls_welcome.into_group(provider)?;
+        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
+        // in the `GroupMembership` extension.
+        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &staged_welcome)
+            .await?;
+
+        let mls_group = staged_welcome.into_group(provider)?;
         let group_id = mls_group.group_id().to_vec();
         let metadata = extract_group_metadata(&mls_group)?;
         let dm_members = metadata.dm_members;
@@ -612,10 +617,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 dm_members,
             ),
         };
-
-        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
-        // in the `GroupMembership` extension.
-        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
 
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
@@ -1655,10 +1656,11 @@ fn build_group_config(
 async fn validate_initial_group_membership(
     client: impl ScopedGroupClient,
     conn: &DbConnection,
-    mls_group: &OpenMlsGroup,
+    staged_welcome: &StagedWelcome,
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
-    let membership = extract_group_membership(mls_group.extensions())?;
+    let extensions = staged_welcome.public_group().group_context().extensions();
+    let membership = extract_group_membership(extensions)?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
@@ -1681,7 +1683,8 @@ async fn validate_initial_group_membership(
         expected_installation_ids.extend(association_state.installation_ids());
     }
 
-    let actual_installation_ids: HashSet<Vec<u8>> = mls_group
+    let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
+        .public_group()
         .members()
         .map(|member| member.signature_key)
         .collect();
