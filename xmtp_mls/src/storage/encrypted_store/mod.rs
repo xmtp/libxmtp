@@ -456,20 +456,14 @@ where
         let result = fun(self).await;
         let local_read_connection = self.conn_ref().read_ref();
         let local_write_connection = self.conn_ref().write_ref();
-        if Arc::strong_count(&local_read_connection) > 1 {
-            tracing::warn!(
-                "More than 1 strong connection references still exist during async transaction"
-            );
-        }
-
-        if Arc::weak_count(&local_read_connection) > 1 {
-            tracing::warn!("More than 1 weak connection references still exist during transaction");
-        }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
         // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection =
-            DbConnectionPrivate::from_arc_mutex(local_read_connection, local_write_connection);
+        let local_connection = DbConnectionPrivate::from_arc_mutex(
+            local_read_connection,
+            local_write_connection,
+            true,
+        );
         match result {
             Ok(value) => {
                 local_connection.raw_query_write(|conn| {

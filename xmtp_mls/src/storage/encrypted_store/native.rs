@@ -169,6 +169,7 @@ impl XmtpDb for NativeDb {
         Ok(DbConnectionPrivate::from_arc_mutex(
             Arc::new(parking_lot::Mutex::new(conn)),
             self.write_conn.clone(),
+            false,
         ))
     }
 

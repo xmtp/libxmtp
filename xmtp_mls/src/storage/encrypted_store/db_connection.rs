@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
@@ -22,17 +22,21 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 pub struct DbConnectionPrivate<C> {
     read: Arc<Mutex<C>>,
     write: Option<Arc<Mutex<C>>>,
-    pub(super) in_transaction: Arc<AtomicBool>,
+    pub(super) transaction_count: Arc<AtomicI32>,
 }
 
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
-    pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Option<Arc<Mutex<C>>>) -> Self {
+    pub(super) fn from_arc_mutex(
+        read: Arc<Mutex<C>>,
+        write: Option<Arc<Mutex<C>>>,
+        is_transaction: bool,
+    ) -> Self {
         Self {
             read,
             write,
-            in_transaction: Arc::new(AtomicBool::new(false)),
+            transaction_count: Arc::new(AtomicI32::new(is_transaction as i32)),
         }
     }
 }
@@ -42,13 +46,13 @@ where
     C: diesel::Connection,
 {
     fn in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
+        self.transaction_count.load(Ordering::SeqCst) == 0
     }
 
     pub(crate) fn start_transaction(&self) -> TransactionGuard {
-        self.in_transaction.store(true, Ordering::SeqCst);
+        self.transaction_count.fetch_add(1, Ordering::SeqCst);
         TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
+            transaction_count: self.transaction_count.clone(),
         }
     }
 
@@ -139,10 +143,10 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
 }
 
 pub struct TransactionGuard {
-    in_transaction: Arc<AtomicBool>,
+    transaction_count: Arc<AtomicI32>,
 }
 impl Drop for TransactionGuard {
     fn drop(&mut self) {
-        self.in_transaction.store(false, Ordering::SeqCst);
+        self.transaction_count.fetch_add(-1, Ordering::SeqCst);
     }
 }
