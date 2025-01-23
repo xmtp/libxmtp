@@ -62,7 +62,7 @@ use self::{
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
-    NotFound, StorageError,
+    NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
@@ -578,26 +578,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &staged_welcome)
             .await?;
 
-        let mls_group = staged_welcome.into_group(provider)?;
-        let group_id = mls_group.group_id().to_vec();
-        let metadata = extract_group_metadata(&mls_group)?;
-        let dm_members = metadata.dm_members;
+        provider.transaction(|provider| {
+            let mls_group = staged_welcome.into_group(provider)?;
+            let group_id = mls_group.group_id().to_vec();
+            let metadata = extract_group_metadata(&mls_group)?;
+            let dm_members = metadata.dm_members;
 
-        let conversation_type = metadata.conversation_type;
+            let conversation_type = metadata.conversation_type;
 
-        let to_store = match conversation_type {
-            ConversationType::Group => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Pending,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-            ConversationType::Dm => {
-                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
-                StoredGroup::new_from_welcome(
+            let to_store = match conversation_type {
+                ConversationType::Group => StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Pending,
@@ -605,28 +595,40 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome_id,
                     conversation_type,
                     dm_members,
-                )
-            }
-            ConversationType::Sync => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Allowed,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-        };
+                ),
+                ConversationType::Dm => {
+                    validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
+                    StoredGroup::new_from_welcome(
+                        group_id.clone(),
+                        now_ns(),
+                        GroupMembershipState::Pending,
+                        added_by_inbox,
+                        welcome_id,
+                        conversation_type,
+                        dm_members,
+                    )
+                }
+                ConversationType::Sync => StoredGroup::new_from_welcome(
+                    group_id.clone(),
+                    now_ns(),
+                    GroupMembershipState::Allowed,
+                    added_by_inbox,
+                    welcome_id,
+                    conversation_type,
+                    dm_members,
+                ),
+            };
 
-        // Insert or replace the group in the database.
-        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
+            // Insert or replace the group in the database.
+            // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
+            let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new_from_arc(
-            client.clone(),
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
+            Ok(Self::new_from_arc(
+                client.clone(),
+                stored_group.id,
+                stored_group.created_at_ns,
+            ))
+        })
     }
 
     /// Decrypt a welcome message using HPKE and then create and save a group from the stored message

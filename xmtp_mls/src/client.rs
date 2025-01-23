@@ -33,6 +33,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -58,7 +59,6 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
-use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -753,7 +753,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        let kp_bytes = self.identity().rotate_key_package::<ApiClient>(provider)?;
+        let kp_bytes = self.identity().rotate_key_package(provider)?;
         self.api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(())

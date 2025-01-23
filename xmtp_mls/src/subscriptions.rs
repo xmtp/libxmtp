@@ -21,7 +21,7 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
-        ProviderTransactions, StorageError,
+        StorageError,
     },
     Client, XmtpApi, XmtpOpenMlsProvider,
 };
@@ -278,18 +278,15 @@ where
                     "Trying to process streamed welcome"
                 );
                 let welcome_v1 = &welcome_v1;
-                provider
-                    .transaction_async(|provider| async move {
-                        MlsGroup::create_from_encrypted_welcome(
-                            Arc::new(self.clone()),
-                            provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            &welcome_v1.data,
-                            welcome_v1.id as i64,
-                        )
-                        .await
-                    })
-                    .await
+
+                MlsGroup::create_from_encrypted_welcome(
+                    Arc::new(self.clone()),
+                    provider,
+                    welcome_v1.hpke_public_key.as_slice(),
+                    &welcome_v1.data,
+                    welcome_v1.id as i64,
+                )
+                .await
             })
         );
 

@@ -533,13 +533,13 @@ impl Identity {
             return Ok(());
         }
 
-        let kp_bytes = self.rotate_key_package::<ApiClient>(provider)?;
+        let kp_bytes = self.rotate_key_package(provider)?;
         api_client.upload_key_package(kp_bytes, true).await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
     /// Upload a new key package to the network, which will replace any existing key packages for the installation.
-    pub(crate) fn rotate_key_package<ApiClient: XmtpApi>(
+    pub(crate) fn rotate_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<u8>, IdentityError> {
