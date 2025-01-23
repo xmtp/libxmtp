@@ -31,7 +31,7 @@ pub trait StreamHandle {
     /// The Output type for the stream
     type StreamOutput;
 
-    /// Asyncronously waits for the stream to be fully spawned
+    /// Asynchronously waits for the stream to be fully spawned
     async fn wait_for_ready(&mut self);
     /// Signal the stream to end
     /// Does not wait for the stream to end, so will not receive the result of stream.
@@ -47,7 +47,7 @@ pub trait StreamHandle {
     /// Join the task back to the current thread, waiting until it ends.
     async fn join(self) -> Result<Self::StreamOutput, StreamHandleError>;
 
-    /// End the stream and asyncronously wait for it to shutdown, getting the result of its
+    /// End the stream and asynchronously wait for it to shutdown, getting the result of its
     /// execution.
     async fn end_and_wait(&mut self) -> Result<Self::StreamOutput, StreamHandleError>;
     /// Get an Abort Handle to the stream.
@@ -146,7 +146,7 @@ mod wasm {
 
     /// Spawn a future on the `wasm-bindgen` local current-thread executer
     ///  future does not require `Send`.
-    ///  optionally pass in `ready` to signal whne stream will be ready.
+    ///  optionally pass in `ready` to signal when stream will be ready.
     pub fn spawn<F>(
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
         future: F,
