@@ -51,6 +51,10 @@ pub struct StoredGroup {
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: Option<i64>,
+    /// The Time in NS when the messages should be deleted
+    pub message_disappear_from_ns: Option<i64>,
+    /// How long a message in the group can live in NS
+    pub message_disappear_in_ns: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -78,6 +82,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 
@@ -103,6 +109,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 
@@ -124,6 +132,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: None,
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 }
@@ -452,6 +462,34 @@ impl DbConnection {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_from_ns.eq(from_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_in_ns.eq(in_ns))
                 .execute(conn)
         })?;
 
