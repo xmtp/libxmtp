@@ -770,7 +770,7 @@ where
                         Ok(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                     }
                     IntentState::Committed => {
-                        self.handle_metadata_update(&provider, &intent)?;
+                        self.handle_metadata_update(provider, &intent)?;
                         Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                     }
                     IntentState::Published => {

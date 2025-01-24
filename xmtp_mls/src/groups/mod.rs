@@ -1170,8 +1170,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 expire_from_ms,
             )
             .into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
     }
 
     async fn update_conversation_message_disappear_in_ns(
@@ -1182,8 +1182,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
     }
 
     pub fn conversation_message_disappearing_settings(

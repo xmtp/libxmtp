@@ -10,6 +10,8 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ops::Sub;
+use xmtp_common::time::now_ns;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
     text, transaction_reference,
@@ -436,6 +438,7 @@ impl DbConnection {
             let disappear_duration_ns = groups_dsl::message_disappear_in_ns
                 .assume_not_null()
                 .into_sql::<BigInt>();
+            let now = now_ns();
 
             let expire_messages = dsl::group_messages
                 .left_join(
@@ -445,14 +448,23 @@ impl DbConnection {
                     .eq(sql::<diesel::sql_types::Text>("lower(hex(groups.id))"))),
                 )
                 .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
                 .filter(
                     groups_dsl::message_disappear_from_ns
                         .is_not_null()
                         .and(groups_dsl::message_disappear_in_ns.is_not_null()),
                 )
                 .filter(
-                    dsl::sent_at_ns
-                        .between(disappear_from_ns, disappear_from_ns + disappear_duration_ns),
+                    disappear_from_ns
+                        .gt(0) // to make sure the settings are correct
+                        .and(
+                            dsl::sent_at_ns.gt(disappear_from_ns).and(
+                                dsl::sent_at_ns.lt(sql::<BigInt>("")
+                                    .bind::<BigInt, _>(now)
+                                    .assume_not_null()
+                                    .sub(disappear_duration_ns)),
+                            ),
+                        ),
                 )
                 .select(dsl::id);
             let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;

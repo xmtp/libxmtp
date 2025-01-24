@@ -1428,7 +1428,7 @@ impl From<FfiDirection> for SortDirection {
 
 impl From<FfiConversationMessageDisappearingSettings> for ConversationMessageDisappearingSettings {
     fn from(settings: FfiConversationMessageDisappearingSettings) -> Self {
-        ConversationMessageDisappearingSettings::new(settings.from_ns, settings.from_ns)
+        ConversationMessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
     }
 }
 
@@ -1732,6 +1732,16 @@ impl FfiConversation {
             .update_conversation_message_disappearing_settings(
                 ConversationMessageDisappearingSettings::from(settings),
             )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GenericError> {
+        self.inner
+            .remove_conversation_message_disappearing_settings()
             .await?;
 
         Ok(())
@@ -2717,10 +2727,6 @@ mod tests {
     }
 
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_mls::groups::group_mutable_metadata::{
-        ConversationMessageDisappearingSettings, MetadataField,
-    };
-    use xmtp_mls::groups::{GroupMetadataOptions, PreconfiguredPolicies};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_add_wallet_to_inbox() {
@@ -3007,11 +3013,8 @@ mod tests {
                     group_description: Some("group description".to_string()),
                     group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
-                    message_disappear_from_ns: Some(
-                        conversation_message_disappearing_settings.from_ns,
-                    ),
-                    message_disappear_in_ns: Some(
-                        conversation_message_disappearing_settings.from_ns,
+                    message_disappearing_settings: Some(
+                        conversation_message_disappearing_settings.clone(),
                     ),
                 },
             )
@@ -3030,14 +3033,14 @@ mod tests {
                 .conversation_message_disappearing_settings()
                 .unwrap()
                 .from_ns,
-            conversation_message_disappearing_settings.from_ns
+            conversation_message_disappearing_settings.clone().from_ns
         );
         assert_eq!(
             group
                 .conversation_message_disappearing_settings()
                 .unwrap()
-                .from_ns,
-            conversation_message_disappearing_settings.from_ns
+                .in_ns,
+            conversation_message_disappearing_settings.in_ns
         );
     }
 
@@ -4732,6 +4735,117 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_disappearing_messages_deletion() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let mut alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 1);
+
+        // Step 4: Set disappearing settings to 5ns after the latest message
+        let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
+        let disappearing_settings =
+            FfiConversationMessageDisappearingSettings::new(latest_message_sent_at_ns, 5);
+        alix_group
+            .update_conversation_message_disappearing_settings(disappearing_settings.clone())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify the settings were applied
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+
+        // Step 5: Send additional messages
+        for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
+            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+        }
+        alix_group.sync().await.unwrap();
+
+        // Step 6: Verify total message count before cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let msg_counts_before_cleanup = alix_messages.len();
+
+        // Step 7: Start cleanup worker and delete expired messages
+        alix.inner_client
+            .start_disappearing_messages_cleaner_worker();
+
+        // Wait for cleanup to complete
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Step 8: Disable disappearing messages
+        alix_group
+            .remove_conversation_message_disappearing_settings()
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify disappearing settings are disabled
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            0
+        );
+        assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
+
+        // Step 9: Send another message
+        alix_group
+            .send("Msg 5 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 10: Verify messages after cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(msg_counts_before_cleanup, alix_messages.len());
+        // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_group_creation_custom_permissions() {
         let alix = new_test_client().await;
         let bola = new_test_client().await;
@@ -4755,8 +4869,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappearing_settings: None,
         };
 
         let alix_group = alix
@@ -4884,8 +4997,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappearing_settings: None,
         };
 
         let results_1 = alix
@@ -4905,8 +5017,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappearing_settings: None,
         };
 
         let results_2 = alix
@@ -4926,8 +5037,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappearing_settings: None,
         };
 
         let results_3 = alix
@@ -4947,8 +5057,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappearing_settings: None,
         };
 
         let results_4 = alix
