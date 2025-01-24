@@ -652,7 +652,7 @@ pub(crate) mod tests {
             let messages = vec![
                 generate_message(None, Some(&group.id), Some(1_000_000_000), None),
                 generate_message(None, Some(&group.id), Some(1_001_000_000), None),
-                generate_message(None, Some(&group.id), Some(1_002_000_000), None),
+                generate_message(None, Some(&group.id), Some(2_000_000_000_000_000_000), None),
             ];
             assert_ok!(messages.store(conn));
 
@@ -675,7 +675,7 @@ pub(crate) mod tests {
                 .any(|msg| msg.sent_at_ns == 1_000_000_000)); // Message 1
             assert!(remaining_messages
                 .iter()
-                .any(|msg| msg.sent_at_ns == 1_002_000_000)); // Message 3
+                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)); // Message 3
         })
         .await
     }
