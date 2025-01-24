@@ -7406,8 +7406,11 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "rand",
+ "serde",
+ "serde_json",
  "thiserror 2.0.6",
  "tonic",
+ "tracing",
  "xmtp_common",
  "xmtp_proto",
 ]
