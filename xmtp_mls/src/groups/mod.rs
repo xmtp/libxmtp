@@ -1213,23 +1213,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
-    /// Check the group expiration settings, and if both are gt then 0 will return the settings
-    pub fn get_group_message_expiration_settings_if_valid(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Option<ConversationMessageDisappearingSettings> {
-        match self.conversation_message_disappearing_settings(provider) {
-            Ok(expiration_settings) => {
-                if expiration_settings.from_ns > 0 && expiration_settings.in_ns > 0 {
-                    Some(expiration_settings)
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
-    }
-
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: &XmtpOpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
@@ -2708,7 +2691,7 @@ pub(crate) mod tests {
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
                     message_disappearing_settings: Some(
-                        expected_group_message_disappearing_settings,
+                        expected_group_message_disappearing_settings.clone(),
                     ),
                 },
             )
@@ -3048,7 +3031,7 @@ pub(crate) mod tests {
 
         amal_group
             .update_conversation_message_disappearing_settings(
-                expected_group_message_expiration_settings,
+                expected_group_message_expiration_settings.clone(),
             )
             .await
             .unwrap();
