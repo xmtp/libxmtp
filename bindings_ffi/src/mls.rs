@@ -2965,21 +2965,26 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installation_and_group_modification() {
         // Step 1: Create two installations
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
-        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let bola_client_1 = new_test_client_with_wallet(bola_wallet.clone()).await;
 
         // Ensure both clients are properly initialized
-        let client_1_state = client_1.inbox_state(true).await.unwrap();
-        let client_2_state = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state.installations.len(), 2);
-        assert_eq!(client_2_state.installations.len(), 2);
+        let alix_client_1_state = alix_client_1.inbox_state(true).await.unwrap();
+        let alix_client_2_state = alix_client_2.inbox_state(true).await.unwrap();
+        let bola_client_1_state = bola_client_1.inbox_state(true).await.unwrap();
+        assert_eq!(alix_client_1_state.installations.len(), 2);
+        assert_eq!(alix_client_2_state.installations.len(), 2);
+        assert_eq!(bola_client_1_state.installations.len(), 1);
+
 
         // Step 2: Create a group
-        let group = client_1
+        let group = alix_client_1
             .conversations()
             .create_group(
-                vec![],
+                vec![bola_client_1.account_address.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -2990,21 +2995,23 @@ mod tests {
         assert_eq!(group_members.first().unwrap().installation_ids.len(), 2);
 
         // Step 3: Revoke one installation
-        let revoke_request = client_1
-            .revoke_installations(vec![client_2.installation_id()])
+        let revoke_request = alix_client_1
+            .revoke_installations(vec![alix_client_2.installation_id()])
             .await
             .unwrap();
-        revoke_request.add_wallet_signature(&wallet).await;
-        client_1
+        revoke_request.add_wallet_signature(&alix_wallet).await;
+        alix_client_1
             .apply_signature_request(revoke_request)
             .await
             .unwrap();
 
         // Validate revocation
-        let client_1_state_after_revoke = client_1.inbox_state(true).await.unwrap();
-        let client_2_state_after_revoke = client_2.inbox_state(true).await.unwrap();
-        client_1.conversations().sync().await.unwrap();
-        client_2.conversations().sync().await.unwrap();
+        let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+        alix_client_1.conversations().sync_all_conversations(None).await.unwrap();
+        alix_client_2.conversations().sync_all_conversations(None).await.unwrap();
+        bola_client_1.conversations().sync_all_conversations(None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         assert_eq!(client_1_state_after_revoke.installations.len(), 1);
         assert_eq!(group_members.first().unwrap().installation_ids.len(), 1);
     }
