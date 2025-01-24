@@ -15,6 +15,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use xmtp_proto::{Error as ApiError, ErrorKind};
 
 /// A filter for querying group messages
+#[derive(Clone)]
 pub struct GroupFilter {
     pub group_id: Vec<u8>,
     pub id_cursor: Option<u64>,

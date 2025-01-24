@@ -586,7 +586,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group_with_conn(provider.conn_ref(), id)?;
+            let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
         }
@@ -603,7 +603,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
-            let group = self.group_with_conn(conn, group.id)?;
+            let group = self.group_with_conn(conn, &group.id)?;
             Box::pin(
                 group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
             )
@@ -727,7 +727,7 @@ where
             .latest_sync_group()?
             .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
             .id;
-        let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
+        let sync_group = self.group_with_conn(conn, &sync_group_id)?;
 
         Ok(sync_group)
     }

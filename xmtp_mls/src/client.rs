@@ -621,12 +621,12 @@ where
     pub fn group_with_conn(
         &self,
         conn: &DbConnection,
-        group_id: Vec<u8>,
+        group_id: &Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
-            .ok_or(NotFound::GroupById(group_id))
+            .ok_or(NotFound::GroupById(group_id.clone()))
             .map_err(Into::into)
     }
 
@@ -636,7 +636,7 @@ where
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
-        self.group_with_conn(conn, group_id)
+        self.group_with_conn(conn, &group_id)
     }
 
     /**

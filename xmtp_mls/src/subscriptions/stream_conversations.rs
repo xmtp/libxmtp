@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, NotFound},
+    storage::{group::ConversationType, NotFound, refresh_state::EntityKind},
     Client, XmtpOpenMlsProvider,
 };
 use futures::{prelude::stream::Select, Stream};
@@ -117,12 +117,11 @@ where
 
 pin_project! {
     pub struct StreamConversations<'a, C, Subscription> {
-        client: C,
         #[pin] inner: Subscription,
+        #[pin] state: ProcessState<'a, C>,
+        client: C,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
-        #[pin] state: ProcessState<'a, C>,
-        // fairness: xmtp_common::Fairness
     }
 }
 
@@ -135,15 +134,6 @@ pin_project! {
         /// before moving on to the next one
         Processing {
             #[pin] future: FutureWrapper<'a, Result<Option<(MlsGroup<C>, Option<i64>)>>>
-        }
-    }
-}
-
-impl<'a, C> ProcessState<'a, C> {
-    fn try_poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Option<Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>> {
-        match self.as_mut().project() {
-            ProcessProject::Waiting => None,
-            ProcessProject::Processing { future } => Some(future.poll(cx))
         }
     }
 }
@@ -181,15 +171,17 @@ where
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-
         let provider = client.mls_provider()?;
         let conn = provider.conn_ref();
         let installation_key = client.installation_public_key();
-        // _NOTE_ IdCursor should be one
-        let id_cursor = 1;
+        let id_cursor = provider
+            .conn_ref()
+            .get_last_cursor_for_id(&installation_key, EntityKind::Welcome)?;
         tracing::info!(
+            cursor = id_cursor,
             inbox_id = client.inbox_id(),
-            "Setting up conversation stream"
+            "Setting up conversation stream cursor = {}",
+            id_cursor
         );
 
         let events =
@@ -197,7 +189,7 @@ where
 
         let subscription = client
             .api_client
-            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor))
+            .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
         let subscription = SubscriptionStream::new(subscription);
         let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
@@ -210,7 +202,6 @@ where
             known_welcome_ids,
             conversation_type,
             state: ProcessState::Waiting,
-            // fairness: xmtp_common::Fairness::default(),
         })
     }
 }
@@ -251,25 +242,21 @@ where
                         // try to process the future immediately
                         // this will return immediately if we have already processed the welcome
                         // and it exists in the db
-                        let poll = this.state.try_poll(cx).expect("future just set & pinned in state");
+
+                        let Processing { future } = this.state.project() else { unreachable!() };
+                        let poll = future.poll(cx);
                         self.as_mut().try_process(poll, cx)
                     }
                     // stream ended
                     Ready(None) => {
                         tracing::info!("READY NONE");
                         Ready(None)
-                    },
-                    Pending => {
-                        xmtp_common::Fairness::wake();
-                        cx.waker().wake_by_ref();
-                        Pending
                     }
+                    Pending => Pending
                 }
-            },
+            }
             Processing { future } => {
-                tracing::info!("PROCESSING");
                 let poll = future.poll(cx);
-                // this.fairness.wake();
                 self.as_mut().try_process(poll, cx)
             }
         }
@@ -302,15 +289,13 @@ where
             Ready(Ok(None)) => {
                 tracing::info!("Ignoring this payload");
                 this.state.as_mut().set(ProcessState::Waiting);
+                // we have to re-ad this task to the queue
+                // to let http know we are waiting on the next item
                 cx.waker().wake_by_ref();
                 Pending
             }
             Ready(Err(e)) => Ready(Some(Err(e))),
-            Pending => {
-                xmtp_common::Fairness::wake();
-                cx.waker().wake_by_ref();
-                Pending
-            }
+            Pending => Pending,
         }
     }
 }
@@ -371,12 +356,14 @@ where
             Welcome(ref w) => {
                 let welcome = extract_welcome_message(w)?;
                 let id = welcome.id as i64;
-                 // try to load it from store first and avoid overhead
+                // try to load it from store first and avoid overhead
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
                 // to avoid a possible yield on the await in on_welcome.
                 if self.known_welcome_ids.contains(&id) {
-                    tracing::debug!("Found existing welcome. Returning from db & skipping processing");
+                    tracing::debug!(
+                        "Found existing welcome. Returning from db & skipping processing"
+                    );
                     return Ok(Some(self.load_from_store(id).map(|(g, v)| (g, Some(v)))?));
                 }
 
