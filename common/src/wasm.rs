@@ -4,11 +4,6 @@ use futures::{Stream, FutureExt, StreamExt};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-#[cfg(target_arch = "wasm32")]
-static LOCAL_EXECUTOR_TICKS: AtomicU32 = AtomicU32::new(0u32);
-// const YIELD_AFTER: u32 = 10_000;
-// static NEEDS_YIELD: AtomicBool = AtomicBool::new(true);
-
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
 pub trait Wasm {}
@@ -127,48 +122,3 @@ mod inner {
 }
 #[cfg(target_arch = "wasm32")]
 use inner::*;
-
-#[cfg(target_arch = "wasm32")]
-pub fn ensure_browser_fairness() {
-    use js_sys::wasm_bindgen::JsCast;
-    use js_sys::wasm_bindgen::UnwrapThrowExt;
-    // use web_sys::WorkerGlobalScope;
-    use wasm_bindgen_futures::JsFuture;
-
-    wasm_bindgen_futures::spawn_local(async move {
-        NEEDS_YIELD.store(false, Ordering::SeqCst);
-        // tracing::info!("yielding");
-        // let scheduler = js_sys::Reflect::get(&js_sys::global(), &"scheduler".into()).unwrap();
-        // let scheduler = scheduler.dyn_into::<Scheduler>().unwrap();
-        // .expect("xmtp_mls should always be in worker");
-        // let scheduler = worker.scheduler();
-        crate::time::sleep(crate::time::Duration::from_millis(100)).await;
-        // yield_().await;
-        // JsFuture::from(scheduler.r#yield()).await.unwrap_throw();
-
-        NEEDS_YIELD.store(true, Ordering::SeqCst);
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn ensure_browser_fairness() {
-}
-
-#[derive(Default)]
-pub struct Fairness;
-
-impl Fairness {
-    #[cfg(target_arch = "wasm32")]
-    pub fn wake() {
-        tracing::info!("NEEDS YIELD {}", NEEDS_YIELD.load(Ordering::SeqCst));
-        let ticks = LOCAL_EXECUTOR_TICKS.load(Ordering::SeqCst);
-        if ticks % YIELD_AFTER == 0  && NEEDS_YIELD.load(Ordering::SeqCst) {
-            ensure_browser_fairness();
-        }
-        // wraps on overflow
-        LOCAL_EXECUTOR_TICKS.fetch_add(1, Ordering::SeqCst);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn wake() {}
-}

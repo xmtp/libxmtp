@@ -94,7 +94,6 @@ where
     type Item = Result<StoredGroupMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // tracing::debug!("POLLING STREAM ALL");
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
@@ -103,90 +102,10 @@ where
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             this.messages.as_mut().add(group?);
+            return this.messages.poll_next(cx);
         }
-        this.messages.poll_next(cx)
+        Poll::Pending
     }
-}
-
-impl<'a, C, Conversations>
-    StreamAllMessages<
-        'a,
-        C,
-        Conversations,
-        StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>,
-    >
-where
-    C: ScopedGroupClient + Clone + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Conversations: Stream<Item = Result<MlsGroup<C>>>,
-{
-    /*
-    fn try_poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
-        use SwitchProject::*;
-        tracing::info!("Trying to poll ....");
-        let this = self.as_mut().project();
-        if let Switching { future } = this.state.project() {
-            tracing::info!("Polling switch");
-            let stream = ready!(future.poll(cx))?;
-            self.as_mut().end_switch_stream(stream, cx);
-        }
-        let this = self.as_mut().project();
-        this.messages.poll_next(cx)
-    }
-    */
-/*
-    /// Polls groups
-    /// if groups are available, the stream starts waiting for the future to switch message
-    /// streams.
-    fn begin_switch_stream(mut self: Pin<&mut Self>, new_group: MlsGroup<C>, cx: &mut Context<'_>) {
-        tracing::info!("Beginning to switch streams");
-        if self.messages.group_list().contains_key(new_group.group_id.as_slice()) {
-            tracing::info!("Group {} already in stream", hex::encode(&new_group.group_id));
-            // we are skipping this group so re-add the task for wakeup
-            // cx.waker().wake_by_ref();
-            return;
-        }
-
-        tracing::debug!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
-            group_id = hex::encode(&new_group.group_id),
-            "begin establishing new message stream to include group_id={}",
-            hex::encode(&new_group.group_id)
-        );
-
-        // let mut conversations = self.messages.group_list().clone();
-        // conversations.insert(new_group.group_id.into(), 1.into());
-        // let future = StreamGroupMessages::new(self.client, conversations);
-        let future = self.messages.add_group(new_group, self.client);
-        let mut this = self.as_mut().project();
-        this.state.set(SwitchState::Switching {
-            future: FutureWrapper::new(future),
-        });
-    }
-
-    fn end_switch_stream(
-        mut self: Pin<&mut Self>,
-        stream: StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>,
-        cx: &mut Context<'_>,
-    ) {
-        tracing::info!("Ending switch");
-        let mut this = self.as_mut().project();
-        // drain the stream
-        // if we don't drain the stream, we inadvertantly create a zombie stream
-        // that freezes the executor
-        // Not entirely certain why it happens, but i assume gRPC does not like closing the stream
-        // because we have unread items in queue.
-        // We can throw away the drained messages, because we set the cursor for the stream
-        // before these messages were received
-        this.messages.as_mut().drain(cx);
-        this.messages.set(stream);
-        this.state.as_mut().set(SwitchState::Waiting);
-        // TODO: take old group list and .diff with new, to check which group is new
-        // for log msg.
-        tracing::debug!("established new stream");
-    }
-    */
 }
 
 #[cfg(test)]

@@ -268,16 +268,15 @@ where
                     if let Some(tracked_cursor) = this.group_list.get_mut(msg.group_id.as_slice()) {
                         if tracked_cursor.is_unknown() { // we assume a cursor of 1 means unknown cursor
                             // reinit the stream with the correct cursor
-                            tracing::info!("reinit");
                             tracked_cursor.set(new_cursor);
                             self.as_mut().reinit();
-                            return Poll::Pending;
-                            // return self.poll_next(cx);
+                            // return Poll::Pending;
+                            return self.poll_next(cx);
                         } else {
                             tracked_cursor.set(new_cursor);
                           return Poll::Ready(Some(Ok(msg)));
                          }
-                    } else {
+                    } else { // this should never happen
                         tracing::info!("\n\nGot new group\n\n");
                         this.group_list
                             .insert(msg.group_id.clone().into(), new_cursor.into());
@@ -288,11 +287,7 @@ where
                 None => {
                     tracing::warn!("skipping message streaming payload");
                     this.state.set(State::Waiting);
-                    // we are skipping this message and need to add the task
-                    // back to the queue to start polling for the next one
                     return self.poll_next(cx);
-                    // cx.waker().wake_by_ref();
-                    // return Poll::Pending;
                 }
             }
         }
