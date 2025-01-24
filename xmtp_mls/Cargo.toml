@@ -70,6 +70,7 @@ trait-variant.workspace = true
 xmtp_common.workspace = true
 zeroize.workspace = true
 pin-project-lite.workspace = true
+bytes.workspace = true
 
 # XMTP/Local
 xmtp_content_types = { path = "../xmtp_content_types" }

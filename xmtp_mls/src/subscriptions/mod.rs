@@ -402,13 +402,15 @@ pub(crate) mod tests {
     macro_rules! assert_msg {
         ($stream:expr, $expected:expr) => {
             assert_eq!(
-                $stream
+                String::from_utf8_lossy($stream
                     .next()
                     .await
                     .unwrap()
                     .unwrap()
-                    .decrypted_message_bytes,
-                $expected.as_bytes()
+                    .decrypted_message_bytes
+                    .as_slice()
+                ),
+                String::from_utf8_lossy($expected.as_bytes())
             );
         };
     }

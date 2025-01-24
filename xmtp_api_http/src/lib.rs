@@ -263,7 +263,28 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Error> {
+        use xmtp_proto::xmtp::mls::api::v1::subscribe_group_messages_request::Filter;
+        use xmtp_proto::xmtp::mls::api::v1::PagingInfo;
+        use xmtp_proto::xmtp::mls::api::v1::SortDirection;
         tracing::debug!("subscribe_group_messages");
+        tracing::info!("MESSAGES \n\n");
+        for Filter {
+            group_id,
+            id_cursor,
+        } in request.filters.iter()
+        {
+            // tracing::info!("Group {}, Cursor: {}", hex::encode(group_id), id_cursor);
+            let r = QueryGroupMessagesRequest {
+                group_id: group_id.clone(),
+                paging_info: Some(PagingInfo {
+                    id_cursor: 3,
+                    limit: 100,
+                    direction: SortDirection::Ascending as i32,
+                }),
+            };
+            let messages = self.query_group_messages(r).await;
+            tracing::info!("\nQUERY GROUP MSG \n\n {:?}\n\n", messages);
+        }
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),

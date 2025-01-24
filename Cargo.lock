@@ -7482,6 +7482,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "bytes",
  "chrono",
  "console_error_panic_hook",
  "const_format",

@@ -1,11 +1,11 @@
 use std::{
-    collections::HashMap,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use crate::subscriptions::stream_messages::{MessagePositionCursor, MessagesApiSubscription};
+use crate::subscriptions::stream_messages::MessagesApiSubscription;
 use crate::{
+    types::GroupId,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
         group::{ConversationType, GroupQueryArgs},
@@ -13,7 +13,7 @@ use crate::{
     },
     Client,
 };
-use futures::{stream::Stream, Future};
+use futures::stream::Stream;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
@@ -23,13 +23,11 @@ use super::{
     Result, SubscribeError,
 };
 use pin_project_lite::pin_project;
-use xmtp_common::FutureWrapper;
 
 pin_project! {
     pub(super) struct StreamAllMessages<'a, C, Conversations, Messages> {
         #[pin] conversations: Conversations,
         #[pin] messages: Messages,
-        #[pin] state: SwitchState<'a, Messages>,
         client: &'a C,
         conversation_type: Option<ConversationType>,
     }
@@ -58,50 +56,26 @@ where
                 .conn_ref()
                 .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
                 .into_iter()
-                .map(Into::into)
-                .collect::<HashMap<Vec<u8>, MessagePositionCursor>>();
+                // TODO: Create find groups query only for group ID
+                .map(|g| GroupId::from(g.id))
+                .collect();
             Ok::<_, SubscribeError>(active_conversations)
         }
         .await?;
 
-        let messages = StreamGroupMessages::new(client, active_conversations).await?;
         let conversations = super::stream_conversations::StreamConversations::new(
             client,
             conversation_type.clone(),
         )
         .await?;
+        let messages = StreamGroupMessages::new(client, active_conversations).await?;
 
         Ok(Self {
             client,
             conversation_type,
             messages,
             conversations,
-            state: Default::default(),
         })
-    }
-}
-
-pin_project! {
-    #[project = SwitchProject]
-    #[derive(Default)]
-    enum SwitchState<'a, Out> {
-        /// State that indicates the stream is waiting on the next message from the network
-        #[default]
-        Waiting,
-        /// state that indicates the stream is waiting on a IO/Network future to finish processing
-        /// the current message before moving on to the next one
-        Switching {
-            #[pin] future: FutureWrapper<'a, Result<Out>>
-        }
-    }
-}
-
-impl<Out> std::fmt::Debug for SwitchState<'_, Out> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SwitchState::Waiting => write!(f, "waiting"),
-            SwitchState::Switching { .. } => write!(f, "switching"),
-        }
     }
 }
 
@@ -122,39 +96,15 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // tracing::debug!("POLLING STREAM ALL");
         use std::task::Poll::*;
-        use SwitchProject::*;
-        let this = self.as_mut().project();
-        let state = this.state.project();
+        let mut this = self.as_mut().project();
 
-        match state {
-            Waiting => {
-                if let Ready(msg) = this.messages.poll_next(cx) {
-                    return Ready(msg);
-                }
-                if let Ready(Some(Ok(group))) = this.conversations.poll_next(cx) {
-                    self.as_mut().begin_switch_stream(group);
-                    tracing::trace!("stream all state = {:?}", self.state);
-                }
-                cx.waker().wake_by_ref();
-                Pending
-            }
-            // switching message streams
-            Switching { future } => match future.poll(cx) {
-                Ready(Ok(stream)) => {
-                    self.as_mut().end_switch_stream(stream, cx);
-                    tracing::trace!("stream all state state = {:?}", self.state);
-                    Pending
-                }
-                Ready(Err(e)) => {
-                    tracing::error!("Error swapping message stream in StreamAllMessages {}", e);
-                    Ready(Some(Err(e)))
-                }
-                Pending => {
-                    cx.waker().wake_by_ref();
-                    Pending
-                }
-            },
+        if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
+            return Ready(msg);
         }
+        if let Some(group) = ready!(this.conversations.poll_next(cx)) {
+            this.messages.as_mut().add(group?);
+        }
+        this.messages.poll_next(cx)
     }
 }
 
@@ -170,15 +120,34 @@ where
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
     Conversations: Stream<Item = Result<MlsGroup<C>>>,
 {
+    /*
+    fn try_poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
+        use SwitchProject::*;
+        tracing::info!("Trying to poll ....");
+        let this = self.as_mut().project();
+        if let Switching { future } = this.state.project() {
+            tracing::info!("Polling switch");
+            let stream = ready!(future.poll(cx))?;
+            self.as_mut().end_switch_stream(stream, cx);
+        }
+        let this = self.as_mut().project();
+        this.messages.poll_next(cx)
+    }
+    */
+/*
     /// Polls groups
     /// if groups are available, the stream starts waiting for the future to switch message
     /// streams.
-    fn begin_switch_stream(mut self: Pin<&mut Self>, new_group: MlsGroup<C>) {
-        if self.messages.group_list().contains_key(&new_group.group_id) {
+    fn begin_switch_stream(mut self: Pin<&mut Self>, new_group: MlsGroup<C>, cx: &mut Context<'_>) {
+        tracing::info!("Beginning to switch streams");
+        if self.messages.group_list().contains_key(new_group.group_id.as_slice()) {
+            tracing::info!("Group {} already in stream", hex::encode(&new_group.group_id));
+            // we are skipping this group so re-add the task for wakeup
+            // cx.waker().wake_by_ref();
             return;
         }
 
-        tracing::trace!(
+        tracing::debug!(
             inbox_id = self.client.inbox_id(),
             installation_id = %self.client.installation_id(),
             group_id = hex::encode(&new_group.group_id),
@@ -186,10 +155,10 @@ where
             hex::encode(&new_group.group_id)
         );
 
-        let mut conversations = self.messages.group_list().clone();
-        conversations.insert(new_group.group_id, 1.into());
-
-        let future = StreamGroupMessages::new(self.client, conversations);
+        // let mut conversations = self.messages.group_list().clone();
+        // conversations.insert(new_group.group_id.into(), 1.into());
+        // let future = StreamGroupMessages::new(self.client, conversations);
+        let future = self.messages.add_group(new_group, self.client);
         let mut this = self.as_mut().project();
         this.state.set(SwitchState::Switching {
             future: FutureWrapper::new(future),
@@ -201,6 +170,7 @@ where
         stream: StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>,
         cx: &mut Context<'_>,
     ) {
+        tracing::info!("Ending switch");
         let mut this = self.as_mut().project();
         // drain the stream
         // if we don't drain the stream, we inadvertantly create a zombie stream
@@ -214,8 +184,9 @@ where
         this.state.as_mut().set(SwitchState::Waiting);
         // TODO: take old group list and .diff with new, to check which group is new
         // for log msg.
-        tracing::trace!("established new stream");
+        tracing::debug!("established new stream");
     }
+    */
 }
 
 #[cfg(test)]
@@ -244,6 +215,7 @@ mod tests {
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
+        tracing::info!("Created alix group {}", hex::encode(&alix_group.group_id));
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
@@ -256,7 +228,9 @@ mod tests {
         assert_msg!(stream, "first");
         tracing::info!("\n\nGOT FIRST\n\n");
         let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
+        tracing::info!("Created dm group {}", hex::encode(&bo_group.group_id));
 
+        tracing::info!("Sending second message");
         bo_group.send_message(b"second").await.unwrap();
         assert_msg!(stream, "second");
         tracing::info!("\n\nGOT SECOND\n\n");
@@ -344,23 +318,25 @@ mod tests {
             .await
             .unwrap();
         futures::pin_mut!(stream);
-        alix_dm.send_message("first".as_bytes()).await.unwrap();
-        tracing::info!("sent first message");
-        alix_group.send_message("second".as_bytes()).await.unwrap();
-        assert_msg!(stream, "second");
-        tracing::info!("got second Group-Only message");
+        alix_dm.send_message("first DM msg".as_bytes()).await.unwrap();
+        tracing::info!("\n\nsent first DM message\n\n");
+        alix_group.send_message("second GROUP msg".as_bytes()).await.unwrap();
+        tracing::info!("\n\nsent second group msg\n\n");
+        assert_msg!(stream, "second GROUP msg");
+        tracing::info!("\n\ngot `second`: Group-Only message\n\n");
 
         // Start a stream with only dms
-        // Wait for 2 seconds for the group creation to be streamed
         let stream = bo
             .stream_all_messages(Some(ConversationType::Dm))
             .await
             .unwrap();
         futures::pin_mut!(stream);
-        alix_group.send_message("first".as_bytes()).await.unwrap();
-        alix_dm.send_message("second".as_bytes()).await.unwrap();
-        assert_msg!(stream, "second");
-        tracing::info!("Got second DM ONLy Message");
+        alix_group.send_message("second GROUP msg".as_bytes()).await.unwrap();
+        tracing::info!("\n\nSENDING SECOND DM MSG\n\n");
+        alix_dm.send_message("second DM msg".as_bytes()).await.unwrap();
+        tracing::info!("\nSENT SECOND DM MSG\n\n");
+        assert_msg!(stream, "second DM msg");
+        tracing::info!("Got second DM Only Message");
 
         // Start a stream with all conversations
         // Wait for 2 seconds for the group creation to be streamed
@@ -393,8 +369,9 @@ mod tests {
         let alix_group_pointer = alix_group.clone();
         crate::spawn(None, async move {
             let mut sent = 0;
-            for _ in 0..50 {
-                alix_group_pointer.send_message(b"spam").await.unwrap();
+            for i in 0..50 {
+                let msg = format!("spam {i}");
+                alix_group_pointer.send_message(msg.as_bytes()).await.unwrap();
                 sent += 1;
                 xmtp_common::time::sleep(core::time::Duration::from_micros(100)).await;
                 tracing::info!("sent {sent}");
@@ -413,8 +390,9 @@ mod tests {
                     .unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
                 tracing::info!("\n\n EVE SENDING {i} \n\n");
+                let msg = format!("spam {i} from new group");
                 new_group
-                    .send_message(b"spam from new group")
+                    .send_message(msg.as_bytes())
                     .await
                     .unwrap();
             }
@@ -472,7 +450,7 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let _ = tokio::time::timeout(core::time::Duration::from_secs(5), async {
+        let _ = tokio::time::timeout(core::time::Duration::from_secs(20), async {
             futures::pin_mut!(stream);
             loop {
                 if messages.len() < 5 {

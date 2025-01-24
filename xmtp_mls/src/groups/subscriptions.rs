@@ -1,11 +1,11 @@
 use futures::{Stream, StreamExt};
 
 use prost::Message;
-use std::collections::HashMap;
 use tokio::sync::oneshot;
 
 use super::MlsGroup;
 use crate::{
+    types::GroupId,
     groups::ScopedGroupClient,
     storage::group_message::StoredGroupMessage,
     subscriptions::{
@@ -28,8 +28,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
         ProcessMessageFuture::new(&self.client, envelope)?
             .process()
-            .await
+            .await?
             .map(|(group, _)| group)
+            .ok_or(SubscribeError::GroupMessageNotFound)
     }
 
     pub async fn stream<'a>(
@@ -38,8 +39,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
     {
-        let group_list = HashMap::from([(self.group_id.clone(), 0u64.into())]);
-        Ok(StreamGroupMessages::new(&self.client, group_list).await?)
+        Ok(StreamGroupMessages::new(&self.client, vec![self.group_id.clone().into()]).await?)
     }
 
     pub fn stream_with_callback(
@@ -51,8 +51,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         ScopedClient: 'static,
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
     {
-        let group_list = HashMap::from([(group_id, 0)]);
-        stream_messages_with_callback(client, group_list, callback)
+        stream_messages_with_callback(client, vec![group_id.into()].into_iter(), callback)
     }
 }
 
@@ -60,7 +59,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 /// messages along to a callback.
 pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
-    active_conversations: HashMap<Vec<u8>, u64>,
+    active_conversations: impl Iterator<Item = GroupId> + Send + 'static,
     mut callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<()>>
 where
@@ -71,11 +70,7 @@ where
 
     crate::spawn(Some(rx), async move {
         let client_ref = &client;
-        let active_conversations = active_conversations
-            .into_iter()
-            .map(|(g, c)| (g, c.into()))
-            .collect();
-        let stream = StreamGroupMessages::new(client_ref, active_conversations).await?;
+        let stream = StreamGroupMessages::new(client_ref, active_conversations.collect()).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {

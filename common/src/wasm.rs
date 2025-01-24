@@ -1,4 +1,4 @@
-use std::{pin::Pin, task::Poll, future::Future, sync::atomic::{Ordering, AtomicU32, AtomicBool}};
+use std::{pin::Pin, task::Poll, future::Future};
 use futures::{Stream, FutureExt, StreamExt};
 
 #[cfg(target_arch = "wasm32")]
@@ -6,8 +6,8 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 static LOCAL_EXECUTOR_TICKS: AtomicU32 = AtomicU32::new(0u32);
-const YIELD_AFTER: u32 = 10_000;
-static NEEDS_YIELD: AtomicBool = AtomicBool::new(true);
+// const YIELD_AFTER: u32 = 10_000;
+// static NEEDS_YIELD: AtomicBool = AtomicBool::new(true);
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
@@ -158,6 +158,7 @@ pub fn ensure_browser_fairness() {
 pub struct Fairness;
 
 impl Fairness {
+    #[cfg(target_arch = "wasm32")]
     pub fn wake() {
         tracing::info!("NEEDS YIELD {}", NEEDS_YIELD.load(Ordering::SeqCst));
         let ticks = LOCAL_EXECUTOR_TICKS.load(Ordering::SeqCst);
@@ -167,4 +168,7 @@ impl Fairness {
         // wraps on overflow
         LOCAL_EXECUTOR_TICKS.fetch_add(1, Ordering::SeqCst);
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn wake() {}
 }

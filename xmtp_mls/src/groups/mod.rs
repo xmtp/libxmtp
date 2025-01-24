@@ -752,7 +752,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let message_id =
             self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
-
         self.sync_until_last_intent_resolved(provider).await?;
 
         // implicitly set group consent state to allowed
