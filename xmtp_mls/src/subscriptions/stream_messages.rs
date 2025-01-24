@@ -55,40 +55,26 @@ fn extract_message_v1(message: GroupMessage) -> Result<group_message::V1> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MessagePosition {
     /// current message
-    cursor: u64,
-    /// the last message we've seen (have stored locally)
-    /// A value of 0 means we haven't seen any messages.
-    /// A value of 0, however, does not indicate whether we have any messages locally.
-    /// We may have messages for a group locally, but no messages have yet been
-    /// streamed from the network.
-    last_seen: u64,
+    cursor: Option<u64>,
 }
 
 impl MessagePosition {
     pub(super) fn set(&mut self, cursor: u64) {
-        self.cursor = cursor;
-    }
-
-    fn seen(&mut self, seen: u64) {
-        self.last_seen = seen;
+        self.cursor = Some(cursor);
     }
 
     fn pos(&self) -> u64 {
-        self.cursor
+        self.cursor.unwrap_or(0)
     }
 
     fn is_unknown(&self) -> bool {
-        self.cursor == 1 && self.last_seen == 0
-    }
-
-    fn can_skip(&self) -> bool {
-        self.last_seen > self.cursor
+        self.cursor.is_none()
     }
 }
 
 impl std::fmt::Display for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cursor position {}, last seen {}", self.cursor, self.last_seen)
+        write!(f, "cursor position {}", self.pos())
     }
 }
 
@@ -107,8 +93,7 @@ impl From<StoredGroup> for (Vec<u8>, MessagePosition) {
 impl From<u64> for MessagePosition {
     fn from(v: u64) -> MessagePosition {
         Self {
-            cursor: v,
-            last_seen: 0,
+            cursor: Some(v),
         }
     }
 }
@@ -230,7 +215,7 @@ where
         match this.state.as_mut().project() {
             Waiting =>  {
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
-                    tracing::debug!("processing message in stream");
+                    tracing::debug!("processing {:?} message in stream", envelope);
                     let future = ProcessMessageFuture::new(*this.client, envelope?)?;
                     let future = future.process();
                     this.state.set(State::Processing {
@@ -243,9 +228,7 @@ where
             },
             Processing { .. } => self.try_update_state(cx),
             Adding { future } => {
-                tracing::info!("adding?");
                 let stream = ready!(future.poll(cx))?;
-                // let _ = self.as_mut().drain(cx);
                 let mut this = self.as_mut().project();
                 this.inner.set(stream);
                 this.state.as_mut().set(State::Waiting);
@@ -287,18 +270,11 @@ where
                             // reinit the stream with the correct cursor
                             tracing::info!("reinit");
                             tracked_cursor.set(new_cursor);
-                            tracked_cursor.seen(new_cursor);
                             self.as_mut().reinit();
-                            return self.poll_next(cx);
-                        } else if tracked_cursor.can_skip() {
-                            tracing::info!("skipping message payload; already seen");
-                            tracked_cursor.set(new_cursor);
-                            tracked_cursor.seen(new_cursor);
-                            return Poll::Ready(Some(Ok(msg)));
+                            return Poll::Pending;
                             // return self.poll_next(cx);
                         } else {
                             tracked_cursor.set(new_cursor);
-                            tracked_cursor.seen(new_cursor);
                           return Poll::Ready(Some(Ok(msg)));
                          }
                     } else {
