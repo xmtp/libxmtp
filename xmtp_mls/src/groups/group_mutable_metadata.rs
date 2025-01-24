@@ -69,7 +69,7 @@ impl fmt::Display for MetadataField {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct ConversationMessageDisappearingSettings {
     pub from_ns: i64,
     pub in_ns: i64,
@@ -78,12 +78,6 @@ pub struct ConversationMessageDisappearingSettings {
 impl ConversationMessageDisappearingSettings {
     pub fn new(from_ns: i64, in_ns: i64) -> Self {
         Self { from_ns, in_ns }
-    }
-}
-
-impl Default for ConversationMessageDisappearingSettings {
-    fn default() -> Self {
-        Self::new(0, 0)
     }
 }
 
@@ -143,10 +137,6 @@ impl GroupMutableMetadata {
         );
 
         if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
-            println!(
-                "message_disappearing_setting:{:?}",
-                message_disappearing_settings.clone()
-            );
             attributes.insert(
                 MetadataField::MessageDisappearFromNS.to_string(),
                 message_disappearing_settings.from_ns.to_string(),
