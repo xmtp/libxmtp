@@ -7,7 +7,7 @@ use diesel::{
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
     Connection,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
@@ -64,7 +64,7 @@ impl ValidatedConnection for UnencryptedConnection {}
 
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnection {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
-        conn.batch_execute("PRAGMA busy_timeout = 5000;")
+        conn.batch_execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")
             .map_err(r2d2::Error::QueryError)?;
         Ok(())
     }
@@ -89,9 +89,10 @@ impl StorageOption {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
+    pub(super) write_conn: Option<Arc<Mutex<RawDbConnection>>>,
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
@@ -106,9 +107,9 @@ impl NativeDb {
         let mut builder = Pool::builder();
 
         let customizer = if let Some(key) = enc_key {
-            let enc_opts = EncryptedConnection::new(key, opts)?;
-            builder = builder.connection_customizer(Box::new(enc_opts.clone()));
-            Some(Box::new(enc_opts) as Box<dyn XmtpConnection>)
+            let enc_connection = EncryptedConnection::new(key, opts)?;
+            builder = builder.connection_customizer(Box::new(enc_connection.clone()));
+            Some(Box::new(enc_connection) as Box<dyn XmtpConnection>)
         } else if matches!(opts, StorageOption::Persistent(_)) {
             builder = builder.connection_customizer(Box::new(UnencryptedConnection));
             Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
@@ -125,7 +126,16 @@ impl NativeDb {
                 .build(ConnectionManager::new(path))?,
         };
 
+        let write_conn = if matches!(opts, StorageOption::Persistent(_)) {
+            let mut write_conn = pool.get()?;
+            write_conn.batch_execute("PRAGMA query_only = OFF;")?;
+            Some(Arc::new(Mutex::new(write_conn)))
+        } else {
+            None
+        };
+
         Ok(Self {
+            write_conn,
             pool: Arc::new(Some(pool).into()),
             customizer,
             opts: opts.clone(),
@@ -156,9 +166,11 @@ impl XmtpDb for NativeDb {
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(DbConnectionPrivate::from_arc_mutex(Arc::new(
-            parking_lot::Mutex::new(conn),
-        )))
+        Ok(DbConnectionPrivate::from_arc_mutex(
+            Arc::new(parking_lot::Mutex::new(conn)),
+            self.write_conn.clone(),
+            false,
+        ))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {

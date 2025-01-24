@@ -935,6 +935,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data.into(),
         )?;
 
+        tracing::warn!("This makes it here?");
+
         self.sync_until_intent_resolved(provider, intent.id).await
     }
 
@@ -1250,13 +1252,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             state,
             hex::encode(self.group_id.clone()),
         );
-        let new_records = conn
+        let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()
             .map(UserPreferenceUpdate::ConsentUpdate)
             .collect();
 
-        if self.client.history_sync_url().is_some() {
+        if !new_records.is_empty() && self.client.history_sync_url().is_some() {
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .client
@@ -2187,7 +2189,7 @@ pub(crate) mod tests {
 
         // The dm shows up
         let alix_groups = alix_conn
-            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query_read( |conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(alix_groups.len(), 2);
         // They should have the same ID
@@ -3714,7 +3716,7 @@ pub(crate) mod tests {
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
         let conn_2 = bo.store().conn().unwrap();
         conn_2
-            .raw_query(|c| {
+            .raw_query_read( |c| {
                 c.batch_execute("BEGIN EXCLUSIVE").unwrap();
                 Ok::<_, diesel::result::Error>(())
             })
