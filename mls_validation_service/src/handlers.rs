@@ -34,10 +34,7 @@ use xmtp_proto::xmtp::{
         ValidateGroupMessagesRequest,
         ValidateGroupMessagesResponse,
         ValidateInboxIdKeyPackagesResponse,
-        ValidateInboxIdsRequest,
-        ValidateInboxIdsResponse,
-        ValidateKeyPackagesRequest,
-        ValidateKeyPackagesResponse, // VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        ValidateKeyPackagesRequest, // VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
 };
 
@@ -71,22 +68,6 @@ impl ValidationService {
 
 #[tonic::async_trait]
 impl ValidationApi for ValidationService {
-    async fn validate_inbox_ids(
-        &self,
-        _request: tonic::Request<ValidateInboxIdsRequest>,
-    ) -> Result<tonic::Response<ValidateInboxIdsResponse>, tonic::Status> {
-        // Stubbed for v2 nodes
-        unimplemented!()
-    }
-
-    async fn validate_key_packages(
-        &self,
-        _request: tonic::Request<ValidateKeyPackagesRequest>,
-    ) -> std::result::Result<tonic::Response<ValidateKeyPackagesResponse>, tonic::Status> {
-        // Stubbed out for v2 nodes
-        unimplemented!()
-    }
-
     async fn validate_group_messages(
         &self,
         request: Request<ValidateGroupMessagesRequest>,
