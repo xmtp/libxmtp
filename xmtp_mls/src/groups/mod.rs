@@ -62,7 +62,7 @@ use self::{
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
-    NotFound, StorageError,
+    NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
@@ -570,29 +570,24 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
         tracing::info!("Creating from welcome");
-        let mls_welcome =
+        let staged_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
-        let mls_group = mls_welcome.into_group(provider)?;
-        let group_id = mls_group.group_id().to_vec();
-        let metadata = extract_group_metadata(&mls_group)?;
-        let dm_members = metadata.dm_members;
+        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
+        // in the `GroupMembership` extension.
+        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &staged_welcome)
+            .await?;
 
-        let conversation_type = metadata.conversation_type;
+        provider.transaction(|provider| {
+            let mls_group = staged_welcome.into_group(provider)?;
+            let group_id = mls_group.group_id().to_vec();
+            let metadata = extract_group_metadata(&mls_group)?;
+            let dm_members = metadata.dm_members;
 
-        let to_store = match conversation_type {
-            ConversationType::Group => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Pending,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-            ConversationType::Dm => {
-                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
-                StoredGroup::new_from_welcome(
+            let conversation_type = metadata.conversation_type;
+
+            let to_store = match conversation_type {
+                ConversationType::Group => StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Pending,
@@ -600,32 +595,40 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome_id,
                     conversation_type,
                     dm_members,
-                )
-            }
-            ConversationType::Sync => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Allowed,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-        };
+                ),
+                ConversationType::Dm => {
+                    validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
+                    StoredGroup::new_from_welcome(
+                        group_id.clone(),
+                        now_ns(),
+                        GroupMembershipState::Pending,
+                        added_by_inbox,
+                        welcome_id,
+                        conversation_type,
+                        dm_members,
+                    )
+                }
+                ConversationType::Sync => StoredGroup::new_from_welcome(
+                    group_id.clone(),
+                    now_ns(),
+                    GroupMembershipState::Allowed,
+                    added_by_inbox,
+                    welcome_id,
+                    conversation_type,
+                    dm_members,
+                ),
+            };
 
-        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
-        // in the `GroupMembership` extension.
-        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
+            // Insert or replace the group in the database.
+            // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
+            let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        // Insert or replace the group in the database.
-        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
-
-        Ok(Self::new_from_arc(
-            client.clone(),
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
+            Ok(Self::new_from_arc(
+                client.clone(),
+                stored_group.id,
+                stored_group.created_at_ns,
+            ))
+        })
     }
 
     /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
@@ -1655,10 +1658,11 @@ fn build_group_config(
 async fn validate_initial_group_membership(
     client: impl ScopedGroupClient,
     conn: &DbConnection,
-    mls_group: &OpenMlsGroup,
+    staged_welcome: &StagedWelcome,
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
-    let membership = extract_group_membership(mls_group.extensions())?;
+    let extensions = staged_welcome.public_group().group_context().extensions();
+    let membership = extract_group_membership(extensions)?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
@@ -1681,7 +1685,8 @@ async fn validate_initial_group_membership(
         expected_installation_ids.extend(association_state.installation_ids());
     }
 
-    let actual_installation_ids: HashSet<Vec<u8>> = mls_group
+    let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
+        .public_group()
         .members()
         .map(|member| member.signature_key)
         .collect();
