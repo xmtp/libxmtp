@@ -2249,7 +2249,7 @@ mod tests {
             Arc, Mutex,
         },
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use tokio::{sync::Notify, task::JoinSet, time::error::Elapsed};
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
@@ -6000,6 +6000,64 @@ mod tests {
             decoded_reaction.schema,
             FfiReactionSchema::Unicode
         ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_parallel_messages() {
+        // Create two test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create a conversation between them
+        let alix_conversation = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Create JoinSet for parallel tasks
+        let mut tasks = JoinSet::new();
+
+        // Spawn tasks for sending messages in parallel
+        for i in 1..=6 {
+            let conversation = alix_conversation.clone();
+            let message = format!("Message {}", i);
+            tasks.spawn(async move { conversation.send(message.as_bytes().to_vec()).await });
+        }
+
+        // Collect results as they complete
+        let mut results = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            results.push(result.unwrap());
+        }
+
+        // Check each result and print any errors
+        for (i, result) in results.iter().enumerate() {
+            if let Err(e) = result {
+                // No longer erroring here: GroupError(Storage(DieselResult(DatabaseError(Unknown, "database is locked"))))
+                println!("Error sending message {}: {:?}", i + 1, e);
+            }
+        }
+
+        // Assert all messages were sent successfully
+        assert!(
+            results.into_iter().all(|r| r.is_ok()),
+            "Not all messages were sent successfully"
+        );
+
+        // Have Alix sync to get the messages
+        alix_conversation.sync().await.unwrap();
+
+        // Verify messages were received
+        let messages = alix_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 7);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
