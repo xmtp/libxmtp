@@ -13,7 +13,7 @@ impl serde::Serialize for AuthenticatedData {
         if !self.target_topic.is_empty() {
             len += 1;
         }
-        if self.last_seen.is_some() {
+        if self.depends_on.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.AuthenticatedData", len)?;
@@ -25,8 +25,8 @@ impl serde::Serialize for AuthenticatedData {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("targetTopic", pbjson::private::base64::encode(&self.target_topic).as_str())?;
         }
-        if let Some(v) = self.last_seen.as_ref() {
-            struct_ser.serialize_field("lastSeen", v)?;
+        if let Some(v) = self.depends_on.as_ref() {
+            struct_ser.serialize_field("dependsOn", v)?;
         }
         struct_ser.end()
     }
@@ -42,15 +42,15 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             "targetOriginator",
             "target_topic",
             "targetTopic",
-            "last_seen",
-            "lastSeen",
+            "depends_on",
+            "dependsOn",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TargetOriginator,
             TargetTopic,
-            LastSeen,
+            DependsOn,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -74,7 +74,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                         match value {
                             "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             "targetTopic" | "target_topic" => Ok(GeneratedField::TargetTopic),
-                            "lastSeen" | "last_seen" => Ok(GeneratedField::LastSeen),
+                            "dependsOn" | "depends_on" => Ok(GeneratedField::DependsOn),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -96,7 +96,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             {
                 let mut target_originator__ = None;
                 let mut target_topic__ = None;
-                let mut last_seen__ = None;
+                let mut depends_on__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TargetOriginator => {
@@ -115,18 +115,18 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::LastSeen => {
-                            if last_seen__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("lastSeen"));
+                        GeneratedField::DependsOn => {
+                            if depends_on__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dependsOn"));
                             }
-                            last_seen__ = map_.next_value()?;
+                            depends_on__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(AuthenticatedData {
                     target_originator: target_originator__.unwrap_or_default(),
                     target_topic: target_topic__.unwrap_or_default(),
-                    last_seen: last_seen__,
+                    depends_on: depends_on__,
                 })
             }
         }
