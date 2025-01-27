@@ -2979,7 +2979,6 @@ mod tests {
         assert_eq!(alix_client_2_state.installations.len(), 2);
         assert_eq!(bola_client_1_state.installations.len(), 1);
 
-
         // Step 2: Create a group
         let group = alix_client_1
             .conversations()
@@ -2995,7 +2994,10 @@ mod tests {
         assert_eq!(group_members.len(), 2);
 
         // identify which member is alix
-        let alix_member = group_members.iter().find(|m| m.inbox_id == alix_client_1.inbox_id()).unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
         assert_eq!(alix_member.installation_ids.len(), 2);
 
         // Step 3: Revoke one installation
@@ -3012,15 +3014,30 @@ mod tests {
         // Validate revocation
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
         let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
-        alix_client_1.conversations().sync_all_conversations(None).await.unwrap();
-        alix_client_2.conversations().sync_all_conversations(None).await.unwrap();
-        bola_client_1.conversations().sync_all_conversations(None).await.unwrap();
+        alix_client_1
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix_client_2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        bola_client_1
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         assert_eq!(client_1_state_after_revoke.installations.len(), 1);
 
         // Re-fetch group members
         let group_members = group.list_members().await.unwrap();
-        let alix_member = group_members.iter().find(|m| m.inbox_id == alix_client_1.inbox_id()).unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
         assert_eq!(alix_member.installation_ids.len(), 1);
     }
 
