@@ -1,4 +1,5 @@
 use futures::{FutureExt, Stream, StreamExt};
+use openmls::prelude::Welcome;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
@@ -14,8 +15,8 @@ use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::GroupMetadata,
-        mls_sync::GroupMessageProcessingError, scoped_client::ScopedGroupClient as _,
-        subscriptions, GroupError, MlsGroup,
+        mls_ext::welcome_ext::WelcomeExt, mls_sync::GroupMessageProcessingError,
+        scoped_client::ScopedGroupClient as _, subscriptions, GroupError, MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord,
@@ -279,11 +280,16 @@ where
                 );
                 let welcome_v1 = &welcome_v1;
 
-                MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
+                let welcome_data = Welcome::decrypt_welcome(
                     provider,
                     welcome_v1.hpke_public_key.as_slice(),
                     &welcome_v1.data,
+                )?;
+                MlsGroup::create_from_welcome(
+                    Arc::new(self.clone()),
+                    provider,
+                    welcome_data.welcome,
+                    welcome_data.added_by_inbox_id,
                     welcome_v1.id as i64,
                 )
                 .await

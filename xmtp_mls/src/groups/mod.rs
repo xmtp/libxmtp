@@ -8,24 +8,23 @@ pub mod members;
 pub mod scoped_client;
 
 mod disappearing_messages;
+pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
+use mls_ext::welcome_ext::build_group_join_config;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
-    credentials::{BasicCredential, CredentialType},
+    credentials::CredentialType,
     error::LibraryError,
     extensions::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{
-        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
-        ProcessedWelcome,
-    },
+    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
@@ -80,14 +79,14 @@ use xmtp_proto::xmtp::mls::{
 
 use crate::{
     api::WrappedApiError,
-    client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
+    client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    hpke::{decrypt_welcome, HpkeError},
-    identity::{parse_credential, IdentityError},
+    hpke::HpkeError,
+    identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -563,7 +562,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    async fn create_from_welcome(
+    pub(super) async fn create_from_welcome(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
@@ -630,38 +629,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 stored_group.created_at_ns,
             ))
         })
-    }
-
-    /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
-    pub async fn create_from_encrypted_welcome(
-        client: Arc<ScopedClient>,
-        provider: &XmtpOpenMlsProvider,
-        hpke_public_key: &[u8],
-        encrypted_welcome_bytes: &[u8],
-        welcome_id: i64,
-    ) -> Result<Self, GroupError> {
-        tracing::info!("Trying to decrypt welcome");
-        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
-
-        let welcome = deserialize_welcome(&welcome_bytes)?;
-
-        let join_config = build_group_join_config();
-
-        let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
-        let psks = processed_welcome.psks();
-        if !psks.is_empty() {
-            tracing::error!("No PSK support for welcome");
-            return Err(GroupError::NoPSKSupport);
-        }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
-
-        let added_by_node = staged_welcome.welcome_sender()?;
-
-        let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
-        let inbox_id = parse_credential(added_by_credential.identity())?;
-
-        Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -1843,14 +1810,6 @@ fn validate_dm_group(
     }
 
     Ok(())
-}
-
-fn build_group_join_config() -> MlsGroupJoinConfig {
-    MlsGroupJoinConfig::builder()
-        .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(MAX_PAST_EPOCHS)
-        .use_ratchet_tree_extension(true)
-        .build()
 }
 
 #[cfg(test)]

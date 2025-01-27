@@ -1,16 +1,15 @@
+use futures::stream::{self, FuturesUnordered, StreamExt};
+use openmls::{
+    framing::{MlsMessageBodyIn, MlsMessageIn},
+    messages::Welcome,
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
+};
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-};
-
-use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::{
-    framing::{MlsMessageBodyIn, MlsMessageIn},
-    messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -33,7 +32,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::ConversationListItem;
+use crate::groups::{mls_ext::welcome_ext::WelcomeExt, ConversationListItem};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -861,12 +860,15 @@ where
         if !is_updated {
             return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
         }
-        let result = MlsGroup::create_from_encrypted_welcome(
+        let welcome_id = welcome.id;
+        let welcome_data =
+            Welcome::decrypt_welcome(provider, welcome.hpke_public_key.as_slice(), &welcome.data)?;
+        let result = MlsGroup::create_from_welcome(
             Arc::new(self.clone()),
             provider,
-            welcome.hpke_public_key.as_slice(),
-            &welcome.data,
-            welcome.id as i64,
+            welcome_data.welcome,
+            welcome_data.added_by_inbox_id,
+            welcome_id as i64,
         )
         .await;
 
@@ -1020,17 +1022,6 @@ pub(crate) fn extract_welcome_message(
 ) -> Result<WelcomeMessageV1, ClientError> {
     match welcome.version {
         Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
-    }
-}
-
-pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
-    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
-    match welcome.extract() {
-        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
         _ => Err(ClientError::Generic(
             "unexpected message type in welcome".to_string(),
         )),
