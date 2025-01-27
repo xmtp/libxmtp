@@ -3189,6 +3189,8 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
         // Validate revocation
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
         let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
@@ -3198,12 +3200,12 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
+
         let alix_conversation_2 = alix_client_2.conversations();
         alix_conversation_2
             .sync_all_conversations(None)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         assert_eq!(client_1_state_after_revoke.installations.len(), 1);
 
         // Re-fetch group members

@@ -12,8 +12,7 @@ use crate::groups::group_mutable_metadata::MetadataField;
 use crate::storage::group_intent::IntentKind::MetadataUpdate;
 use crate::{
     configuration::{
-        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
+        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS
     },
     groups::{
         device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
@@ -84,6 +83,7 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
+use crate::configuration::sync_update_installations_interval_ns;
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -1274,7 +1274,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         // determine how long of an interval in time to use before updating list
-        let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
 
         let now_ns = xmtp_common::time::now_ns();
         let last_ns = provider
