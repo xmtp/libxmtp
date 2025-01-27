@@ -1,5 +1,5 @@
-use std::{pin::Pin, task::Poll, future::Future};
-use futures::{Stream, FutureExt, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
+use std::{future::Future, pin::Pin, task::Poll};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -23,7 +23,10 @@ pub struct StreamWrapper<'a, I> {
 impl<'a, I> Stream for StreamWrapper<'a, I> {
     type Item = I;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         let inner = &mut self.inner;
         futures::pin_mut!(inner);
         inner.as_mut().poll_next(cx)
@@ -106,19 +109,3 @@ pub async fn yield_() {
 pub async fn yield_() {
     crate::time::sleep(crate::time::Duration::from_millis(100)).await;
 }
-
-#[cfg(target_arch = "wasm32")]
-mod inner {
-    use super::*;
-
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen (extends = js_sys::Object, js_name = Scheduler, typescript_type = "Scheduler")]
-        pub type Scheduler;
-
-        #[wasm_bindgen(method, structural, js_class = "Scheduler", js_name = yield)]
-        pub fn r#yield(this: &Scheduler) -> js_sys::Promise;
-    }
-}
-#[cfg(target_arch = "wasm32")]
-use inner::*;

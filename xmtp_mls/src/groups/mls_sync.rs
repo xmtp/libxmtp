@@ -527,7 +527,7 @@ where
                         inbox_id = self.client.inbox_id(),
                         sender_inbox_id = sender_inbox_id,
                         sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
+                        installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
                         current_epoch = mls_group.epoch().as_u64(),
                         msg_epoch,
                         msg_group_id,
@@ -1083,7 +1083,6 @@ where
                         );
 
                         let messages = self.prepare_group_messages(vec![payload_slice])?;
-
                         self.client
                             .api()
                             .send_group_messages(messages)

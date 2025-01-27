@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::sync::Arc;
 use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
@@ -366,17 +365,17 @@ where
         Fut: futures::Future<Output = Result<T, E>>,
         E: From<diesel::result::Error> + From<StorageError>,
         Db: 'a;
-    pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
-            &self,
-            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            retry: Option<Retry>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
-            Fut: futures::Future<Output = Result<T, E>>,
-            E: From<diesel::result::Error> + From<StorageError> + RetryableError;
-
+    #[allow(async_fn_in_trait)]
+    async fn retryable_transaction_async<'a, T, F, E, Fut>(
+        &'a self,
+        retry: Option<Retry>,
+        fun: F,
+    ) -> Result<T, E>
+    where
+        F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError> + RetryableError,
+        Db: 'a;
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -463,15 +462,6 @@ where
         // ensuring we have only one strong reference
         let result = fun(self).await;
         let local_connection = self.conn_ref().inner_ref();
-        if Arc::strong_count(&local_connection) > 1 {
-            tracing::warn!(
-                "More than 1 strong connection references still exist during async transaction"
-            );
-        }
-
-        if Arc::weak_count(&local_connection) > 1 {
-            tracing::warn!("More than 1 weak connection references still exist during transaction");
-        }
 
         // after the closure finishes, `local_provider` should have the only reference ('strong')
         // to `XmtpOpenMlsProvider` inner `DbConnection`..
@@ -497,22 +487,21 @@ where
         }
     }
 
-    pub async fn retryable_transaction_async<'a, T, F, E, Fut>(
-            &self,
-            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            retry: Option<Retry>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
-            Fut: futures::Future<Output = Result<T, E>>,
-            E: From<diesel::result::Error> + From<StorageError> + RetryableError,
-        {
-            retry_async!(
-                retry.unwrap_or_default(),
-                (async { self.transaction_async(provider, fun).await })
-            )
-        }
+    async fn retryable_transaction_async<'a, T, F, E, Fut>(
+        &'a self,
+        retry: Option<Retry>,
+        fun: F,
+    ) -> Result<T, E>
+    where
+        F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
+        Fut: futures::Future<Output = Result<T, E>>,
+        E: From<diesel::result::Error> + From<StorageError> + RetryableError,
+    {
+        retry_async!(
+            retry.unwrap_or_default(),
+            (async { self.transaction_async(fun).await })
+        )
+    }
 }
 
 #[cfg(test)]
@@ -779,6 +768,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_transaction_rollback() {
+        use std::sync::Arc;
         use std::sync::Barrier;
 
         let db_path = tmp_path();

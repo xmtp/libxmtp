@@ -2,12 +2,12 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, NotFound, refresh_state::EntityKind},
+    storage::{group::ConversationType, refresh_state::EntityKind, NotFound, ProviderTransactions},
     Client, XmtpOpenMlsProvider,
 };
 use futures::{prelude::stream::Select, Stream};
@@ -64,19 +64,17 @@ impl Stream for BroadcastGroupStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
-        match this.inner.poll_next(cx) {
-            Ready(Some(event)) => {
-                let ev = xmtp_common::optify!(event, "Missed messages due to event queue lag")
-                    .and_then(LocalEvents::group_filter);
-                if let Some(g) = ev {
-                    Ready(Some(Ok(WelcomeOrGroup::Group(g))))
-                } else {
-                    // skip this item since it was either missed due to lag, or not a group
-                    Pending
-                }
+        if let Some(event) = ready!(this.inner.poll_next(cx)) {
+            if let Some(group) =
+                xmtp_common::optify!(event, "Missed messages due to event queue lag")
+                    .and_then(LocalEvents::group_filter)
+            {
+                Ready(Some(Ok(WelcomeOrGroup::Group(group))))
+            } else {
+                Pending
             }
-            Pending => Pending,
-            Ready(None) => Ready(None),
+        } else {
+            Ready(None)
         }
     }
 }
@@ -227,7 +225,6 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
-                        tracing::info!("READY, STARTING TO PROCESS");
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
@@ -242,17 +239,15 @@ where
                         // try to process the future immediately
                         // this will return immediately if we have already processed the welcome
                         // and it exists in the db
-
-                        let Processing { future } = this.state.project() else { unreachable!() };
+                        let Processing { future } = this.state.project() else {
+                            unreachable!()
+                        };
                         let poll = future.poll(cx);
                         self.as_mut().try_process(poll, cx)
                     }
                     // stream ended
-                    Ready(None) => {
-                        tracing::info!("READY NONE");
-                        Ready(None)
-                    }
-                    Pending => Pending
+                    Ready(None) => Ready(None),
+                    Pending => Pending,
                 }
             }
             Processing { future } => {
@@ -291,8 +286,7 @@ where
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                cx.waker().wake_by_ref();
-                Pending
+                self.poll_next(cx)
             }
             Ready(Err(e)) => Ready(Some(Err(e))),
             Pending => Pending,
@@ -351,7 +345,6 @@ where
     /// Process the welcome. if its a group, create the group and return it.
     pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
         use WelcomeOrGroup::*;
-        xmtp_common::yield_().await;
         let (group, welcome_id) = match self.item {
             Welcome(ref w) => {
                 let welcome = extract_welcome_message(w)?;
@@ -407,10 +400,8 @@ where
             "Trying to process streamed welcome"
         );
 
-        let group = client
-            .context()
-            .store()
-            .retryable_transaction_async(provider, |provider| async {
+        let group = provider
+            .retryable_transaction_async(None, |provider| async {
                 MlsGroup::create_from_encrypted_welcome(
                     client,
                     provider,
@@ -471,7 +462,6 @@ mod test {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_welcomes() {
-        xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let alice_bob_group = alice
@@ -490,7 +480,6 @@ mod test {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

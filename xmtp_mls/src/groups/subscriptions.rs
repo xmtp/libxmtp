@@ -5,13 +5,13 @@ use tokio::sync::oneshot;
 
 use super::MlsGroup;
 use crate::{
-    types::GroupId,
     groups::ScopedGroupClient,
     storage::group_message::StoredGroupMessage,
     subscriptions::{
         stream_messages::{ProcessMessageFuture, StreamGroupMessages},
         Result, SubscribeError,
     },
+    types::GroupId,
 };
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;

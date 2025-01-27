@@ -13,6 +13,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::{Error as ApiError, ErrorKind};
+// the max page size for queries
+const MAX_PAGE_SIZE: u32 = 100;
 
 /// A filter for querying group messages
 #[derive(Clone)]
@@ -78,7 +80,6 @@ where
             "query group messages"
         );
         let mut out: Vec<GroupMessage> = vec![];
-        let page_size = 100;
         let mut id_cursor = id_cursor;
         loop {
             let mut result = retry_async!(
@@ -89,18 +90,17 @@ where
                             group_id: group_id.clone(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
-                                limit: page_size,
+                                limit: MAX_PAGE_SIZE,
                                 direction: SortDirection::Ascending as i32,
                             }),
                         })
                         .await
                 })
             )?;
-
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
 
-            if num_messages < page_size as usize || result.paging_info.is_none() {
+            if num_messages < MAX_PAGE_SIZE as usize || result.paging_info.is_none() {
                 break;
             }
 
@@ -113,6 +113,35 @@ where
         }
 
         Ok(out)
+    }
+
+    /// Query for the latest message on a group
+    pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
+        &self,
+        group_id: Id,
+    ) -> Result<Option<GroupMessage>, ApiError> {
+        tracing::debug!(
+            group_id = hex::encode(&group_id),
+            inbox_id = self.inbox_id,
+            "query latest group message"
+        );
+        let result = retry_async!(
+            self.retry_strategy,
+            (async {
+                self.api_client
+                    .query_group_messages(QueryGroupMessagesRequest {
+                        group_id: group_id.as_ref().to_vec(),
+                        paging_info: Some(PagingInfo {
+                            id_cursor: 0,
+                            limit: 1,
+                            direction: SortDirection::Descending as i32,
+                        }),
+                    })
+                    .await
+            })
+        )?;
+
+        Ok(result.messages.into_iter().next())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

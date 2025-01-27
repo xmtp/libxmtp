@@ -23,10 +23,8 @@ use crate::{
         GroupError, MlsGroup,
     },
     storage::{
-        consent_record::StoredConsentRecord,
-        group::{ConversationType, GroupQueryArgs, StoredGroup},
-        group_message::StoredGroupMessage,
-        ProviderTransactions, StorageError, NotFound, group::ConversationType
+        consent_record::StoredConsentRecord, group::ConversationType,
+        group_message::StoredGroupMessage, NotFound, StorageError,
     },
     Client, XmtpApi,
 };
@@ -402,13 +400,14 @@ pub(crate) mod tests {
     macro_rules! assert_msg {
         ($stream:expr, $expected:expr) => {
             assert_eq!(
-                String::from_utf8_lossy($stream
-                    .next()
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .decrypted_message_bytes
-                    .as_slice()
+                String::from_utf8_lossy(
+                    $stream
+                        .next()
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .decrypted_message_bytes
+                        .as_slice()
                 ),
                 String::from_utf8_lossy($expected.as_bytes())
             );

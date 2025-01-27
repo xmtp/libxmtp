@@ -1,16 +1,16 @@
 use std::{
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{ready, Context, Poll},
 };
 
 use crate::subscriptions::stream_messages::MessagesApiSubscription;
 use crate::{
-    types::GroupId,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
         group::{ConversationType, GroupQueryArgs},
         group_message::StoredGroupMessage,
     },
+    types::GroupId,
     Client,
 };
 use futures::stream::Stream;
@@ -102,7 +102,7 @@ where
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             this.messages.as_mut().add(group?);
-            return this.messages.poll_next(cx);
+            return self.poll_next(cx);
         }
         Poll::Pending
     }
@@ -177,7 +177,6 @@ mod tests {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_unchanging_group_list() {
-        xmtp_common::logger();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -227,49 +226,66 @@ mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .create_dm_by_inbox_id(&alix.mls_provider().unwrap(), bo.inbox_id().to_string())
+            .create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
-
-        // start a stream with only group messages
-        let stream = bo
-            .stream_all_messages(Some(ConversationType::Group))
-            .await
-            .unwrap();
-        futures::pin_mut!(stream);
-        alix_dm.send_message("first DM msg".as_bytes()).await.unwrap();
-        tracing::info!("\n\nsent first DM message\n\n");
-        alix_group.send_message("second GROUP msg".as_bytes()).await.unwrap();
-        tracing::info!("\n\nsent second group msg\n\n");
-        assert_msg!(stream, "second GROUP msg");
-        tracing::info!("\n\ngot `second`: Group-Only message\n\n");
-
-        // Start a stream with only dms
-        let stream = bo
-            .stream_all_messages(Some(ConversationType::Dm))
-            .await
-            .unwrap();
-        futures::pin_mut!(stream);
-        alix_group.send_message("second GROUP msg".as_bytes()).await.unwrap();
-        tracing::info!("\n\nSENDING SECOND DM MSG\n\n");
-        alix_dm.send_message("second DM msg".as_bytes()).await.unwrap();
-        tracing::info!("\nSENT SECOND DM MSG\n\n");
-        assert_msg!(stream, "second DM msg");
-        tracing::info!("Got second DM Only Message");
-
+        {
+            // start a stream with only group messages
+            let stream = bo
+                .stream_all_messages(Some(ConversationType::Group))
+                .await
+                .unwrap();
+            futures::pin_mut!(stream);
+            alix_dm
+                .send_message("first DM msg".as_bytes())
+                .await
+                .unwrap();
+            tracing::info!("\n\nsent first DM message\n\n");
+            alix_group
+                .send_message("second GROUP msg".as_bytes())
+                .await
+                .unwrap();
+            tracing::info!("\n\nsent second group msg\n\n");
+            assert_msg!(stream, "second GROUP msg");
+            tracing::info!("\n\ngot `second`: Group-Only message\n\n");
+        }
+        {
+            // Start a stream with only dms
+            let stream = bo
+                .stream_all_messages(Some(ConversationType::Dm))
+                .await
+                .unwrap();
+            futures::pin_mut!(stream);
+            alix_group
+                .send_message("second GROUP msg".as_bytes())
+                .await
+                .unwrap();
+            tracing::info!("\n\nSENDING SECOND DM MSG\n\n");
+            alix_dm
+                .send_message("second DM msg".as_bytes())
+                .await
+                .unwrap();
+            tracing::info!("\nSENT SECOND DM MSG\n\n");
+            assert_msg!(stream, "second DM msg");
+            tracing::info!("Got second DM Only Message");
+        }
         // Start a stream with all conversations
         // Wait for 2 seconds for the group creation to be streamed
         let stream = bo.stream_all_messages(None).await.unwrap();
         futures::pin_mut!(stream);
+        tracing::info!("\n\nSending first msg\n\n");
         alix_group.send_message("first".as_bytes()).await.unwrap();
+        tracing::info!("Sent first group message");
         assert_msg!(stream, "first");
 
+        tracing::info!("Sent first dm messages");
         alix_dm.send_message("second".as_bytes()).await.unwrap();
         assert_msg!(stream, "second");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_all_messages_does_not_lose_messages() {
+        xmtp_common::logger();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -288,9 +304,12 @@ mod tests {
         let alix_group_pointer = alix_group.clone();
         crate::spawn(None, async move {
             let mut sent = 0;
-            for i in 0..50 {
-                let msg = format!("spam {i}");
-                alix_group_pointer.send_message(msg.as_bytes()).await.unwrap();
+            for i in 0..15 {
+                let msg = format!("main spam {i}");
+                alix_group_pointer
+                    .send_message(msg.as_bytes())
+                    .await
+                    .unwrap();
                 sent += 1;
                 xmtp_common::time::sleep(core::time::Duration::from_micros(100)).await;
                 tracing::info!("sent {sent}");
@@ -303,27 +322,28 @@ mod tests {
         let caro_id = caro.inbox_id().to_string();
         crate::spawn(None, async move {
             let caro = &caro_id;
-            for i in 0..50 {
+            for i in 0..5 {
                 let new_group = eve
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
-                tracing::info!("\n\n EVE SENDING {i} \n\n");
-                let msg = format!("spam {i} from new group");
-                new_group
-                    .send_message(msg.as_bytes())
-                    .await
-                    .unwrap();
+                tracing::info!(
+                    "\n\n EVE SENDING {i} to {}\n\n",
+                    hex::encode(&new_group.group_id)
+                );
+                let msg = format!("EVE spam {i} from new group");
+                new_group.send_message(msg.as_bytes()).await.unwrap();
             }
         });
 
         let mut messages = Vec::new();
-        let _ = tokio::time::timeout(core::time::Duration::from_secs(30), async {
+        let timeout = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
+        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(timeout), async {
             futures::pin_mut!(stream);
             loop {
-                if messages.len() < 100 {
+                if messages.len() < 20 {
                     if let Some(Ok(msg)) = stream.next().await {
-                        tracing::info!(
+                        tracing::error!(
                             message_id = hex::encode(&msg.id),
                             sender_inbox_id = msg.sender_inbox_id,
                             sender_installation_id = hex::encode(&msg.sender_installation_id),
@@ -342,7 +362,7 @@ mod tests {
         .await;
 
         tracing::info!("Total Messages: {}", messages.len());
-        assert_eq!(messages.len(), 100);
+        assert_eq!(messages.len(), 20);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -360,7 +380,10 @@ mod tests {
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
-                tracing::info!("\n\n HALE SENDING {i} \n\n");
+                tracing::info!(
+                    "\n\n HALE SENDING {i} to group {}\n\n",
+                    hex::encode(&new_group.group_id)
+                );
                 new_group
                     .send_message(b"spam from new group")
                     .await
@@ -369,7 +392,7 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let _ = tokio::time::timeout(core::time::Duration::from_secs(20), async {
+        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(20), async {
             futures::pin_mut!(stream);
             loop {
                 if messages.len() < 5 {

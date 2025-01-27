@@ -66,12 +66,10 @@ use crate::storage::{
     NotFound, StorageError,
 };
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::{
-    message_contents::{
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
-    },
+use xmtp_proto::xmtp::mls::message_contents::{
+    content_types::ReactionV2,
+    plaintext_envelope::{Content, V1},
+    EncodedContent, PlaintextEnvelope,
 };
 
 use crate::{
@@ -752,8 +750,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let message_id =
             self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
-        self.sync_until_last_intent_resolved(provider).await?;
 
+        self.sync_until_last_intent_resolved(provider).await?;
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
