@@ -9,16 +9,13 @@ use crate::{
     identity::parse_credential, storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
-pub(crate) trait WelcomeExt {
-    fn decrypt_welcome(
-        provider: &XmtpOpenMlsProvider,
-        hpke_public_key: &[u8],
-        encrypted_welcome_bytes: &[u8],
-    ) -> Result<WelcomeData, GroupError>;
+pub(crate) struct WelcomeData {
+    pub(crate) welcome: Welcome,
+    pub(crate) added_by_inbox_id: String,
 }
 
-impl WelcomeExt for Welcome {
-    fn decrypt_welcome(
+impl WelcomeData {
+    pub(crate) fn from_encrypted_bytes(
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
@@ -68,9 +65,4 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
             "unexpected message type in welcome".to_string(),
         )),
     }
-}
-
-pub(crate) struct WelcomeData {
-    pub(crate) welcome: Welcome,
-    pub(crate) added_by_inbox_id: String,
 }

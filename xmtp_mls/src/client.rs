@@ -1,9 +1,5 @@
 use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::{
-    framing::{MlsMessageBodyIn, MlsMessageIn},
-    messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
-};
+use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
     sync::{
@@ -32,7 +28,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::{mls_ext::welcome_ext::WelcomeExt, ConversationListItem};
+use crate::groups::{mls_ext::welcome_ext::WelcomeData, ConversationListItem};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -861,8 +857,11 @@ where
             return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
         }
         let welcome_id = welcome.id;
-        let welcome_data =
-            Welcome::decrypt_welcome(provider, welcome.hpke_public_key.as_slice(), &welcome.data)?;
+        let welcome_data = WelcomeData::from_encrypted_bytes(
+            provider,
+            welcome.hpke_public_key.as_slice(),
+            &welcome.data,
+        )?;
         let result = MlsGroup::create_from_welcome(
             Arc::new(self.clone()),
             provider,

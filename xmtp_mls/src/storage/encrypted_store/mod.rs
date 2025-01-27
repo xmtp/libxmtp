@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::sync::Arc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -678,7 +677,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_transaction_rollback() {
-        use std::sync::Barrier;
+        use std::sync::{Arc, Barrier};
 
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
