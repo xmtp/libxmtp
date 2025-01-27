@@ -855,7 +855,7 @@ where
 
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
-    /// applies the update after the welcome processed succesfully.
+    /// applies the update after the welcome processed successfully.
     async fn process_new_welcome(
         &self,
         provider: &XmtpOpenMlsProvider,
