@@ -3897,16 +3897,14 @@ pub(crate) mod tests {
         let process_result = bo_group
             .process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap())
             .await;
-        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 2);
-            assert!(errors
-                .first()
-                .unwrap()
-                .to_string()
-                .contains("already processed"));
-        } else {
+        let Some(GroupError::ReceiveErrors(errors)) = process_result.err() else {
             panic!("Expected error")
-        }
+        };
+
+        assert_eq!(errors.len(), 2);
+        assert!(errors
+            .iter()
+            .any(|err| err.to_string().contains("already processed")));
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
