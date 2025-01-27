@@ -204,7 +204,9 @@ impl EncryptedConnection {
 
     /// Output the corect order of PRAGMAS to instantiate a connection
     fn pragmas(&self) -> impl Display {
-        let Self { ref key, ref salt } = self;
+        let Self {
+            ref key, ref salt, ..
+        } = self;
 
         if let Some(s) = salt {
             format!(
@@ -281,6 +283,7 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
         conn.batch_execute(&format!(
             "{}
+            PRAGMA query_only = ON;
             PRAGMA busy_timeout = 5000;",
             self.pragmas()
         ))
