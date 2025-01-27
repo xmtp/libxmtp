@@ -7,6 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
+mod disappearing_messages;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
@@ -107,6 +108,7 @@ use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
@@ -293,8 +295,7 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
-    pub message_expiration_from_ms: Option<i64>,
-    pub message_expiration_ms: Option<i64>,
+    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -1138,6 +1139,80 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    pub async fn update_conversation_message_disappearing_settings(
+        &self,
+        settings: MessageDisappearingSettings,
+    ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+
+        self.update_conversation_message_disappear_from_ns(&provider, settings.from_ns)
+            .await?;
+        self.update_conversation_message_disappear_in_ns(&provider, settings.in_ns)
+            .await
+    }
+
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GroupError> {
+        self.update_conversation_message_disappearing_settings(
+            MessageDisappearingSettings::default(),
+        )
+        .await
+    }
+
+    async fn update_conversation_message_disappear_from_ns(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_from_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
+                expire_from_ms,
+            )
+            .into();
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    async fn update_conversation_message_disappear_in_ns(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_in_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
+                .into();
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    pub fn conversation_message_disappearing_settings(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MessageDisappearingSettings, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
+        let disappear_from_ns = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string());
+        let disappear_in_ns = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string());
+
+        if let (Some(Ok(message_disappear_from_ns)), Some(Ok(message_disappear_in_ns))) = (
+            disappear_from_ns.map(|s| s.parse::<i64>()),
+            disappear_in_ns.map(|s| s.parse::<i64>()),
+        ) {
+            Ok(MessageDisappearingSettings::new(
+                message_disappear_from_ns,
+                message_disappear_in_ns,
+            ))
+        } else {
+            Err(GroupError::GroupMetadata(
+                GroupMetadataError::MissingExtension,
+            ))
+        }
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: &XmtpOpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
@@ -1791,6 +1866,8 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
+    use super::{group_permissions::PolicySet, MlsGroup};
+    use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -1816,8 +1893,6 @@ pub(crate) mod tests {
         utils::test::FullXmtpClient,
         InboxOwner, StreamHandle as _,
     };
-
-    use super::{group_permissions::PolicySet, MlsGroup};
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2602,6 +2677,9 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
+        let expected_group_message_disappearing_settings =
+            MessageDisappearingSettings::new(100, 200);
+
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
@@ -2612,8 +2690,9 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     pinned_frame_url: Some("pinned frame".to_string()),
-                    message_expiration_from_ms: None,
-                    message_expiration_ms: None,
+                    message_disappearing_settings: Some(
+                        expected_group_message_disappearing_settings.clone(),
+                    ),
                 },
             )
             .unwrap();
@@ -2637,11 +2716,30 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
-
+        let amal_group_message_disappear_from_ns = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string())
+            .unwrap();
+        let amal_group_message_disappear_in_ns = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
         assert_eq!(amal_group_pinned_frame_url, "pinned frame");
+        assert_eq!(
+            amal_group_message_disappear_from_ns.clone(),
+            expected_group_message_disappearing_settings
+                .from_ns
+                .to_string()
+        );
+        assert_eq!(
+            amal_group_message_disappear_in_ns.clone(),
+            expected_group_message_disappearing_settings
+                .in_ns
+                .to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -2902,6 +3000,68 @@ pub(crate) mod tests {
             .get(&MetadataField::GroupPinnedFrameUrl.to_string())
             .unwrap();
         assert_eq!(amal_group_pinned_frame_url, "a frame url");
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_update_group_message_expiration_settings() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::MessageDisappearInNS.to_string()),
+            None
+        );
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::MessageDisappearFromNS.to_string()),
+            None
+        );
+
+        // Update group name
+        let expected_group_message_expiration_settings = MessageDisappearingSettings::new(100, 200);
+
+        amal_group
+            .update_conversation_message_disappearing_settings(
+                expected_group_message_expiration_settings.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+        let binding = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .expect("msg");
+        let amal_message_expiration_from_ms: &String = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string())
+            .unwrap();
+        let amal_message_disappear_in_ns: &String = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string())
+            .unwrap();
+        assert_eq!(
+            amal_message_expiration_from_ms.clone(),
+            expected_group_message_expiration_settings
+                .from_ns
+                .to_string()
+        );
+        assert_eq!(
+            amal_message_disappear_in_ns.clone(),
+            expected_group_message_expiration_settings.in_ns.to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]

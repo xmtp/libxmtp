@@ -170,8 +170,8 @@ pub struct PermissionPolicySet {
   pub update_group_image_url_square_policy: PermissionPolicy,
   #[wasm_bindgen(js_name = updateGroupPinnedFrameUrlPolicy)]
   pub update_group_pinned_frame_url_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateMessageExpirationPolicy)]
-  pub update_message_expiration_ms_policy: PermissionPolicy,
+  #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
+  pub update_message_disappearing_policy: PermissionPolicy,
 }
 
 #[wasm_bindgen]
@@ -187,7 +187,7 @@ impl PermissionPolicySet {
     update_group_description_policy: PermissionPolicy,
     update_group_image_url_square_policy: PermissionPolicy,
     update_group_pinned_frame_url_policy: PermissionPolicy,
-    update_message_expiration_ms_policy: PermissionPolicy,
+    update_message_disappearing_policy: PermissionPolicy,
   ) -> Self {
     Self {
       add_member_policy,
@@ -198,7 +198,7 @@ impl PermissionPolicySet {
       update_group_description_policy,
       update_group_image_url_square_policy,
       update_group_pinned_frame_url_policy,
-      update_message_expiration_ms_policy,
+      update_message_disappearing_policy,
     }
   }
 }
@@ -257,8 +257,8 @@ impl GroupPermissions {
       update_group_pinned_frame_url_policy: get_policy(
         XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
       ),
-      update_message_expiration_ms_policy: get_policy(
-        XmtpMetadataField::MessageExpirationMillis.as_str(),
+      update_message_disappearing_policy: get_policy(
+        XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
     })
   }
@@ -285,8 +285,8 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       policy_set.update_group_pinned_frame_url_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      XmtpMetadataField::MessageExpirationMillis.to_string(),
-      policy_set.update_message_expiration_ms_policy.try_into()?,
+      XmtpMetadataField::MessageDisappearInNS.to_string(),
+      policy_set.update_message_disappearing_policy.try_into()?,
     );
 
     Ok(PolicySet {
@@ -306,6 +306,8 @@ pub enum MetadataField {
   Description,
   ImageUrlSquare,
   PinnedFrameUrl,
+  MessageExpirationFromMS,
+  MessageExpirationMS,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
@@ -315,6 +317,8 @@ impl From<&MetadataField> for XmtpMetadataField {
       MetadataField::Description => XmtpMetadataField::Description,
       MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
       MetadataField::PinnedFrameUrl => XmtpMetadataField::GroupPinnedFrameUrl,
+      MetadataField::MessageExpirationFromMS => XmtpMetadataField::MessageDisappearFromNS,
+      MetadataField::MessageExpirationMS => XmtpMetadataField::MessageDisappearInNS,
     }
   }
 }
