@@ -8,6 +8,8 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
+use crate::groups::group_mutable_metadata::MetadataField;
+use crate::storage::group_intent::IntentKind::MetadataUpdate;
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -459,7 +461,7 @@ where
         &self,
         mls_group: &mut OpenMlsGroup,
         commit: Option<(StagedCommit, ValidatedCommit)>,
-        intent: StoredGroupIntent,
+        intent: &StoredGroupIntent,
         provider: &XmtpOpenMlsProvider,
         message: &ProtocolMessage,
         envelope: &GroupMessageV1,
@@ -730,6 +732,7 @@ where
                     "[{}] staged commit is valid, will attempt to merge",
                     self.context().inbox_id()
                 );
+
                 mls_group.merge_staged_commit(provider, staged_commit)?;
                 self.save_transcript_message(
                     provider.conn_ref(),
@@ -790,6 +793,7 @@ where
                     envelope.id,
                     intent_id
                 );
+
                 self.load_mls_group_with_lock_async(provider, |mut mls_group| async move  {
                     let message = message.into();
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, provider, &message, envelope).await;
@@ -808,7 +812,7 @@ where
                             Err(err) => err?,
                             Ok(commit) => {
                                 self
-                                .process_own_message(&mut mls_group, commit, intent, provider, &message, envelope)?
+                                .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
                             }
                         };
                         match intent_state {
@@ -816,6 +820,7 @@ where
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
+                                self.handle_metadata_update(provider, &intent)?;
                                 Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
                             IntentState::Published => {
@@ -854,6 +859,35 @@ where
             }
             Err(err) => Err(GroupMessageProcessingError::Storage(err)),
         }
+    }
+
+    /// In case of metadataUpdate will extract the updated fields and store them to the db
+    fn handle_metadata_update(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        intent: &StoredGroupIntent,
+    ) -> Result<(), StorageError> {
+        if intent.kind == MetadataUpdate {
+            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+
+            match data.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    provider.conn_ref().update_message_disappearing_from_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
+                }
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    provider.conn_ref().update_message_disappearing_in_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
+                }
+                _ => {} // handle other metadata updates
+            }
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -1026,7 +1060,6 @@ where
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
         };
-
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
