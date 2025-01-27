@@ -1,6 +1,6 @@
 //!  NOTE:
 // `MAX_DB_POOL_SIZE` in `configuration.rs` must be set to `10`
-// in order for these benchmarks to succesfully run & generate a report.
+// in order for these benchmarks to successfully run & generate a report.
 // (file descriptor issue)
 
 use crate::tracing::Instrument;

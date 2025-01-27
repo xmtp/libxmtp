@@ -806,6 +806,11 @@ pub(crate) mod tests {
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_3.store(conn).unwrap();
 
+            let other_inbox_id = test_group_3
+                .dm_id
+                .unwrap()
+                .other_inbox_id("placeholder_inbox_id_1");
+
             let all_results = conn
                 .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
                 .unwrap();
@@ -853,11 +858,10 @@ pub(crate) mod tests {
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
-
             let dm_result = conn
                 .find_dm_group(&DmMembers {
                     member_one_inbox_id: "placeholder_inbox_id_1",
-                    member_two_inbox_id: "placeholder_inbox_id_2",
+                    member_two_inbox_id: &other_inbox_id,
                 })
                 .unwrap();
             assert!(dm_result.is_some());
