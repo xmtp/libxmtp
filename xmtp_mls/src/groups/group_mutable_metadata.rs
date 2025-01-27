@@ -69,6 +69,12 @@ impl fmt::Display for MetadataField {
     }
 }
 
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct MessageDisappearingSettings {
     pub from_ns: i64,

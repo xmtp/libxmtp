@@ -38,6 +38,12 @@ pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
 }
 
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
 #[napi(object)]
 #[derive(Clone)]
 pub struct MessageDisappearingSettings {

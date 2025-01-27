@@ -1298,6 +1298,12 @@ impl FfiConversationListItem {
     }
 }
 
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiMessageDisappearingSettings {
     pub from_ns: i64,
