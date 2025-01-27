@@ -19,7 +19,7 @@ use xmtp_id::{
     InboxId,
 };
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -1299,20 +1299,20 @@ impl FfiConversationListItem {
 }
 
 #[derive(uniffi::Record, Clone, Debug)]
-pub struct FfiConversationMessageDisappearingSettings {
+pub struct FfiMessageDisappearingSettings {
     pub from_ns: i64,
     pub in_ns: i64,
 }
 
-impl FfiConversationMessageDisappearingSettings {
+impl FfiMessageDisappearingSettings {
     fn new(from_ns: i64, in_ns: i64) -> Self {
         Self { from_ns, in_ns }
     }
 }
 
-impl From<ConversationMessageDisappearingSettings> for FfiConversationMessageDisappearingSettings {
-    fn from(value: ConversationMessageDisappearingSettings) -> Self {
-        FfiConversationMessageDisappearingSettings::new(value.from_ns, value.in_ns)
+impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
+    fn from(value: MessageDisappearingSettings) -> Self {
+        FfiMessageDisappearingSettings::new(value.from_ns, value.in_ns)
     }
 }
 
@@ -1426,9 +1426,9 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
-impl From<FfiConversationMessageDisappearingSettings> for ConversationMessageDisappearingSettings {
-    fn from(settings: FfiConversationMessageDisappearingSettings) -> Self {
-        ConversationMessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
+impl From<FfiMessageDisappearingSettings> for MessageDisappearingSettings {
+    fn from(settings: FfiMessageDisappearingSettings) -> Self {
+        MessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
     }
 }
 
@@ -1481,7 +1481,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
-    pub message_disappearing_settings: Option<FfiConversationMessageDisappearingSettings>,
+    pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
 }
 
 impl FfiCreateGroupOptions {
@@ -1726,12 +1726,12 @@ impl FfiConversation {
 
     pub async fn update_conversation_message_disappearing_settings(
         &self,
-        settings: FfiConversationMessageDisappearingSettings,
+        settings: FfiMessageDisappearingSettings,
     ) -> Result<(), GenericError> {
         self.inner
-            .update_conversation_message_disappearing_settings(
-                ConversationMessageDisappearingSettings::from(settings),
-            )
+            .update_conversation_message_disappearing_settings(MessageDisappearingSettings::from(
+                settings,
+            ))
             .await?;
 
         Ok(())
@@ -1749,13 +1749,13 @@ impl FfiConversation {
 
     pub fn conversation_message_disappearing_settings(
         &self,
-    ) -> Result<FfiConversationMessageDisappearingSettings, GenericError> {
+    ) -> Result<FfiMessageDisappearingSettings, GenericError> {
         let provider = self.inner.mls_provider()?;
         let group_message_expiration_settings = self
             .inner
             .conversation_message_disappearing_settings(&provider)?;
 
-        Ok(FfiConversationMessageDisappearingSettings::new(
+        Ok(FfiMessageDisappearingSettings::new(
             group_message_expiration_settings.from_ns,
             group_message_expiration_settings.in_ns,
         ))
@@ -2296,12 +2296,12 @@ mod tests {
     use crate::{
         connect_to_backend, decode_reaction, encode_reaction, get_inbox_id_for_address,
         inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageDisappearingSettings, FfiConversationMessageKind,
+        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageWithReactions,
-        FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
-        FfiReaction, FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
+        FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -3000,7 +3000,7 @@ mod tests {
         let bola = new_test_client().await;
 
         let conversation_message_disappearing_settings =
-            FfiConversationMessageDisappearingSettings::new(10, 100);
+            FfiMessageDisappearingSettings::new(10, 100);
 
         let group = amal
             .conversations()
@@ -4763,7 +4763,7 @@ mod tests {
         // Step 4: Set disappearing settings to 5ns after the latest message
         let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
         let disappearing_settings =
-            FfiConversationMessageDisappearingSettings::new(latest_message_sent_at_ns, 5);
+            FfiMessageDisappearingSettings::new(latest_message_sent_at_ns, 5);
         alix_group
             .update_conversation_message_disappearing_settings(disappearing_settings.clone())
             .await

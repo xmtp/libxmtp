@@ -108,7 +108,7 @@ use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 
-use crate::groups::group_mutable_metadata::ConversationMessageDisappearingSettings;
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
@@ -295,7 +295,7 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub pinned_frame_url: Option<String>,
-    pub message_disappearing_settings: Option<ConversationMessageDisappearingSettings>,
+    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -1141,7 +1141,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub async fn update_conversation_message_disappearing_settings(
         &self,
-        settings: ConversationMessageDisappearingSettings,
+        settings: MessageDisappearingSettings,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
 
@@ -1155,7 +1155,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
     ) -> Result<(), GroupError> {
         self.update_conversation_message_disappearing_settings(
-            ConversationMessageDisappearingSettings::default(),
+            MessageDisappearingSettings::default(),
         )
         .await
     }
@@ -1189,7 +1189,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn conversation_message_disappearing_settings(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<ConversationMessageDisappearingSettings, GroupError> {
+    ) -> Result<MessageDisappearingSettings, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
         let disappear_from_ns = mutable_metadata
             .attributes
@@ -1202,7 +1202,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             disappear_from_ns.map(|s| s.parse::<i64>()),
             disappear_in_ns.map(|s| s.parse::<i64>()),
         ) {
-            Ok(ConversationMessageDisappearingSettings::new(
+            Ok(MessageDisappearingSettings::new(
                 message_disappear_from_ns,
                 message_disappear_in_ns,
             ))
@@ -1867,7 +1867,7 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     use super::{group_permissions::PolicySet, MlsGroup};
-    use crate::groups::group_mutable_metadata::ConversationMessageDisappearingSettings;
+    use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -2678,7 +2678,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
         let expected_group_message_disappearing_settings =
-            ConversationMessageDisappearingSettings::new(100, 200);
+            MessageDisappearingSettings::new(100, 200);
 
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -3030,8 +3030,7 @@ pub(crate) mod tests {
         );
 
         // Update group name
-        let expected_group_message_expiration_settings =
-            ConversationMessageDisappearingSettings::new(100, 200);
+        let expected_group_message_expiration_settings = MessageDisappearingSettings::new(100, 200);
 
         amal_group
             .update_conversation_message_disappearing_settings(

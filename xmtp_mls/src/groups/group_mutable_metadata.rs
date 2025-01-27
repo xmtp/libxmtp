@@ -70,12 +70,12 @@ impl fmt::Display for MetadataField {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct ConversationMessageDisappearingSettings {
+pub struct MessageDisappearingSettings {
     pub from_ns: i64,
     pub in_ns: i64,
 }
 
-impl ConversationMessageDisappearingSettings {
+impl MessageDisappearingSettings {
     pub fn new(from_ns: i64, in_ns: i64) -> Self {
         Self { from_ns, in_ns }
     }

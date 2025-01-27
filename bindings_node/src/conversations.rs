@@ -12,7 +12,7 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::conversation::ConversationMessageDisappearingSettings;
+use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -123,7 +123,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub group_pinned_frame_url: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  pub message_disappearing_settings: Option<ConversationMessageDisappearingSettings>,
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl CreateGroupOptions {

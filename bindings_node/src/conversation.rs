@@ -29,7 +29,7 @@ use crate::{
   ErrorWrapper,
 };
 use prost::Message as ProstMessage;
-use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
 
 use napi_derive::napi;
 
@@ -40,23 +40,22 @@ pub struct GroupMetadata {
 
 #[napi(object)]
 #[derive(Clone)]
-pub struct ConversationMessageDisappearingSettings {
-  #[napi]
-  pub inner: XmtpConversationMessageDisappearingSettings,
+pub struct MessageDisappearingSettings {
+  pub from_ns: i64,
+  pub in_ns: i64,
 }
 
 #[napi]
-impl ConversationMessageDisappearingSettings {
+impl MessageDisappearingSettings {
   #[napi]
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
-    let inner = XmtpConversationMessageDisappearingSettings { from_ns, in_ns };
-    Self { inner }
+    Self { from_ns, in_ns }
   }
 }
 
-impl From<ConversationMessageDisappearingSettings> for XmtpConversationMessageDisappearingSettings {
-  fn from(value: ConversationMessageDisappearingSettings) -> Self {
-    XmtpConversationMessageDisappearingSettings::new(value.inner.from_ns, value.inner.in_ns)
+impl From<MessageDisappearingSettings> for XmtpConversationMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    XmtpConversationMessageDisappearingSettings::new(value.from_ns, value.in_ns)
   }
 }
 

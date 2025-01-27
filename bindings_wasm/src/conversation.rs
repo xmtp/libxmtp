@@ -18,7 +18,7 @@ use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind,
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
-use xmtp_mls::groups::group_mutable_metadata::ConversationMessageDisappearingSettings as XmtpGroupMessageDisappearingSettings;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
@@ -28,7 +28,8 @@ pub struct GroupMetadata {
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct ConversationMessageDisappearingSettings {
-  inner: XmtpGroupMessageDisappearingSettings,
+  #[allow(dead_code)]
+  inner: XmtpMessageDisappearingSettings,
 }
 
 #[wasm_bindgen]

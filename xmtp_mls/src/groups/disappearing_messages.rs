@@ -7,6 +7,9 @@ use tokio::sync::OnceCell;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
+/// Restart the DisappearingMessagesCleanerWorker every 1 sec to delete the expired messages
+pub const WORKER_RESTART_DELAY: Duration = Duration::from_secs(1);
+
 #[derive(Debug, Error)]
 pub enum DisappearingMessagesCleanerError {
     #[error("storage error: {0}")]
@@ -17,6 +20,7 @@ pub enum DisappearingMessagesCleanerError {
 
 pub struct DisappearingMessagesCleanerWorker<ApiClient, V> {
     client: Client<ApiClient, V>,
+    #[allow(dead_code)]
     init: OnceCell<()>,
 }
 impl<ApiClient, V> DisappearingMessagesCleanerWorker<ApiClient, V>
@@ -49,8 +53,7 @@ where
                     }
                     _ => {
                         tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                        // Wait 2 seconds before restarting.
-                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
+                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                     }
                 }
             }
