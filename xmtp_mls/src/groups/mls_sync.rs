@@ -457,7 +457,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     fn process_own_message(
         &self,
-        mls_group: &mut openmls::group::MlsGroup,
+        mls_group: &mut OpenMlsGroup,
         commit: Option<(StagedCommit, ValidatedCommit)>,
         intent: StoredGroupIntent,
         provider: &XmtpOpenMlsProvider,
@@ -517,148 +517,149 @@ where
     async fn process_external_message(
         &self,
         provider: &XmtpOpenMlsProvider,
+        mls_group: &mut OpenMlsGroup,
         message: PrivateMessageIn,
         envelope: &GroupMessageV1,
     ) -> Result<(), GroupMessageProcessingError> {
-        self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
-            let GroupMessageV1 {
-                created_ns: envelope_timestamp_ns,
-                id: ref msg_id,
-                ..
-            } = *envelope;
+        let GroupMessageV1 {
+            created_ns: envelope_timestamp_ns,
+            id: ref msg_id,
+            ..
+        } = *envelope;
 
-            let decrypted_message = mls_group.process_message(provider, message)?;
-            let (sender_inbox_id, sender_installation_id) =
-                extract_message_sender(&mut mls_group, &decrypted_message, envelope_timestamp_ns)?;
+        let decrypted_message = mls_group.process_message(provider, message)?;
+        let (sender_inbox_id, sender_installation_id) =
+            extract_message_sender(mls_group, &decrypted_message, envelope_timestamp_ns)?;
 
-            tracing::info!(
-                inbox_id = self.client.inbox_id(),
-                installation_id = %self.client.installation_id(),sender_inbox_id = sender_inbox_id,
-                sender_installation_id = hex::encode(&sender_installation_id),
-                group_id = hex::encode(&self.group_id),
-                current_epoch = mls_group.epoch().as_u64(),
-                msg_epoch = decrypted_message.epoch().as_u64(),
-                msg_group_id = hex::encode(decrypted_message.group_id().as_slice()),
-                msg_id,
-                "[{}] extracted sender inbox id: {}",
-                self.client.inbox_id(),
-                sender_inbox_id
-            );
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),sender_inbox_id = sender_inbox_id,
+            sender_installation_id = hex::encode(&sender_installation_id),
+            group_id = hex::encode(&self.group_id),
+            current_epoch = mls_group.epoch().as_u64(),
+            msg_epoch = decrypted_message.epoch().as_u64(),
+            msg_group_id = hex::encode(decrypted_message.group_id().as_slice()),
+            msg_id,
+            "[{}] extracted sender inbox id: {}",
+            self.client.inbox_id(),
+            sender_inbox_id
+        );
 
-            let (msg_epoch, msg_group_id) = (
-                decrypted_message.epoch().as_u64(),
-                hex::encode(decrypted_message.group_id().as_slice()),
-            );
-            match decrypted_message.into_content() {
-                ProcessedMessageContent::ApplicationMessage(application_message) => {
-                    tracing::info!(
-                        inbox_id = self.client.inbox_id(),
-                        sender_inbox_id = sender_inbox_id,
-                        sender_installation_id = hex::encode(&sender_installation_id),
+        let (msg_epoch, msg_group_id) = (
+            decrypted_message.epoch().as_u64(),
+            hex::encode(decrypted_message.group_id().as_slice()),
+        );
+        match decrypted_message.into_content() {
+            ProcessedMessageContent::ApplicationMessage(application_message) => {
+                tracing::info!(
+                    inbox_id = self.client.inbox_id(),
+                    sender_inbox_id = sender_inbox_id,
+                    sender_installation_id = hex::encode(&sender_installation_id),
                     installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
-                        current_epoch = mls_group.epoch().as_u64(),
-                        msg_epoch,
-                        msg_group_id,
-                        msg_id,
-                        "[{}] decoding application message",
-                        self.context().inbox_id()
-                    );
-                    let message_bytes = application_message.into_bytes();
+                    current_epoch = mls_group.epoch().as_u64(),
+                    msg_epoch,
+                    msg_group_id,
+                    msg_id,
+                    "[{}] decoding application message",
+                    self.context().inbox_id()
+                );
+                let message_bytes = application_message.into_bytes();
 
-                    let mut bytes = Bytes::from(message_bytes.clone());
-                    let envelope = PlaintextEnvelope::decode(&mut bytes)?;
+                let mut bytes = Bytes::from(message_bytes.clone());
+                let envelope = PlaintextEnvelope::decode(&mut bytes)?;
 
-                    match envelope.content {
-                        Some(Content::V1(V1 {
-                                             idempotency_key,
-                                             content,
-                                         })) => {
-                            let message_id =
-                                calculate_message_id(&self.group_id, &content, &idempotency_key);
-                            let queryable_content_fields = Self::extract_queryable_content_fields(&content);
-                            StoredGroupMessage {
-                                id: message_id,
-                                group_id: self.group_id.clone(),
-                                decrypted_message_bytes: content,
-                                sent_at_ns: envelope_timestamp_ns as i64,
-                                kind: GroupMessageKind::Application,
-                                sender_installation_id,
-                                sender_inbox_id,
-                                delivery_status: DeliveryStatus::Published,
-                                content_type: queryable_content_fields.content_type,
-                                version_major: queryable_content_fields.version_major,
-                                version_minor: queryable_content_fields.version_minor,
-                                authority_id: queryable_content_fields.authority_id,
-                                reference_id: queryable_content_fields.reference_id,
-                            }
-                                .store_or_ignore(provider.conn_ref())?
+                match envelope.content {
+                    Some(Content::V1(V1 {
+                        idempotency_key,
+                        content,
+                    })) => {
+                        let message_id =
+                            calculate_message_id(&self.group_id, &content, &idempotency_key);
+                        let queryable_content_fields =
+                            Self::extract_queryable_content_fields(&content);
+                        StoredGroupMessage {
+                            id: message_id,
+                            group_id: self.group_id.clone(),
+                            decrypted_message_bytes: content,
+                            sent_at_ns: envelope_timestamp_ns as i64,
+                            kind: GroupMessageKind::Application,
+                            sender_installation_id,
+                            sender_inbox_id,
+                            delivery_status: DeliveryStatus::Published,
+                            content_type: queryable_content_fields.content_type,
+                            version_major: queryable_content_fields.version_major,
+                            version_minor: queryable_content_fields.version_minor,
+                            authority_id: queryable_content_fields.authority_id,
+                            reference_id: queryable_content_fields.reference_id,
                         }
-                        Some(Content::V2(V2 {
-                                             idempotency_key,
-                                             message_type,
-                                         })) => {
-                            match message_type {
-                                Some(MessageType::DeviceSyncRequest(history_request)) => {
-                                    let content: DeviceSyncContent =
-                                        DeviceSyncContent::Request(history_request);
-                                    let content_bytes = serde_json::to_vec(&content)?;
-                                    let message_id = calculate_message_id(
-                                        &self.group_id,
-                                        &content_bytes,
-                                        &idempotency_key,
-                                    );
+                        .store_or_ignore(provider.conn_ref())?
+                    }
+                    Some(Content::V2(V2 {
+                        idempotency_key,
+                        message_type,
+                    })) => {
+                        match message_type {
+                            Some(MessageType::DeviceSyncRequest(history_request)) => {
+                                let content: DeviceSyncContent =
+                                    DeviceSyncContent::Request(history_request);
+                                let content_bytes = serde_json::to_vec(&content)?;
+                                let message_id = calculate_message_id(
+                                    &self.group_id,
+                                    &content_bytes,
+                                    &idempotency_key,
+                                );
 
-                                    // store the request message
-                                    StoredGroupMessage {
-                                        id: message_id.clone(),
-                                        group_id: self.group_id.clone(),
-                                        decrypted_message_bytes: content_bytes,
-                                        sent_at_ns: envelope_timestamp_ns as i64,
-                                        kind: GroupMessageKind::Application,
-                                        sender_installation_id,
-                                        sender_inbox_id: sender_inbox_id.clone(),
-                                        delivery_status: DeliveryStatus::Published,
-                                        content_type: ContentType::Unknown,
-                                        version_major: 0,
-                                        version_minor: 0,
-                                        authority_id: "unknown".to_string(),
-                                        reference_id: None,
-                                    }
-                                        .store_or_ignore(provider.conn_ref())?;
-
-                                    tracing::info!("Received a history request.");
-                                    let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                        SyncMessage::Request { message_id },
-                                    ));
+                                // store the request message
+                                StoredGroupMessage {
+                                    id: message_id.clone(),
+                                    group_id: self.group_id.clone(),
+                                    decrypted_message_bytes: content_bytes,
+                                    sent_at_ns: envelope_timestamp_ns as i64,
+                                    kind: GroupMessageKind::Application,
+                                    sender_installation_id,
+                                    sender_inbox_id: sender_inbox_id.clone(),
+                                    delivery_status: DeliveryStatus::Published,
+                                    content_type: ContentType::Unknown,
+                                    version_major: 0,
+                                    version_minor: 0,
+                                    authority_id: "unknown".to_string(),
+                                    reference_id: None,
                                 }
+                                .store_or_ignore(provider.conn_ref())?;
 
-                                Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                    let content: DeviceSyncContent =
-                                        DeviceSyncContent::Reply(history_reply);
-                                    let content_bytes = serde_json::to_vec(&content)?;
-                                    let message_id = calculate_message_id(
-                                        &self.group_id,
-                                        &content_bytes,
-                                        &idempotency_key,
-                                    );
+                                tracing::info!("Received a history request.");
+                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
+                                    SyncMessage::Request { message_id },
+                                ));
+                            }
 
-                                    // store the reply message
-                                    StoredGroupMessage {
-                                        id: message_id.clone(),
-                                        group_id: self.group_id.clone(),
-                                        decrypted_message_bytes: content_bytes,
-                                        sent_at_ns: envelope_timestamp_ns as i64,
-                                        kind: GroupMessageKind::Application,
-                                        sender_installation_id,
-                                        sender_inbox_id,
-                                        delivery_status: DeliveryStatus::Published,
-                                        content_type: ContentType::Unknown,
-                                        version_major: 0,
-                                        version_minor: 0,
-                                        authority_id: "unknown".to_string(),
-                                        reference_id: None,
-                                    }
-                                        .store_or_ignore(provider.conn_ref())?;
+                            Some(MessageType::DeviceSyncReply(history_reply)) => {
+                                let content: DeviceSyncContent =
+                                    DeviceSyncContent::Reply(history_reply);
+                                let content_bytes = serde_json::to_vec(&content)?;
+                                let message_id = calculate_message_id(
+                                    &self.group_id,
+                                    &content_bytes,
+                                    &idempotency_key,
+                                );
+
+                                // store the reply message
+                                StoredGroupMessage {
+                                    id: message_id.clone(),
+                                    group_id: self.group_id.clone(),
+                                    decrypted_message_bytes: content_bytes,
+                                    sent_at_ns: envelope_timestamp_ns as i64,
+                                    kind: GroupMessageKind::Application,
+                                    sender_installation_id,
+                                    sender_inbox_id,
+                                    delivery_status: DeliveryStatus::Published,
+                                    content_type: ContentType::Unknown,
+                                    version_major: 0,
+                                    version_minor: 0,
+                                    authority_id: "unknown".to_string(),
+                                    reference_id: None,
+                                }
+                                .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
                                 let _ = self.client.local_events().send(LocalEvents::SyncMessage(
@@ -683,63 +684,62 @@ where
                                 return Err(GroupMessageProcessingError::InvalidPayload);
                             }
                         }
-                        }
-                        None => return Err(GroupMessageProcessingError::InvalidPayload),
                     }
+                    None => return Err(GroupMessageProcessingError::InvalidPayload),
                 }
-                ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                    // intentionally left blank.
-                }
-                ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
-                    // intentionally left blank.
-                }
-                ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                    let staged_commit = *staged_commit;
+            }
+            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                let staged_commit = *staged_commit;
 
-                    tracing::info!(
-                        inbox_id = self.client.inbox_id(),
-                        sender_inbox_id = sender_inbox_id,
-                        installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
-                        group_id = hex::encode(&self.group_id),
-                        current_epoch = mls_group.epoch().as_u64(),
-                        msg_epoch,
-                        msg_group_id,
-                        msg_id,
-                        "[{}] received staged commit. Merging and clearing any pending commits",
-                        self.context().inbox_id()
-                    );
+                tracing::info!(
+                    inbox_id = self.client.inbox_id(),
+                    sender_inbox_id = sender_inbox_id,
+                    installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
+                    group_id = hex::encode(&self.group_id),
+                    current_epoch = mls_group.epoch().as_u64(),
+                    msg_epoch,
+                    msg_group_id,
+                    msg_id,
+                    "[{}] received staged commit. Merging and clearing any pending commits",
+                    self.context().inbox_id()
+                );
 
-                    // Validate the commit
-                    let validated_commit = ValidatedCommit::from_staged_commit(
-                        self.client.as_ref(),
-                        provider.conn_ref(),
-                        &staged_commit,
-                        &mls_group,
-                    )
-                        .await?;
-                    tracing::info!(
-                        inbox_id = self.client.inbox_id(),
-                        sender_inbox_id = sender_inbox_id,
-                        installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
-                        group_id = hex::encode(&self.group_id),
-                        current_epoch = mls_group.epoch().as_u64(),
-                        msg_epoch,
-                        msg_group_id,
-                        msg_id,
-                        "[{}] staged commit is valid, will attempt to merge",
-                        self.context().inbox_id()
-                    );
-                    mls_group.merge_staged_commit(provider, staged_commit)?;
-                    self.save_transcript_message(
-                        provider.conn_ref(),
-                        validated_commit,
-                        envelope_timestamp_ns,
-                    )?;
-                }
-            };
+                // Validate the commit
+                let validated_commit = ValidatedCommit::from_staged_commit(
+                    self.client.as_ref(),
+                    provider.conn_ref(),
+                    &staged_commit,
+                    &mls_group,
+                )
+                .await?;
+                tracing::info!(
+                    inbox_id = self.client.inbox_id(),
+                    sender_inbox_id = sender_inbox_id,
+                    installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
+                    group_id = hex::encode(&self.group_id),
+                    current_epoch = mls_group.epoch().as_u64(),
+                    msg_epoch,
+                    msg_group_id,
+                    msg_id,
+                    "[{}] staged commit is valid, will attempt to merge",
+                    self.context().inbox_id()
+                );
+                mls_group.merge_staged_commit(provider, staged_commit)?;
+                self.save_transcript_message(
+                    provider.conn_ref(),
+                    validated_commit,
+                    envelope_timestamp_ns,
+                )?;
+            }
+        };
 
-            Ok(())
-        }).await
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -843,8 +843,14 @@ where
                     self.client.inbox_id(),
                     envelope.id
                 );
-                self.process_external_message(provider, message, envelope)
-                    .await
+
+                self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
+                    self.process_external_message(provider, &mut mls_group, message, envelope)
+                        .await
+                })
+                .await?;
+
+                Ok(())
             }
             Err(err) => Err(GroupMessageProcessingError::Storage(err)),
         }
