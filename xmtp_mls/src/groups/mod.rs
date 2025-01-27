@@ -3016,13 +3016,12 @@ pub(crate) mod tests {
         let group_mutable_metadata = amal_group
             .mutable_metadata(&amal_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata
+        assert_eq!(group_mutable_metadata
             .attributes
-            .get(&MetadataField::MessageDisappearInNS.to_string())
-            .is_none());
-        assert!(group_mutable_metadata
+            .get(&MetadataField::MessageDisappearInNS.to_string()), None);
+        assert_eq!(group_mutable_metadata
             .attributes
-            .get(&MetadataField::MessageDisappearFromNS.to_string()));
+            .get(&MetadataField::MessageDisappearFromNS.to_string()), None);
 
         // Update group name
         let expected_group_message_expiration_settings =
