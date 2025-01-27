@@ -3160,10 +3160,7 @@ mod tests {
         // Step 2: Create a group
         let group = alix_client_1
             .conversations()
-            .create_group(
-                vec![],
-                FfiCreateGroupOptions::default(),
-            )
+            .create_group(vec![], FfiCreateGroupOptions::default())
             .await
             .unwrap();
 

@@ -8,11 +8,12 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
+use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_mutable_metadata::MetadataField;
 use crate::storage::group_intent::IntentKind::MetadataUpdate;
 use crate::{
     configuration::{
-        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS
+        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
         device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
@@ -83,7 +84,6 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
-use crate::configuration::sync_update_installations_interval_ns;
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
