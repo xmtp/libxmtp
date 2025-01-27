@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -136,6 +137,19 @@ where
         let worker = SyncWorker::new(client);
         #[cfg(any(test, feature = "test-utils"))]
         self.set_sync_worker_handle(worker.handle.clone());
+        worker.spawn_worker();
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::trace!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaner worker"
+        );
+
+        let worker = DisappearingMessagesCleanerWorker::new(client);
         worker.spawn_worker();
     }
 }

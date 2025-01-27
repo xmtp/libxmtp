@@ -31,7 +31,7 @@ use super::{
 };
 use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 use crate::groups::group_mutable_metadata::MetadataField;
-use crate::groups::group_mutable_metadata::MetadataField::MessageExpirationMillis;
+use crate::groups::group_mutable_metadata::MetadataField::MessageDisappearInNS;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -228,7 +228,7 @@ impl MetadataPolicies {
     pub fn default_map(policies: MetadataPolicies) -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
-            if field == MessageExpirationMillis {
+            if field == MessageDisappearInNS {
                 map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
             } else {
                 map.insert(field.to_string(), policies.clone());
@@ -1158,7 +1158,7 @@ pub fn is_policy_default(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        if field_name == MessageExpirationMillis.as_str() {
+        if field_name == MessageDisappearInNS.as_str() {
             metadata_policies_equal = metadata_policies_equal
                 && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
         } else {
@@ -1208,7 +1208,7 @@ pub(crate) fn default_policy() -> PolicySet {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
     }
     metadata_policies_map.insert(
-        MessageExpirationMillis.to_string(),
+        MessageDisappearInNS.to_string(),
         MetadataPolicies::allow_if_actor_admin(),
     );
 
@@ -1231,7 +1231,7 @@ pub(crate) fn policy_admin_only() -> PolicySet {
         metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
     }
     metadata_policies_map.insert(
-        MetadataField::MessageExpirationMillis.to_string(),
+        MetadataField::MessageDisappearInNS.to_string(),
         MetadataPolicies::allow_if_actor_admin(),
     );
 
