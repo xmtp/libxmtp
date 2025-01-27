@@ -46,21 +46,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 (async {
                     let client_id = &client_id;
                     let msgv1 = &msgv1;
-                    provider
-                        .transaction_async(|provider| async move {
-                            tracing::info!(
-                                inbox_id = self.client.inbox_id(),
-                                group_id = hex::encode(&self.group_id),
-                                msg_id = msgv1.id,
-                                "current epoch for [{}] in process_stream_entry()",
-                                client_id,
-                            );
-                            self.process_message(provider, msgv1, false, None)
-                                .await
-                                // NOTE: We want to make sure we retry an error in process_message
-                                .map_err(SubscribeError::ReceiveGroup)
-                        })
+
+                    tracing::info!(
+                        inbox_id = self.client.inbox_id(),
+                        group_id = hex::encode(&self.group_id),
+                        msg_id = msgv1.id,
+                        "current epoch for [{}] in process_stream_entry()",
+                        client_id,
+                    );
+                    self.process_message(provider, msgv1, false, None)
                         .await
+                        // NOTE: We want to make sure we retry an error in process_message
+                        .map_err(SubscribeError::ReceiveGroup)
                 })
             );
 

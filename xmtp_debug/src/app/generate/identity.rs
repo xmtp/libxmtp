@@ -61,7 +61,7 @@ impl GenerateIdentity {
                 self.identity_store.clear_network(&self.network)?;
             }
         }
-        info!("Could not find identitites to load, creating new identitites");
+        info!("Could not find identities to load, creating new identities");
         let identities = self.create_identities(n).await?;
         self.identity_store
             .set_all(identities.as_slice(), &self.network)?;
