@@ -850,6 +850,17 @@ where
                 );
 
                 self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
+                    if let Some(cursor) = cursor {
+                        let is_updated = provider.conn_ref().update_cursor(
+                            &envelope.group_id,
+                            EntityKind::Group,
+                            cursor,
+                        )?;
+                        if !is_updated {
+                            return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
+                        }
+                    }
+
                     self.process_external_message(provider, &mut mls_group, message, envelope)
                         .await
                 })
