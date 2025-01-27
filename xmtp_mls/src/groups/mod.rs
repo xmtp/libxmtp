@@ -292,7 +292,6 @@ pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
     pub description: Option<String>,
-    pub pinned_frame_url: Option<String>,
     pub message_expiration_from_ms: Option<i64>,
     pub message_expiration_ms: Option<i64>,
 }
@@ -1101,37 +1100,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .get(&MetadataField::GroupImageUrlSquare.to_string())
         {
             Some(group_image_url_square) => Ok(group_image_url_square.clone()),
-            None => Err(GroupError::GroupMutableMetadata(
-                GroupMutableMetadataError::MissingExtension,
-            )),
-        }
-    }
-
-    pub async fn update_group_pinned_frame_url(
-        &self,
-        pinned_frame_url: String,
-    ) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider()?;
-        if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
-        }
-        let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new_update_group_pinned_frame_url(pinned_frame_url).into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
-
-        self.sync_until_intent_resolved(&provider, intent.id).await
-    }
-
-    pub fn group_pinned_frame_url(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<String, GroupError> {
-        let mutable_metadata = self.mutable_metadata(provider)?;
-        match mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
-        {
-            Some(pinned_frame_url) => Ok(pinned_frame_url.clone()),
             None => Err(GroupError::GroupMutableMetadata(
                 GroupMutableMetadataError::MissingExtension,
             )),
@@ -2611,7 +2579,6 @@ pub(crate) mod tests {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
-                    pinned_frame_url: Some("pinned frame".to_string()),
                     message_expiration_from_ms: None,
                     message_expiration_ms: None,
                 },
@@ -2633,15 +2600,10 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::Description.to_string())
             .unwrap();
-        let amal_group_pinned_frame_url: &String = binding
-            .attributes
-            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
-            .unwrap();
 
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
-        assert_eq!(amal_group_pinned_frame_url, "pinned frame");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -2864,44 +2826,6 @@ pub(crate) mod tests {
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
         assert_eq!(amal_group_image_url, "a url");
-    }
-
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    async fn test_update_group_pinned_frame_url() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        // Create a group and verify it has the default group name
-        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-        let amal_group = amal
-            .create_group(policy_set, GroupMetadataOptions::default())
-            .unwrap();
-        amal_group.sync().await.unwrap();
-
-        let group_mutable_metadata = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
-            .unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
-            .unwrap()
-            .is_empty());
-
-        // Update group name
-        amal_group
-            .update_group_pinned_frame_url("a frame url".to_string())
-            .await
-            .unwrap();
-
-        // Verify amal group sees update
-        amal_group.sync().await.unwrap();
-        let binding = amal_group
-            .mutable_metadata(&amal_group.mls_provider().unwrap())
-            .expect("msg");
-        let amal_group_pinned_frame_url: &String = binding
-            .attributes
-            .get(&MetadataField::GroupPinnedFrameUrl.to_string())
-            .unwrap();
-        assert_eq!(amal_group_pinned_frame_url, "a frame url");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]

@@ -160,7 +160,6 @@ pub struct PermissionPolicySet {
   pub update_group_name_policy: PermissionPolicy,
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
-  pub update_group_pinned_frame_url_policy: PermissionPolicy,
   pub update_message_expiration_ms_policy: PermissionPolicy,
 }
 
@@ -213,9 +212,6 @@ impl GroupPermissions {
       update_group_image_url_square_policy: get_policy(
         XmtpMetadataField::GroupImageUrlSquare.as_str(),
       ),
-      update_group_pinned_frame_url_policy: get_policy(
-        XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
-      ),
       update_message_expiration_ms_policy: get_policy(
         XmtpMetadataField::MessageExpirationMillis.as_str(),
       ),
@@ -242,10 +238,6 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       policy_set.update_group_image_url_square_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      XmtpMetadataField::GroupPinnedFrameUrl.to_string(),
-      policy_set.update_group_pinned_frame_url_policy.try_into()?,
-    );
-    metadata_permissions_map.insert(
       XmtpMetadataField::MessageExpirationMillis.to_string(),
       policy_set.update_message_expiration_ms_policy.try_into()?,
     );
@@ -266,7 +258,6 @@ pub enum MetadataField {
   GroupName,
   Description,
   ImageUrlSquare,
-  PinnedFrameUrl,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
@@ -275,7 +266,6 @@ impl From<&MetadataField> for XmtpMetadataField {
       MetadataField::GroupName => XmtpMetadataField::GroupName,
       MetadataField::Description => XmtpMetadataField::Description,
       MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
-      MetadataField::PinnedFrameUrl => XmtpMetadataField::GroupPinnedFrameUrl,
     }
   }
 }

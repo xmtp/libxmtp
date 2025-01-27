@@ -120,7 +120,6 @@ pub struct CreateGroupOptions {
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
-  pub group_pinned_frame_url: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_expiration_from_ms: Option<i64>,
   pub message_expiration_ms: Option<i64>,
@@ -132,7 +131,6 @@ impl CreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      pinned_frame_url: self.group_pinned_frame_url,
       message_expiration_from_ms: self.message_expiration_from_ms,
       message_expiration_ms: self.message_expiration_ms,
     }
@@ -161,7 +159,6 @@ impl Conversations {
       group_name: None,
       group_image_url_square: None,
       group_description: None,
-      group_pinned_frame_url: None,
       custom_permission_policy_set: None,
       message_expiration_from_ms: None,
       message_expiration_ms: None,
