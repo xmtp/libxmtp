@@ -1,22 +1,22 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{ready, Context, Poll},
 };
 
 use super::{Result, SubscribeError};
 use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    types::GroupId,
     storage::{
-        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
-        StorageError,
+        encrypted_store::ProviderTransactions, group::StoredGroup,
+        group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError,
     },
+    types::GroupId,
     XmtpOpenMlsProvider,
 };
-use futures::{Stream, TryFutureExt};
+use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_common::FutureWrapper;
 use xmtp_id::InboxIdRef;
@@ -49,7 +49,6 @@ fn extract_message_v1(message: GroupMessage) -> Result<group_message::V1> {
     }
 }
 
-
 /// the position of this message in the backend topic
 /// based only upon messages from the stream
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -66,15 +65,11 @@ impl MessagePosition {
     fn pos(&self) -> u64 {
         self.cursor.unwrap_or(0)
     }
-
-    fn is_unknown(&self) -> bool {
-        self.cursor.is_none()
-    }
 }
 
 impl std::fmt::Display for MessagePosition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cursor position {}", self.pos())
+        write!(f, "{}", self.pos())
     }
 }
 
@@ -92,9 +87,7 @@ impl From<StoredGroup> for (Vec<u8>, MessagePosition) {
 
 impl From<u64> for MessagePosition {
     fn from(v: u64) -> MessagePosition {
-        Self {
-            cursor: Some(v),
-        }
+        Self { cursor: Some(v) }
     }
 }
 
@@ -104,6 +97,7 @@ pin_project! {
         #[pin] state: State<'a, Subscription>,
         client: &'a C,
         group_list: HashMap<GroupId, MessagePosition>,
+        drained: VecDeque<Option<Result<GroupMessage>>>,
     }
 }
 
@@ -120,7 +114,7 @@ pin_project! {
             #[pin] future: FutureWrapper<'a, Result<Option<(StoredGroupMessage, u64)>>>
         },
         Adding {
-            #[pin] future: FutureWrapper<'a, Result<Out>>
+            #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<u64>)>>
         }
     }
 }
@@ -133,23 +127,49 @@ where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
-    pub async fn new(
-        client: &'a C,
-        group_list: Vec<GroupId>,
-    ) -> Result<Self> {
+    pub async fn new(client: &'a C, group_list: Vec<GroupId>) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
-        let group_list = group_list.into_iter().map(|group_id| {
-            Ok((group_id, 0u64))
-        }).collect::<Result<HashMap<GroupId, u64>>>()?;
+
+        let mut group_list = group_list
+            .into_iter()
+            .map(|group_id| (group_id, 1u64))
+            .collect::<HashMap<GroupId, u64>>();
+
+        let cursors = group_list
+            .iter()
+            .map(|(group, _)| client.api().query_latest_group_message(group));
+
+        let cursors = futures::future::join_all(cursors)
+            .await
+            .into_iter()
+            .map(|r| r.map_err(SubscribeError::from))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        for message in cursors {
+            let group_message::V1 {
+                id: cursor,
+                group_id,
+                ..
+            } = extract_message_v1(message)?;
+            group_list
+                .entry(group_id.clone().into())
+                .and_modify(|e| *e = cursor);
+        }
+
         let filters: Vec<GroupFilter> = group_list
             .iter()
+            .inspect(|(group_id, cursor)| {
+                tracing::info!(
+                    "subscribed to group {} at {}",
+                    hex::encode(group_id),
+                    cursor
+                )
+            })
             .map(|(group_id, cursor)| GroupFilter::new(group_id.to_vec(), Some(*cursor)))
             .collect();
-        for filter in &filters {
-            let messages = client.api().query_group_messages(filter.group_id.to_vec(), Some(1)).await;
-            tracing::info!("{:?}", messages);
-            tracing::debug!("Subscribing to {} for group messages", hex::encode(&filter.group_id));
-        }
         let subscription = client.api().subscribe_group_messages(filters).await?;
 
         Ok(Self {
@@ -157,12 +177,12 @@ where
             client,
             state: Default::default(),
             group_list: group_list.into_iter().map(|(g, c)| (g, c.into())).collect(),
+            drained: VecDeque::new(),
         })
     }
 
     /// Add a new group to this messages stream
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
-        tracing::info!("creating new messages stream to add group {}", hex::encode(&group.group_id));
         if self.group_list.contains_key(group.group_id.as_slice()) {
             tracing::info!("group {} already in stream", hex::encode(&group.group_id));
             return;
@@ -176,26 +196,66 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.group_list.insert(group.group_id.into(), 1.into());
-        // let mut filters = self.filters();
-        // add the new group but not to our state.
-        // We will add the group to our state once we get the first message.
-        // In that message will be the real cursor, rather than a temporary `1`
-        // filters.push(GroupFilter::new(group.group_id, Some(1)));
-        let future = self.client.api().subscribe_group_messages(self.filters()).map_err(SubscribeError::from);
+        this.group_list
+            .insert(group.group_id.clone().into(), 1.into());
+        let future = Self::subscribe(self.client, self.filters(), group.group_id);
         let mut this = self.as_mut().project();
-        this.state.set(State::Adding { future: FutureWrapper::new(future)});
+        this.state.set(State::Adding {
+            future: FutureWrapper::new(future),
+        });
     }
 
-    // Reinit with all the correct cursors
-    // this should result in the least amount of network calls & mitigate missed messages to get the right messages
-    // when groups are changing quickly
-    // TODO: can store a cursor on a message, or in refresh table, that is last processed message
-    // not necessarily synced. then we don't need this.
-    fn reinit(mut self: Pin<&mut Self>) {
-        let future = self.client.api().subscribe_group_messages(self.filters()).map_err(SubscribeError::from);
+    // re-subscribe to the stream with a new group
+    async fn subscribe(
+        client: &'a C,
+        mut filters: Vec<GroupFilter>,
+        new_group: Vec<u8>,
+    ) -> Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)> {
+        // get the last synced cursor
+        let last_cursor = {
+            let provider = client.mls_provider()?;
+            provider
+                .conn_ref()
+                .get_last_cursor_for_id(&new_group, EntityKind::Group)
+        }?;
+        match last_cursor {
+            // we dont messages for the group yet
+            0 => {
+                let stream = client.api().subscribe_group_messages(filters).await?;
+                Ok((stream, new_group, Some(1)))
+            }
+            _ => {
+                let msg = client
+                    .api()
+                    .query_latest_group_message(new_group.as_slice())
+                    .await?;
+
+                let mut cursor = None;
+                if let Some(m) = msg {
+                    let m = extract_message_v1(m.clone())?;
+                    if let Some(new) = filters.iter_mut().find(|f| &f.group_id == &new_group) {
+                        new.id_cursor = Some(m.id);
+                        cursor = Some(m.id);
+                    }
+                }
+                let stream = client.api().subscribe_group_messages(filters).await?;
+                Ok((stream, new_group, cursor))
+            }
+        }
+    }
+
+    // needed mainly for slower connections when we may receive messages
+    // in between a switch.
+    pub(super) fn drain(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> VecDeque<Option<Result<GroupMessage>>> {
+        let mut drained = VecDeque::new();
         let mut this = self.as_mut().project();
-        this.state.set(State::Adding { future: FutureWrapper::new(future)});
+        while let Poll::Ready(msg) = this.inner.as_mut().poll_next(cx) {
+            drained.push_back(msg.map(|v| v.map_err(SubscribeError::from)));
+        }
+        drained
     }
 }
 
@@ -207,32 +267,50 @@ where
     type Item = Result<StoredGroupMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // tracing::debug!("POLLING STREAM MESSAGES");
         use std::task::Poll::*;
         use ProjectState::*;
         let mut this = self.as_mut().project();
+        tracing::info!("Polling messages");
 
         match this.state.as_mut().project() {
-            Waiting =>  {
+            Waiting => {
+                if let Some(envelope) = this.drained.pop_front().flatten() {
+                    let future = ProcessMessageFuture::new(*this.client, envelope?)?;
+                    let future = future.process();
+                    this.state.set(State::Processing {
+                        future: FutureWrapper::new(future),
+                    });
+                    return self.try_update_state(cx);
+                }
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
-                    tracing::debug!("processing {:?} message in stream", envelope);
                     let future = ProcessMessageFuture::new(*this.client, envelope?)?;
                     let future = future.process();
                     this.state.set(State::Processing {
                         future: FutureWrapper::new(future),
                     });
                     self.try_update_state(cx)
-                } else { // the stream ended
+                } else {
+                    // the stream ended
                     Ready(None)
                 }
-            },
+            }
             Processing { .. } => self.try_update_state(cx),
             Adding { future } => {
-                let stream = ready!(future.poll(cx))?;
+                let (stream, group, cursor) = ready!(future.poll(cx))?;
+                let this = self.as_mut();
+                cursor.and_then(|c| Some(this.set_cursor(group.as_slice(), c)));
+                let drained = self.as_mut().drain(cx);
                 let mut this = self.as_mut().project();
+                this.drained.extend(drained);
                 this.inner.set(stream);
+                if let Some(cursor) = this.group_list.get(group.as_slice()) {
+                    tracing::info!(
+                        "added {} at cursor {} to messages stream",
+                        hex::encode(&group),
+                        cursor
+                    );
+                }
                 this.state.as_mut().set(State::Waiting);
-                tracing::debug!("added group to messages stream");
                 self.poll_next(cx)
             }
         }
@@ -254,10 +332,20 @@ where
     // Subscription: Stream<Item = std::result::Result<GroupMessage, xmtp_proto::Error>> + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
+    fn set_cursor(mut self: Pin<&mut Self>, group_id: &[u8], new_cursor: u64) {
+        let this = self.as_mut().project();
+        if let Some(cursor) = this.group_list.get_mut(group_id) {
+            cursor.set(new_cursor);
+        }
+    }
+
     /// Try to finish processing the stream item by polling the stored future.
     /// Update state to `Waiting` and insert the new cursor if ready.
     /// If Stream state is in `Waiting`, returns `Pending`.
-    fn try_update_state(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
+    fn try_update_state(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
 
         let mut this = self.as_mut().project();
@@ -265,25 +353,9 @@ where
             match ready!(future.poll(cx))? {
                 Some((msg, new_cursor)) => {
                     this.state.set(State::Waiting);
-                    if let Some(tracked_cursor) = this.group_list.get_mut(msg.group_id.as_slice()) {
-                        if tracked_cursor.is_unknown() { // we assume a cursor of 1 means unknown cursor
-                            // reinit the stream with the correct cursor
-                            tracked_cursor.set(new_cursor);
-                            self.as_mut().reinit();
-                            // return Poll::Pending;
-                            return self.poll_next(cx);
-                        } else {
-                            tracked_cursor.set(new_cursor);
-                          return Poll::Ready(Some(Ok(msg)));
-                         }
-                    } else { // this should never happen
-                        tracing::info!("\n\nGot new group\n\n");
-                        this.group_list
-                            .insert(msg.group_id.clone().into(), new_cursor.into());
-                        return self.poll_next(cx);
-                    }
-                    // return Poll::Ready(Some(Ok(msg)));
-                },
+                    self.set_cursor(msg.group_id.as_slice(), new_cursor);
+                    return Poll::Ready(Some(Ok(msg)));
+                }
                 None => {
                     tracing::warn!("skipping message streaming payload");
                     this.state.set(State::Waiting);
@@ -292,24 +364,6 @@ where
             }
         }
         Poll::Pending
-    }
-}
-
-impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
-where
-    // S: Stream<Item = std::result::Result<GroupMessage, xmtp_proto::Error>> + 'a,
-    C: ScopedGroupClient + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-{
-    pub(super) fn drain(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) {
-        let mut this = self.as_mut().project();
-        // let mut drained = Vec::new();
-        while let Poll::Ready(msg) = this.inner.as_mut().poll_next(cx) {
-            tracing::info!("msg: {:?}", msg);
-        }
     }
 }
 
@@ -331,7 +385,8 @@ where
         tracing::info!(
             inbox_id = client.inbox_id(),
             group_id = hex::encode(&msg.group_id),
-            "Received message streaming payload"
+            cursor = msg.id,
+            "streamed new message"
         );
 
         Ok(Self {
@@ -373,18 +428,7 @@ where
             .provider
             .conn_ref()
             .get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
-            /*
-            .inspect(|e| {
-                if matches!(e, SubscribeError::GroupMessageNotFound) {
-                    tracing::warn!(
-                        cursor_id,
-                        inbox_id = self.inbox_id(),
-                        group_id = hex::encode(&self.msg.group_id),
-                        "group message not found"
-                    );
-                }
-            })?;
-        */
+
         if let Some(msg) = new_message {
             Ok(Some((msg, *cursor_id)))
         } else {
@@ -402,9 +446,8 @@ where
     /// stream processing function
     async fn process_stream_entry(&self) {
         let process_result = self
-            .client
-            .store()
-            .retryable_transaction_async(&self.provider, |provider| async move {
+            .provider
+            .retryable_transaction_async(None, |provider| async move {
                 let (group, _) =
                     MlsGroup::new_validated(&self.client, self.msg.group_id.clone(), provider)?;
                 tracing::info!(
@@ -500,13 +543,12 @@ mod tests {
     use futures::stream::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    use crate::{assert_msg, assert_msg_exists};
+    use crate::assert_msg;
     use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_stream_messages() {
-        xmtp_common::logger();
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 

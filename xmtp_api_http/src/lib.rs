@@ -166,6 +166,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     }
 
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
+        tracing::info!("SENDING GRP MSG");
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))

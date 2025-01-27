@@ -24,9 +24,9 @@ use crate::{
     },
     storage::{
         consent_record::StoredConsentRecord,
-        group::{ConversationType, GroupQueryArgs, StoredGroup},
+        group::ConversationType,
         group_message::StoredGroupMessage,
-        ProviderTransactions, StorageError, NotFound, group::ConversationType
+        StorageError, NotFound,
     },
     Client, XmtpApi,
 };

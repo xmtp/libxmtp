@@ -27,7 +27,7 @@ use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReac
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError},
+    client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
@@ -47,6 +47,7 @@ use xmtp_mls::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
+    subscriptions::SubscribeError,
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
@@ -1770,15 +1771,13 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle = MlsGroup::stream_with_callback(
-            self.inner.client.clone(),
-            self.id(),
-            self.inner.created_at_ns,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
+        let handle =
+            MlsGroup::stream_with_callback(self.inner.client.clone(), self.id(), move |message| {
+                match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                }
+            });
 
         FfiStreamCloser::new(handle)
     }
@@ -2065,7 +2064,7 @@ impl From<FfiConsent> for StoredConsentRecord {
     }
 }
 
-type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type FfiHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
@@ -2076,7 +2075,10 @@ pub struct FfiStreamCloser {
 
 impl FfiStreamCloser {
     pub fn new(
-        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),

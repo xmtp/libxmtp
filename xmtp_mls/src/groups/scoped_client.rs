@@ -232,7 +232,8 @@ where
         group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
-        crate::Client::<ApiClient, Verifier>::query_group_messages(self, group_id, conn).await
+        crate::Client::<ApiClient, Verifier>::query_group_messages(self, group_id, conn)
+            .await
     }
 }
 

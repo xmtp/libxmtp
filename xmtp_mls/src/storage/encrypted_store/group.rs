@@ -351,10 +351,8 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
-
-        Ok(self
-            .raw_query(|conn| query.load(conn))
-            .map(|mut g| g.pop())?)
+        let groups = self.raw_query(|conn| query.load(conn))?;
+        Ok(groups.into_iter().next())
     }
 
     /// Return a single group that matches the given welcome ID
@@ -366,14 +364,14 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let mut groups = self.raw_query(|conn| query.load(conn))?;
+        let groups = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::warn!(
                 welcome_id,
                 "More than one group found for welcome_id {welcome_id}"
             );
         }
-        Ok(groups.pop())
+        Ok(groups.into_iter().next())
     }
 
     pub fn find_dm_group(
@@ -386,12 +384,12 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(Some(dm_id)))
             .order(dsl::last_message_ns.desc());
 
-        let mut groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::info!("More than one group found for dm_inbox_id {members:?}");
         }
 
-        Ok(groups.pop())
+        Ok(groups.into_iter().next())
     }
 
     /// Updates group membership state

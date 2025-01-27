@@ -12,7 +12,7 @@ use serde_json::Deserializer;
 use std::{
     marker::PhantomData,
     pin::Pin,
-    task::{Context, Poll, ready},
+    task::{ready, Context, Poll},
 };
 use xmtp_common::StreamWrapper;
 use xmtp_proto::{Error, ErrorKind};
@@ -49,15 +49,11 @@ where
         use Poll::*;
         let this = self.as_mut().project();
         let response = ready!(this.inner.poll(cx));
-        tracing::info!("ESTABLISH READY");
         let stream = response
-        .inspect_err(|e| {
-            tracing::error!(
-                "Error during http subscription with grpc http gateway {e}"
-            );
-        })
-        .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
-        tracing::info!("Calling bytes stream!");
+            .inspect_err(|e| {
+                tracing::error!("Error during http subscription with grpc http gateway {e}");
+            })
+            .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
         Ready(Ok(StreamWrapper::new(stream.bytes_stream())))
     }
 }
@@ -89,13 +85,13 @@ where
                     .inspect_err(|e| tracing::error!("Error in http stream to grpc gateway {e}"))
                     .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
                 let item = Self::on_bytes(bytes, this.remaining)?.pop();
-                if let None = item {
+                if item.is_none() {
                     self.poll_next(cx)
                 } else {
                     Ready(Some(Ok(item.expect("handled none;"))))
                 }
-            },
-            None => Ready(None)
+            }
+            None => Ready(None),
         }
     }
 }
@@ -119,7 +115,6 @@ where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
 {
     fn on_bytes(bytes: bytes::Bytes, remaining: &mut Vec<u8>) -> Result<Vec<R>, Error> {
-        tracing::info!("BYTES: {:x}", bytes);
         let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
         let de = Deserializer::from_slice(bytes);
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
@@ -138,7 +133,6 @@ where
                 Err(e) => {
                     if e.is_eof() {
                         *remaining = (&**bytes)[deser_stream.byte_offset()..].to_vec();
-                        tracing::debug!("IS EOF");
                         break;
                     } else {
                         return Err(Error::new(ErrorKind::MlsError).with(e.to_string()));
@@ -146,6 +140,10 @@ where
                 }
                 Ok(GrpcResponse::Empty {}) => continue,
             }
+        }
+
+        if items.len() > 1 {
+            tracing::warn!("more than one item deserialized from http stream");
         }
         Ok(items)
     }
@@ -179,7 +177,9 @@ where
         let id = xmtp_common::rand_string::<12>();
         tracing::info!("new http stream id={}", &id);
         Self {
-            state: HttpStreamState::NotStarted { future: HttpStreamEstablish::new(request) },
+            state: HttpStreamState::NotStarted {
+                future: HttpStreamEstablish::new(request),
+            },
             id,
         }
     }
@@ -197,22 +197,21 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use ProjectHttpStream::*;
-        tracing::info!("Polling http stream id={}", &self.id);
+        tracing::trace!("Polling http stream id={}", &self.id);
         let mut this = self.as_mut().project();
         match this.state.as_mut().project() {
             NotStarted { future } => {
                 let stream = ready!(future.poll(cx))?;
-                tracing::info!("Ready TOP LEVEL");
-                this.state.set(HttpStreamState::Started { stream: HttpPostStream::new(stream)});
-                tracing::info!("Stream {} ready, polling for the first time...", &self.id);
+                this.state.set(HttpStreamState::Started {
+                    stream: HttpPostStream::new(stream),
+                });
+                tracing::debug!("Stream {} ready, polling for the first time...", &self.id);
                 self.poll_next(cx)
-            },
+            }
             Started { stream } => {
-                let res = stream.poll_next(cx);
-                if let Poll::Ready(_) = res {
-                    tracing::info!("stream id={} ready with item", &self.id);
-                }
-                res
+                let item = ready!(stream.poll_next(cx));
+                tracing::debug!("stream id={} ready with item", &self.id);
+                Poll::Ready(item)
             }
         }
     }
@@ -221,8 +220,8 @@ where
 impl<'a, F, R> std::fmt::Debug for HttpStream<'a, F, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self.state {
-            HttpStreamState::NotStarted{..} => write!(f, "not started"),
-            HttpStreamState::Started{..} => write!(f, "started"),
+            HttpStreamState::NotStarted { .. } => write!(f, "not started"),
+            HttpStreamState::Started { .. } => write!(f, "started"),
         }
     }
 }
@@ -256,7 +255,7 @@ where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
     async fn establish(&mut self) {
-        tracing::info!("Establishing...");
+        tracing::debug!("establishing new http stream {}...", self.id);
         // we need to poll the future once to progress the future state &
         // establish the initial POST request.
         // It should always be pending

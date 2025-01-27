@@ -23,7 +23,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;

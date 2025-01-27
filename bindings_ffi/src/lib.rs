@@ -56,6 +56,8 @@ pub enum GenericError {
     DeviceSync(#[from] xmtp_mls::groups::device_sync::DeviceSyncError),
     #[error(transparent)]
     Identity(#[from] xmtp_mls::identity::IdentityError),
+    #[error(transparent)]
+    Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
