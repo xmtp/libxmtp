@@ -55,7 +55,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                                 "current epoch for [{}] in process_stream_entry()",
                                 client_id,
                             );
-                            self.process_message(provider, msgv1, false)
+                            self.process_message(provider, msgv1, false, None)
                                 .await
                                 // NOTE: We want to make sure we retry an error in process_message
                                 .map_err(SubscribeError::ReceiveGroup)

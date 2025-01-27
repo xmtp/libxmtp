@@ -3999,7 +3999,7 @@ pub(crate) mod tests {
         };
         let provider = client.mls_provider().unwrap();
         let process_result = group
-            .process_message(&provider, &first_message, false)
+            .process_message(&provider, &first_message, false, None)
             .await;
 
         assert_err!(
