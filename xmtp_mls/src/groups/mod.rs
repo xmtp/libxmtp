@@ -3022,8 +3022,7 @@ pub(crate) mod tests {
             .is_none());
         assert!(group_mutable_metadata
             .attributes
-            .get(&MetadataField::MessageDisappearFromNS.to_string())
-            .is_none());
+            .get(&MetadataField::MessageDisappearFromNS.to_string()));
 
         // Update group name
         let expected_group_message_expiration_settings =
