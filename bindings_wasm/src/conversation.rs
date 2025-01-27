@@ -27,9 +27,18 @@ pub struct GroupMetadata {
 
 #[wasm_bindgen]
 #[derive(Clone)]
-pub struct ConversationMessageDisappearingSettings {
+pub struct MessageDisappearingSettings {
   #[allow(dead_code)]
   inner: XmtpMessageDisappearingSettings,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.inner.from_ns,
+      in_ns: value.inner.in_ns,
+    }
+  }
 }
 
 #[wasm_bindgen]

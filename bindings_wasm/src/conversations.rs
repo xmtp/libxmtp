@@ -7,7 +7,7 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::conversation::ConversationMessageDisappearingSettings;
+use crate::conversation::MessageDisappearingSettings;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::{client::RustXmtpClient, conversation::Conversation};
@@ -132,7 +132,7 @@ pub struct CreateGroupOptions {
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   #[wasm_bindgen(js_name = messageDisappearingSettings)]
-  pub message_disappearing_settings: Option<ConversationMessageDisappearingSettings>,
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 #[wasm_bindgen]
@@ -146,7 +146,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
-    message_disappearing_settings: Option<ConversationMessageDisappearingSettings>,
+    message_disappearing_settings: Option<MessageDisappearingSettings>,
   ) -> Self {
     Self {
       permissions,
@@ -167,7 +167,9 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_disappearing_settings: None, // todo: fix mapping,
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
     }
   }
 }
