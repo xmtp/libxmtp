@@ -62,7 +62,7 @@ pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 
 #[cfg(debug_assertions)]
-mod debug_config {
+pub(crate) mod debug_config {
     use super::*;
     pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600; // 1 second
 }
