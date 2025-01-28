@@ -527,7 +527,7 @@ where
                         inbox_id = self.client.inbox_id(),
                         sender_inbox_id = sender_inbox_id,
                         sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
+                        installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
                         current_epoch = mls_group.epoch().as_u64(),
                         msg_epoch,
                         msg_group_id,
@@ -716,7 +716,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn process_message(
+    pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
@@ -742,8 +742,9 @@ where
             installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             msg_id = envelope.id,
-            "Processing envelope with hash {:?}",
-            hex::encode(sha256(envelope.data.as_slice()))
+            "Processing envelope with hash {}, id = {}",
+            hex::encode(sha256(envelope.data.as_slice())),
+            envelope.id
         );
 
         match intent {
@@ -853,7 +854,7 @@ where
         let should_skip_message = last_cursor > msgv1.id as i64;
         if should_skip_message {
             tracing::info!(
-                inbox_id = "self.inbox_id()",
+                inbox_id = self.client.inbox_id(),
                 installation_id = %self.client.installation_id(),
                 group_id = hex::encode(&self.group_id),
                 "Message already processed: skipped msgId:[{}] entity kind:[{:?}] last cursor in db: [{}]",
@@ -1082,7 +1083,6 @@ where
                         );
 
                         let messages = self.prepare_group_messages(vec![payload_slice])?;
-
                         self.client
                             .api()
                             .send_group_messages(messages)
