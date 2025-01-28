@@ -28,7 +28,7 @@ use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReac
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError},
+    client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
@@ -48,6 +48,7 @@ use xmtp_mls::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
+    subscriptions::SubscribeError,
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
@@ -1599,10 +1600,9 @@ impl FfiConversation {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, FfiSubscribeError> {
-        let provider = self.inner.mls_provider()?;
         let message = self
             .inner
-            .process_streamed_group_message(&provider, envelope_bytes)
+            .process_streamed_group_message(envelope_bytes)
             .await?;
         let ffi_message = message.into();
 
@@ -1839,15 +1839,13 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle = MlsGroup::stream_with_callback(
-            self.inner.client.clone(),
-            self.id(),
-            self.inner.created_at_ns,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
+        let handle =
+            MlsGroup::stream_with_callback(self.inner.client.clone(), self.id(), move |message| {
+                match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                }
+            });
 
         FfiStreamCloser::new(handle)
     }
@@ -2134,7 +2132,7 @@ impl From<FfiConsent> for StoredConsentRecord {
     }
 }
 
-type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type FfiHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
@@ -2145,7 +2143,10 @@ pub struct FfiStreamCloser {
 
 impl FfiStreamCloser {
     pub fn new(
-        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
@@ -3121,10 +3122,9 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
 
@@ -4779,7 +4779,7 @@ mod tests {
         // Verify the settings were applied
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db
@@ -4824,7 +4824,7 @@ mod tests {
         // Verify disappearing settings are disabled
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db
