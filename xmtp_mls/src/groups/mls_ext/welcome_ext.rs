@@ -9,17 +9,17 @@ use crate::{
     identity::parse_credential, storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
-pub(crate) struct WelcomeData {
+pub(crate) struct DecryptedWelcome {
     pub(crate) welcome: Welcome,
     pub(crate) added_by_inbox_id: String,
 }
 
-impl WelcomeData {
+impl DecryptedWelcome {
     pub(crate) fn from_encrypted_bytes(
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
-    ) -> Result<WelcomeData, GroupError> {
+    ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
 
@@ -41,7 +41,7 @@ impl WelcomeData {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
 
-        Ok(WelcomeData {
+        Ok(DecryptedWelcome {
             welcome,
             added_by_inbox_id,
         })

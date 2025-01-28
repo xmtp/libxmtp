@@ -45,7 +45,6 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_consent_sync() {
-        xmtp_common::logger();
         let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;

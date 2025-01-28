@@ -57,6 +57,7 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -736,7 +737,7 @@ pub(crate) mod tests {
         let groups = store
             .conn()
             .unwrap()
-            .find_group(b"should not exist".to_vec())
+            .find_group(b"should not exist")
             .unwrap();
         assert_eq!(groups, None);
     }
