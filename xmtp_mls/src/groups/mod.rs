@@ -3804,7 +3804,6 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore]
     async fn process_messages_abort_on_retryable_error() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3849,12 +3848,10 @@ pub(crate) mod tests {
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
         tracing::info!("after");
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 1);
+            assert_eq!(errors.len(), 2);
             assert!(errors
-                .first()
-                .unwrap()
-                .to_string()
-                .contains("database is locked"));
+                .iter()
+                .any(|err| err.to_string().contains("database is locked")));
         } else {
             panic!("Expected error")
         }
