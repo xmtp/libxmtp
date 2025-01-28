@@ -7,6 +7,7 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::conversation::MessageDisappearingSettings;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::{client::RustXmtpClient, conversation::Conversation};
@@ -130,10 +131,8 @@ pub struct CreateGroupOptions {
   pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  #[wasm_bindgen(js_name = messageExpirationFromMillis)]
-  pub message_expiration_from_ms: Option<i64>,
-  #[wasm_bindgen(js_name = messageExpirationMillis)]
-  pub message_expiration_ms: Option<i64>,
+  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 #[wasm_bindgen]
@@ -147,8 +146,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
-    message_expiration_from_ms: Option<i64>,
-    message_expiration_ms: Option<i64>,
+    message_disappearing_settings: Option<MessageDisappearingSettings>,
   ) -> Self {
     Self {
       permissions,
@@ -157,8 +155,7 @@ impl CreateGroupOptions {
       group_description,
       group_pinned_frame_url,
       custom_permission_policy_set,
-      message_expiration_from_ms,
-      message_expiration_ms,
+      message_disappearing_settings,
     }
   }
 }
@@ -170,8 +167,9 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_expiration_from_ms: self.message_expiration_from_ms,
-      message_expiration_ms: self.message_expiration_ms,
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
     }
   }
 }
@@ -218,8 +216,7 @@ impl Conversations {
       group_description: None,
       group_pinned_frame_url: None,
       custom_permission_policy_set: None,
-      message_expiration_from_ms: None,
-      message_expiration_ms: None,
+      message_disappearing_settings: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
