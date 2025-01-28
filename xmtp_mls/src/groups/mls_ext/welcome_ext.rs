@@ -57,7 +57,6 @@ pub(crate) fn build_group_join_config() -> MlsGroupJoinConfig {
 }
 
 fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
         MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
