@@ -464,7 +464,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        // let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
         let mls_group =

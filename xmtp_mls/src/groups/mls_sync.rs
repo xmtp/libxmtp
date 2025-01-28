@@ -39,7 +39,6 @@ use crate::{
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
 };
-use diesel::connection::SimpleConnection;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -418,7 +417,7 @@ where
                         self.client.as_ref(),
                         provider.conn_ref(),
                         &staged_commit,
-                        &mls_group,
+                        mls_group,
                     )
                     .await;
 
@@ -506,10 +505,8 @@ where
                 // If no error committing the change, write a transcript message
                 self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
             }
-        } else {
-            if let Some(id) = intent.message_id()? {
-                conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
-            }
+        } else if let Some(id) = intent.message_id()? {
+            conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
         }
 
         Ok(IntentState::Committed)
@@ -554,8 +551,8 @@ where
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     self.client.as_ref(),
                     provider.conn_ref(),
-                    &*staged_commit,
-                    &mls_group,
+                    staged_commit,
+                    mls_group,
                 )
                 .await?;
 

@@ -10,8 +10,8 @@ use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
-        encrypted_store::ProviderTransactions, group::StoredGroup,
-        group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError,
+        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
+        StorageError,
     },
     types::GroupId,
     XmtpOpenMlsProvider,

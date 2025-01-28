@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -429,7 +428,7 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
+        Fetch, Store, XmtpOpenMlsProvider,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 

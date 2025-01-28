@@ -1,26 +1,24 @@
+use super::{LocalEvents, Result, SubscribeError};
+use crate::{
+    groups::{mls_ext::welcome_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
+    storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
+    Client, XmtpOpenMlsProvider,
+};
+use futures::{prelude::stream::Select, Stream};
+use pin_project_lite::pin_project;
 use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
 };
-
-use crate::{
-    groups::{mls_ext::welcome_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, refresh_state::EntityKind, NotFound, ProviderTransactions},
-    Client, XmtpOpenMlsProvider,
-};
-use futures::{prelude::stream::Select, Stream};
-use pin_project_lite::pin_project;
 use tokio_stream::wrappers::BroadcastStream;
+use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
 };
-
-use super::{LocalEvents, Result, SubscribeError};
-use xmtp_common::{retry_async, FutureWrapper, Retry};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
