@@ -60,6 +60,7 @@ pub(crate) mod tests {
             ConsentState::Allowed,
             alix_wallet.get_address(),
         );
+
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
 
         // Ensure that consent record now exists.
@@ -72,6 +73,7 @@ pub(crate) mod tests {
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
         let amal_b_worker = amal_b.sync_worker_handle().unwrap();
+        tracing::info!("eh");
 
         let consent_records_b = amal_b.syncable_consent_records(amal_b_conn).unwrap();
         assert_eq!(consent_records_b.len(), 0);
@@ -92,7 +94,7 @@ pub(crate) mod tests {
         let consent_a = amal_a.syncable_consent_records(amal_a_conn).unwrap().len();
 
         // Have amal_a receive the message (and auto-process)
-
+        tracing::info!("here");
         amal_a_worker
             .block_for_num_events(1, async {
                 let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();

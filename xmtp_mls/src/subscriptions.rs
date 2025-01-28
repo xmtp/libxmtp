@@ -14,14 +14,14 @@ use crate::{
     client::{extract_welcome_message, ClientError},
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::GroupMetadata,
-        mls_sync::GroupMessageProcessingError, scoped_client::ScopedGroupClient as _,
-        subscriptions, GroupError, MlsGroup,
+        mls_ext::welcome_ext::WelcomeData, mls_sync::GroupMessageProcessingError,
+        scoped_client::ScopedGroupClient as _, subscriptions, GroupError, MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
-        ProviderTransactions, StorageError,
+        StorageError,
     },
     Client, XmtpApi, XmtpOpenMlsProvider,
 };
@@ -278,18 +278,20 @@ where
                     "Trying to process streamed welcome"
                 );
                 let welcome_v1 = &welcome_v1;
-                provider
-                    .transaction_async(|provider| async move {
-                        MlsGroup::create_from_encrypted_welcome(
-                            Arc::new(self.clone()),
-                            provider,
-                            welcome_v1.hpke_public_key.as_slice(),
-                            &welcome_v1.data,
-                            welcome_v1.id as i64,
-                        )
-                        .await
-                    })
-                    .await
+
+                let welcome_data = WelcomeData::from_encrypted_bytes(
+                    provider,
+                    welcome_v1.hpke_public_key.as_slice(),
+                    &welcome_v1.data,
+                )?;
+                MlsGroup::create_from_welcome(
+                    Arc::new(self.clone()),
+                    provider,
+                    welcome_data.welcome,
+                    welcome_data.added_by_inbox_id,
+                    welcome_v1.id as i64,
+                )
+                .await
             })
         );
 

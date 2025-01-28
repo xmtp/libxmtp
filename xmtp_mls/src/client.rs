@@ -1,16 +1,11 @@
+use futures::stream::{self, FuturesUnordered, StreamExt};
+use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-};
-
-use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::{
-    framing::{MlsMessageBodyIn, MlsMessageIn},
-    messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -33,6 +28,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::{mls_ext::welcome_ext::WelcomeData, ConversationListItem};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -58,7 +54,6 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
-use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -753,17 +748,8 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        provider
-            .transaction_async(move |provider| {
-                let provider = &provider;
-                async {
-                    self.identity()
-                        .rotate_key_package(provider, &self.api_client)
-                        .await?;
-                    Ok::<_, IdentityError>(())
-                }
-            })
-            .await?;
+        let kp_bytes = self.identity().rotate_key_package(provider)?;
+        self.api_client.upload_key_package(kp_bytes, true).await?;
 
         Ok(())
     }
@@ -861,46 +847,48 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &WelcomeMessageV1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        provider
-            .transaction_async(|provider| async move {
-                let cursor = welcome.id;
-                let is_updated = provider.conn_ref().update_cursor(
-                    self.installation_public_key(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        let cursor = welcome.id;
+        let is_updated = provider.conn_ref().update_cursor(
+            self.installation_public_key(),
+            EntityKind::Welcome,
+            welcome.id as i64,
+        )?;
+        if !is_updated {
+            return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        }
+        let welcome_id = welcome.id;
+        let welcome_data = WelcomeData::from_encrypted_bytes(
+            provider,
+            welcome.hpke_public_key.as_slice(),
+            &welcome.data,
+        )?;
+        let result = MlsGroup::create_from_welcome(
+            Arc::new(self.clone()),
+            provider,
+            welcome_data.welcome,
+            welcome_data.added_by_inbox_id,
+            welcome_id as i64,
+        )
+        .await;
+
+        match result {
+            Ok(mls_group) => Ok(mls_group),
+            Err(err) => {
+                use crate::DuplicateItem::*;
+                use crate::StorageError::*;
+
+                if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                    tracing::warn!(
+                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        err
+                    );
+                } else {
+                    tracing::error!("failed to create group from welcome: {}", err);
                 }
-                let result = MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
-                    provider,
-                    welcome.hpke_public_key.as_slice(),
-                    &welcome.data,
-                    welcome.id as i64,
-                )
-                .await;
 
-                match result {
-                    Ok(mls_group) => Ok(mls_group),
-                    Err(err) => {
-                        use crate::DuplicateItem::*;
-                        use crate::StorageError::*;
-
-                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                            tracing::warn!(
-                            "failed to create group from welcome due to duplicate welcome ID: {}",
-                            err
-                        );
-                        } else {
-                            tracing::error!("failed to create group from welcome: {}", err);
-                        }
-
-                        Err(err)
-                    }
-                }
-            })
-            .await
+                Err(err)
+            }
+        }
     }
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
@@ -1033,17 +1021,6 @@ pub(crate) fn extract_welcome_message(
 ) -> Result<WelcomeMessageV1, ClientError> {
     match welcome.version {
         Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
-    }
-}
-
-pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
-    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
-    match welcome.extract() {
-        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
         _ => Err(ClientError::Generic(
             "unexpected message type in welcome".to_string(),
         )),

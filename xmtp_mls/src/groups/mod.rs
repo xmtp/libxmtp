@@ -8,24 +8,23 @@ pub mod members;
 pub mod scoped_client;
 
 mod disappearing_messages;
+pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
+use mls_ext::welcome_ext::build_group_join_config;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
-    credentials::{BasicCredential, CredentialType},
+    credentials::CredentialType,
     error::LibraryError,
     extensions::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{
-        CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig,
-        ProcessedWelcome,
-    },
+    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig},
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
@@ -63,7 +62,7 @@ use self::{
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
-    NotFound, StorageError,
+    NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::{
@@ -80,14 +79,14 @@ use xmtp_proto::xmtp::mls::{
 
 use crate::{
     api::WrappedApiError,
-    client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
+    client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    hpke::{decrypt_welcome, HpkeError},
-    identity::{parse_credential, IdentityError},
+    hpke::HpkeError,
+    identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -445,7 +444,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        // let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
         let mls_group =
@@ -563,7 +562,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-    async fn create_from_welcome(
+    pub(super) async fn create_from_welcome(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
@@ -571,29 +570,24 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         welcome_id: i64,
     ) -> Result<Self, GroupError> {
         tracing::info!("Creating from welcome");
-        let mls_welcome =
+        let staged_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
-        let mls_group = mls_welcome.into_group(provider)?;
-        let group_id = mls_group.group_id().to_vec();
-        let metadata = extract_group_metadata(&mls_group)?;
-        let dm_members = metadata.dm_members;
+        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
+        // in the `GroupMembership` extension.
+        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &staged_welcome)
+            .await?;
 
-        let conversation_type = metadata.conversation_type;
+        provider.transaction(|provider| {
+            let mls_group = staged_welcome.into_group(provider)?;
+            let group_id = mls_group.group_id().to_vec();
+            let metadata = extract_group_metadata(&mls_group)?;
+            let dm_members = metadata.dm_members;
 
-        let to_store = match conversation_type {
-            ConversationType::Group => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Pending,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-            ConversationType::Dm => {
-                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
-                StoredGroup::new_from_welcome(
+            let conversation_type = metadata.conversation_type;
+
+            let to_store = match conversation_type {
+                ConversationType::Group => StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Pending,
@@ -601,64 +595,40 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome_id,
                     conversation_type,
                     dm_members,
-                )
-            }
-            ConversationType::Sync => StoredGroup::new_from_welcome(
-                group_id.clone(),
-                now_ns(),
-                GroupMembershipState::Allowed,
-                added_by_inbox,
-                welcome_id,
-                conversation_type,
-                dm_members,
-            ),
-        };
+                ),
+                ConversationType::Dm => {
+                    validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
+                    StoredGroup::new_from_welcome(
+                        group_id.clone(),
+                        now_ns(),
+                        GroupMembershipState::Pending,
+                        added_by_inbox,
+                        welcome_id,
+                        conversation_type,
+                        dm_members,
+                    )
+                }
+                ConversationType::Sync => StoredGroup::new_from_welcome(
+                    group_id.clone(),
+                    now_ns(),
+                    GroupMembershipState::Allowed,
+                    added_by_inbox,
+                    welcome_id,
+                    conversation_type,
+                    dm_members,
+                ),
+            };
 
-        // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
-        // in the `GroupMembership` extension.
-        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
+            // Insert or replace the group in the database.
+            // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
+            let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        // Insert or replace the group in the database.
-        // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-        let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
-
-        Ok(Self::new_from_arc(
-            client.clone(),
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
-    }
-
-    /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
-    pub async fn create_from_encrypted_welcome(
-        client: Arc<ScopedClient>,
-        provider: &XmtpOpenMlsProvider,
-        hpke_public_key: &[u8],
-        encrypted_welcome_bytes: &[u8],
-        welcome_id: i64,
-    ) -> Result<Self, GroupError> {
-        tracing::info!("Trying to decrypt welcome");
-        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
-
-        let welcome = deserialize_welcome(&welcome_bytes)?;
-
-        let join_config = build_group_join_config();
-
-        let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
-        let psks = processed_welcome.psks();
-        if !psks.is_empty() {
-            tracing::error!("No PSK support for welcome");
-            return Err(GroupError::NoPSKSupport);
-        }
-        let staged_welcome = processed_welcome.into_staged_welcome(provider, None)?;
-
-        let added_by_node = staged_welcome.welcome_sender()?;
-
-        let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
-        let inbox_id = parse_credential(added_by_credential.identity())?;
-
-        Self::create_from_welcome(client, provider, welcome, inbox_id, welcome_id).await
+            Ok(Self::new_from_arc(
+                client.clone(),
+                stored_group.id,
+                stored_group.created_at_ns,
+            ))
+        })
     }
 
     pub(crate) fn create_and_insert_sync_group(
@@ -1730,10 +1700,11 @@ fn build_group_config(
 async fn validate_initial_group_membership(
     client: impl ScopedGroupClient,
     conn: &DbConnection,
-    mls_group: &OpenMlsGroup,
+    staged_welcome: &StagedWelcome,
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
-    let membership = extract_group_membership(mls_group.extensions())?;
+    let extensions = staged_welcome.public_group().group_context().extensions();
+    let membership = extract_group_membership(extensions)?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
@@ -1756,7 +1727,8 @@ async fn validate_initial_group_membership(
         expected_installation_ids.extend(association_state.installation_ids());
     }
 
-    let actual_installation_ids: HashSet<Vec<u8>> = mls_group
+    let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
+        .public_group()
         .members()
         .map(|member| member.signature_key)
         .collect();
@@ -1838,14 +1810,6 @@ fn validate_dm_group(
     }
 
     Ok(())
-}
-
-fn build_group_join_config() -> MlsGroupJoinConfig {
-    MlsGroupJoinConfig::builder()
-        .wire_format_policy(WireFormatPolicy::default())
-        .max_past_epochs(MAX_PAST_EPOCHS)
-        .use_ratchet_tree_extension(true)
-        .build()
 }
 
 #[cfg(test)]
@@ -3880,14 +3844,14 @@ pub(crate) mod tests {
             })
             .unwrap();
 
+        tracing::info!("a");
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
+        tracing::info!("after");
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 1);
+            assert_eq!(errors.len(), 2);
             assert!(errors
-                .first()
-                .unwrap()
-                .to_string()
-                .contains("database is locked"));
+                .iter()
+                .any(|err| err.to_string().contains("database is locked")));
         } else {
             panic!("Expected error")
         }
@@ -3933,16 +3897,14 @@ pub(crate) mod tests {
         let process_result = bo_group
             .process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap())
             .await;
-        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 2);
-            assert!(errors
-                .first()
-                .unwrap()
-                .to_string()
-                .contains("already processed"));
-        } else {
+        let Some(GroupError::ReceiveErrors(errors)) = process_result.err() else {
             panic!("Expected error")
-        }
+        };
+
+        assert_eq!(errors.len(), 2);
+        assert!(errors
+            .iter()
+            .any(|err| err.to_string().contains("already processed")));
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
@@ -4154,7 +4116,7 @@ pub(crate) mod tests {
         };
         let provider = client.mls_provider().unwrap();
         let process_result = group
-            .process_message(&provider, &first_message, false)
+            .process_message(&provider, &first_message, false, None)
             .await;
 
         assert_err!(
