@@ -45,11 +45,10 @@ update-schema = ["toml"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
-async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 diesel_migrations.workspace = true
-futures.workspace = true
+futures = { workspace = true, features = ["alloc"] }
 hex.workspace = true
 hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
@@ -57,7 +56,7 @@ openmls_traits = { workspace = true }
 parking_lot.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { version = "0.12.4", features = ["stream"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
 sha2.workspace = true
@@ -70,6 +69,8 @@ tracing.workspace = true
 trait-variant.workspace = true
 xmtp_common.workspace = true
 zeroize.workspace = true
+pin-project-lite.workspace = true
+bytes.workspace = true
 
 # XMTP/Local
 xmtp_content_types = { path = "../xmtp_content_types" }

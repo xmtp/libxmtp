@@ -8,10 +8,12 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
+use crate::configuration::sync_update_installations_interval_ns;
+use crate::groups::group_mutable_metadata::MetadataField;
+use crate::storage::group_intent::IntentKind::MetadataUpdate;
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     groups::{
         device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
@@ -525,7 +527,7 @@ where
                         inbox_id = self.client.inbox_id(),
                         sender_inbox_id = sender_inbox_id,
                         sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
+                        installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
                         current_epoch = mls_group.epoch().as_u64(),
                         msg_epoch,
                         msg_group_id,
@@ -699,6 +701,7 @@ where
                         "[{}] staged commit is valid, will attempt to merge",
                         self.context().inbox_id()
                     );
+
                     mls_group.merge_staged_commit(provider, sc)?;
                     self.save_transcript_message(
                         provider.conn_ref(),
@@ -713,7 +716,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn process_message(
+    pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
@@ -739,8 +742,9 @@ where
             installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             msg_id = envelope.id,
-            "Processing envelope with hash {:?}",
-            hex::encode(sha256(envelope.data.as_slice()))
+            "Processing envelope with hash {}, id = {}",
+            hex::encode(sha256(envelope.data.as_slice())),
+            envelope.id
         );
 
         match intent {
@@ -760,13 +764,14 @@ where
                     intent_id
                 );
                 match self
-                    .process_own_message(intent, provider, message.into(), envelope)
+                    .process_own_message(intent.clone(), provider, message.into(), envelope)
                     .await?
                 {
                     IntentState::ToPublish => {
                         Ok(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                     }
                     IntentState::Committed => {
+                        self.handle_metadata_update(provider, &intent)?;
                         Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                     }
                     IntentState::Published => {
@@ -797,6 +802,35 @@ where
         }
     }
 
+    /// In case of metadataUpdate will extract the updated fields and store them to the db
+    fn handle_metadata_update(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        intent: &StoredGroupIntent,
+    ) -> Result<(), StorageError> {
+        if intent.kind == MetadataUpdate {
+            let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+
+            match data.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    provider.conn_ref().update_message_disappearing_from_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
+                }
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    provider.conn_ref().update_message_disappearing_in_ns(
+                        self.group_id.clone(),
+                        data.field_value.parse::<i64>().ok(),
+                    )?
+                }
+                _ => {} // handle other metadata updates
+            }
+        }
+
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     async fn consume_message(
         &self,
@@ -820,7 +854,7 @@ where
         let should_skip_message = last_cursor > msgv1.id as i64;
         if should_skip_message {
             tracing::info!(
-                inbox_id = "self.inbox_id()",
+                inbox_id = self.client.inbox_id(),
                 installation_id = %self.client.installation_id(),
                 group_id = hex::encode(&self.group_id),
                 "Message already processed: skipped msgId:[{}] entity kind:[{:?}] last cursor in db: [{}]",
@@ -976,7 +1010,6 @@ where
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
         };
-
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
@@ -1050,7 +1083,6 @@ where
                         );
 
                         let messages = self.prepare_group_messages(vec![payload_slice])?;
-
                         self.client
                             .api()
                             .send_group_messages(messages)
@@ -1242,7 +1274,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         // determine how long of an interval in time to use before updating list
-        let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
 
         let now_ns = xmtp_common::time::now_ns();
         let last_ns = provider

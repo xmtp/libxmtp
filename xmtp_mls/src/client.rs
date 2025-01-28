@@ -25,10 +25,7 @@ use xmtp_id::{
     InboxId, InboxIdRef,
 };
 
-use xmtp_proto::xmtp::mls::api::v1::{
-    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-    GroupMessage, WelcomeMessage,
-};
+use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
@@ -151,7 +148,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 
@@ -526,7 +523,9 @@ where
         )?;
 
         // notify streams of our new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
     }
@@ -571,9 +570,7 @@ where
         {
             Some(id) => id,
             None => {
-                return Err(ClientError::Storage(StorageError::NotFound(
-                    NotFound::InboxIdForAddress(account_address),
-                )));
+                return Err(NotFound::InboxIdForAddress(account_address).into());
             }
         };
 
@@ -600,7 +597,9 @@ where
             .await?;
 
         // notify any streams of the new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
     }
@@ -622,12 +621,12 @@ where
     pub fn group_with_conn(
         &self,
         conn: &DbConnection,
-        group_id: Vec<u8>,
+        group_id: &Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
-            .ok_or(NotFound::GroupById(group_id))
+            .ok_or(NotFound::GroupById(group_id.clone()))
             .map_err(Into::into)
     }
 
@@ -637,7 +636,7 @@ where
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
-        self.group_with_conn(conn, group_id)
+        self.group_with_conn(conn, &group_id)
     }
 
     /**
@@ -823,16 +822,18 @@ where
     pub async fn sync_welcomes(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
         let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match extract_welcome_message(envelope) {
-                    Ok(inner) => inner,
-                    Err(err) => {
-                        tracing::error!("failed to extract welcome message: {}", err);
+                let welcome_v1 = match envelope.version {
+                    Some(welcome_message::Version::V1(v1)) => v1,
+                    _ => {
+                        tracing::error!(
+                            "failed to extract welcome message, invalid payload only v1 supported."
+                        );
                         return None;
                     }
                 };
@@ -855,11 +856,11 @@ where
 
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
-    /// applies the update after the welcome processed succesfully.
+    /// applies the update after the welcome processed successfully.
     async fn process_new_welcome(
         &self,
         provider: &XmtpOpenMlsProvider,
-        welcome: &WelcomeMessageV1,
+        welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
         provider
             .transaction_async(|provider| async move {
@@ -873,7 +874,7 @@ where
                     return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                 }
                 let result = MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
+                    self,
                     provider,
                     welcome.hpke_public_key.as_slice(),
                     &welcome.data,
@@ -1025,17 +1026,6 @@ where
             .collect::<HashMap<String, bool>>();
 
         Ok(results)
-    }
-}
-
-pub(crate) fn extract_welcome_message(
-    welcome: WelcomeMessage,
-) -> Result<WelcomeMessageV1, ClientError> {
-    match welcome.version {
-        Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
     }
 }
 

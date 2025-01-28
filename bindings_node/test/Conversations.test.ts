@@ -52,7 +52,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(1)
@@ -104,7 +104,7 @@ describe('Conversations', () => {
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
           updateGroupPinnedFrameUrlPolicy: 3,
-          updateMessageExpirationMsPolicy: 2,
+          updateMessageDisappearingPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -120,7 +120,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -142,7 +142,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -159,7 +159,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -177,7 +177,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -204,7 +204,7 @@ describe('Conversations', () => {
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 0,
+      updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)
@@ -342,7 +342,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
       updateGroupPinnedFrameUrlPolicy: 2,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     const groupWithDescription = await client1
