@@ -12,6 +12,7 @@ pub(super) mod subscriptions;
 pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
+use diesel::sql_types::Integer;
 use intents::SendMessageIntentData;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -108,6 +109,10 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{InboxId, InboxIdRef};
 
 use xmtp_common::retry::RetryableError;
+
+const MAX_GROUP_DESCRIPTION_LENGTH: usize = 300;
+const MAX_GROUP_NAME_LENGTH: usize = 100;
+const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -216,6 +221,8 @@ pub enum GroupError {
     LockUnavailable,
     #[error("Failed to acquire semaphore lock")]
     LockFailedToAcquire,
+    #[error("Exceeded max characters for this field. Must be under: {0}")]
+    TooManyCharacters(Integer)
 }
 
 impl RetryableError for GroupError {
@@ -270,7 +277,8 @@ impl RetryableError for GroupError {
             | Self::AddressValidation(_)
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
-            | Self::EncodeError(_) => false,
+            | Self::EncodeError(_) 
+            | Self::TooManyCharacters(_) => false,
         }
     }
 }
@@ -989,6 +997,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        if group_name.len() > MAX_GROUP_NAME_LENGTH {
+            return Err(GroupError::TooManyCharacters(MAX_GROUP_NAME_LENGTH));
+        }
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1048,6 +1059,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
+            return Err(GroupError::TooManyCharacters(MAX_GROUP_DESCRIPTION_LENGTH));
+        }
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1077,6 +1092,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
+            return Err(GroupError::TooManyCharacters(MAX_GROUP_IMAGE_URL_LENGTH));
+        }
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
