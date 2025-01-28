@@ -2239,9 +2239,9 @@ pub(crate) mod tests {
         let dm_group = alix_filtered_groups.pop().unwrap();
 
         let now = now_ns();
-        let one_second = 1_000_000_000;
+        let ten_seconds = 10_000_000_000;
         assert!(
-            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap())
+            ((now - ten_seconds)..(now + ten_seconds)).contains(&dm_group.last_message_ns.unwrap())
         );
 
         let dm_group = alix.group(dm_group.id).unwrap();

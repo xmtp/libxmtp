@@ -11,7 +11,6 @@ use crate::client::ClientError;
 use crate::groups::extract_group_id;
 use crate::storage::group_message::StoredGroupMessage;
 use crate::storage::refresh_state::EntityKind;
-use crate::storage::ProviderTransactions;
 use crate::storage::StorageError;
 use crate::subscriptions::MessagesStreamInfo;
 use crate::subscriptions::SubscribeError;
