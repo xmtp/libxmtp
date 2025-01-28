@@ -238,7 +238,6 @@ where
         // It should always be pending
         let noop_waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&noop_waker);
-        // let mut this = Pin::new(self);
         let mut this = Pin::new(self);
         if this.poll_next_unpin(&mut cx).is_ready() {
             tracing::error!("Stream ready before established");

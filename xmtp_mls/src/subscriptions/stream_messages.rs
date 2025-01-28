@@ -484,7 +484,6 @@ where
     }
 
     /// Checks if a message has already been processed through a sync
-    // TODO: Make this not async, and instead of retry add it back to wake queue.
     fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
         let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
             self.provider

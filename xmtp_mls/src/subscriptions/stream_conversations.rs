@@ -352,7 +352,6 @@ where
                         .conversation_type
                         .map_or(true, |ct| ct == metadata.conversation_type)
                         .then_some((group, id)));
-                    // Ok(Some(self.load_from_store(id).map(|(g, v)| (g, Some(v)))?));
                 }
 
                 let (group, id) = self.on_welcome(welcome).await?;
