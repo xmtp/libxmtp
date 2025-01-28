@@ -2319,7 +2319,7 @@ mod tests {
         },
     };
     use tokio::{sync::Notify, time::error::Elapsed};
-    use xmtp_common::{assert_err, tmp_path};
+    use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
