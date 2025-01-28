@@ -3101,7 +3101,7 @@ mod tests {
 
         // Validate revocation
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
-        let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
 
         let alix_conversation_1 = alix_client_1.conversations();
         alix_conversation_1
@@ -3146,7 +3146,6 @@ mod tests {
     async fn test_revoke_installation_for_one_user_and_group_modification() {
         // Step 1: Create two installations
         let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
 
@@ -3189,7 +3188,7 @@ mod tests {
 
         // Validate revocation
         let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
-        let client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
 
         let alix_conversation_1 = alix_client_1.conversations();
         alix_conversation_1
