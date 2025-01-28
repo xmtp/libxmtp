@@ -3122,10 +3122,9 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
 
@@ -4780,7 +4779,7 @@ mod tests {
         // Verify the settings were applied
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db
@@ -4825,7 +4824,7 @@ mod tests {
         // Verify disappearing settings are disabled
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db

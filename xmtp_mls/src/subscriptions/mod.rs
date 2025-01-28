@@ -253,8 +253,8 @@ where
     ) -> Result<MlsGroup<Self>> {
         let provider = self.mls_provider()?;
         let conn = provider.conn_ref();
-        let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| SubscribeError::from(e))?;
+        let envelope =
+            WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
         let future = ProcessWelcomeFuture::new(
             known_welcomes,
@@ -262,8 +262,6 @@ where
             WelcomeOrGroup::Welcome(envelope),
             None,
         )?;
-        // this should never happen, b/c a conversation type into the process
-        // future, but is here defensively regardless.
         future
             .process()
             .await?
@@ -273,11 +271,11 @@ where
             })
     }
 
-    // #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn stream_conversations<'a>(
-        &'a self,
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn stream_conversations(
+        &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>>> + 'a>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>>> + use<'_, ApiClient, V>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -302,7 +300,6 @@ where
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
-                tracing::info!("Trigger conversation callback");
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");

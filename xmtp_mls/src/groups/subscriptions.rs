@@ -39,7 +39,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'a,
     {
-        Ok(StreamGroupMessages::new(&self.client, vec![self.group_id.clone().into()]).await?)
+        StreamGroupMessages::new(&self.client, vec![self.group_id.clone().into()]).await
     }
 
     pub fn stream_with_callback(

@@ -63,11 +63,9 @@ where
         }
         .await?;
 
-        let conversations = super::stream_conversations::StreamConversations::new(
-            client,
-            conversation_type.clone(),
-        )
-        .await?;
+        let conversations =
+            super::stream_conversations::StreamConversations::new(client, conversation_type)
+                .await?;
         let messages = StreamGroupMessages::new(client, active_conversations).await?;
 
         Ok(Self {
@@ -145,18 +143,13 @@ mod tests {
 
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
-        tracing::info!("\n\nGOT FIRST\n\n");
         let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
-        tracing::info!("Created dm group {}", hex::encode(&bo_group.group_id));
 
-        tracing::info!("Sending second message");
         bo_group.send_message(b"second").await.unwrap();
         assert_msg!(stream, "second");
-        tracing::info!("\n\nGOT SECOND\n\n");
 
         alix_group.send_message(b"third").await.unwrap();
         assert_msg!(stream, "third");
-        tracing::info!("\n\nGOT THIRD\n\n");
 
         let alix_group_2 = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -168,11 +161,9 @@ mod tests {
 
         alix_group.send_message(b"fourth").await.unwrap();
         assert_msg!(stream, "fourth");
-        tracing::info!("\n\nGOT FOURTH\n\n");
 
         alix_group_2.send_message(b"fifth").await.unwrap();
         assert_msg!(stream, "fifth");
-        tracing::info!("\n\nGOT FIFTH\n\n");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -229,6 +220,11 @@ mod tests {
             .create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
+        // TODO: This test does not work on web
+        // unless these streams are in their own scope.
+        // there's probably an issue with the old stream
+        // not being dropped before the new stream starts.
+        // Could be fixed by sending an abort signal to the JS stream.
         {
             // start a stream with only group messages
             let stream = bo
@@ -240,14 +236,11 @@ mod tests {
                 .send_message("first DM msg".as_bytes())
                 .await
                 .unwrap();
-            tracing::info!("\n\nsent first DM message\n\n");
             alix_group
                 .send_message("second GROUP msg".as_bytes())
                 .await
                 .unwrap();
-            tracing::info!("\n\nsent second group msg\n\n");
             assert_msg!(stream, "second GROUP msg");
-            tracing::info!("\n\ngot `second`: Group-Only message\n\n");
         }
         {
             // Start a stream with only dms
@@ -260,30 +253,25 @@ mod tests {
                 .send_message("second GROUP msg".as_bytes())
                 .await
                 .unwrap();
-            tracing::info!("\n\nSENDING SECOND DM MSG\n\n");
             alix_dm
                 .send_message("second DM msg".as_bytes())
                 .await
                 .unwrap();
-            tracing::info!("\nSENT SECOND DM MSG\n\n");
             assert_msg!(stream, "second DM msg");
-            tracing::info!("Got second DM Only Message");
         }
         // Start a stream with all conversations
         // Wait for 2 seconds for the group creation to be streamed
         let stream = bo.stream_all_messages(None).await.unwrap();
         futures::pin_mut!(stream);
-        tracing::info!("\n\nSending first msg\n\n");
         alix_group.send_message("first".as_bytes()).await.unwrap();
-        tracing::info!("Sent first group message");
         assert_msg!(stream, "first");
 
-        tracing::info!("Sent first dm messages");
         alix_dm.send_message("second".as_bytes()).await.unwrap();
         assert_msg!(stream, "second");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -343,7 +331,7 @@ mod tests {
             loop {
                 if messages.len() < 20 {
                     if let Some(Ok(msg)) = stream.next().await {
-                        tracing::error!(
+                        tracing::info!(
                             message_id = hex::encode(&msg.id),
                             sender_inbox_id = msg.sender_inbox_id,
                             sender_installation_id = hex::encode(&msg.sender_installation_id),

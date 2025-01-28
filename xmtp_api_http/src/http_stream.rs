@@ -30,7 +30,7 @@ pin_project! {
     }
 }
 
-impl<'a, F> HttpStreamEstablish<'a, F> {
+impl<F> HttpStreamEstablish<'_, F> {
     fn new(inner: F) -> Self {
         Self {
             inner,
@@ -66,7 +66,7 @@ pin_project! {
     }
 }
 
-impl<'a, R> Stream for HttpPostStream<'a, R>
+impl<R> Stream for HttpPostStream<'_, R>
 where
     for<'de> R: Send + Deserialize<'de>,
 {
@@ -85,10 +85,10 @@ where
                     .inspect_err(|e| tracing::error!("Error in http stream to grpc gateway {e}"))
                     .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
                 let item = Self::on_bytes(bytes, this.remaining)?.pop();
-                if item.is_none() {
-                    self.poll_next(cx)
+                if let Some(item) = item {
+                    Ready(Some(Ok(item)))
                 } else {
-                    Ready(Some(Ok(item.expect("handled none;"))))
+                    self.poll_next(cx)
                 }
             }
             None => Ready(None),
@@ -101,7 +101,6 @@ where
     R: Send + 'static,
 {
     pub fn new(establish: StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>) -> Self {
-        tracing::info!("New post stream");
         Self {
             http: establish,
             remaining: Vec::new(),
@@ -169,7 +168,7 @@ pin_project! {
     }
 }
 
-impl<'a, F, R> HttpStream<'a, F, R>
+impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
 {
@@ -185,7 +184,7 @@ where
     }
 }
 
-impl<'a, F, R> Stream for HttpStream<'a, F, R>
+impl<F, R> Stream for HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Send + Deserialize<'de> + 'static,
@@ -205,19 +204,19 @@ where
                 this.state.set(HttpStreamState::Started {
                     stream: HttpPostStream::new(stream),
                 });
-                tracing::debug!("Stream {} ready, polling for the first time...", &self.id);
+                tracing::trace!("Stream {} ready, polling for the first time...", &self.id);
                 self.poll_next(cx)
             }
             Started { stream } => {
                 let item = ready!(stream.poll_next(cx));
-                tracing::debug!("stream id={} ready with item", &self.id);
+                tracing::trace!("stream id={} ready with item", &self.id);
                 Poll::Ready(item)
             }
         }
     }
 }
 
-impl<'a, F, R> std::fmt::Debug for HttpStream<'a, F, R> {
+impl<F, R> std::fmt::Debug for HttpStream<'_, F, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self.state {
             HttpStreamState::NotStarted { .. } => write!(f, "not started"),
@@ -227,7 +226,7 @@ impl<'a, F, R> std::fmt::Debug for HttpStream<'a, F, R> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<'a, F, R> HttpStream<'a, F, R>
+impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
@@ -241,7 +240,7 @@ where
         let mut cx = std::task::Context::from_waker(&noop_waker);
         // let mut this = Pin::new(self);
         let mut this = Pin::new(self);
-        if let Poll::Ready(_) = this.poll_next_unpin(&mut cx) {
+        if this.poll_next_unpin(&mut cx).is_ready() {
             tracing::error!("Stream ready before established");
             unreachable!()
         }
@@ -263,7 +262,7 @@ where
         let mut cx = std::task::Context::from_waker(&noop_waker);
         let mut this = unsafe { Pin::new_unchecked(self) };
         if let Poll::Ready(_) = this.as_mut().poll_next(&mut cx) {
-            tracing::info!("stream ready before established...");
+            tracing::error!("stream ready before established...");
             unreachable!()
         }
     }

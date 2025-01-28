@@ -125,32 +125,16 @@ pin_project! {
 
 pin_project! {
     #[project = ProcessProject]
+    #[derive(Default)]
     enum ProcessState<'a, C> {
         /// State that indicates the stream is waiting on the next message from the network
+        #[default]
         Waiting,
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
             #[pin] future: FutureWrapper<'a, Result<Option<(MlsGroup<C>, Option<i64>)>>>
         }
-    }
-}
-
-// we can't avoid the cfg(target_arch) without making the entire
-// 'process_new_item' flow a Future, which makes this code
-// significantly more difficult to modify. The other option is storing a
-// anonymous stack type in a struct that would be returned from an async fn
-// struct Foo {
-//      inner: impl Future
-// }
-// or some equivalent, which does not exist in rust.
-//
-// Another option is to make processing a welcome syncronous which
-// might be possible with some kind of a cached identity strategy
-
-impl<'a, O> Default for ProcessState<'a, O> {
-    fn default() -> Self {
-        ProcessState::Waiting
     }
 }
 
@@ -174,8 +158,8 @@ where
         let installation_key = client.installation_public_key();
         let id_cursor = provider
             .conn_ref()
-            .get_last_cursor_for_id(&installation_key, EntityKind::Welcome)?;
-        tracing::info!(
+            .get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
+        tracing::debug!(
             cursor = id_cursor,
             inbox_id = client.inbox_id(),
             "Setting up conversation stream cursor = {}",
@@ -264,6 +248,7 @@ where
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
     /// Try to process the welcome future
+    #[allow(clippy::type_complexity)]
     fn try_process(
         mut self: Pin<&mut Self>,
         poll: Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>,
@@ -273,7 +258,11 @@ where
         let mut this = self.as_mut().project();
         match poll {
             Ready(Ok(Some((group, welcome_id)))) => {
-                tracing::info!("finished processing with group, returning");
+                tracing::debug!(
+                    group_id = hex::encode(&group.group_id),
+                    "finished processing with group {}",
+                    hex::encode(&group.group_id)
+                );
                 if let Some(id) = welcome_id {
                     this.known_welcome_ids.insert(id);
                 }
@@ -282,7 +271,7 @@ where
             }
             // we are ignoring this payload
             Ready(Ok(None)) => {
-                tracing::info!("Ignoring this payload");
+                tracing::debug!("ignoring this payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
@@ -294,7 +283,7 @@ where
     }
 }
 
-fn extract_welcome_message<'a>(welcome: &'a WelcomeMessage) -> Result<&'a welcome_message::V1> {
+fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
     match welcome.version {
         Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
         _ => Err(ConversationStreamError::InvalidPayload.into()),
@@ -357,7 +346,13 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    return Ok(Some(self.load_from_store(id).map(|(g, v)| (g, Some(v)))?));
+                    let (group, id) = self.load_from_store(id).map(|(g, v)| (g, Some(v)))?;
+                    let metadata = group.metadata(&self.provider).await?;
+                    return Ok(self
+                        .conversation_type
+                        .map_or(true, |ct| ct == metadata.conversation_type)
+                        .then_some((group, id)));
+                    // Ok(Some(self.load_from_store(id).map(|(g, v)| (g, Some(v)))?));
                 }
 
                 let (group, id) = self.on_welcome(welcome).await?;
@@ -434,13 +429,13 @@ where
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&group.id),
             welcome_id = ?group.welcome_id,
-            "Loading existing group for welcome_id: {:?}",
+            "loading existing group for welcome_id: {:?}",
             group.welcome_id
         );
-        return Ok((
+        Ok((
             MlsGroup::new(self.client.clone(), group.id, group.created_at_ns),
             id,
-        ));
+        ))
     }
 }
 

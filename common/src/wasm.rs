@@ -20,7 +20,7 @@ pub struct StreamWrapper<'a, I> {
     inner: Pin<Box<dyn Stream<Item = I> + 'a>>,
 }
 
-impl<'a, I> Stream for StreamWrapper<'a, I> {
+impl<I> Stream for StreamWrapper<'_, I> {
     type Item = I;
 
     fn poll_next(
@@ -66,7 +66,7 @@ pub struct FutureWrapper<'a, O> {
     inner: Pin<Box<dyn Future<Output = O> + 'a>>,
 }
 
-impl<'a, O> Future for FutureWrapper<'a, O> {
+impl<O> Future for FutureWrapper<'_, O> {
     type Output = O;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {

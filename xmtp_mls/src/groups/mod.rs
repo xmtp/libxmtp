@@ -396,7 +396,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ))
         } else {
             tracing::error!("Failed to validate existence of group");
-            return Err(NotFound::GroupById(group_id).into());
+            Err(NotFound::GroupById(group_id).into())
         }
     }
 
@@ -615,7 +615,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 dm_members,
             ),
             ConversationType::Dm => {
-                validate_dm_group(&client, &mls_group, &added_by_inbox)?;
+                validate_dm_group(client, &mls_group, &added_by_inbox)?;
                 StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
