@@ -114,7 +114,7 @@ impl std::fmt::Debug for CommitParticipant {
         } = self;
         write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
             inbox_id,
-            hex::encode(&installation_id),
+            hex::encode(installation_id),
             is_creator,
             is_admin,
             is_super_admin,

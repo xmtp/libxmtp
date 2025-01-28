@@ -136,8 +136,8 @@ where
             .collect::<HashMap<GroupId, u64>>();
 
         let cursors = group_list
-            .iter()
-            .map(|(group, _)| client.api().query_latest_group_message(group));
+            .keys()
+            .map(|group| client.api().query_latest_group_message(group));
 
         let cursors = futures::future::join_all(cursors)
             .await
@@ -162,7 +162,7 @@ where
         let filters: Vec<GroupFilter> = group_list
             .iter()
             .inspect(|(group_id, cursor)| {
-                tracing::info!(
+                tracing::debug!(
                     "subscribed to group {} at {}",
                     hex::encode(group_id),
                     cursor
@@ -184,7 +184,7 @@ where
     /// Add a new group to this messages stream
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         if self.group_list.contains_key(group.group_id.as_slice()) {
-            tracing::info!("group {} already in stream", hex::encode(&group.group_id));
+            tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
             return;
         }
 
@@ -233,7 +233,7 @@ where
                 let mut cursor = None;
                 if let Some(m) = msg {
                     let m = extract_message_v1(m.clone())?;
-                    if let Some(new) = filters.iter_mut().find(|f| &f.group_id == &new_group) {
+                    if let Some(new) = filters.iter_mut().find(|f| f.group_id == new_group) {
                         new.id_cursor = Some(m.id);
                         cursor = Some(m.id);
                     }
@@ -270,7 +270,6 @@ where
         use std::task::Poll::*;
         use ProjectState::*;
         let mut this = self.as_mut().project();
-        tracing::info!("Polling messages");
 
         match this.state.as_mut().project() {
             Waiting => {
@@ -298,14 +297,16 @@ where
             Adding { future } => {
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
-                cursor.and_then(|c| Some(this.set_cursor(group.as_slice(), c)));
+                if let Some(c) = cursor {
+                    this.set_cursor(group.as_slice(), c)
+                };
                 let drained = self.as_mut().drain(cx);
                 let mut this = self.as_mut().project();
                 this.drained.extend(drained);
                 this.inner.set(stream);
                 if let Some(cursor) = this.group_list.get(group.as_slice()) {
-                    tracing::info!(
-                        "added {} at cursor {} to messages stream",
+                    tracing::debug!(
+                        "added group_id={} at cursor={} to messages stream",
                         hex::encode(&group),
                         cursor
                     );
@@ -317,7 +318,7 @@ where
     }
 }
 
-impl<'a, C, S> StreamGroupMessages<'a, C, S> {
+impl<C, S> StreamGroupMessages<'_, C, S> {
     fn filters(&self) -> Vec<GroupFilter> {
         self.group_list
             .iter()
@@ -382,13 +383,6 @@ where
     pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C>> {
         let msg = extract_message_v1(envelope)?;
         let provider = client.mls_provider()?;
-        tracing::info!(
-            inbox_id = client.inbox_id(),
-            group_id = hex::encode(&msg.group_id),
-            cursor = msg.id,
-            "streamed new message"
-        );
-
         Ok(Self {
             provider,
             client,
@@ -409,11 +403,11 @@ where
             ..
         } = self.msg;
 
-        tracing::info!(
+        tracing::debug!(
             inbox_id = self.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id,
-            "client [{}]  is about to process streamed envelope: [{}]",
+            "client inbox_id=[{}]  is about to process streamed envelope cursor_id=[{}]",
             self.inbox_id(),
             &cursor_id
         );
@@ -450,7 +444,7 @@ where
             .retryable_transaction_async(None, |provider| async move {
                 let (group, _) =
                     MlsGroup::new_validated(&self.client, self.msg.group_id.clone(), provider)?;
-                tracing::info!(
+                tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,

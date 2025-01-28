@@ -39,7 +39,7 @@ jobs:
       - name: test with chrome
         run: |
           cargo test --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -- \
-             -skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
             --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_find_groups \
             --skip xmtp_mls::storage::encrypted_store::group::tests::test_installations_last_checked_is_updated

@@ -742,7 +742,7 @@ where
             installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
             msg_id = envelope.id,
-            "Processing envelope with hash {:?}, id = {}",
+            "Processing envelope with hash {}, id = {}",
             hex::encode(sha256(envelope.data.as_slice())),
             envelope.id
         );

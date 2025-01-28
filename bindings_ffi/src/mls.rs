@@ -4780,7 +4780,7 @@ mod tests {
         // Verify the settings were applied
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db
@@ -4825,7 +4825,7 @@ mod tests {
         // Verify disappearing settings are disabled
         let group_from_db = alix_provider
             .conn_ref()
-            .find_group(alix_group.id())
+            .find_group(&alix_group.id())
             .unwrap();
         assert_eq!(
             group_from_db

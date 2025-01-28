@@ -121,7 +121,7 @@ where
         group_id: Id,
     ) -> Result<Option<GroupMessage>, ApiError> {
         tracing::debug!(
-            group_id = hex::encode(&group_id),
+            group_id = hex::encode(group_id),
             inbox_id = self.inbox_id,
             "query latest group message"
         );
@@ -304,10 +304,10 @@ where
         Ok(())
     }
 
-    pub(crate) async fn subscribe_group_messages<'a>(
-        &'a self,
+    pub(crate) async fn subscribe_group_messages(
+        &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>, ApiError>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -319,11 +319,11 @@ where
             .await
     }
 
-    pub(crate) async fn subscribe_welcome_messages<'a>(
-        &'a self,
+    pub(crate) async fn subscribe_welcome_messages(
+        &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>, ApiError>
     where
         ApiClient: XmtpMlsStreams,
     {

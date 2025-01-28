@@ -1,5 +1,0 @@
-
-running 1 test
-[2m2025-01-23T20:16:46.365957Z[0m [32m INFO[0m [2mxmtp_mls::storage::encrypted_store[0m[2m:[0m Setting up DB connection pool
-[2m2025-01-23T20:16:46.371858Z[0m [32m INFO[0m [2mxmtp_mls::storage::encrypted_store::sqlcipher_connection[0m[2m:[0m Sqlite cipher_version=Some("4.5.7 community"), cipher_provider_version="OpenSSL 3.4.0 22 Oct 2024"
-[2m2025-01-23T20:16:46.372553Z[0m [32m INFO[0m [2mxmtp_mls::storage::encrypted_store::private[0m[2m:[0m Running DB migrations
