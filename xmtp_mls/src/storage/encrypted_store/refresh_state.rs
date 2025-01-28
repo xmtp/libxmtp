@@ -84,9 +84,9 @@ impl DbConnection {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<IdType: AsRef<[u8]>>(
+    pub fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
-        id: IdType,
+        id: Id,
         entity_kind: EntityKind,
     ) -> Result<i64, StorageError> {
         let state: Option<RefreshState> = self.get_refresh_state(&id, entity_kind)?;

@@ -73,9 +73,9 @@ pub fn logger() {
     use tracing_subscriber::EnvFilter;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::DEBUG.into())
-            .from_env_lossy();
+        let filter = EnvFilter::builder().parse_lossy("xmtp_mls::subscriptions=debug");
+        // .parse_lossy("xmtp_mls::subscriptions=TRACE,xmtp_api_http=TRACE,xmtp_common=TRACE,wasm_streams=TRACE,reqwest=TRACE");
+        // .with_default_directive(tracing::metadata::LevelFilter::TRACE.into());
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())
@@ -105,6 +105,10 @@ pub fn rand_vec<const N: usize>() -> Vec<u8> {
 }
 
 pub fn rand_u64() -> u64 {
+    crypto_utils::rng().gen()
+}
+
+pub fn rand_i64() -> i64 {
     crypto_utils::rng().gen()
 }
 

@@ -356,13 +356,12 @@ impl DbConnection {
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-
-        query = query.limit(1).filter(dsl::id.eq(id));
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
-
-        // Manually extract the first element
+    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .limit(1)
+            .filter(dsl::id.eq(id));
+        let groups = self.raw_query(|conn| query.load(conn))?;
         Ok(groups.into_iter().next())
     }
 
@@ -375,11 +374,13 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let groups = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
-            tracing::error!("More than one group found for welcome_id {}", welcome_id);
+            tracing::warn!(
+                welcome_id,
+                "More than one group found for welcome_id {welcome_id}"
+            );
         }
-
         Ok(groups.into_iter().next())
     }
 
@@ -529,6 +530,22 @@ impl DbConnection {
 
         Ok(stored_group)
     }
+
+    /// Get all the welcome ids turned into groups
+    pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+        self.raw_query(|conn| {
+            Ok::<_, StorageError>(
+                dsl::groups
+                    .filter(dsl::welcome_id.is_not_null())
+                    .select(dsl::welcome_id)
+                    .load::<Option<i64>>(conn)?
+                    .into_iter()
+                    .map(|id| id.expect("SQL explicity filters for none"))
+                    .collect(),
+            )
+        })
+        .map_err(Into::into)
+    }
 }
 
 #[repr(i32)]
@@ -666,6 +683,25 @@ pub(crate) mod tests {
             created_at_ns,
             membership_state,
             "placeholder_address".to_string(),
+            None,
+        )
+    }
+
+    /// Generate a test group with welcome
+    pub fn generate_group_with_welcome(
+        state: Option<GroupMembershipState>,
+        welcome_id: Option<i64>,
+    ) -> StoredGroup {
+        let id = rand_vec::<24>();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        StoredGroup::new_from_welcome(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+            welcome_id.unwrap_or(xmtp_common::rand_i64()),
+            ConversationType::Group,
             None,
         )
     }
@@ -1018,6 +1054,24 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_group_welcome_ids() {
+        with_connection(|conn| {
+            let mls_groups = vec![
+                generate_group_with_welcome(None, Some(30)),
+                generate_group(None),
+                generate_group(None),
+                generate_group_with_welcome(None, Some(10)),
+            ];
+            for g in mls_groups.iter() {
+                g.store(conn).unwrap();
+            }
+            assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
         .await
     }

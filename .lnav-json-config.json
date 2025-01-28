@@ -1,0 +1,115 @@
+{
+  "$schema": "https://lnav.org/schemas/format-v1.schema.json",
+  "libxmtp_json_log": {
+    "title": "Libxmtp Log",
+    "url": "https://github.com/xmtp/libxmtp",
+    "json": true,
+    "file-type": "json",
+    "hide-extra": true,
+    "level-field": "level",
+    "timestamp-field": "timestamp",
+    "timestamp-format": "%a, %b %d, %Y %I:%M:%S %p %Z",
+    "body-field": "message",
+    "level": {
+      "error": "ERROR",
+      "warning": "WARN",
+      "info": "INFO",
+      "debug": "DEBUG",
+      "trace": "TRACE"
+    },
+    "line-format": [
+      {
+        "field": "__timestamp__",
+        "align": "right"
+      },
+      " ",
+      {
+        "field": "__level__",
+        "min-width": 4,
+        "max-width": 4,
+        "align": "right",
+        "text-transform": "uppercase",
+        "suffix": ":"
+      },
+      " ",
+      {
+        "prefix": "target=",
+        "field": "target",
+        "align": "left",
+        "default-value": ""
+      },
+      " ",
+      {
+        "field": "message"
+      },
+      " ",
+      {
+        "prefix": "span: ",
+        "field": "span",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "spans: ",
+        "field": "spans",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "signer=",
+        "field": "signer",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "missing_signatures=",
+        "field": "missing_signatures",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "inbox_id=",
+        "field": "inbox_id",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "sender_inbox_id=",
+        "field": "sender_inbox_id",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "installation_id=",
+        "field": "installation_id",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "sender_installation_id=",
+        "field": "sender_installation_id",
+        "default-value": ""
+      },
+      " ",
+      {
+        "prefix": "group_id=",
+        "field": "group_id",
+        "default-value": ""
+      }
+    ],
+    "value": {
+      "message": { "kind": "string" },
+      "target": { "kind": "string" },
+      "signer": { "kind": "string" },
+      "message_id": { "kind": "string" },
+      "installation_id": { "kind": "string" },
+      "sender_installation_id": { "kind": "string" },
+      "inbox_id": { "kind": "string" },
+      "sender_inbox_id": { "kind": "string" },
+      "group_id": { "kind": "string" },
+      "missing_signatures": { "kind": "string" },
+      "span": { "kind": "string", "hidden": true },
+      "spans": { "kind": "string", "hidden": true }
+    }
+  }
+}
