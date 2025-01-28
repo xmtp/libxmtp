@@ -48,6 +48,7 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
     }
 }
 
+// JSON format for legacy reaction is defined here: https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LegacyReaction {
     /// The message ID for the message that is being reacted to
