@@ -3133,14 +3133,13 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        assert_err!(
-            alix_2_groups
-                .first()
-                .unwrap()
-                .conversation
-                .update_group_name("test 2".to_string())
-                .await
-        );
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -3217,14 +3216,13 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        assert_err!(
-            alix_2_groups
-                .first()
-                .unwrap()
-                .conversation
-                .update_group_name("test 2".to_string())
-                .await
-        );
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
     }
 
     // Looks like this test might be a separate issue

@@ -9,10 +9,6 @@ macro_rules! assert_err {
             assert!(matches!($x, Err($y)))
         };
 
-        ( $x:expr ) => {
-            assert!(matches!($x, Err(_)))
-        };
-
         ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{
             assert!(matches!($x, Err($y)), $($msg)+)
         }}
