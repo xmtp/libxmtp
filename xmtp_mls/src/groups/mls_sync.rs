@@ -39,6 +39,7 @@ use crate::{
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
 };
+use diesel::connection::SimpleConnection;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -369,7 +370,6 @@ where
             id: ref msg_id,
             ..
         } = *envelope;
-        let conn = provider.conn_ref();
 
         let group_epoch = mls_group.epoch();
         let message_epoch = message.epoch();
@@ -416,7 +416,7 @@ where
 
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         self.client.as_ref(),
-                        conn,
+                        provider.conn_ref(),
                         &staged_commit,
                         &mls_group,
                     )
@@ -848,6 +848,7 @@ where
                 self.load_mls_group_with_lock_async(provider, |mut mls_group| async move  {
                     let message = message.into();
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, provider, &message, envelope).await;
+
                     provider.transaction(|provider| {
                         if let Some(cursor) = cursor {
                             let is_updated =
@@ -888,7 +889,7 @@ where
 
                 Ok(())
             }
-            // No matching intent found
+            // No matching intent found. The message did not originate here.
             Ok(None) => {
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
