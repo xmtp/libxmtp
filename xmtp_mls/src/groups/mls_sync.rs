@@ -554,6 +554,7 @@ where
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
             result?;
         }
+
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         let (sender_inbox_id, sender_installation_id) =
@@ -600,6 +601,7 @@ where
 
         provider.transaction(|provider| {
             let processed_message = mls_group.process_message(provider, message)?;
+
             let mut validated_commit = None;
 
             if let ProcessedMessageContent::StagedCommitMessage(staged_commit) =

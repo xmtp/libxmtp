@@ -290,13 +290,12 @@ impl ValidatedCommit {
         let group_permissions: GroupMutablePermissions = extensions.try_into()?;
         let current_group_members = get_current_group_members(openmls_group);
 
-        let existing_group_extensions = openmls_group.extensions();
         let new_group_extensions = staged_commit.group_context().extensions();
 
         let metadata_changes = extract_metadata_changes(
             &immutable_metadata,
             &mutable_metadata,
-            existing_group_extensions,
+            extensions,
             new_group_extensions,
         )?;
 
@@ -507,7 +506,7 @@ fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
-pub(super) struct ExpectedDiff {
+pub struct ExpectedDiff {
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
