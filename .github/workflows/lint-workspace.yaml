@@ -21,6 +21,9 @@ on:
       - "rustfmt.toml"
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+  CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
     name: Lint
@@ -37,6 +40,6 @@ jobs:
             .
       - name: Run clippy and fail on warnings
         # Exclude bindings_wasm since it only compiles for wasm32
-        run: cargo clippy --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -Dwarnings
+        run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm
       - name: Run format check
         run: cargo fmt --check
