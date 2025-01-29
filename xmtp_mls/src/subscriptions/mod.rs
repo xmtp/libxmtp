@@ -291,7 +291,10 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-        mut convo_callback: impl FnMut(Result<MlsGroup<Self>>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>) + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -325,7 +328,10 @@ where
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
-        mut callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 

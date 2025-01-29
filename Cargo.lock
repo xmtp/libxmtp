@@ -473,12 +473,12 @@ name = "bindings_wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "futures",
  "hex",
  "js-sys",
  "prost",
  "serde",
  "serde-wasm-bindgen",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-web",
