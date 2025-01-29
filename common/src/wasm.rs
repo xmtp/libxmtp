@@ -1,9 +1,6 @@
 use futures::{FutureExt, Stream, StreamExt};
 use std::{future::Future, pin::Pin, task::Poll};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
 pub trait Wasm {}
