@@ -24,7 +24,9 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::db_connection::DbConnection,
+    storage::{
+        association_state::StoredAssociationState, db_connection::DbConnection, StorageError,
+    },
 };
 use xmtp_common::{retry::RetryableError, retryable};
 
@@ -45,8 +47,8 @@ pub enum CommitValidationError {
     #[error("Actor could not be found")]
     ActorCouldNotBeFound,
     // Subject of the proposal has an invalid credential
-    #[error("Inbox validation failed for {0}")]
-    InboxValidationFailed(String),
+    #[error("Inbox validation failed for {0:?}")]
+    InboxValidationFailed(Vec<(String, Option<i64>)>),
     // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
@@ -83,6 +85,8 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+    #[error(transparent)]
+    StorageError(#[from] StorageError),
 }
 
 impl RetryableError for CommitValidationError {
@@ -232,12 +236,52 @@ pub struct ValidatedCommit {
     pub dm_members: Option<DmMembers<String>>,
 }
 
+pub enum OptimisticValidationResult {
+    Validated(ValidatedCommit),
+    MissingUpdates {
+        // (inbox_id, to_sequence_id)
+        association_states: Vec<(String, i64)>,
+    },
+}
+
 impl ValidatedCommit {
-    pub async fn from_staged_commit(
+    /// This function is functionally the same as `from_staged_commit`,
+    /// with the exception that it will also attempt to fetch the missing identity updates.
+    /// As a consequence - it is async.
+    pub async fn from_staged_commit_with_identity_update_attempt(
         client: impl ScopedGroupClient,
         conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
+        expected_diff: &ExpectedDiff,
+    ) -> Result<Self, CommitValidationError> {
+        let result =
+            ValidatedCommit::from_staged_commit(conn, staged_commit, openmls_group, &expected_diff);
+
+        match result {
+            Err(CommitValidationError::InboxValidationFailed(missing)) => {
+                let _ = client
+                    .batch_get_association_state(conn, &*missing)
+                    .await
+                    .unwrap();
+
+                let result = ValidatedCommit::from_staged_commit(
+                    conn,
+                    staged_commit,
+                    openmls_group,
+                    &expected_diff,
+                )?;
+                Ok(result)
+            }
+            result => result,
+        }
+    }
+
+    pub fn from_staged_commit(
+        conn: &DbConnection,
+        staged_commit: &StagedCommit,
+        openmls_group: &OpenMlsGroup,
+        expected_diff: &ExpectedDiff,
     ) -> Result<Self, CommitValidationError> {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
@@ -292,15 +336,7 @@ impl ValidatedCommit {
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
-        } = extract_expected_diff(
-            conn,
-            &client,
-            staged_commit,
-            existing_group_extensions,
-            &immutable_metadata,
-            &mutable_metadata,
-        )
-        .await?;
+        } = expected_diff;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
@@ -315,30 +351,37 @@ impl ValidatedCommit {
         // 1. The actor who created the commit
         // 2. Anyone referenced in an update proposal
         // Satisfies Rule 4
+
+        let mut missing = vec![];
         for participant in credentials_to_verify {
             let to_sequence_id = new_group_membership
                 .get(&participant.inbox_id)
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
-            let inbox_state = client
-                .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
-                .await
-                .map_err(InstallationDiffError::from)?;
-
-            if inbox_state
-                .get(&participant.installation_id.into())
-                .is_none()
-            {
-                return Err(CommitValidationError::InboxValidationFailed(
-                    participant.inbox_id,
-                ));
+            let to_sequence_id = *to_sequence_id as i64;
+            let association_state = StoredAssociationState::read_from_cache(
+                conn,
+                &participant.inbox_id,
+                to_sequence_id,
+            )?;
+            if let Some(association_state) = association_state {
+                let identifier = participant.installation_id.into();
+                if let Some(_) = association_state.get(&identifier) {
+                    continue;
+                }
             }
+
+            missing.push((participant.inbox_id.clone(), Some(to_sequence_id)));
+        }
+
+        if !missing.is_empty() {
+            return Err(CommitValidationError::InboxValidationFailed(missing));
         }
 
         let verified_commit = Self {
             actor,
-            added_inboxes,
-            removed_inboxes,
+            added_inboxes: added_inboxes.clone(),
+            removed_inboxes: removed_inboxes.clone(),
             metadata_changes,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
@@ -464,11 +507,42 @@ fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
-struct ExpectedDiff {
+pub(super) struct ExpectedDiff {
     new_group_membership: GroupMembership,
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
     removed_inboxes: Vec<Inbox>,
+}
+
+impl ExpectedDiff {
+    pub(super) async fn from_staged_commit(
+        client: impl ScopedGroupClient,
+        conn: &DbConnection,
+        staged_commit: &StagedCommit,
+        openmls_group: &OpenMlsGroup,
+    ) -> Result<Self, CommitValidationError> {
+        // Get the immutable and mutable metadata
+        let extensions = openmls_group.extensions();
+        let immutable_metadata: GroupMetadata = extensions.try_into()?;
+        let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
+
+        // Block any psk proposals
+        if staged_commit.psk_proposals().any(|_| true) {
+            return Err(CommitValidationError::NoPSKSupport);
+        }
+
+        let expected_diff = extract_expected_diff(
+            conn,
+            &client,
+            staged_commit,
+            extensions,
+            &immutable_metadata,
+            &mutable_metadata,
+        )
+        .await?;
+
+        Ok(expected_diff)
+    }
 }
 
 /// Generates an expected diff of installations added and removed based on the difference between the current

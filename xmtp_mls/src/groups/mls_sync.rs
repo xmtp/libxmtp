@@ -8,9 +8,11 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_mutable_metadata::MetadataField;
 use crate::storage::group_intent::IntentKind::MetadataUpdate;
+use crate::{
+    configuration::sync_update_installations_interval_ns, groups::validated_commit::ExpectedDiff,
+};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -413,13 +415,25 @@ where
                         intent.id
                     );
 
-                    let maybe_validated_commit = ValidatedCommit::from_staged_commit(
-                        self.client.as_ref(),
+                    let expected_diff = ExpectedDiff::from_staged_commit(
+                        &self.client,
                         provider.conn_ref(),
                         &staged_commit,
                         mls_group,
                     )
                     .await;
+                    let Ok(expected_diff) = expected_diff else {
+                        return Err(Ok(IntentState::Error));
+                    };
+                    let maybe_validated_commit =
+                        ValidatedCommit::from_staged_commit_with_identity_update_attempt(
+                            &self.client,
+                            provider.conn_ref(),
+                            &staged_commit,
+                            mls_group,
+                            &expected_diff,
+                        )
+                        .await;
 
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
@@ -554,29 +568,54 @@ where
             msg_epoch = processed_message.epoch().as_u64(),
             msg_group_id = hex::encode(processed_message.group_id().as_slice()),
             msg_id,
-            "[{}] extracted sender inbox id: {}",
+            "[{}] extracted sender inbox d: {}",
             self.client.inbox_id(),
             sender_inbox_id
         );
 
-        let validated_commit = match &processed_message.content() {
+        let expected_diff = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                // Validate the commit
-                let validated_commit = ValidatedCommit::from_staged_commit(
-                    self.client.as_ref(),
+                let expected_diff = ExpectedDiff::from_staged_commit(
+                    &self.client,
                     provider.conn_ref(),
                     staged_commit,
                     mls_group,
                 )
                 .await?;
+                // We don't care about the validated commit because we need to recreate it below anyway.
+                // This is to fetch the missing identity updates.
+                let _ = ValidatedCommit::from_staged_commit_with_identity_update_attempt(
+                    &self.client,
+                    provider.conn_ref(),
+                    staged_commit,
+                    mls_group,
+                    &expected_diff,
+                )
+                .await?;
 
-                Some(validated_commit)
+                Some(expected_diff)
             }
             _ => None,
         };
 
         provider.transaction(|provider| {
             let processed_message = mls_group.process_message(provider, message)?;
+            let mut validated_commit = None;
+
+            if let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
+                processed_message.content()
+            {
+                let Some(expected_diff) = expected_diff else {
+                    unreachable!();
+                };
+
+                validated_commit = Some(ValidatedCommit::from_staged_commit(
+                    provider.conn_ref(),
+                    staged_commit,
+                    mls_group,
+                    &expected_diff,
+                )?);
+            }
 
             if let Some(cursor) = cursor {
                 let is_updated = provider.conn_ref().update_cursor(

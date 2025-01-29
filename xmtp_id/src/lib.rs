@@ -39,6 +39,21 @@ pub type InboxId = String;
 
 pub type WalletAddress = String;
 
+pub trait AsIdRef: Send + Sync {
+    fn as_ref<'a>(&'a self) -> InboxIdRef<'a>;
+}
+
+impl AsIdRef for InboxId {
+    fn as_ref<'a>(&'a self) -> InboxIdRef<'a> {
+        &*self
+    }
+}
+impl AsIdRef for InboxIdRef<'_> {
+    fn as_ref<'a>(&'a self) -> InboxIdRef<'a> {
+        self
+    }
+}
+
 // Check if the given address is a smart contract by checking if there is code at the given address.
 pub async fn is_smart_contract(
     address: Address,
