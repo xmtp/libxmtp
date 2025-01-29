@@ -2248,11 +2248,11 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let bo_dm = bo
-            .create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         let alix_dm = alix
-            .create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -2283,7 +2283,10 @@ pub(crate) mod tests {
         let now = now_ns();
         let one_second = 1_000_000_000;
         assert!(
-            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap())
+            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap()),
+            "last_message_ns {} was not within one second of current time {}",
+            dm_group.last_message_ns.unwrap(),
+            now
         );
 
         let dm_group = alix.group(dm_group.id).unwrap();
@@ -3786,7 +3789,7 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .create_dm_by_inbox_id(bola.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string())
             .await
             .unwrap();
 

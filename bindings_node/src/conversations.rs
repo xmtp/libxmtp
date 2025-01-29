@@ -222,10 +222,10 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn create_dm(&self, account_address: String) -> Result<Conversation> {
+  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .create_dm(account_address)
+      .find_or_create_dm(account_address)
       .await
       .map_err(ErrorWrapper::from)?;
 
