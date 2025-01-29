@@ -50,6 +50,8 @@ pub enum StorageError {
     Duplicate(DuplicateItem),
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
+    #[error("Transaction was intentionally rolled back")]
+    IntentionalRollback,
 }
 
 #[derive(Error, Debug)]

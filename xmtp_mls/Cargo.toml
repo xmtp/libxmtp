@@ -24,7 +24,7 @@ bench = [
     "dep:fdlimit",
     "dep:ethers",
     "dep:const_format",
-    "xmtp_common/bench"
+    "xmtp_common/bench",
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
@@ -47,6 +47,7 @@ update-schema = ["toml"]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 async-trait.workspace = true
 bincode.workspace = true
+bytes.workspace = true
 diesel_migrations.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 hex.workspace = true
@@ -54,6 +55,7 @@ hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 parking_lot.workspace = true
+pin-project-lite.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -69,8 +71,6 @@ tracing.workspace = true
 trait-variant.workspace = true
 xmtp_common.workspace = true
 zeroize.workspace = true
-pin-project-lite.workspace = true
-bytes.workspace = true
 
 # XMTP/Local
 xmtp_content_types = { path = "../xmtp_content_types" }
@@ -108,13 +108,13 @@ diesel = { workspace = true, features = [
     "r2d2",
     "returning_clauses_for_sqlite_3_35",
     "sqlite",
-    "32-column-tables"
+    "32-column-tables",
 ] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
 openmls.workspace = true
-openssl-sys.workspace = true
 openssl.workspace = true
+openssl-sys.workspace = true
 tokio = { workspace = true, features = [
     "macros",
     "tracing",

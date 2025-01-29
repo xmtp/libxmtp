@@ -527,9 +527,21 @@ where
             ..
         } = *envelope;
 
-        provider.conn_ref().enable_readonly();
-        let processed_message = mls_group.process_message(provider, message)?;
-        provider.conn_ref().disable_readonly();
+        // We need to process the message twice to avoid an async transaction.
+        // We'll process for the first time, get the processed message,
+        // and roll the transaction back, so we can fetch updates from the server before
+        // being ready to process the message for a second time.
+        let mut processed_message = None;
+        let result = provider.transaction(|provider| {
+            processed_message = Some(mls_group.process_message(provider, message.clone()));
+            // Rollback the transaction. We want to synchronize with the server before committing.
+            Err::<(), StorageError>(StorageError::IntentionalRollback)
+        });
+        if !matches!(result, Err(StorageError::IntentionalRollback)) {
+            result?;
+        }
+
+        let processed_message = processed_message.expect("Was just set to Some")?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -565,6 +577,8 @@ where
         };
 
         provider.transaction(|provider| {
+            let processed_message = mls_group.process_message(provider, message)?;
+
             if let Some(cursor) = cursor {
                 let is_updated = provider.conn_ref().update_cursor(
                     &envelope.group_id,
