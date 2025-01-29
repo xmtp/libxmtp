@@ -1071,7 +1071,7 @@ pub(crate) mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::{group_metadata::extract_group_metadata, GroupMetadataOptions},
+        groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{

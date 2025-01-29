@@ -2310,7 +2310,7 @@ mod tests {
         FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
         FfiSubscribeError,
     };
-    use ethers::{signers::Signer, utils::hex};
+    use ethers::utils::hex;
     use prost::Message;
     use std::{
         collections::HashMap,
