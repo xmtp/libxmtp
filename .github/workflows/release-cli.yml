@@ -1,5 +1,4 @@
 name: Release CLI
-
 on:
   push:
     branches:
@@ -24,64 +23,54 @@ jobs:
           - build: macos-aarch64
             runner: warp-macos-13-arm64-6x
             target: aarch64-apple-darwin
-        #   - build: windows-x86_64-gnu
-        #     runner: windows-latest
-        #     target: x86_64-pc-windows-gnu
+            #   - build: windows-x86_64-gnu
+            #     runner: windows-latest
+            #     target: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Update rust toolchains
         run: |
           rustup update
           rustup target add ${{ matrix.target }}
-
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-
       - name: Configure x86_64-unknown-linux-musl toolchain
         if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-
       - name: Install openssl windows
         if: ${{ matrix.build == 'windows-x86_64-gnu' }}
         uses: crazy-max/ghaction-chocolatey@v3
         with:
           args: install openssl
-
       - name: Build target
         run: |
-          cargo build --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
-
+          cargo build --locked --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.build }}
           path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
           retention-days: 1
-
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts
-
       - name: Get short SHA
         id: slug
         run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
-
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -93,7 +82,6 @@ jobs:
           body: "Release of cli for commit ${{ github.sha}}"
           draft: false
           prerelease: true
-
       #   - name: Upload Release Asset
       #     uses: actions/upload-release-asset@v1
       #     env:
@@ -103,7 +91,6 @@ jobs:
       #       asset_path: ./examples/cli/target/x86_64-pc-windows-gnu.exe
       #       asset_name: cli-x86_64-pc-windows-gnu.exe
       #       asset_content_type: application/octet-stream
-
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
@@ -113,7 +100,6 @@ jobs:
           asset_path: ./artifacts/macos-aarch64/xmtp_cli
           asset_name: cli-macos-aarch64
           asset_content_type: application/octet-stream
-
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
