@@ -2283,7 +2283,10 @@ pub(crate) mod tests {
         let now = now_ns();
         let one_second = 1_000_000_000;
         assert!(
-            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap())
+            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap()),
+            "last_message_ns {} was not within one second of current time {}",
+            dm_group.last_message_ns.unwrap(),
+            now
         );
 
         let dm_group = alix.group(dm_group.id).unwrap();
