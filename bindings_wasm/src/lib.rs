@@ -8,3 +8,4 @@ pub mod inbox_state;
 pub mod messages;
 pub mod permissions;
 pub mod signatures;
+pub mod streams;

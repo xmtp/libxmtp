@@ -40,14 +40,14 @@ pub enum SignatureRequestType {
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(js_name = createInboxSignatureText)]
-  pub async fn create_inbox_signature_text(&self) -> Result<Option<String>, JsError> {
+  pub fn create_inbox_signature_text(&self) -> Result<Option<String>, JsError> {
     let signature_request = match self.inner_client().identity().signature_request() {
       Some(signature_req) => signature_req,
       // this should never happen since we're checking for it above in is_registered
       None => return Err(JsError::new("No signature request found")),
     };
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     signature_requests.insert(SignatureRequestType::CreateInbox, signature_request);
 
@@ -65,7 +65,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     signature_requests.insert(SignatureRequestType::AddWallet, signature_request);
 
@@ -83,7 +83,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     signature_requests.insert(SignatureRequestType::RevokeWallet, signature_request);
 
@@ -109,7 +109,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
@@ -130,7 +130,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
@@ -143,7 +143,7 @@ impl Client {
     signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
   ) -> Result<(), JsError> {
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
@@ -167,7 +167,7 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
       let address = self.account_address();
@@ -191,7 +191,7 @@ impl Client {
 
   #[wasm_bindgen(js_name = applySignatureRequests)]
   pub async fn apply_signature_requests(&self) -> Result<(), JsError> {
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = (*self.signature_requests).borrow_mut();
 
     let request_types: Vec<SignatureRequestType> = signature_requests.keys().cloned().collect();
     for signature_request_type in request_types {

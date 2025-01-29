@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::group::ConversationType;
 
@@ -7,6 +8,7 @@ use crate::client::RustXmtpClient;
 use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
+use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
@@ -519,6 +521,28 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(group_pinned_frame_url)
+  }
+
+  #[wasm_bindgen(js_name = stream)]
+  pub fn stream(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let stream_closer = MlsGroup::stream_with_callback(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      move |message| match message {
+        Ok(item) => {
+          let f = callback.on_item();
+          let _ = f
+            .call0(&serde_wasm_bindgen::to_value(&item).unwrap_throw())
+            .unwrap_throw();
+        }
+        Err(e) => {
+          let f = callback.on_error();
+          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
+        }
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
   }
 
   #[wasm_bindgen(js_name = createdAtNs)]

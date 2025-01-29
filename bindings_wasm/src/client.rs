@@ -1,8 +1,9 @@
 use js_sys::Uint8Array;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
@@ -25,7 +26,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct Client {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
+  pub(crate) signature_requests: Rc<RefCell<HashMap<SignatureRequestType, SignatureRequest>>>,
 }
 
 impl Client {
@@ -33,7 +34,9 @@ impl Client {
     &self.inner_client
   }
 
-  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
+  pub fn signature_requests(
+    &self,
+  ) -> &Rc<RefCell<HashMap<SignatureRequestType, SignatureRequest>>> {
     &self.signature_requests
   }
 }
@@ -178,7 +181,7 @@ pub async fn create_client(
   Ok(Client {
     account_address,
     inner_client: Arc::new(xmtp_client),
-    signature_requests: Arc::new(Mutex::new(HashMap::new())),
+    signature_requests: Rc::new(RefCell::new(HashMap::new())),
   })
 }
 
@@ -228,7 +231,7 @@ impl Client {
       ));
     }
 
-    let mut signature_requests = self.signature_requests.lock().await;
+    let mut signature_requests = self.signature_requests.borrow_mut();
 
     let signature_request = signature_requests
       .get(&SignatureRequestType::CreateInbox)

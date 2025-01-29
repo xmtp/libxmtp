@@ -45,7 +45,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn stream_with_callback(
         client: ScopedClient,
         group_id: Vec<u8>,
-        callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
+        #[cfg(target_arch = "wasm32")] callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
+        #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
+            + Send
+            + 'static,
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>>
     where
         ScopedClient: 'static,
@@ -55,12 +58,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 }
 
+// TODO: there's a better way than #[cfg]
 /// Stream messages from groups in `group_id_to_info`, passing
 /// messages along to a callback.
 pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
-    active_conversations: impl Iterator<Item = GroupId> + Send + 'static,
-    mut callback: impl FnMut(Result<StoredGroupMessage>) + Send + 'static,
+    #[cfg(not(target_arch = "wasm32"))] active_conversations: impl Iterator<Item = GroupId>
+        + Send
+        + 'static,
+    #[cfg(target_arch = "wasm32")] active_conversations: impl Iterator<Item = GroupId> + 'static,
+    #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
+    #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
+        + Send
+        + 'static,
 ) -> impl crate::StreamHandle<StreamOutput = Result<()>>
 where
     ScopedClient: ScopedGroupClient + 'static,
