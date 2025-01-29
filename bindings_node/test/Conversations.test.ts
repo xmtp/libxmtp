@@ -186,7 +186,9 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().findOrCreateDm(user2.account.address)
+    const group = await client1
+      .conversations()
+      .findOrCreateDm(user2.account.address)
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
     expect(group.createdAtNs()).toBeTypeOf('number')
@@ -410,7 +412,9 @@ describe('Conversations', () => {
     const group2 = await client2
       .conversations()
       .createGroup([user3.account.address])
-    const group3 = await client4.conversations().findOrCreateDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
 
     await sleep()
 
@@ -432,7 +436,9 @@ describe('Conversations', () => {
     const stream = client3.conversations().streamGroups((err, convo) => {
       groups.push(convo!)
     })
-    const group3 = await client4.conversations().findOrCreateDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
     const group1 = await client1
       .conversations()
       .createGroup([user3.account.address])
@@ -466,7 +472,9 @@ describe('Conversations', () => {
     const group2 = await client2
       .conversations()
       .createGroup([user3.account.address])
-    const group3 = await client4.conversations().findOrCreateDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
 
     await sleep()
 
