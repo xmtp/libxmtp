@@ -272,10 +272,10 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = createDm)]
-  pub async fn create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
+  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
-      .create_dm(account_address)
+      .find_or_create_dm(account_address)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
