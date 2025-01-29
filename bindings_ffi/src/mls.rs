@@ -5415,6 +5415,7 @@ mod tests {
     async fn test_dm_streaming() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let caro = new_test_client().await;
 
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -5475,7 +5476,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
-        alix.conversations()
+        caro.conversations()
             .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();

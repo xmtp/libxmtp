@@ -477,6 +477,9 @@ mod test {
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let davon = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let eri = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
@@ -523,7 +526,7 @@ mod test {
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(caro.inbox_id().to_string())
             .await
             .unwrap();
         let group = stream.next().await.unwrap();
@@ -535,14 +538,14 @@ mod test {
         let stream = alix.stream_conversations(None).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(davon.inbox_id().to_string())
             .await
             .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
-        let dm = bo
+        let dm = eri
             .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
