@@ -560,25 +560,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
-    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating dm with address: {}", account_address);
-        let provider = self.mls_provider()?;
-
-        let inbox_id = match self
-            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                return Err(NotFound::InboxIdForAddress(account_address).into());
-            }
-        };
-
-        self.create_dm_by_inbox_id(inbox_id).await
-    }
-
-    /// Create a new Direct Message with the default settings
-    pub async fn create_dm_by_inbox_id(
+    async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -602,6 +584,43 @@ where
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
+    }
+
+    /// Find or create a Direct Message with the default settings
+    pub async fn find_or_create_dm(
+        &self,
+        account_address: String,
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        tracing::info!("finding or creating dm with address: {}", account_address);
+        let provider = self.mls_provider()?;
+        let inbox_id = match self
+            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
+            .await?
+        {
+            Some(id) => id,
+            None => {
+                return Err(NotFound::InboxIdForAddress(account_address).into());
+            }
+        };
+
+        self.find_or_create_dm_by_inbox_id(inbox_id).await
+    }
+
+    /// Find or create a Direct Message by inbox_id with the default settings
+    pub async fn find_or_create_dm_by_inbox_id(
+        &self,
+        inbox_id: InboxId,
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
+        let provider = self.mls_provider()?;
+        let group = provider.conn_ref().find_dm_group(&DmMembers {
+            member_one_inbox_id: self.inbox_id(),
+            member_two_inbox_id: &inbox_id,
+        })?;
+        if let Some(group) = group {
+            return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
+        }
+        self.create_dm_by_inbox_id(inbox_id).await
     }
 
     pub(crate) fn create_sync_group(
@@ -1587,5 +1606,49 @@ pub(crate) mod tests {
             .unwrap()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
         assert!(bo_original_after_delete.is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_or_create_dm_by_inbox_id() {
+        let user1 = generate_local_wallet();
+        let user2 = generate_local_wallet();
+        let client1 = ClientBuilder::new_test_client(&user1).await;
+        let client2 = ClientBuilder::new_test_client(&user2).await;
+
+        // First call should create a new DM
+        let dm1 = client1
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        // Verify DM was created with correct properties
+        let metadata = dm1
+            .metadata(&client1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            metadata.dm_members.clone().unwrap().member_one_inbox_id,
+            client1.inbox_id()
+        );
+        assert_eq!(
+            metadata.dm_members.unwrap().member_two_inbox_id,
+            client2.inbox_id()
+        );
+
+        // Second call should find the existing DM
+        let dm2 = client1
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        // Verify we got back the same DM
+        assert_eq!(dm1.group_id, dm2.group_id);
+        assert_eq!(dm1.created_at_ns, dm2.created_at_ns);
+
+        // Verify the DM appears in conversations list
+        let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(conversations.len(), 1);
+        assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 }
