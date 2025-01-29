@@ -583,8 +583,9 @@ where
                     mls_group,
                 )
                 .await?;
-                // We don't care about the validated commit because we need to recreate it below anyway.
-                // This is to fetch the missing identity updates.
+                // We don't care about the validated commit because we need to
+                // recreate it below after re-processing the message anyway.
+                // This is to fetch the missing identity updates so the eager revalidation below doesn't fail.
                 let _ = ValidatedCommit::from_staged_commit_with_identity_update_attempt(
                     &self.client,
                     provider.conn_ref(),
@@ -601,21 +602,16 @@ where
 
         provider.transaction(|provider| {
             let processed_message = mls_group.process_message(provider, message)?;
-
             let mut validated_commit = None;
 
             if let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
                 processed_message.content()
             {
-                let Some(expected_diff) = expected_diff else {
-                    unreachable!();
-                };
-
                 validated_commit = Some(ValidatedCommit::from_staged_commit(
                     provider.conn_ref(),
                     staged_commit,
                     mls_group,
-                    &expected_diff,
+                    &expected_diff.expect("Should be cached from above."),
                 )?);
             }
 

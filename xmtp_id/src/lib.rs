@@ -40,16 +40,16 @@ pub type InboxId = String;
 pub type WalletAddress = String;
 
 pub trait AsIdRef: Send + Sync {
-    fn as_ref<'a>(&'a self) -> InboxIdRef<'a>;
+    fn as_ref(&'_ self) -> InboxIdRef<'_>;
 }
 
 impl AsIdRef for InboxId {
-    fn as_ref<'a>(&'a self) -> InboxIdRef<'a> {
-        &*self
+    fn as_ref(&self) -> InboxIdRef<'_> {
+        self
     }
 }
 impl AsIdRef for InboxIdRef<'_> {
-    fn as_ref<'a>(&'a self) -> InboxIdRef<'a> {
+    fn as_ref(&self) -> InboxIdRef<'_> {
         self
     }
 }

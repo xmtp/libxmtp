@@ -140,10 +140,10 @@ pub trait ScopedGroupClient: Sized {
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state<'a>(
+    async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(

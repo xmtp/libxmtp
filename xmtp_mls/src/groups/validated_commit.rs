@@ -261,7 +261,7 @@ impl ValidatedCommit {
         match result {
             Err(CommitValidationError::InboxValidationFailed(missing)) => {
                 let _ = client
-                    .batch_get_association_state(conn, &*missing)
+                    .batch_get_association_state(conn, &missing)
                     .await
                     .unwrap();
 
@@ -269,7 +269,7 @@ impl ValidatedCommit {
                     conn,
                     staged_commit,
                     openmls_group,
-                    &expected_diff,
+                    expected_diff,
                 )?;
                 Ok(result)
             }
@@ -365,7 +365,7 @@ impl ValidatedCommit {
             )?;
             if let Some(association_state) = association_state {
                 let identifier = participant.installation_id.into();
-                if let Some(_) = association_state.get(&identifier) {
+                if association_state.get(&identifier).is_some() {
                     continue;
                 }
             }
