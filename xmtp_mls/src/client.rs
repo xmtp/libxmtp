@@ -560,25 +560,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
-    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating dm with address: {}", account_address);
-        let provider = self.mls_provider()?;
-
-        let inbox_id = match self
-            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                return Err(NotFound::InboxIdForAddress(account_address).into());
-            }
-        };
-
-        self.create_dm_by_inbox_id(inbox_id).await
-    }
-
-    /// Create a new Direct Message with the default settings
-    pub async fn create_dm_by_inbox_id(
+    async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -1641,9 +1623,18 @@ pub(crate) mod tests {
             .unwrap();
 
         // Verify DM was created with correct properties
-        let metadata = dm1.metadata(&client1.mls_provider().unwrap()).await.unwrap();
-        assert_eq!(metadata.dm_members.clone().unwrap().member_one_inbox_id, client1.inbox_id());
-        assert_eq!(metadata.dm_members.unwrap().member_two_inbox_id, client2.inbox_id());
+        let metadata = dm1
+            .metadata(&client1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            metadata.dm_members.clone().unwrap().member_one_inbox_id,
+            client1.inbox_id()
+        );
+        assert_eq!(
+            metadata.dm_members.unwrap().member_two_inbox_id,
+            client2.inbox_id()
+        );
 
         // Second call should find the existing DM
         let dm2 = client1

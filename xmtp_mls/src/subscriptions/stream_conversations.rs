@@ -484,7 +484,7 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         let result =
@@ -523,7 +523,7 @@ mod test {
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         let group = stream.next().await.unwrap();
@@ -535,7 +535,7 @@ mod test {
         let stream = alix.stream_conversations(None).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         let group = stream.next().await.unwrap();
@@ -543,7 +543,7 @@ mod test {
         groups.push(group.unwrap());
 
         let dm = bo
-            .create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
