@@ -36,7 +36,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -348,13 +348,12 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             content_type_id.version_major,
         ) {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
-                let reaction = ReactionV2::decode(content.content.as_slice())?;
-                hex::decode(reaction.reference).ok()
+                ReactionV2::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|reaction| hex::decode(reaction.reference).ok())
             }
-            (ReactionCodec::TYPE_ID, _) => {
-                // TODO: Implement JSON deserialization for legacy reaction format
-                None
-            }
+            (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
+                .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
             _ => None,
         };
 
@@ -796,7 +795,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
         EncodedContent::decode(message)
-            .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .inspect_err(|_| {
+                tracing::debug!("No queryable content fields, msg not formatted as encoded content")
+            })
             .and_then(|content| {
                 QueryableContentFields::try_from(content).inspect_err(|e| {
                     tracing::debug!(
