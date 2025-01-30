@@ -439,7 +439,7 @@ impl FfiXmtpClient {
             .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier: scw_verifier.clone(),
+                    scw_verifier: Arc::unwrap_or_clone(scw_verifier),
                 })
             })
     }
@@ -474,10 +474,10 @@ impl FfiXmtpClient {
             .inner_client
             .associate_wallet(new_wallet_address.into())
             .await?;
-        let scw_verifier = self.inner_client.scw_verifier().clone();
+        let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: scw_verifier.clone(),
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -507,10 +507,10 @@ impl FfiXmtpClient {
         let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
             .await?;
-        let scw_verifier = inner_client.clone().scw_verifier().clone();
+        let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier,
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -537,7 +537,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
     }
 
@@ -555,7 +555,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
     }
 }

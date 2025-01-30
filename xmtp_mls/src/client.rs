@@ -253,7 +253,7 @@ where
         }
     }
 
-    pub fn scw_verifier(&self) -> &V {
+    pub fn scw_verifier(&self) -> &Arc<V> {
         &self.scw_verifier
     }
 }
