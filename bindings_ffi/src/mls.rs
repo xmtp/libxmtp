@@ -147,7 +147,7 @@ pub async fn create_client(
 
     let xmtp_client = builder.build().await?;
 
-    og::info!(
+    log::info!(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
