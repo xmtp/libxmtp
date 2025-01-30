@@ -1,10 +1,7 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
 use std::{collections::HashSet, sync::Arc};
-use tokio::{
-    sync::{broadcast, oneshot},
-    task::JoinHandle,
-};
+use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -43,14 +40,6 @@ impl RetryableError for LocalEventError {
     fn is_retryable(&self) -> bool {
         true
     }
-}
-
-#[derive(Debug)]
-/// Wrapper around a [`tokio::task::JoinHandle`] but with a oneshot receiver
-/// which allows waiting for a `with_callback` stream fn to be ready for stream items.
-pub struct StreamHandle<T> {
-    handle: JoinHandle<T>,
-    start: Option<oneshot::Receiver<()>>,
 }
 
 /// Events local to this client
@@ -178,21 +167,6 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
                 .and_then(LocalEvents::preference_filter)
                 .map(Result::Ok)
         })
-    }
-}
-
-impl<T> StreamHandle<T> {
-    /// Waits for the stream to be fully spawned
-    pub async fn wait_for_ready(&mut self) {
-        if let Some(s) = self.start.take() {
-            let _ = s.await;
-        }
-    }
-}
-
-impl<T> From<StreamHandle<T>> for JoinHandle<T> {
-    fn from(stream: StreamHandle<T>) -> JoinHandle<T> {
-        stream.handle
     }
 }
 

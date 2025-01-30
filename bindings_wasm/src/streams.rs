@@ -1,4 +1,4 @@
-use std::{rc::Rc, cell::RefCell};
+use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
 use xmtp_mls::{
@@ -10,15 +10,15 @@ type StreamHandle = Box<GenericStreamHandle<Result<(), XmtpSubscribeError>>>;
 
 #[wasm_bindgen]
 extern "C" {
-    pub type StreamCallback;
+  pub type StreamCallback;
 
-    /// Js Fn to call on an item
-    #[wasm_bindgen(structural, method)]
-    pub fn on_item(this: &StreamCallback) -> js_sys::Function;
+  /// Js Fn to call on an item
+  #[wasm_bindgen(structural, method)]
+  pub fn on_item(this: &StreamCallback) -> js_sys::Function;
 
-    /// Js Fn to call on error
-    #[wasm_bindgen(structural, method)]
-    pub fn on_error(this: &StreamCallback) -> js_sys::Function;
+  /// Js Fn to call on error
+  #[wasm_bindgen(structural, method)]
+  pub fn on_error(this: &StreamCallback) -> js_sys::Function;
 }
 
 #[wasm_bindgen]
@@ -59,8 +59,10 @@ impl StreamCloser {
       return Ok(());
     }
 
-    let mut stream_handle = self.handle.borrow_mut();
-    let stream_handle = stream_handle.take();
+    let stream_handle = {
+      let mut handle = self.handle.borrow_mut();
+      handle.take()
+    };
 
     if let Some(mut h) = stream_handle {
       match h.end_and_wait().await {
@@ -76,10 +78,12 @@ impl StreamCloser {
   }
 
   #[wasm_bindgen(js_name = "waitForReady")]
-  pub async fn wait_for_ready(&self) -> Result<(), JsError> {
-    let mut stream_handle = self.handle.borrow_mut();
-    futures::future::OptionFuture::from((*stream_handle).as_mut().map(|s| s.wait_for_ready()))
-      .await;
+  pub async fn wait_for_ready(&mut self) -> Result<(), JsError> {
+    let mut opt = Rc::get_mut(&mut self.handle);
+    let opt = opt
+      .as_mut()
+      .map(|h| h.get_mut().as_mut().map(|s| s.wait_for_ready()));
+    futures::future::OptionFuture::from(opt.flatten()).await;
     Ok(())
   }
 
