@@ -584,7 +584,7 @@ where
             sender_inbox_id
         );
 
-        let expected_diff = match &processed_message.content() {
+        let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
                 let expected_diff = ExpectedDiff::from_staged_commit(
                     &self.client,
@@ -596,34 +596,23 @@ where
                 // We don't care about the validated commit because we need to
                 // recreate it below after re-processing the message anyway.
                 // This is to fetch the missing identity updates so the eager revalidation below doesn't fail.
-                let _ = ValidatedCommit::from_staged_commit_with_identity_update_attempt(
-                    &self.client,
-                    provider.conn_ref(),
-                    staged_commit,
-                    mls_group,
-                    &expected_diff,
-                )
-                .await?;
+                let validated_commit =
+                    ValidatedCommit::from_staged_commit_with_identity_update_attempt(
+                        &self.client,
+                        provider.conn_ref(),
+                        staged_commit,
+                        mls_group,
+                        &expected_diff,
+                    )
+                    .await?;
 
-                Some(expected_diff)
+                Some(validated_commit)
             }
             _ => None,
         };
 
         provider.transaction(|provider| {
-            // let processed_message = mls_group.process_message(provider, message)?;
-            let mut validated_commit = None;
-
-            if let ProcessedMessageContent::StagedCommitMessage(staged_commit) =
-                processed_message.content()
-            {
-                validated_commit = Some(ValidatedCommit::from_staged_commit(
-                    provider.conn_ref(),
-                    staged_commit,
-                    mls_group,
-                    &expected_diff.expect("Should be cached from above."),
-                )?);
-            }
+            let processed_message = mls_group.process_message(provider, message)?;
 
             if let Some(cursor) = cursor {
                 let is_updated = provider.conn_ref().update_cursor(
