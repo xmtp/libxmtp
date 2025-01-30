@@ -8,8 +8,8 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::groups::group_mutable_metadata::MetadataField;
 use crate::storage::group_intent::IntentKind::MetadataUpdate;
+use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::sync_update_installations_interval_ns, groups::validated_commit::ExpectedDiff,
 };
@@ -136,6 +136,8 @@ pub enum GroupMessageProcessingError {
     ProcessIntent(#[from] ProcessIntentError),
     #[error(transparent)]
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
+    #[error(transparent)]
+    Client(#[from] ClientError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -149,6 +151,7 @@ impl RetryableError for GroupMessageProcessingError {
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::CommitValidation(err) => err.is_retryable(),
             Self::ClearPendingCommit(err) => err.is_retryable(),
+            Self::Client(err) => err.is_retryable(),
             Self::WrongCredentialType(_)
             | Self::Codec(_)
             | Self::AlreadyProcessed(_)
@@ -554,8 +557,12 @@ where
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
             result?;
         }
-
         let processed_message = processed_message.expect("Was just set to Some")?;
+
+        // Reload the mlsgroup to clear the it's internal cache
+        let mls_group_reload = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?
+            .expect("Mls group is currently loaded");
+        let _ = std::mem::replace(mls_group, mls_group_reload);
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -601,7 +608,7 @@ where
         };
 
         provider.transaction(|provider| {
-            let processed_message = mls_group.process_message(provider, message)?;
+            // let processed_message = mls_group.process_message(provider, message)?;
             let mut validated_commit = None;
 
             if let ProcessedMessageContent::StagedCommitMessage(staged_commit) =

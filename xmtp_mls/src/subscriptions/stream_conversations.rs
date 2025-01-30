@@ -1,6 +1,6 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
-    groups::{mls_ext::welcome_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
+    groups::{mls_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
     storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
     Client, XmtpOpenMlsProvider,
 };

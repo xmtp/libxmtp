@@ -39,7 +39,8 @@ use super::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    ScopedGroupClient,
+    mls_sync::GroupMessageProcessingError,
+    GroupError, ScopedGroupClient,
 };
 
 #[derive(Debug, Error)]
@@ -254,16 +255,13 @@ impl ValidatedCommit {
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
         expected_diff: &ExpectedDiff,
-    ) -> Result<Self, CommitValidationError> {
+    ) -> Result<Self, GroupMessageProcessingError> {
         let result =
             ValidatedCommit::from_staged_commit(conn, staged_commit, openmls_group, &expected_diff);
 
         match result {
             Err(CommitValidationError::InboxValidationFailed(missing)) => {
-                let _ = client
-                    .batch_get_association_state(conn, &missing)
-                    .await
-                    .unwrap();
+                let _ = client.batch_get_association_state(conn, &missing).await?;
 
                 let result = ValidatedCommit::from_staged_commit(
                     conn,
@@ -273,7 +271,7 @@ impl ValidatedCommit {
                 )?;
                 Ok(result)
             }
-            result => result,
+            result => Ok(result?),
         }
     }
 

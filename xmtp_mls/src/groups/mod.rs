@@ -15,7 +15,7 @@ pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
-use mls_ext::welcome_ext::build_group_join_config;
+use mls_ext::build_group_join_config;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
