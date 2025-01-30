@@ -237,14 +237,6 @@ pub struct ValidatedCommit {
     pub dm_members: Option<DmMembers<String>>,
 }
 
-pub enum OptimisticValidationResult {
-    Validated(ValidatedCommit),
-    MissingUpdates {
-        // (inbox_id, to_sequence_id)
-        association_states: Vec<(String, i64)>,
-    },
-}
-
 impl ValidatedCommit {
     /// This function is functionally the same as `from_staged_commit`,
     /// with the exception that it will also attempt to fetch the missing identity updates.
