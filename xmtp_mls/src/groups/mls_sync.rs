@@ -564,7 +564,6 @@ where
             .ok_or(GroupMessageProcessingError::Storage(
                 StorageError::NotFound(NotFound::MlsGroup),
             ))?;
-
         let _ = std::mem::replace(mls_group, mls_group_reload);
 
         let (sender_inbox_id, sender_installation_id) =
@@ -593,9 +592,6 @@ where
                     mls_group,
                 )
                 .await?;
-                // We don't care about the validated commit because we need to
-                // recreate it below after re-processing the message anyway.
-                // This is to fetch the missing identity updates so the eager revalidation below doesn't fail.
                 let validated_commit =
                     ValidatedCommit::from_staged_commit_with_identity_update_attempt(
                         &self.client,
