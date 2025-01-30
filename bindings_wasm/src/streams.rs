@@ -14,11 +14,11 @@ extern "C" {
 
   /// Js Fn to call on an item
   #[wasm_bindgen(structural, method)]
-  pub fn on_item(this: &StreamCallback) -> js_sys::Function;
+  pub fn on_item(this: &StreamCallback, item: JsValue);
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
-  pub fn on_error(this: &StreamCallback) -> js_sys::Function;
+  pub fn on_error(this: &StreamCallback, error: JsError);
 }
 
 #[wasm_bindgen]

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
@@ -413,7 +412,7 @@ impl Conversations {
       hmac_map.insert(id, keys);
     }
 
-    Ok(serde_wasm_bindgen::to_value(&hmac_map)?)
+    Ok(crate::to_value(&hmac_map)?)
   }
 
   #[wasm_bindgen(js_name = stream)]
@@ -427,14 +426,10 @@ impl Conversations {
       conversation_type.map(Into::into),
       move |message| match message {
         Ok(item) => {
-          let f = callback.on_item();
           let conversation = Conversation::from(item);
-          let _ = f.call0(&JsValue::from(conversation)).unwrap_throw();
+          callback.on_item(JsValue::from(conversation))
         }
-        Err(e) => {
-          let f = callback.on_error();
-          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
-        }
+        Err(e) => callback.on_error(JsError::from(e)),
       },
     );
 
@@ -462,15 +457,14 @@ impl Conversations {
       conversation_type.map(Into::into),
       move |message| match message {
         Ok(m) => {
-          let f = callback.on_item();
-          let _ = f
-            .call0(&serde_wasm_bindgen::to_value(&m).unwrap_throw())
-            .unwrap_throw();
+          let serialized = crate::to_value(&m);
+          if let Err(e) = serialized {
+            callback.on_error(JsError::from(e));
+          } else {
+            callback.on_item(serialized.expect("checked for err"))
+          }
         }
-        Err(e) => {
-          let f = callback.on_error();
-          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
-        }
+        Err(e) => callback.on_error(JsError::from(e)),
       },
     );
     Ok(StreamCloser::new(stream_closer))

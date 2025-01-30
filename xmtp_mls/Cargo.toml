@@ -199,3 +199,6 @@ required-features = ["bench"]
 #harness = false
 #name = "sync"
 #required-features = ["bench"]
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+split-linked-modules = true
