@@ -428,7 +428,7 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        Fetch, Store, XmtpOpenMlsProvider,
+        Fetch, Store,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 
@@ -677,6 +677,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_transaction_rollback() {
+        use crate::XmtpOpenMlsProvider;
         use std::sync::{Arc, Barrier};
 
         let db_path = tmp_path();
