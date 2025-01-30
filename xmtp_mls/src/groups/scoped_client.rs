@@ -132,17 +132,17 @@ pub trait ScopedGroupClient: Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state<'a>(
+    async fn get_association_state(
         &self,
         conn: &DbConnection,
-        inbox_id: InboxIdRef<'a>,
+        inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state<'a>(
+    async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
+        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
