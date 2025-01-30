@@ -143,7 +143,10 @@ mod tests {
 
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
-        let bo_group = bo.create_dm(caro_wallet.get_address()).await.unwrap();
+        let bo_group = bo
+            .find_or_create_dm(caro_wallet.get_address())
+            .await
+            .unwrap();
 
         bo_group.send_message(b"second").await.unwrap();
         assert_msg!(stream, "second");
@@ -217,7 +220,7 @@ mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
         // TODO: This test does not work on web

@@ -1,4 +1,5 @@
 use js_sys::Uint8Array;
+use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::associations::{
@@ -46,7 +47,7 @@ impl Client {
       // this should never happen since we're checking for it above in is_registered
       None => return Err(JsError::new("No signature request found")),
     };
-    let signature_text = self.signature_requests.signature_text();
+    let signature_text = signature_request.signature_text();
 
     self
       .signature_requests
@@ -148,14 +149,14 @@ impl Client {
     signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
   ) -> Result<(), JsError> {
-    let verifier = &self.inner_client().scw_verifier();
+    let verifier = Arc::clone(self.inner_client().scw_verifier());
+
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
-
       signature_request
         .add_signature(signature, verifier)
         .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+        .map_err(crate::error)?;
     } else {
       return Err(JsError::new("Signature request not found"));
     }
@@ -171,8 +172,10 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
+    let verifier = Arc::clone(self.inner_client().scw_verifier());
+    let address = self.account_address().clone();
+
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let address = self.account_address();
       let account_id = AccountId::new_evm(chain_id, address);
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.to_vec(),
@@ -181,11 +184,14 @@ impl Client {
       );
 
       signature_request
-        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
+        .add_new_unverified_smart_contract_signature(signature, &verifier)
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     } else {
-      return Err(JsError::new("Signature request not found"));
+      return Err(JsError::new(&format!(
+        "Signature request for {} not found",
+        address
+      )));
     }
 
     Ok(())

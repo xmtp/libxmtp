@@ -147,7 +147,7 @@ pub async fn create_client(
 
     let xmtp_client = builder.build().await?;
 
-    og::info!(
+    log::info!(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
@@ -980,25 +980,25 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
-    pub async fn create_dm(
+    pub async fn find_or_create_dm(
         &self,
         account_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
-            .create_dm(account_address)
+            .find_or_create_dm(account_address)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
     }
 
-    pub async fn create_dm_with_inbox_id(
+    pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
-            .create_dm_by_inbox_id(inbox_id)
+            .find_or_create_dm_by_inbox_id(inbox_id)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -3282,7 +3282,7 @@ mod tests {
 
         let dm = bo
             .conversations()
-            .create_dm(alix.account_address.clone())
+            .find_or_create_dm(alix.account_address.clone())
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
@@ -3941,7 +3941,7 @@ mod tests {
         // Create DM from client1 to client2
         let dm_group = client1
             .conversations()
-            .create_dm(client2.account_address.clone())
+            .find_or_create_dm(client2.account_address.clone())
             .await
             .unwrap();
 
@@ -4763,7 +4763,7 @@ mod tests {
 
         let alix_group_admin_only = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5365,7 +5365,7 @@ mod tests {
         let bola_conversations = bola.conversations();
 
         let _alix_dm = alix_conversations
-            .create_dm(bola.account_address.clone())
+            .find_or_create_dm(bola.account_address.clone())
             .await
             .unwrap();
         let alix_num_sync = alix_conversations
@@ -5415,6 +5415,7 @@ mod tests {
     async fn test_dm_streaming() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let caro = new_test_client().await;
 
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -5432,7 +5433,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5461,7 +5462,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -5475,8 +5476,8 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
-        alix.conversations()
-            .create_dm(bo.account_address.clone())
+        caro.conversations()
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5504,7 +5505,7 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5746,7 +5747,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5782,7 +5783,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5844,7 +5845,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5989,7 +5990,7 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .create_dm(wallet_a.get_address().clone())
+            .find_or_create_dm(wallet_a.get_address().clone())
             .await
             .unwrap();
 
@@ -6415,5 +6416,85 @@ mod tests {
         // Verify the name is updated
         amal_solo_group.sync().await.unwrap();
         assert_eq!(amal_solo_group.group_name().unwrap(), "New Group Name 2");
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_dm() {
+        // Create two test users
+        let wallet1 = generate_local_wallet();
+        let wallet2 = generate_local_wallet();
+
+        let client1 = new_test_client_with_wallet(wallet1).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Test find_or_create_dm_by_inbox_id
+        let inbox_id2 = client2.inbox_id();
+        let dm_by_inbox = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(inbox_id2)
+            .await
+            .expect("Should create DM with inbox ID");
+
+        // Verify conversation appears in DM list
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should have one DM conversation");
+        assert_eq!(
+            dms[0].conversation.id(),
+            dm_by_inbox.id(),
+            "Listed DM should match created DM"
+        );
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // First client tries to create another DM with the same inbox id
+        let dm_by_inbox2 = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client2.inbox_id())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox2.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
+
+        // Second client tries to create a DM with the client 1 inbox id
+        let dm_by_inbox3 = client2
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client1.inbox_id())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox3.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
     }
 }
