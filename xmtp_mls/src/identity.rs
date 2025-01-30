@@ -1,9 +1,8 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use crate::storage::ProviderTransactions;
 use crate::{
     api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
@@ -24,6 +23,7 @@ use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
@@ -533,33 +533,49 @@ impl Identity {
             return Ok(());
         }
 
-        let kp_bytes = self.rotate_key_package(provider)?;
-        api_client.upload_key_package(kp_bytes, true).await?;
+        self.rotate_and_upload_key_package(provider, api_client)
+            .await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
-    /// Upload a new key package to the network, which will replace any existing key packages for the installation.
-    pub(crate) fn rotate_key_package(
+    pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<u8>, IdentityError> {
+        api_client: &ApiClientWrapper<ApiClient>,
+    ) -> Result<(), IdentityError> {
+        let conn = provider.conn_ref();
+
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        let conn = provider.conn_ref();
         let hash_ref = serialize_key_package_hash_ref(&kp, provider)?;
-        let history_id = conn.store_key_package_history_entry(hash_ref)?.id;
-        let old_id = history_id - 1;
+        let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
 
-        // Find all key packages that are not the current or previous KPs
-        // We can delete before uploading because this is either run inside a transaction or is being applied to a brand
-        // new identity
-        let old_key_packages = conn.find_key_package_history_entries_before_id(old_id)?;
-        for kp in old_key_packages {
-            self.delete_key_package(provider, kp.key_package_hash_ref)?;
+        match api_client.upload_key_package(kp_bytes, true).await {
+            Ok(()) => {
+                // Successfully uploaded. Delete previous KPs
+                let old_id = history_id - 1;
+                provider.transaction(|provider| {
+                    let old_key_packages = provider
+                        .conn_ref()
+                        .find_key_package_history_entries_before_id(old_id)?;
+                    for kp in old_key_packages {
+                        self.delete_key_package(provider, kp.key_package_hash_ref)?;
+                    }
+                    conn.delete_key_package_history_entries_before_id(old_id)?;
+
+                    Ok::<_, IdentityError>(())
+                })?;
+
+                Ok(())
+            }
+            Err(err) => {
+                // Did not upload. Delete the newly created KP.
+                self.delete_key_package(provider, hash_ref)?;
+                conn.delete_key_package_entry_with_id(history_id)?;
+
+                Err(IdentityError::WrappedApi(WrappedApiError::Api(err)))
+            }
         }
-        conn.delete_key_package_history_entries_before_id(old_id)?;
-
-        Ok(kp_bytes)
     }
 
     /// Delete a key package from the local database.

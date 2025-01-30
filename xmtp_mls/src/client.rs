@@ -765,8 +765,9 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        let kp_bytes = self.identity().rotate_key_package(provider)?;
-        self.api_client.upload_key_package(kp_bytes, true).await?;
+        self.identity()
+            .rotate_and_upload_key_package(provider, &self.api_client)
+            .await?;
 
         Ok(())
     }
