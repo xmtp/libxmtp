@@ -868,14 +868,6 @@ where
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
         let cursor = welcome.id;
-        let is_updated = provider.conn_ref().update_cursor(
-            self.installation_public_key(),
-            EntityKind::Welcome,
-            welcome.id as i64,
-        )?;
-        if !is_updated {
-            return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
-        }
         let welcome_id = welcome.id;
         let welcome_data = DecryptedWelcome::from_encrypted_bytes(
             provider,
@@ -888,6 +880,7 @@ where
             welcome_data.welcome,
             welcome_data.added_by_inbox_id,
             welcome_id as i64,
+            Some(cursor as i64),
         )
         .await;
 

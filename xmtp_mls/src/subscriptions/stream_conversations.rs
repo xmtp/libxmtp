@@ -406,6 +406,7 @@ where
                     welcome_data.welcome,
                     welcome_data.added_by_inbox_id,
                     id,
+                    None,
                 )
                 .await
             })

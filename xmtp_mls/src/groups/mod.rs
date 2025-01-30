@@ -59,10 +59,14 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::storage::{
-    group::DmIdExt,
-    group_message::{ContentType, StoredGroupMessageWithReactions},
-    NotFound, ProviderTransactions, StorageError,
+use crate::{
+    storage::{
+        group::DmIdExt,
+        group_message::{ContentType, StoredGroupMessageWithReactions},
+        refresh_state::EntityKind,
+        NotFound, ProviderTransactions, StorageError,
+    },
+    types::InstallationId,
 };
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -588,6 +592,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         welcome: MlsWelcome,
         added_by_inbox: String,
         welcome_id: i64,
+        cursor: Option<i64>,
     ) -> Result<Self, GroupError>
     where
         ScopedClient: Clone,
@@ -601,6 +606,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
+            if let Some(cursor) = cursor {
+                let is_updated = provider.conn_ref().update_cursor(
+                    client.context().installation_public_key(),
+                    EntityKind::Welcome,
+                    cursor,
+                )?;
+                if !is_updated {
+                    return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
+                }
+            }
+
             let mls_group = staged_welcome.into_group(provider)?;
             let group_id = mls_group.group_id().to_vec();
             let metadata = extract_group_metadata(&mls_group)?;
