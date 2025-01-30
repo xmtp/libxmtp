@@ -762,7 +762,7 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_key_package(
+    pub async fn rotate_and_upload_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
@@ -853,7 +853,7 @@ where
 
         // If any welcomes were found, rotate your key package
         if num_envelopes > 0 {
-            self.rotate_key_package(provider).await?;
+            self.rotate_and_upload_key_package(provider).await?;
         }
 
         Ok(groups)
@@ -1129,7 +1129,7 @@ pub(crate) mod tests {
 
         // Rotate and fetch again.
         client
-            .rotate_key_package(&client.mls_provider().unwrap())
+            .rotate_and_upload_key_package(&client.mls_provider().unwrap())
             .await
             .unwrap();
 
