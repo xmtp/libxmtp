@@ -247,7 +247,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-impl<'a, F, R> HttpStream<'a, F, R>
+impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
@@ -260,7 +260,7 @@ where
         let noop_waker = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&noop_waker);
         let mut this = unsafe { Pin::new_unchecked(self) };
-        if let Poll::Ready(_) = this.as_mut().poll_next(&mut cx) {
+        if this.as_mut().poll_next(&mut cx).is_ready() {
             tracing::error!("stream ready before established...");
             unreachable!()
         }

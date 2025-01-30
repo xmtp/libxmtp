@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
@@ -10,6 +11,7 @@ use xmtp_mls::storage::group::GroupQueryArgs;
 use crate::conversation::MessageDisappearingSettings;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{StreamCallback, StreamCloser};
 use crate::{client::RustXmtpClient, conversation::Conversation};
 
 #[wasm_bindgen]
@@ -412,5 +414,65 @@ impl Conversations {
     }
 
     Ok(serde_wasm_bindgen::to_value(&hmac_map)?)
+  }
+
+  #[wasm_bindgen(js_name = stream)]
+  pub fn stream(
+    &self,
+    callback: StreamCallback,
+    conversation_type: Option<ConversationType>,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      move |message| match message {
+        Ok(item) => {
+          let f = callback.on_item();
+          let conversation = Conversation::from(item);
+          let _ = f.call0(&JsValue::from(conversation)).unwrap_throw();
+        }
+        Err(e) => {
+          let f = callback.on_error();
+          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
+        }
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[wasm_bindgen(js_name = "streamGroups")]
+  pub fn stream_groups(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    self.stream(callback, Some(ConversationType::Group))
+  }
+
+  #[wasm_bindgen(js_name = "streamDms")]
+  pub fn stream_dms(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    self.stream(callback, Some(ConversationType::Dm))
+  }
+
+  #[wasm_bindgen(js_name = "streamAllMessages")]
+  pub fn stream_all_messages(
+    &self,
+    callback: StreamCallback,
+    conversation_type: Option<ConversationType>,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      move |message| match message {
+        Ok(m) => {
+          let f = callback.on_item();
+          let _ = f
+            .call0(&serde_wasm_bindgen::to_value(&m).unwrap_throw())
+            .unwrap_throw();
+        }
+        Err(e) => {
+          let f = callback.on_error();
+          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
+        }
+      },
+    );
+    Ok(StreamCloser::new(stream_closer))
   }
 }
