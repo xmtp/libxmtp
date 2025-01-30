@@ -257,7 +257,7 @@ impl ValidatedCommit {
         expected_diff: &ExpectedDiff,
     ) -> Result<Self, GroupMessageProcessingError> {
         let result =
-            ValidatedCommit::from_staged_commit(conn, staged_commit, openmls_group, &expected_diff);
+            ValidatedCommit::from_staged_commit(conn, staged_commit, openmls_group, expected_diff);
 
         match result {
             Err(CommitValidationError::InboxValidationFailed(missing)) => {

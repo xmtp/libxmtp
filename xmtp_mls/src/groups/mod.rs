@@ -59,14 +59,11 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::{
-    storage::{
-        group::DmIdExt,
-        group_message::{ContentType, StoredGroupMessageWithReactions},
-        refresh_state::EntityKind,
-        NotFound, ProviderTransactions, StorageError,
-    },
-    types::InstallationId,
+use crate::storage::{
+    group::DmIdExt,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    refresh_state::EntityKind,
+    NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::mls::message_contents::{
