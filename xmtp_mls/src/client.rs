@@ -34,7 +34,6 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
-    intents::ProcessIntentError,
     mutex_registry::MutexRegistry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
