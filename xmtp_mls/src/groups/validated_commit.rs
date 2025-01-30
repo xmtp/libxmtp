@@ -40,7 +40,7 @@ use super::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
     mls_sync::GroupMessageProcessingError,
-    GroupError, ScopedGroupClient,
+    ScopedGroupClient,
 };
 
 #[derive(Debug, Error)]
