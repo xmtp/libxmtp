@@ -8,7 +8,7 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::storage::group_intent::IntentKind::MetadataUpdate;
+use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::sync_update_installations_interval_ns, groups::validated_commit::ExpectedDiff,
@@ -561,7 +561,10 @@ where
 
         // Reload the mlsgroup to clear the it's internal cache
         let mls_group_reload = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?
-            .expect("Mls group is currently loaded");
+            .ok_or(GroupMessageProcessingError::Storage(
+                StorageError::NotFound(NotFound::MlsGroup),
+            ))?;
+
         let _ = std::mem::replace(mls_group, mls_group_reload);
 
         let (sender_inbox_id, sender_installation_id) =
