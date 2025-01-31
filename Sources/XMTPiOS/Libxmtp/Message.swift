@@ -20,6 +20,7 @@ public enum SortDirection {
 public struct Message: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
+    let childMessages: [Message]?
 
 	public var id: String {
 		ffiMessage.id.toHex
@@ -104,10 +105,41 @@ public struct Message: Identifiable {
 			// Decode the content once during creation
 			let decodedContent: Any = try encodedContent.decoded()
 			return Message(
-				ffiMessage: ffiMessage, decodedContent: decodedContent)
+                ffiMessage: ffiMessage, decodedContent: decodedContent, childMessages: nil)
 		} catch {
 			print("Error creating Message: \(error)")
 			return nil
 		}
 	}
+    
+    public static func create(ffiMessage: FfiMessageWithReactions)
+        -> Message?
+    {
+        do {
+            let encodedContent = try EncodedContent(
+                serializedBytes: ffiMessage.message.content)
+            if encodedContent.type == ContentTypeGroupUpdated
+                && ffiMessage.message.kind != .membershipChange
+            {
+                throw MessageError.decodeError(
+                    "Error decoding group membership change")
+            }
+            // Decode the content once during creation
+            let decodedContent: Any = try encodedContent.decoded()
+
+			let childMessages = try ffiMessage.reactions.map { reaction in
+                let encodedContent = try EncodedContent(
+                    serializedBytes: reaction.content)
+                // Decode the content once during creation
+                let decodedContent: Any = try encodedContent.decoded()
+                return Message(ffiMessage: reaction, decodedContent: decodedContent, childMessages: nil)
+			}
+
+            return Message(
+                ffiMessage: ffiMessage.message, decodedContent: decodedContent, childMessages: childMessages)
+        } catch {
+            print("Error creating Message: \(error)")
+            return nil
+        }
+    }
 }

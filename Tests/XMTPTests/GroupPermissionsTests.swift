@@ -360,7 +360,7 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
 			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
-			updateMessageExpirationPolicy: PermissionOption.allow
+            updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissions(
@@ -403,7 +403,7 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
 			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
-			updateMessageExpirationPolicy: PermissionOption.allow
+            updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissionsWithInboxIds(
@@ -447,7 +447,7 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
 			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
-			updateMessageExpirationPolicy: PermissionOption.allow
+            updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		await assertThrowsAsyncError(
 			try await fixtures.boClient.conversations

@@ -68,7 +68,7 @@ public class PermissionPolicySet {
 	public var updateGroupDescriptionPolicy: PermissionOption
 	public var updateGroupImagePolicy: PermissionOption
 	public var updateGroupPinnedFrameUrlPolicy: PermissionOption
-	public var updateMessageExpirationPolicy: PermissionOption
+	public var updateMessageDisappearingPolicy: PermissionOption
 
 	public init(
 		addMemberPolicy: PermissionOption, removeMemberPolicy: PermissionOption,
@@ -77,7 +77,7 @@ public class PermissionPolicySet {
 		updateGroupDescriptionPolicy: PermissionOption,
 		updateGroupImagePolicy: PermissionOption,
 		updateGroupPinnedFrameUrlPolicy: PermissionOption,
-		updateMessageExpirationPolicy: PermissionOption
+        updateMessageDisappearingPolicy: PermissionOption
 	) {
 		self.addMemberPolicy = addMemberPolicy
 		self.removeMemberPolicy = removeMemberPolicy
@@ -87,7 +87,7 @@ public class PermissionPolicySet {
 		self.updateGroupDescriptionPolicy = updateGroupDescriptionPolicy
 		self.updateGroupImagePolicy = updateGroupImagePolicy
 		self.updateGroupPinnedFrameUrlPolicy = updateGroupPinnedFrameUrlPolicy
-		self.updateMessageExpirationPolicy = updateMessageExpirationPolicy
+		self.updateMessageDisappearingPolicy = updateMessageDisappearingPolicy
 	}
 
 	static func toFfiPermissionPolicySet(
@@ -113,9 +113,9 @@ public class PermissionPolicySet {
 			updateGroupPinnedFrameUrlPolicy:
 				PermissionOption.toFfiPermissionPolicy(
 					option: permissionPolicySet.updateGroupPinnedFrameUrlPolicy),
-			updateMessageExpirationMsPolicy:
+            updateMessageDisappearingPolicy:
 				PermissionOption.toFfiPermissionPolicy(
-					option: permissionPolicySet.updateMessageExpirationPolicy)
+					option: permissionPolicySet.updateMessageDisappearingPolicy)
 
 		)
 	}
@@ -145,10 +145,10 @@ public class PermissionPolicySet {
 				PermissionOption.fromFfiPermissionPolicy(
 					ffiPolicy: ffiPermissionPolicySet
 						.updateGroupPinnedFrameUrlPolicy),
-			updateMessageExpirationPolicy:
+            updateMessageDisappearingPolicy:
 				PermissionOption.fromFfiPermissionPolicy(
 					ffiPolicy: ffiPermissionPolicySet
-						.updateMessageExpirationMsPolicy)
+						.updateMessageDisappearingPolicy)
 
 		)
 	}

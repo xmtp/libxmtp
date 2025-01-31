@@ -251,4 +251,64 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			return Message.create(ffiMessage: ffiMessage)
 		}
 	}
+    
+    public func messagesWithReactions(
+        beforeNs: Int64? = nil,
+        afterNs: Int64? = nil,
+        limit: Int? = nil,
+        direction: SortDirection? = .descending,
+        deliveryStatus: MessageDeliveryStatus = .all
+    ) async throws -> [Message] {
+        var options = FfiListMessagesOptions(
+            sentBeforeNs: nil,
+            sentAfterNs: nil,
+            limit: nil,
+            deliveryStatus: nil,
+            direction: nil,
+            contentTypes: nil
+        )
+        
+        if let beforeNs {
+            options.sentBeforeNs = beforeNs
+        }
+        
+        if let afterNs {
+            options.sentAfterNs = afterNs
+        }
+        
+        if let limit {
+            options.limit = Int64(limit)
+        }
+        
+        let status: FfiDeliveryStatus? = {
+            switch deliveryStatus {
+            case .published:
+                return FfiDeliveryStatus.published
+            case .unpublished:
+                return FfiDeliveryStatus.unpublished
+            case .failed:
+                return FfiDeliveryStatus.failed
+            default:
+                return nil
+            }
+        }()
+        
+        options.deliveryStatus = status
+        
+        let direction: FfiDirection? = {
+            switch direction {
+            case .ascending:
+                return FfiDirection.ascending
+            default:
+                return FfiDirection.descending
+            }
+        }()
+        
+        options.direction = direction
+        
+        return try await ffiConversation.findMessagesWithReactions(opts: options).compactMap {
+            ffiMessageWithReactions in
+            return Message.create(ffiMessage: ffiMessageWithReactions)
+        }
+    }
 }
