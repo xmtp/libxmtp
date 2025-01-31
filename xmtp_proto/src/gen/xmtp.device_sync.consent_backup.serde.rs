@@ -136,6 +136,7 @@ impl serde::Serialize for ConsentStateSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::ConseNtStateSaveUnspecified => "CONSENt_STATE_SAVE_UNSPECIFIED",
             Self::Unknown => "CONSENT_STATE_SAVE_UNKNOWN",
             Self::Allowed => "CONSENT_STATE_SAVE_ALLOWED",
             Self::Denied => "CONSENT_STATE_SAVE_DENIED",
@@ -150,6 +151,7 @@ impl<'de> serde::Deserialize<'de> for ConsentStateSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "CONSENt_STATE_SAVE_UNSPECIFIED",
             "CONSENT_STATE_SAVE_UNKNOWN",
             "CONSENT_STATE_SAVE_ALLOWED",
             "CONSENT_STATE_SAVE_DENIED",
@@ -193,6 +195,7 @@ impl<'de> serde::Deserialize<'de> for ConsentStateSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "CONSENt_STATE_SAVE_UNSPECIFIED" => Ok(ConsentStateSave::ConseNtStateSaveUnspecified),
                     "CONSENT_STATE_SAVE_UNKNOWN" => Ok(ConsentStateSave::Unknown),
                     "CONSENT_STATE_SAVE_ALLOWED" => Ok(ConsentStateSave::Allowed),
                     "CONSENT_STATE_SAVE_DENIED" => Ok(ConsentStateSave::Denied),
@@ -210,6 +213,7 @@ impl serde::Serialize for ConsentTypeSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "CONSENT_TYPE_SAVE_UNSPECIFIED",
             Self::ConversationId => "CONSENT_TYPE_SAVE_CONVERSATION_ID",
             Self::InboxId => "CONSENT_TYPE_SAVE_INBOX_ID",
             Self::Address => "CONSENT_TYPE_SAVE_ADDRESS",
@@ -224,6 +228,7 @@ impl<'de> serde::Deserialize<'de> for ConsentTypeSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "CONSENT_TYPE_SAVE_UNSPECIFIED",
             "CONSENT_TYPE_SAVE_CONVERSATION_ID",
             "CONSENT_TYPE_SAVE_INBOX_ID",
             "CONSENT_TYPE_SAVE_ADDRESS",
@@ -267,6 +272,7 @@ impl<'de> serde::Deserialize<'de> for ConsentTypeSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "CONSENT_TYPE_SAVE_UNSPECIFIED" => Ok(ConsentTypeSave::Unspecified),
                     "CONSENT_TYPE_SAVE_CONVERSATION_ID" => Ok(ConsentTypeSave::ConversationId),
                     "CONSENT_TYPE_SAVE_INBOX_ID" => Ok(ConsentTypeSave::InboxId),
                     "CONSENT_TYPE_SAVE_ADDRESS" => Ok(ConsentTypeSave::Address),

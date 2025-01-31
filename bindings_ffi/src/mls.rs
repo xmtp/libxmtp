@@ -18,7 +18,7 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupOptions};
+use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
@@ -53,7 +53,7 @@ use xmtp_mls::{
     subscriptions::SubscribeError,
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
+use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
@@ -617,7 +617,7 @@ fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
 
 #[derive(uniffi::Record)]
 pub struct FfiBackupMetadata {
-    backup_version: u32,
+    backup_version: u16,
     elements: Vec<FfiBackupElementSelection>,
     exported_at_ns: i64,
     start_ns: Option<i64>,
@@ -627,7 +627,7 @@ impl From<BackupMetadata> for FfiBackupMetadata {
     fn from(value: BackupMetadata) -> Self {
         Self {
             backup_version: value.backup_version,
-            elements: value.elements().map(Into::into).collect(),
+            elements: value.elements.into_iter().map(Into::into).collect(),
             start_ns: value.start_ns,
             end_ns: value.end_ns,
             exported_at_ns: value.exported_at_ns,

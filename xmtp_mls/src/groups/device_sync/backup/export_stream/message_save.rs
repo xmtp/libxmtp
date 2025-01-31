@@ -16,6 +16,7 @@ impl BackupRecordProvider for GroupMessageSave {
         Self: Sized,
     {
         let mut query = group_messages::table
+            .filter(group_messages::kind.eq(GroupMessageKind::Application))
             .order_by(group_messages::id)
             .into_boxed();
 

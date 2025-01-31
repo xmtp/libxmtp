@@ -6,6 +6,7 @@ impl serde::Serialize for ContentTypeSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "CONTENT_TYPE_SAVE_UNSPECIFIED",
             Self::Unknown => "CONTENT_TYPE_SAVE_UNKNOWN",
             Self::Text => "CONTENT_TYPE_SAVE_TEXT",
             Self::GroupMembershipChange => "CONTENT_TYPE_SAVE_GROUP_MEMBERSHIP_CHANGE",
@@ -27,6 +28,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "CONTENT_TYPE_SAVE_UNSPECIFIED",
             "CONTENT_TYPE_SAVE_UNKNOWN",
             "CONTENT_TYPE_SAVE_TEXT",
             "CONTENT_TYPE_SAVE_GROUP_MEMBERSHIP_CHANGE",
@@ -77,6 +79,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "CONTENT_TYPE_SAVE_UNSPECIFIED" => Ok(ContentTypeSave::Unspecified),
                     "CONTENT_TYPE_SAVE_UNKNOWN" => Ok(ContentTypeSave::Unknown),
                     "CONTENT_TYPE_SAVE_TEXT" => Ok(ContentTypeSave::Text),
                     "CONTENT_TYPE_SAVE_GROUP_MEMBERSHIP_CHANGE" => Ok(ContentTypeSave::GroupMembershipChange),
@@ -101,6 +104,7 @@ impl serde::Serialize for DeliveryStatusSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "DELIVERY_STATUS_SAVE_UNSPECIFIED",
             Self::Unpublished => "DELIVERY_STATUS_SAVE_UNPUBLISHED",
             Self::Published => "DELIVERY_STATUS_SAVE_PUBLISHED",
             Self::Failed => "DELIVERY_STATUS_SAVE_FAILED",
@@ -115,6 +119,7 @@ impl<'de> serde::Deserialize<'de> for DeliveryStatusSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "DELIVERY_STATUS_SAVE_UNSPECIFIED",
             "DELIVERY_STATUS_SAVE_UNPUBLISHED",
             "DELIVERY_STATUS_SAVE_PUBLISHED",
             "DELIVERY_STATUS_SAVE_FAILED",
@@ -158,6 +163,7 @@ impl<'de> serde::Deserialize<'de> for DeliveryStatusSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "DELIVERY_STATUS_SAVE_UNSPECIFIED" => Ok(DeliveryStatusSave::Unspecified),
                     "DELIVERY_STATUS_SAVE_UNPUBLISHED" => Ok(DeliveryStatusSave::Unpublished),
                     "DELIVERY_STATUS_SAVE_PUBLISHED" => Ok(DeliveryStatusSave::Published),
                     "DELIVERY_STATUS_SAVE_FAILED" => Ok(DeliveryStatusSave::Failed),
@@ -175,6 +181,7 @@ impl serde::Serialize for GroupMessageKindSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "GROUP_MESSAGE_KIND_SAVE_UNSPECIFIED",
             Self::Application => "GROUP_MESSAGE_KIND_SAVE_APPLICATION",
             Self::MembershipChange => "GROUP_MESSAGE_KIND_SAVE_MEMBERSHIP_CHANGE",
         };
@@ -188,6 +195,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageKindSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "GROUP_MESSAGE_KIND_SAVE_UNSPECIFIED",
             "GROUP_MESSAGE_KIND_SAVE_APPLICATION",
             "GROUP_MESSAGE_KIND_SAVE_MEMBERSHIP_CHANGE",
         ];
@@ -230,6 +238,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageKindSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "GROUP_MESSAGE_KIND_SAVE_UNSPECIFIED" => Ok(GroupMessageKindSave::Unspecified),
                     "GROUP_MESSAGE_KIND_SAVE_APPLICATION" => Ok(GroupMessageKindSave::Application),
                     "GROUP_MESSAGE_KIND_SAVE_MEMBERSHIP_CHANGE" => Ok(GroupMessageKindSave::MembershipChange),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),

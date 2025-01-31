@@ -12,9 +12,9 @@ use futures::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadata};
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
-use super::BackupError;
+use super::{BackupError, BackupMetadata};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
@@ -33,6 +33,10 @@ impl BackupImporter {
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],
     ) -> Result<Self, DeviceSyncError> {
+        let mut version = [0; 2];
+        reader.read_exact(&mut version).await?;
+        let version = u16::from_le_bytes(version);
+
         let mut nonce = [0; NONCE_SIZE];
         reader.read_exact(&mut nonce).await?;
 
@@ -52,7 +56,7 @@ impl BackupImporter {
             return Err(BackupError::MissingMetadata)?;
         };
 
-        importer.metadata = metadata;
+        importer.metadata = BackupMetadata::from_metadata_save(metadata, version);
         Ok(importer)
     }
 

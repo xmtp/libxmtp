@@ -1,11 +1,8 @@
-use std::path::Path;
-
-use futures::AsyncReadExt;
-use tokio::{fs::File, io::AsyncWriteExt};
-
-use crate::groups::device_sync::DeviceSyncError;
-
 use super::BackupExporter;
+use crate::groups::device_sync::DeviceSyncError;
+use futures::AsyncReadExt;
+use std::path::Path;
+use tokio::{fs::File, io::AsyncWriteExt};
 
 impl BackupExporter {
     pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {

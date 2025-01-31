@@ -15,7 +15,10 @@ impl BackupRecordProvider for GroupSave {
     where
         Self: Sized,
     {
-        let mut query = groups::table.order_by(groups::id).into_boxed();
+        let mut query = groups::table
+            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .order_by(groups::id)
+            .into_boxed();
 
         if let Some(start_ns) = streamer.start_ns {
             query = query.filter(groups::created_at_ns.gt(start_ns));

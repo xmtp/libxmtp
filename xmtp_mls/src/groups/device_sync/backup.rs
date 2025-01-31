@@ -4,12 +4,12 @@ use backup_exporter::BackupExporter;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
 
 pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
-const BACKUP_VERSION: u32 = 0;
+const BACKUP_VERSION: u16 = 0;
 
 mod backup_exporter;
 mod backup_importer;
@@ -27,10 +27,30 @@ pub struct BackupOptions {
     pub elements: Vec<BackupElementSelection>,
 }
 
-impl From<BackupOptions> for BackupMetadata {
+#[derive(Default)]
+pub struct BackupMetadata {
+    pub backup_version: u16,
+    pub elements: Vec<BackupElementSelection>,
+    pub exported_at_ns: i64,
+    pub start_ns: Option<i64>,
+    pub end_ns: Option<i64>,
+}
+
+impl BackupMetadata {
+    fn from_metadata_save(save: BackupMetadataSave, backup_version: u16) -> Self {
+        Self {
+            elements: save.elements().collect(),
+            end_ns: save.end_ns,
+            start_ns: save.start_ns,
+            exported_at_ns: save.exported_at_ns,
+            backup_version,
+        }
+    }
+}
+
+impl From<BackupOptions> for BackupMetadataSave {
     fn from(value: BackupOptions) -> Self {
         Self {
-            backup_version: BACKUP_VERSION,
             end_ns: value.end_ns,
             start_ns: value.start_ns,
             elements: value.elements.iter().map(|&e| e as i32).collect(),
@@ -163,7 +183,8 @@ mod tests {
             .conn_ref()
             .raw_query(|conn| group_messages::table.load(conn))
             .unwrap();
-        assert_eq!(messages.len(), 2);
+        // Only the application messages should sync
+        assert_eq!(messages.len(), 1);
         for msg in messages {
             let old_msg = old_messages.iter().find(|m| msg.id == m.id).unwrap();
             assert_eq!(old_msg.authority_id, msg.authority_id);
