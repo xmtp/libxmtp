@@ -221,7 +221,7 @@ impl Conversations {
     Ok(convo.into())
   }
 
-  #[napi]
+  #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation> {
     let convo = self
       .inner_client
