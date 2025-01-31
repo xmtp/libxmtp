@@ -13,7 +13,7 @@ xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]
 libsecp256k1 = { version = "0.7.1", default-features = false, features = [
-    "hmac",
-    "static-context",
+  "hmac",
+  "static-context",
 ] }
 rand.workspace = true

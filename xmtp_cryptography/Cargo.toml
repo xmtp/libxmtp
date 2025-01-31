@@ -6,26 +6,30 @@ version.workspace = true
 license.workspace = true
 
 [package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown", "aarch64-apple-darwin"]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "wasm32-unknown-unknown",
+  "aarch64-apple-darwin",
+]
 
 [dependencies]
-openmls_basic_credential.workspace = true
-openmls_traits.workspace = true
 curve25519-dalek = "4"
 ecdsa = "0.16.9"
-k256 = { version = "0.13.3", features = ["ecdh"] }
-rand = { workspace = true }
-rand_chacha = "0.3.1"
-tracing.workspace = true
+ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers = { workspace = true }
 hex = { workspace = true }
+k256 = { version = "0.13.3", features = ["ecdh"] }
+openmls_basic_credential.workspace = true
+openmls_traits.workspace = true
+rand = { workspace = true }
+rand_chacha = "0.3.1"
 rustc-hex.workspace = true
 serde = { workspace = true }
 sha2.workspace = true
 sha3.workspace = true
 thiserror = { workspace = true }
 tls_codec.workspace = true
-ed25519-dalek = { workspace = true, features = ["digest"] }
+tracing.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -44,4 +48,3 @@ bincode.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
-

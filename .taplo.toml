@@ -1,2 +1,14 @@
+exclude = [".direnv/**"]
+
 [formatting]
+reorder_keys = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["dependencies"]
+
+[rule.formatting]
 reorder_keys = true
+
+[schema]
+path = "https://json.schemastore.org/cargo.json"
