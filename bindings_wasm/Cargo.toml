@@ -28,3 +28,7 @@ futures.workspace = true
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+split-linked-modules = true

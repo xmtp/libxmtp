@@ -8,7 +8,7 @@ use xmtp_id::associations::generate_inbox_id;
 use xmtp_id::InboxOwner;
 
 // Only run these tests in a browser.
-wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 #[wasm_bindgen]
 extern "C" {
@@ -36,6 +36,8 @@ pub async fn test_create_client() {
     }),
   )
   .await;
-
+  if let Err(ref e) = client {
+    tracing::info!("{:?}", e);
+  }
   assert!(client.is_ok());
 }

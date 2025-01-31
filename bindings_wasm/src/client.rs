@@ -128,7 +128,7 @@ pub async fn create_client(
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   xmtp_mls::storage::init_sqlite().await;
-  let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
+  let api_client = XmtpHttpApiClient::new(host.clone())?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -216,7 +216,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    Ok(serde_wasm_bindgen::to_value(&results)?)
+    Ok(crate::to_value(&results)?)
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
