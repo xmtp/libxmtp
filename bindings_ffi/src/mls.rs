@@ -627,7 +627,11 @@ impl From<BackupMetadata> for FfiBackupMetadata {
     fn from(value: BackupMetadata) -> Self {
         Self {
             backup_version: value.backup_version,
-            elements: value.elements.into_iter().map(Into::into).collect(),
+            elements: value
+                .elements
+                .into_iter()
+                .filter_map(|selection| selection.try_into().ok())
+                .collect(),
             start_ns: value.start_ns,
             end_ns: value.end_ns,
             exported_at_ns: value.exported_at_ns,
