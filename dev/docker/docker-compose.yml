@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   node:
     image: xmtp/node-go:latest
@@ -57,7 +59,7 @@ services:
     environment:
       POSTGRES_PASSWORD: xmtp
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -91,6 +93,6 @@ services:
       chain:
         condition: service_started
       replicationdb:
-        condition: service_healthy
+          condition: service_healthy
     ports:
       - 5050:5050
