@@ -8,11 +8,9 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
+use crate::configuration::sync_update_installations_interval_ns;
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
-use crate::{
-    configuration::sync_update_installations_interval_ns, groups::validated_commit::ExpectedDiff,
-};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -418,25 +416,13 @@ where
                         intent.id
                     );
 
-                    let expected_diff = ExpectedDiff::from_staged_commit(
+                    let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.client,
                         provider.conn_ref(),
                         &staged_commit,
                         mls_group,
                     )
                     .await;
-                    let Ok(expected_diff) = expected_diff else {
-                        return Err(Ok(IntentState::Error));
-                    };
-                    let maybe_validated_commit =
-                        ValidatedCommit::from_staged_commit_with_identity_update_attempt(
-                            &self.client,
-                            provider.conn_ref(),
-                            &staged_commit,
-                            mls_group,
-                            &expected_diff,
-                        )
-                        .await;
 
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
@@ -585,22 +571,13 @@ where
 
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let expected_diff = ExpectedDiff::from_staged_commit(
+                let validated_commit = ValidatedCommit::from_staged_commit(
                     &self.client,
                     provider.conn_ref(),
                     staged_commit,
                     mls_group,
                 )
                 .await?;
-                let validated_commit =
-                    ValidatedCommit::from_staged_commit_with_identity_update_attempt(
-                        &self.client,
-                        provider.conn_ref(),
-                        staged_commit,
-                        mls_group,
-                        &expected_diff,
-                    )
-                    .await?;
 
                 Some(validated_commit)
             }
