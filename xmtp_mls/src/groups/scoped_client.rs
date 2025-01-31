@@ -31,7 +31,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
 
@@ -97,7 +97,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>>;
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
 
@@ -132,17 +132,17 @@ pub trait ScopedGroupClient: Sized {
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
 
-    async fn get_association_state<'a>(
+    async fn get_association_state(
         &self,
         conn: &DbConnection,
-        inbox_id: InboxIdRef<'a>,
+        inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError>;
 
-    async fn batch_get_association_state<'a>(
+    async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
+        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -163,7 +163,7 @@ where
         &self.api_client
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.local_events
     }
 
@@ -246,7 +246,7 @@ where
         (**self).api()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         (**self).local_events()
     }
 
@@ -340,7 +340,98 @@ where
         (**self).store()
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents<impl ScopedGroupClient>> {
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
+        (**self).local_events()
+    }
+
+    fn history_sync_url(&self) -> &Option<String> {
+        (**self).history_sync_url()
+    }
+
+    fn inbox_id(&self) -> InboxIdRef<'_> {
+        (**self).inbox_id()
+    }
+
+    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext> {
+        (**self).context_ref()
+    }
+
+    fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
+        (**self).mls_provider()
+    }
+
+    async fn get_installation_diff(
+        &self,
+        conn: &DbConnection,
+        old_group_membership: &GroupMembership,
+        new_group_membership: &GroupMembership,
+        membership_diff: &MembershipDiff<'_>,
+    ) -> Result<InstallationDiff, InstallationDiffError> {
+        (**self)
+            .get_installation_diff(
+                conn,
+                old_group_membership,
+                new_group_membership,
+                membership_diff,
+            )
+            .await
+    }
+
+    async fn get_key_packages_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
+        (**self)
+            .get_key_packages_for_installation_ids(installation_ids)
+            .await
+    }
+
+    async fn get_association_state(
+        &self,
+        conn: &DbConnection,
+        inbox_id: InboxIdRef<'_>,
+        to_sequence_id: Option<i64>,
+    ) -> Result<AssociationState, ClientError> {
+        (**self)
+            .get_association_state(conn, inbox_id, to_sequence_id)
+            .await
+    }
+
+    async fn batch_get_association_state(
+        &self,
+        conn: &DbConnection,
+        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+    ) -> Result<Vec<AssociationState>, ClientError> {
+        (**self)
+            .batch_get_association_state(conn, identifiers)
+            .await
+    }
+
+    async fn query_group_messages(
+        &self,
+        group_id: &[u8],
+        conn: &DbConnection,
+    ) -> Result<Vec<GroupMessage>, ClientError> {
+        (**self).query_group_messages(group_id, conn).await
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl<T> ScopedGroupClient for std::rc::Rc<T>
+where
+    T: ScopedGroupClient,
+{
+    type ApiClient = <T as ScopedGroupClient>::ApiClient;
+
+    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+        (**self).api()
+    }
+
+    fn store(&self) -> &EncryptedMessageStore {
+        (**self).store()
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         (**self).local_events()
     }
 

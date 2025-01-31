@@ -107,7 +107,7 @@ impl AuthenticatedData {
             //TODO(mkysel) originator is hardcoded for now, but will have to become configurable
             target_originator: 100,
             target_topic: topic,
-            last_seen: None,
+            depends_on: None,
         }
     }
 }

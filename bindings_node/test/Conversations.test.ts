@@ -52,7 +52,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(1)
@@ -104,7 +104,7 @@ describe('Conversations', () => {
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
           updateGroupPinnedFrameUrlPolicy: 3,
-          updateMessageExpirationMsPolicy: 2,
+          updateMessageDisappearingPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -120,7 +120,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 3,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -142,7 +142,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -159,7 +159,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -177,7 +177,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -186,7 +186,9 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1.conversations().createDm(user2.account.address)
+    const group = await client1
+      .conversations()
+      .findOrCreateDm(user2.account.address)
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
     expect(group.createdAtNs()).toBeTypeOf('number')
@@ -204,7 +206,7 @@ describe('Conversations', () => {
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
       updateGroupPinnedFrameUrlPolicy: 0,
-      updateMessageExpirationMsPolicy: 0,
+      updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)
@@ -342,7 +344,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
       updateGroupPinnedFrameUrlPolicy: 2,
-      updateMessageExpirationMsPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     const groupWithDescription = await client1
@@ -410,7 +412,9 @@ describe('Conversations', () => {
     const group2 = await client2
       .conversations()
       .createGroup([user3.account.address])
-    const group3 = await client4.conversations().createDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
 
     await sleep()
 
@@ -432,7 +436,9 @@ describe('Conversations', () => {
     const stream = client3.conversations().streamGroups((err, convo) => {
       groups.push(convo!)
     })
-    const group3 = await client4.conversations().createDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
     const group1 = await client1
       .conversations()
       .createGroup([user3.account.address])
@@ -466,7 +472,9 @@ describe('Conversations', () => {
     const group2 = await client2
       .conversations()
       .createGroup([user3.account.address])
-    const group3 = await client4.conversations().createDm(user3.account.address)
+    const group3 = await client4
+      .conversations()
+      .findOrCreateDm(user3.account.address)
 
     await sleep()
 
@@ -486,7 +494,7 @@ describe('Conversations', () => {
     const client4 = await createRegisteredClient(user4)
     await client1.conversations().createGroup([user2.account.address])
     await client1.conversations().createGroup([user3.account.address])
-    await client1.conversations().createDm(user4.account.address)
+    await client1.conversations().findOrCreateDm(user4.account.address)
 
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages((err, message) => {
@@ -527,7 +535,7 @@ describe('Conversations', () => {
     const client4 = await createRegisteredClient(user4)
     await client1.conversations().createGroup([user2.account.address])
     await client1.conversations().createGroup([user3.account.address])
-    await client1.conversations().createDm(user4.account.address)
+    await client1.conversations().findOrCreateDm(user4.account.address)
 
     let messages: Message[] = []
     const stream = client1
@@ -570,7 +578,7 @@ describe('Conversations', () => {
     const client4 = await createRegisteredClient(user4)
     await client1.conversations().createGroup([user2.account.address])
     await client1.conversations().createGroup([user3.account.address])
-    await client1.conversations().createDm(user4.account.address)
+    await client1.conversations().findOrCreateDm(user4.account.address)
 
     let messages: Message[] = []
     const stream = client1

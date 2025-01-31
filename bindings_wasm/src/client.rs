@@ -2,7 +2,6 @@ use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
@@ -25,7 +24,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct Client {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
+  pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
 
 impl Client {
@@ -33,7 +32,7 @@ impl Client {
     &self.inner_client
   }
 
-  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
+  pub fn signature_requests(&self) -> &HashMap<SignatureRequestType, SignatureRequest> {
     &self.signature_requests
   }
 }
@@ -178,7 +177,7 @@ pub async fn create_client(
   Ok(Client {
     account_address,
     inner_client: Arc::new(xmtp_client),
-    signature_requests: Arc::new(Mutex::new(HashMap::new())),
+    signature_requests: HashMap::new(),
   })
 }
 
@@ -221,26 +220,27 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
-  pub async fn register_identity(&self) -> Result<(), JsError> {
+  pub async fn register_identity(&mut self) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
         "An identity is already registered with this client",
       ));
     }
 
-    let mut signature_requests = self.signature_requests.lock().await;
-
-    let signature_request = signature_requests
+    let signature_request = self
+      .signature_requests
       .get(&SignatureRequestType::CreateInbox)
-      .ok_or(JsError::new("No signature request found"))?;
-
+      .ok_or(JsError::new("No signature request found"))?
+      .clone();
     self
       .inner_client
-      .register_identity(signature_request.clone())
+      .register_identity(signature_request)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    signature_requests.remove(&SignatureRequestType::CreateInbox);
+    self
+      .signature_requests
+      .remove(&SignatureRequestType::CreateInbox);
 
     Ok(())
   }

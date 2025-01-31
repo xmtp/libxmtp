@@ -60,6 +60,8 @@ pub enum GenericError {
     JoinError(#[from] tokio::task::JoinError),
     #[error(transparent)]
     IoError(#[from] tokio::io::Error),
+    #[error(transparent)]
+    Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

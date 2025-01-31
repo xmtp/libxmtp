@@ -8,6 +8,9 @@ license.workspace = true
 thiserror = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing.workspace = true
 
 # XMTP/Local
 xmtp_proto = { workspace = true, features = ["convert"] }

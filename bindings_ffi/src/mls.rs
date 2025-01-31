@@ -21,6 +21,7 @@ use xmtp_id::{
 use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -29,7 +30,7 @@ use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReac
 use xmtp_mls::{
     api::ApiClientWrapper,
     builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError},
+    client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
@@ -49,6 +50,7 @@ use xmtp_mls::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
+    subscriptions::SubscribeError,
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadata};
@@ -444,7 +446,7 @@ impl FfiXmtpClient {
             .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier: scw_verifier.clone(),
+                    scw_verifier: Arc::unwrap_or_clone(scw_verifier),
                 })
             })
     }
@@ -480,10 +482,10 @@ impl FfiXmtpClient {
             .inner_client
             .associate_wallet(new_wallet_address.into())
             .await?;
-        let scw_verifier = self.inner_client.scw_verifier().clone();
+        let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: scw_verifier.clone(),
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -513,10 +515,10 @@ impl FfiXmtpClient {
         let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
             .await?;
-        let scw_verifier = inner_client.clone().scw_verifier().clone();
+        let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier,
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -543,7 +545,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
     }
 
@@ -561,7 +563,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
     }
 
@@ -902,7 +904,7 @@ pub struct FfiPermissionPolicySet {
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
     pub update_group_pinned_frame_url_policy: FfiPermissionPolicy,
-    pub update_message_expiration_ms_policy: FfiPermissionPolicy,
+    pub update_message_disappearing_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
@@ -934,17 +936,17 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
             MetadataField::GroupPinnedFrameUrl.to_string(),
             policy_set.update_group_pinned_frame_url_policy.try_into()?,
         );
-        // MessageExpirationFromMillis follows the same policy as MessageExpirationMillis
+        // MessageDisappearFromNS follows the same policy as MessageDisappearInNS
         metadata_permissions_map.insert(
-            MetadataField::MessageExpirationFromMillis.to_string(),
+            MetadataField::MessageDisappearFromNS.to_string(),
             policy_set
-                .update_message_expiration_ms_policy
+                .update_message_disappearing_policy
                 .clone()
                 .try_into()?,
         );
         metadata_permissions_map.insert(
-            MetadataField::MessageExpirationMillis.to_string(),
-            policy_set.update_message_expiration_ms_policy.try_into()?,
+            MetadataField::MessageDisappearInNS.to_string(),
+            policy_set.update_message_disappearing_policy.try_into()?,
         );
 
         Ok(PolicySet {
@@ -1091,25 +1093,25 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
-    pub async fn create_dm(
+    pub async fn find_or_create_dm(
         &self,
         account_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
-            .create_dm(account_address)
+            .find_or_create_dm(account_address)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
     }
 
-    pub async fn create_dm_with_inbox_id(
+    pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
-            .create_dm_by_inbox_id(inbox_id)
+            .find_or_create_dm_by_inbox_id(inbox_id)
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1410,6 +1412,30 @@ impl FfiConversationListItem {
     }
 }
 
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiMessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
+}
+
+impl FfiMessageDisappearingSettings {
+    fn new(from_ns: i64, in_ns: i64) -> Self {
+        Self { from_ns, in_ns }
+    }
+}
+
+impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
+    fn from(value: MessageDisappearingSettings) -> Self {
+        FfiMessageDisappearingSettings::new(value.from_ns, value.in_ns)
+    }
+}
+
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
     fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -1520,6 +1546,12 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
+impl From<FfiMessageDisappearingSettings> for MessageDisappearingSettings {
+    fn from(settings: FfiMessageDisappearingSettings) -> Self {
+        MessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
+    }
+}
+
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
@@ -1569,8 +1601,7 @@ pub struct FfiCreateGroupOptions {
     pub group_description: Option<String>,
     pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
-    pub message_expiration_from_ms: Option<i64>,
-    pub message_expiration_ms: Option<i64>,
+    pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
 }
 
 impl FfiCreateGroupOptions {
@@ -1580,8 +1611,9 @@ impl FfiCreateGroupOptions {
             image_url_square: self.group_image_url_square,
             description: self.group_description,
             pinned_frame_url: self.group_pinned_frame_url,
-            message_expiration_from_ms: self.message_expiration_from_ms,
-            message_expiration_ms: self.message_expiration_ms,
+            message_disappearing_settings: self
+                .message_disappearing_settings
+                .map(|settings| settings.into()),
         }
     }
 }
@@ -1681,10 +1713,9 @@ impl FfiConversation {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, FfiSubscribeError> {
-        let provider = self.inner.mls_provider()?;
         let message = self
             .inner
-            .process_streamed_group_message(&provider, envelope_bytes)
+            .process_streamed_group_message(envelope_bytes)
             .await?;
         let ffi_message = message.into();
 
@@ -1812,6 +1843,43 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
+    pub async fn update_conversation_message_disappearing_settings(
+        &self,
+        settings: FfiMessageDisappearingSettings,
+    ) -> Result<(), GenericError> {
+        self.inner
+            .update_conversation_message_disappearing_settings(MessageDisappearingSettings::from(
+                settings,
+            ))
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GenericError> {
+        self.inner
+            .remove_conversation_message_disappearing_settings()
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<FfiMessageDisappearingSettings, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        let group_message_expiration_settings = self
+            .inner
+            .conversation_message_disappearing_settings(&provider)?;
+
+        Ok(FfiMessageDisappearingSettings::new(
+            group_message_expiration_settings.from_ns,
+            group_message_expiration_settings.in_ns,
+        ))
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let provider = self.inner.mls_provider()?;
         self.inner.admin_list(&provider).map_err(Into::into)
@@ -1884,15 +1952,13 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle = MlsGroup::stream_with_callback(
-            self.inner.client.clone(),
-            self.id(),
-            self.inner.created_at_ns,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
+        let handle =
+            MlsGroup::stream_with_callback(self.inner.client.clone(), self.id(), move |message| {
+                match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                }
+            });
 
         FfiStreamCloser::new(handle)
     }
@@ -2179,7 +2245,7 @@ impl From<FfiConsent> for StoredConsentRecord {
     }
 }
 
-type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type FfiHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
@@ -2190,7 +2256,10 @@ pub struct FfiStreamCloser {
 
 impl FfiStreamCloser {
     pub fn new(
-        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
@@ -2331,8 +2400,8 @@ impl FfiGroupPermissions {
             update_group_pinned_frame_url_policy: get_policy(
                 MetadataField::GroupPinnedFrameUrl.as_str(),
             ),
-            update_message_expiration_ms_policy: get_policy(
-                MetadataField::MessageExpirationMillis.as_str(),
+            update_message_disappearing_policy: get_policy(
+                MetadataField::MessageDisappearInNS.as_str(),
             ),
         })
     }
@@ -2349,9 +2418,10 @@ mod tests {
         inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
         FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageWithReactions,
-        FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType,
-        FfiReaction, FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
+        FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -3049,6 +3119,9 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
+        let conversation_message_disappearing_settings =
+            FfiMessageDisappearingSettings::new(10, 100);
+
         let group = amal
             .conversations()
             .create_group(
@@ -3060,8 +3133,9 @@ mod tests {
                     group_description: Some("group description".to_string()),
                     group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
-                    message_expiration_from_ms: None,
-                    message_expiration_ms: None,
+                    message_disappearing_settings: Some(
+                        conversation_message_disappearing_settings.clone(),
+                    ),
                 },
             )
             .await
@@ -3073,6 +3147,195 @@ mod tests {
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
         assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
+        assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
+        assert_eq!(
+            group
+                .conversation_message_disappearing_settings()
+                .unwrap()
+                .from_ns,
+            conversation_message_disappearing_settings.clone().from_ns
+        );
+        assert_eq!(
+            group
+                .conversation_message_disappearing_settings()
+                .unwrap()
+                .in_ns,
+            conversation_message_disappearing_settings.in_ns
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_installation_for_two_users_and_group_modification() {
+        // Step 1: Create two installations
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let bola_client_1 = new_test_client_with_wallet(bola_wallet.clone()).await;
+
+        // Ensure both clients are properly initialized
+        let alix_client_1_state = alix_client_1.inbox_state(true).await.unwrap();
+        let alix_client_2_state = alix_client_2.inbox_state(true).await.unwrap();
+        let bola_client_1_state = bola_client_1.inbox_state(true).await.unwrap();
+        assert_eq!(alix_client_1_state.installations.len(), 2);
+        assert_eq!(alix_client_2_state.installations.len(), 2);
+        assert_eq!(bola_client_1_state.installations.len(), 1);
+
+        // Step 2: Create a group
+        let group = alix_client_1
+            .conversations()
+            .create_group(
+                vec![bola_client_1.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // No ordering guarantee on members list
+        let group_members = group.list_members().await.unwrap();
+        assert_eq!(group_members.len(), 2);
+
+        // identify which member is alix
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 2);
+
+        // Step 3: Revoke one installation
+        let revoke_request = alix_client_1
+            .revoke_installations(vec![alix_client_2.installation_id()])
+            .await
+            .unwrap();
+        revoke_request.add_wallet_signature(&alix_wallet).await;
+        alix_client_1
+            .apply_signature_request(revoke_request)
+            .await
+            .unwrap();
+
+        // Validate revocation
+        let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+
+        let alix_conversation_1 = alix_client_1.conversations();
+        alix_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let alix_conversation_2 = alix_client_2.conversations();
+        alix_conversation_2
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bola_conversation_1 = bola_client_1.conversations();
+        bola_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+
+        // Re-fetch group members
+        let group_members = group.list_members().await.unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 1);
+
+        let alix_2_groups = alix_conversation_2
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_installation_for_one_user_and_group_modification() {
+        // Step 1: Create two installations
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
+
+        // Ensure both clients are properly initialized
+        let alix_client_1_state = alix_client_1.inbox_state(true).await.unwrap();
+        let alix_client_2_state = alix_client_2.inbox_state(true).await.unwrap();
+        assert_eq!(alix_client_1_state.installations.len(), 2);
+        assert_eq!(alix_client_2_state.installations.len(), 2);
+
+        // Step 2: Create a group
+        let group = alix_client_1
+            .conversations()
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // No ordering guarantee on members list
+        let group_members = group.list_members().await.unwrap();
+        assert_eq!(group_members.len(), 1);
+
+        // identify which member is alix
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 2);
+
+        // Step 3: Revoke one installation
+        let revoke_request = alix_client_1
+            .revoke_installations(vec![alix_client_2.installation_id()])
+            .await
+            .unwrap();
+        revoke_request.add_wallet_signature(&alix_wallet).await;
+        alix_client_1
+            .apply_signature_request(revoke_request)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Validate revocation
+        let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+
+        let alix_conversation_1 = alix_client_1.conversations();
+        alix_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_conversation_2 = alix_client_2.conversations();
+        alix_conversation_2
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+
+        // Re-fetch group members
+        let group_members = group.list_members().await.unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 1);
+
+        let alix_2_groups = alix_conversation_2
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
     }
 
     // Looks like this test might be a separate issue
@@ -3132,7 +3395,7 @@ mod tests {
 
         let dm = bo
             .conversations()
-            .create_dm(alix.account_address.clone())
+            .find_or_create_dm(alix.account_address.clone())
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
@@ -3146,10 +3409,9 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
 
@@ -3773,6 +4035,90 @@ mod tests {
         let client2_group = client2.conversation(group.id()).unwrap();
         let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
+    }
+
+    // ... existing code ...
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_create_new_installation_can_see_dm() {
+        // Create two wallets
+        let wallet1_key = &mut rng();
+        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
+        let wallet2_key = &mut rng();
+        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+
+        // Create initial clients
+        let client1 = new_test_client_with_wallet(wallet1.clone()).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Create DM from client1 to client2
+        let dm_group = client1
+            .conversations()
+            .find_or_create_dm(client2.account_address.clone())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Verify both clients can see the DM
+        let client1_groups = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        let client2_groups = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(client1_groups.len(), 1, "Client1 should see 1 conversation");
+        assert_eq!(client2_groups.len(), 1, "Client2 should see 1 conversation");
+
+        // Create a second client1 with same wallet
+        let client1_second = new_test_client_with_wallet(wallet1).await;
+
+        // Verify client1_second starts with no conversations
+        let initial_conversations = client1_second
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            initial_conversations.len(),
+            0,
+            "New client should start with no conversations"
+        );
+
+        // Send message from client1 to client2
+        dm_group
+            .send("Hello from client1".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Sync all clients
+        client1.conversations().sync().await.unwrap();
+        // client2.conversations().sync().await.unwrap();
+
+        tracing::info!(
+            "ABOUT TO SYNC CLIENT 1 SECOND: {}",
+            client1_second.inbox_id().to_string()
+        );
+        client1_second.conversations().sync().await.unwrap();
+
+        // Verify second client1 can see the DM
+        let client1_second_groups = client1_second
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            client1_second_groups.len(),
+            1,
+            "Second client1 should see 1 conversation"
+        );
+        assert_eq!(
+            client1_second_groups[0].conversation.id(),
+            dm_group.id(),
+            "Second client1's conversation should match original DM"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -4488,7 +4834,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -4518,7 +4864,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -4530,7 +4876,7 @@ mod tests {
 
         let alix_group_admin_only = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -4549,7 +4895,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Allow,
+            update_message_disappearing_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
@@ -4579,7 +4925,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -4613,7 +4959,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -4641,7 +4987,7 @@ mod tests {
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 
@@ -4682,6 +5028,117 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_disappearing_messages_deletion() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let mut alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 1);
+
+        // Step 4: Set disappearing settings to 5ns after the latest message
+        let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
+        let disappearing_settings =
+            FfiMessageDisappearingSettings::new(latest_message_sent_at_ns, 5);
+        alix_group
+            .update_conversation_message_disappearing_settings(disappearing_settings.clone())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify the settings were applied
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+
+        // Step 5: Send additional messages
+        for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
+            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+        }
+        alix_group.sync().await.unwrap();
+
+        // Step 6: Verify total message count before cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let msg_counts_before_cleanup = alix_messages.len();
+
+        // Step 7: Start cleanup worker and delete expired messages
+        alix.inner_client
+            .start_disappearing_messages_cleaner_worker();
+
+        // Wait for cleanup to complete
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Step 8: Disable disappearing messages
+        alix_group
+            .remove_conversation_message_disappearing_settings()
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify disappearing settings are disabled
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            0
+        );
+        assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
+
+        // Step 9: Send another message
+        alix_group
+            .send("Msg 5 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 10: Verify messages after cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(msg_counts_before_cleanup, alix_messages.len());
+        // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_group_creation_custom_permissions() {
         let alix = new_test_client().await;
         let bola = new_test_client().await;
@@ -4695,7 +5152,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options = FfiCreateGroupOptions {
@@ -4705,8 +5162,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappearing_settings: None,
         };
 
         let alix_group = alix
@@ -4746,7 +5202,7 @@ mod tests {
             FfiPermissionPolicy::Admin
         );
         assert_eq!(
-            group_permissions_policy_set.update_message_expiration_ms_policy,
+            group_permissions_policy_set.update_message_disappearing_policy,
             FfiPermissionPolicy::Admin
         );
         assert_eq!(
@@ -4812,7 +5268,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let custom_permissions_valid = FfiPermissionPolicySet {
@@ -4824,7 +5280,7 @@ mod tests {
             update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
-            update_message_expiration_ms_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options_invalid_1 = FfiCreateGroupOptions {
@@ -4834,8 +5290,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappearing_settings: None,
         };
 
         let results_1 = alix
@@ -4855,8 +5310,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappearing_settings: None,
         };
 
         let results_2 = alix
@@ -4876,8 +5330,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappearing_settings: None,
         };
 
         let results_3 = alix
@@ -4897,8 +5350,7 @@ mod tests {
             group_description: Some("A test group".to_string()),
             group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
-            message_expiration_from_ms: None,
-            message_expiration_ms: None,
+            message_disappearing_settings: None,
         };
 
         let results_4 = alix
@@ -5026,7 +5478,7 @@ mod tests {
         let bola_conversations = bola.conversations();
 
         let _alix_dm = alix_conversations
-            .create_dm(bola.account_address.clone())
+            .find_or_create_dm(bola.account_address.clone())
             .await
             .unwrap();
         let alix_num_sync = alix_conversations
@@ -5076,6 +5528,7 @@ mod tests {
     async fn test_dm_streaming() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let caro = new_test_client().await;
 
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -5093,7 +5546,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5122,7 +5575,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -5136,8 +5589,8 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
-        alix.conversations()
-            .create_dm(bo.account_address.clone())
+        caro.conversations()
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5165,7 +5618,7 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5407,7 +5860,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5443,7 +5896,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5505,7 +5958,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone())
             .await
             .unwrap();
 
@@ -5650,7 +6103,7 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .create_dm(wallet_a.get_address().clone())
+            .find_or_create_dm(wallet_a.get_address().clone())
             .await
             .unwrap();
 
@@ -6076,5 +6529,85 @@ mod tests {
         // Verify the name is updated
         amal_solo_group.sync().await.unwrap();
         assert_eq!(amal_solo_group.group_name().unwrap(), "New Group Name 2");
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_dm() {
+        // Create two test users
+        let wallet1 = generate_local_wallet();
+        let wallet2 = generate_local_wallet();
+
+        let client1 = new_test_client_with_wallet(wallet1).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Test find_or_create_dm_by_inbox_id
+        let inbox_id2 = client2.inbox_id();
+        let dm_by_inbox = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(inbox_id2)
+            .await
+            .expect("Should create DM with inbox ID");
+
+        // Verify conversation appears in DM list
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should have one DM conversation");
+        assert_eq!(
+            dms[0].conversation.id(),
+            dm_by_inbox.id(),
+            "Listed DM should match created DM"
+        );
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // First client tries to create another DM with the same inbox id
+        let dm_by_inbox2 = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client2.inbox_id())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox2.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
+
+        // Second client tries to create a DM with the client 1 inbox id
+        let dm_by_inbox3 = client2
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client1.inbox_id())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox3.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
     }
 }

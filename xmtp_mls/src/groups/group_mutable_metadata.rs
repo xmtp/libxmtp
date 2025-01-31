@@ -6,17 +6,15 @@ use openmls::{
 };
 use prost::Message;
 use thiserror::Error;
-
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
+use super::GroupMetadataOptions;
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     DEFAULT_GROUP_PINNED_FRAME_URL, MUTABLE_METADATA_EXTENSION_ID,
 };
-
-use super::GroupMetadataOptions;
 
 /// Errors that can occur when working with GroupMutableMetadata.
 #[derive(Debug, Error)]
@@ -47,8 +45,8 @@ pub enum MetadataField {
     Description,
     GroupImageUrlSquare,
     GroupPinnedFrameUrl,
-    MessageExpirationFromMillis,
-    MessageExpirationMillis,
+    MessageDisappearFromNS,
+    MessageDisappearInNS,
 }
 
 impl MetadataField {
@@ -59,8 +57,8 @@ impl MetadataField {
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
-            MetadataField::MessageExpirationFromMillis => "message_expiration_from_ms",
-            MetadataField::MessageExpirationMillis => "message_expiration_ms",
+            MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
+            MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
         }
     }
 }
@@ -68,6 +66,24 @@ impl MetadataField {
 impl fmt::Display for MetadataField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct MessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
+}
+
+impl MessageDisappearingSettings {
+    pub fn new(from_ns: i64, in_ns: i64) -> Self {
+        Self { from_ns, in_ns }
     }
 }
 
@@ -126,16 +142,14 @@ impl GroupMutableMetadata {
                 .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
         );
 
-        if let Some(message_expiration_from_ms) = opts.message_expiration_from_ms {
+        if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
             attributes.insert(
-                MetadataField::MessageExpirationFromMillis.to_string(),
-                message_expiration_from_ms.to_string(),
+                MetadataField::MessageDisappearFromNS.to_string(),
+                message_disappearing_settings.from_ns.to_string(),
             );
-        }
-        if let Some(message_expiration_ms) = opts.message_expiration_ms {
             attributes.insert(
-                MetadataField::MessageExpirationMillis.to_string(),
-                message_expiration_ms.to_string(),
+                MetadataField::MessageDisappearInNS.to_string(),
+                message_disappearing_settings.in_ns.to_string(),
             );
         }
 
@@ -186,7 +200,8 @@ impl GroupMutableMetadata {
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
             MetadataField::GroupPinnedFrameUrl,
-            MetadataField::MessageExpirationMillis,
+            MetadataField::MessageDisappearFromNS,
+            MetadataField::MessageDisappearInNS,
         ]
     }
 

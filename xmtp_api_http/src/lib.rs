@@ -1,11 +1,13 @@
 #![warn(clippy::unwrap_used)]
 
 pub mod constants;
+mod http_stream;
 mod util;
 
 use futures::stream;
+use http_stream::create_grpc_stream;
 use reqwest::header;
-use util::{create_grpc_stream, handle_error};
+use util::handle_error;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -256,18 +258,20 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream<'a> = stream::LocalBoxStream<'a, Result<WelcomeMessage, Error>>;
 
+    #[tracing::instrument(skip_all)]
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Error> {
-        tracing::debug!("subscribe_group_messages");
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
             self.http_client.clone(),
-        ))
+        )
+        .await?)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
@@ -277,7 +281,8 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_WELCOME_MESSAGES),
             self.http_client.clone(),
-        ))
+        )
+        .await?)
     }
 }
 

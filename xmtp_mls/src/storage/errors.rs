@@ -7,7 +7,7 @@ use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use crate::groups::intents::IntentError;
+use crate::{groups::intents::IntentError, types::InstallationId};
 use xmtp_common::{retryable, RetryableError};
 
 pub struct Mls;
@@ -81,6 +81,10 @@ pub enum NotFound {
     RefreshStateByIdAndKind(Vec<u8>, EntityKind),
     #[error("Cipher salt for db at [`{0}`] not found")]
     CipherSalt(String),
+    #[error("Sync Group for installation {0} not found")]
+    SyncGroup(InstallationId),
+    #[error("MLS Group Not Found")]
+    MlsGroup,
 }
 
 #[derive(Error, Debug)]

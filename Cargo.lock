@@ -341,7 +341,7 @@ dependencies = [
  "rustversion",
  "serde",
  "sync_wrapper 1.0.2",
- "tower 0.5.1",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
 ]
@@ -487,6 +487,7 @@ name = "bindings_wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "futures",
  "hex",
  "js-sys",
  "prost",
@@ -4831,9 +4832,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.9"
+version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
+checksum = "43e734407157c3c2034e0258f5e4473ddb361b1e85f95a66690d67264d7cd1da"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4865,6 +4866,7 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-util",
+ "tower 0.5.2",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -6177,14 +6179,15 @@ dependencies = [
 
 [[package]]
 name = "tower"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2873938d487c3cfb9aed7546dc9f2711d867c9f90c46b889989a2cb84eba6b4f"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
 dependencies = [
  "futures-core",
  "futures-util",
  "pin-project-lite",
- "sync_wrapper 0.1.2",
+ "sync_wrapper 1.0.2",
+ "tokio",
  "tower-layer",
  "tower-service",
 ]
@@ -6681,9 +6684,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.11.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
+checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
 dependencies = [
  "getrandom",
  "rand",
@@ -7336,7 +7339,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
- "uuid 1.11.0",
+ "uuid 1.12.1",
  "xmtp_proto",
  "xmtp_v2",
  "zeroize",
@@ -7346,16 +7349,18 @@ dependencies = [
 name = "xmtp_api_http"
 version = "0.1.0"
 dependencies = [
- "async-stream",
  "async-trait",
+ "bytes",
  "futures",
- "reqwest 0.12.9",
+ "pin-project-lite",
+ "reqwest 0.12.12",
  "serde",
  "serde_json",
  "thiserror 2.0.6",
  "tokio",
  "tracing",
  "wasm-bindgen-test",
+ "xmtp_common",
  "xmtp_proto",
 ]
 
@@ -7408,6 +7413,7 @@ dependencies = [
  "tracing-flame",
  "tracing-subscriber",
  "tracing-wasm",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
@@ -7421,8 +7427,11 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "rand",
+ "serde",
+ "serde_json",
  "thiserror 2.0.6",
  "tonic",
+ "tracing",
  "xmtp_common",
  "xmtp_proto",
 ]
@@ -7498,6 +7507,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bincode",
+ "bytes",
  "chrono",
  "console_error_panic_hook",
  "const_format",
@@ -7525,9 +7535,10 @@ dependencies = [
  "openssl",
  "openssl-sys",
  "parking_lot 0.12.3",
+ "pin-project-lite",
  "prost",
  "rand",
- "reqwest 0.12.9",
+ "reqwest 0.12.12",
  "serde",
  "serde_json",
  "sha2 0.10.8",
@@ -7621,7 +7632,7 @@ dependencies = [
  "tracing-oslog",
  "tracing-subscriber",
  "uniffi",
- "uuid 1.11.0",
+ "uuid 1.12.1",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
