@@ -9,6 +9,3 @@ keys = ["dependencies"]
 
 [rule.formatting]
 reorder_keys = true
-
-[schema]
-path = "https://json.schemastore.org/cargo.json"
