@@ -8,16 +8,16 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+async-trait = "0.1"
+bytes = "1.9"
 futures = { workspace = true, default-features = false }
-tracing.workspace = true
+pin-project-lite = "0.2.15"
+reqwest.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
+tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-async-trait = "0.1"
-bytes = "1.9"
-pin-project-lite = "0.2.15"
-reqwest.workspace = true
 
 xmtp_common.workspace = true
 

@@ -18,19 +18,19 @@ napi = { version = "2.12.2", default-features = false, features = [
 napi-derive = "2.12.2"
 prost.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
   "json",
   "chrono",
 ] }
-tracing.workspace = true
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_common.workspace = true
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-xmtp_common.workspace = true
 
 [build-dependencies]
 napi-build = "2.0.1"
