@@ -84,6 +84,14 @@ sqlite-web = "0.0.1"
 thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.43.0", default-features = false }
+# Changing this version and rustls may potentially break the android build. Use Caution.
+# Test with Android and Swift first.
+# Its probably preferable to one day use https://github.com/rustls/rustls-platform-verifier
+# Until then, always test agains iOS/Android after updating these dependencies & making a PR
+# Related Issues:
+# - https://github.com/seanmonstar/reqwest/issues/2159
+# - https://github.com/hyperium/tonic/pull/1974
+# - https://github.com/rustls/rustls-platform-verifier/issues/58
 tonic = { version = "0.12", default-features = false }
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
