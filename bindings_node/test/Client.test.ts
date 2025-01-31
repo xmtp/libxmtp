@@ -282,7 +282,6 @@ describe('Streams', () => {
     let messages = new Array()
     client2.conversations().syncAllConversations()
     let stream = client2.conversations().streamAllMessages((msg) => {
-      console.log('Message', msg)
       messages.push(msg)
     })
     await stream.waitForReady()
