@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.35
+
+- Updated `createDm` to return an existing DM group, if it exists
+
 ## 0.0.34
 
 - Fixed DM group validation across installations
