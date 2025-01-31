@@ -4,6 +4,7 @@ use crate::storage::{
     schema::groups,
 };
 use diesel::prelude::*;
+use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     group_backup::{ConversationTypeSave, GroupMembershipStateSave, GroupSave},
@@ -44,12 +45,13 @@ impl BackupRecordProvider for GroupSave {
     }
 }
 
-impl From<GroupSave> for StoredGroup {
-    fn from(value: GroupSave) -> Self {
-        let membership_state = value.membership_state().into();
-        let conversation_type = value.conversation_type().into();
+impl TryFrom<GroupSave> for StoredGroup {
+    type Error = DeserializationError;
+    fn try_from(value: GroupSave) -> Result<Self, Self::Error> {
+        let membership_state = value.membership_state().try_into()?;
+        let conversation_type = value.conversation_type().try_into()?;
 
-        Self {
+        Ok(Self {
             id: value.id,
             created_at_ns: value.created_at_ns,
             membership_state,
@@ -62,27 +64,37 @@ impl From<GroupSave> for StoredGroup {
             last_message_ns: value.last_message_ns,
             message_disappear_from_ns: value.message_disappear_from_ns,
             message_disappear_in_ns: value.message_disappear_in_ns,
-        }
+        })
     }
 }
 
-impl From<GroupMembershipStateSave> for GroupMembershipState {
-    fn from(value: GroupMembershipStateSave) -> Self {
-        match value {
+impl TryFrom<GroupMembershipStateSave> for GroupMembershipState {
+    type Error = DeserializationError;
+    fn try_from(value: GroupMembershipStateSave) -> Result<Self, Self::Error> {
+        let membership_state = match value {
             GroupMembershipStateSave::Allowed => Self::Allowed,
             GroupMembershipStateSave::Pending => Self::Pending,
             GroupMembershipStateSave::Rejected => Self::Rejected,
-        }
+            GroupMembershipStateSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("group_membership_state"))
+            }
+        };
+        Ok(membership_state)
     }
 }
 
-impl From<ConversationTypeSave> for ConversationType {
-    fn from(value: ConversationTypeSave) -> Self {
-        match value {
+impl TryFrom<ConversationTypeSave> for ConversationType {
+    type Error = DeserializationError;
+    fn try_from(value: ConversationTypeSave) -> Result<Self, Self::Error> {
+        let conversation_type = match value {
             ConversationTypeSave::Dm => Self::Dm,
             ConversationTypeSave::Group => Self::Group,
             ConversationTypeSave::Sync => Self::Sync,
-        }
+            ConversationTypeSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("conversation_type"))
+            }
+        };
+        Ok(conversation_type)
     }
 }
 

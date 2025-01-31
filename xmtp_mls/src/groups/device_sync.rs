@@ -32,7 +32,7 @@ use tracing::{instrument, warn};
 use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_cryptography::utils as crypto_utils;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
@@ -112,6 +112,8 @@ pub enum DeviceSyncError {
     Backup(#[from] BackupError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
 }
 
 impl RetryableError for DeviceSyncError {

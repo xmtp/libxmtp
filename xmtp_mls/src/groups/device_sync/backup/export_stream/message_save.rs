@@ -4,6 +4,7 @@ use crate::storage::{
     schema::group_messages,
 };
 use diesel::prelude::*;
+use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     message_backup::{ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave},
@@ -44,13 +45,14 @@ impl BackupRecordProvider for GroupMessageSave {
     }
 }
 
-impl From<GroupMessageSave> for StoredGroupMessage {
-    fn from(value: GroupMessageSave) -> Self {
-        let kind = value.kind().into();
-        let delivery_status = value.delivery_status().into();
-        let content_type = value.content_type().into();
+impl TryFrom<GroupMessageSave> for StoredGroupMessage {
+    type Error = DeserializationError;
+    fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
+        let kind = value.kind().try_into()?;
+        let delivery_status = value.delivery_status().try_into()?;
+        let content_type = value.content_type().try_into()?;
 
-        Self {
+        Ok(Self {
             id: value.id,
             group_id: value.group_id,
             decrypted_message_bytes: value.decrypted_message_bytes,
@@ -64,29 +66,40 @@ impl From<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-        }
+        })
     }
 }
-impl From<GroupMessageKindSave> for GroupMessageKind {
-    fn from(value: GroupMessageKindSave) -> Self {
-        match value {
+impl TryFrom<GroupMessageKindSave> for GroupMessageKind {
+    type Error = DeserializationError;
+    fn try_from(value: GroupMessageKindSave) -> Result<Self, Self::Error> {
+        let message_kind = match value {
             GroupMessageKindSave::Application => Self::Application,
             GroupMessageKindSave::MembershipChange => Self::MembershipChange,
-        }
+            GroupMessageKindSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("message_kind"))
+            }
+        };
+        Ok(message_kind)
     }
 }
-impl From<DeliveryStatusSave> for DeliveryStatus {
-    fn from(value: DeliveryStatusSave) -> Self {
-        match value {
+impl TryFrom<DeliveryStatusSave> for DeliveryStatus {
+    type Error = DeserializationError;
+    fn try_from(value: DeliveryStatusSave) -> Result<Self, Self::Error> {
+        let delivery_status = match value {
             DeliveryStatusSave::Failed => Self::Failed,
             DeliveryStatusSave::Published => Self::Published,
             DeliveryStatusSave::Unpublished => Self::Unpublished,
-        }
+            DeliveryStatusSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("delivery_status"))
+            }
+        };
+        Ok(delivery_status)
     }
 }
-impl From<ContentTypeSave> for ContentType {
-    fn from(value: ContentTypeSave) -> Self {
-        match value {
+impl TryFrom<ContentTypeSave> for ContentType {
+    type Error = DeserializationError;
+    fn try_from(value: ContentTypeSave) -> Result<Self, Self::Error> {
+        let content_type = match value {
             ContentTypeSave::Attachment => Self::Attachment,
             ContentTypeSave::GroupMembershipChange => Self::GroupMembershipChange,
             ContentTypeSave::GroupUpdated => Self::GroupUpdated,
@@ -97,7 +110,11 @@ impl From<ContentTypeSave> for ContentType {
             ContentTypeSave::Text => Self::Text,
             ContentTypeSave::TransactionReference => Self::TransactionReference,
             ContentTypeSave::Unknown => Self::Unknown,
-        }
+            ContentTypeSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("content_type"))
+            }
+        };
+        Ok(content_type)
     }
 }
 

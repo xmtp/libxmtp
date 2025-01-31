@@ -6,6 +6,7 @@ impl serde::Serialize for ConversationTypeSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "CONVERSATION_TYPE_SAVE_UNSPECIFIED",
             Self::Group => "CONVERSATION_TYPE_SAVE_GROUP",
             Self::Dm => "CONVERSATION_TYPE_SAVE_DM",
             Self::Sync => "CONVERSATION_TYPE_SAVE_SYNC",
@@ -20,6 +21,7 @@ impl<'de> serde::Deserialize<'de> for ConversationTypeSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "CONVERSATION_TYPE_SAVE_UNSPECIFIED",
             "CONVERSATION_TYPE_SAVE_GROUP",
             "CONVERSATION_TYPE_SAVE_DM",
             "CONVERSATION_TYPE_SAVE_SYNC",
@@ -63,6 +65,7 @@ impl<'de> serde::Deserialize<'de> for ConversationTypeSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "CONVERSATION_TYPE_SAVE_UNSPECIFIED" => Ok(ConversationTypeSave::Unspecified),
                     "CONVERSATION_TYPE_SAVE_GROUP" => Ok(ConversationTypeSave::Group),
                     "CONVERSATION_TYPE_SAVE_DM" => Ok(ConversationTypeSave::Dm),
                     "CONVERSATION_TYPE_SAVE_SYNC" => Ok(ConversationTypeSave::Sync),
@@ -80,6 +83,7 @@ impl serde::Serialize for GroupMembershipStateSave {
         S: serde::Serializer,
     {
         let variant = match self {
+            Self::Unspecified => "GROUP_MEMBERSHIP_STATE_SAVE_UNSPECIFIED",
             Self::Allowed => "GROUP_MEMBERSHIP_STATE_SAVE_ALLOWED",
             Self::Rejected => "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             Self::Pending => "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
@@ -94,6 +98,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "GROUP_MEMBERSHIP_STATE_SAVE_UNSPECIFIED",
             "GROUP_MEMBERSHIP_STATE_SAVE_ALLOWED",
             "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED",
             "GROUP_MEMBERSHIP_STATE_SAVE_PENDING",
@@ -137,6 +142,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipStateSave {
                 E: serde::de::Error,
             {
                 match value {
+                    "GROUP_MEMBERSHIP_STATE_SAVE_UNSPECIFIED" => Ok(GroupMembershipStateSave::Unspecified),
                     "GROUP_MEMBERSHIP_STATE_SAVE_ALLOWED" => Ok(GroupMembershipStateSave::Allowed),
                     "GROUP_MEMBERSHIP_STATE_SAVE_REJECTED" => Ok(GroupMembershipStateSave::Rejected),
                     "GROUP_MEMBERSHIP_STATE_SAVE_PENDING" => Ok(GroupMembershipStateSave::Pending),

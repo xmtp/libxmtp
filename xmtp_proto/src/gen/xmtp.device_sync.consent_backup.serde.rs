@@ -136,7 +136,7 @@ impl serde::Serialize for ConsentStateSave {
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::ConseNtStateSaveUnspecified => "CONSENt_STATE_SAVE_UNSPECIFIED",
+            Self::Unspecified => "CONSENT_STATE_SAVE_UNSPECIFIED",
             Self::Unknown => "CONSENT_STATE_SAVE_UNKNOWN",
             Self::Allowed => "CONSENT_STATE_SAVE_ALLOWED",
             Self::Denied => "CONSENT_STATE_SAVE_DENIED",
@@ -151,7 +151,7 @@ impl<'de> serde::Deserialize<'de> for ConsentStateSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "CONSENt_STATE_SAVE_UNSPECIFIED",
+            "CONSENT_STATE_SAVE_UNSPECIFIED",
             "CONSENT_STATE_SAVE_UNKNOWN",
             "CONSENT_STATE_SAVE_ALLOWED",
             "CONSENT_STATE_SAVE_DENIED",
@@ -195,7 +195,7 @@ impl<'de> serde::Deserialize<'de> for ConsentStateSave {
                 E: serde::de::Error,
             {
                 match value {
-                    "CONSENt_STATE_SAVE_UNSPECIFIED" => Ok(ConsentStateSave::ConseNtStateSaveUnspecified),
+                    "CONSENT_STATE_SAVE_UNSPECIFIED" => Ok(ConsentStateSave::Unspecified),
                     "CONSENT_STATE_SAVE_UNKNOWN" => Ok(ConsentStateSave::Unknown),
                     "CONSENT_STATE_SAVE_ALLOWED" => Ok(ConsentStateSave::Allowed),
                     "CONSENT_STATE_SAVE_DENIED" => Ok(ConsentStateSave::Denied),

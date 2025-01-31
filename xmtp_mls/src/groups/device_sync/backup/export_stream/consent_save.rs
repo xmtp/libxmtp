@@ -4,6 +4,7 @@ use crate::storage::{
     schema::consent_records,
 };
 use diesel::prelude::*;
+use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
@@ -35,33 +36,42 @@ impl BackupRecordProvider for ConsentSave {
     }
 }
 
-impl From<ConsentSave> for StoredConsentRecord {
-    fn from(value: ConsentSave) -> Self {
-        let entity_type = value.entity_type().into();
-        let state = value.state().into();
-        Self {
+impl TryFrom<ConsentSave> for StoredConsentRecord {
+    type Error = DeserializationError;
+    fn try_from(value: ConsentSave) -> Result<Self, Self::Error> {
+        let entity_type = value.entity_type().try_into()?;
+        let state = value.state().try_into()?;
+        Ok(Self {
             entity_type,
             state,
             entity: value.entity,
-        }
+        })
     }
 }
-impl From<ConsentTypeSave> for ConsentType {
-    fn from(value: ConsentTypeSave) -> Self {
-        match value {
+impl TryFrom<ConsentTypeSave> for ConsentType {
+    type Error = DeserializationError;
+    fn try_from(value: ConsentTypeSave) -> Result<Self, Self::Error> {
+        Ok(match value {
             ConsentTypeSave::Address => Self::Address,
             ConsentTypeSave::InboxId => Self::InboxId,
             ConsentTypeSave::ConversationId => Self::ConversationId,
-        }
+            ConsentTypeSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("consent_type"))
+            }
+        })
     }
 }
-impl From<ConsentStateSave> for ConsentState {
-    fn from(value: ConsentStateSave) -> Self {
-        match value {
+impl TryFrom<ConsentStateSave> for ConsentState {
+    type Error = DeserializationError;
+    fn try_from(value: ConsentStateSave) -> Result<Self, Self::Error> {
+        Ok(match value {
             ConsentStateSave::Allowed => Self::Allowed,
             ConsentStateSave::Denied => Self::Denied,
             ConsentStateSave::Unknown => Self::Unknown,
-        }
+            ConsentStateSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("consent_state"))
+            }
+        })
     }
 }
 

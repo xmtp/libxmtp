@@ -98,9 +98,18 @@ impl BackupImporter {
 
                 loop {
                     match self.next_element().await {
-                        Ok(Some(element)) => {
-                            insert(element, conn)?;
-                        }
+                        Ok(Some(element)) => match insert(element, conn) {
+                            Err(DeviceSyncError::Deserialization(err)) => {
+                                tracing::warn!("Unable to insert record: {err:?}");
+                            }
+                            Err(DeviceSyncError::Storage(err)) => {
+                                return Err(err);
+                            }
+                            Err(err) => {
+                                return Ok::<Result<(), DeviceSyncError>, StorageError>(Err(err))
+                            }
+                            _ => {}
+                        },
                         Ok(None) => break,
                         Err(err) => {
                             return Ok::<Result<(), DeviceSyncError>, StorageError>(Err(err))
@@ -120,22 +129,22 @@ impl BackupImporter {
     }
 }
 
-fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), StorageError> {
+fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };
 
     match element {
         Element::Consent(consent) => {
-            let consent: StoredConsentRecord = consent.into();
+            let consent: StoredConsentRecord = consent.try_into()?;
             consent.store(conn)?;
         }
         Element::Group(group) => {
-            let group: StoredGroup = group.into();
+            let group: StoredGroup = group.try_into()?;
             group.store(conn)?;
         }
         Element::GroupMessage(message) => {
-            let message: StoredGroupMessage = message.into();
+            let message: StoredGroupMessage = message.try_into()?;
             message.store(conn)?;
         }
         _ => {}
