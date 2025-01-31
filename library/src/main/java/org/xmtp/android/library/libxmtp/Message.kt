@@ -10,12 +10,14 @@ import org.xmtp.proto.message.contents.Content
 import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtpv3.FfiMessageWithReactions
 import java.util.Date
 
 class Message private constructor(
     private val libXMTPMessage: FfiMessage,
     val encodedContent: Content.EncodedContent,
     private val decodedContent: Any?,
+    val childMessages: List<Message>? = null
 ) {
     enum class MessageDeliveryStatus {
         ALL, PUBLISHED, UNPUBLISHED, FAILED
@@ -72,6 +74,29 @@ class Message private constructor(
                 // Decode the content once during creation
                 val decodedContent = encodedContent.decoded<Any>()
                 Message(libXMTPMessage, encodedContent, decodedContent)
+            } catch (e: Exception) {
+                null // Return null if decoding fails
+            }
+        }
+
+        fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): Message? {
+            return try {
+                val encodedContent = EncodedContent.parseFrom(libXMTPMessageWithReactions.message.content)
+                if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessageWithReactions.message.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                    throw XMTPException("Error decoding group membership change")
+                }
+                // Decode the content once during creation
+                val decodedContent = encodedContent.decoded<Any>()
+
+                // Convert reactions to Message objects
+                val reactionMessages = libXMTPMessageWithReactions.reactions.mapNotNull { create(it) }
+
+                Message(
+                    libXMTPMessageWithReactions.message,
+                    encodedContent,
+                    decodedContent,
+                    reactionMessages
+                )
             } catch (e: Exception) {
                 null // Return null if decoding fails
             }

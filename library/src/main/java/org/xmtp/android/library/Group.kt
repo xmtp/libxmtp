@@ -153,6 +153,37 @@ class Group(
         }
     }
 
+    suspend fun messagesWithReactions(
+        limit: Int? = null,
+        beforeNs: Long? = null,
+        afterNs: Long? = null,
+        direction: SortDirection = SortDirection.DESCENDING,
+        deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
+    ): List<Message> {
+        val ffiMessageWithReactions = libXMTPGroup.findMessagesWithReactions(
+            opts = FfiListMessagesOptions(
+                sentBeforeNs = beforeNs,
+                sentAfterNs = afterNs,
+                limit = limit?.toLong(),
+                deliveryStatus = when (deliveryStatus) {
+                    MessageDeliveryStatus.PUBLISHED -> FfiDeliveryStatus.PUBLISHED
+                    MessageDeliveryStatus.UNPUBLISHED -> FfiDeliveryStatus.UNPUBLISHED
+                    MessageDeliveryStatus.FAILED -> FfiDeliveryStatus.FAILED
+                    else -> null
+                },
+                when (direction) {
+                    SortDirection.ASCENDING -> FfiDirection.ASCENDING
+                    else -> FfiDirection.DESCENDING
+                },
+                contentTypes = null
+            )
+        )
+
+        return ffiMessageWithReactions.mapNotNull { ffiMessageWithReactions ->
+            Message.create(ffiMessageWithReactions)
+        }
+    }
+
     suspend fun processMessage(messageBytes: ByteArray): Message? {
         val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
         return Message.create(message)

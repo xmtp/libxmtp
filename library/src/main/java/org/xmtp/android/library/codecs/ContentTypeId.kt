@@ -21,7 +21,7 @@ class ContentTypeIdBuilder {
 }
 
 val ContentTypeId.id: String
-    get() = "$authorityId:$typeId"
+    get() = "$authorityId:$typeId:$versionMajor.$versionMinor"
 
 val ContentTypeId.description: String
     get() = "$authorityId/$typeId:$versionMajor.$versionMinor"

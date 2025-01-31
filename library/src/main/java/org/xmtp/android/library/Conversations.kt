@@ -22,6 +22,7 @@ import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
@@ -54,8 +55,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
-        messageExpirationFromMs: Long? = null,
-        messageExpirationMs: Long? = null,
+        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -65,8 +65,7 @@ data class Conversations(
             groupDescription,
             groupPinnedFrameUrl,
             null,
-            messageExpirationFromMs,
-            messageExpirationMs,
+            messageDisappearingSettings,
         )
     }
 
@@ -77,8 +76,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
-        messageExpirationFromMs: Long? = null,
-        messageExpirationMs: Long? = null,
+        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -88,8 +86,7 @@ data class Conversations(
             groupDescription,
             groupPinnedFrameUrl,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
-            messageExpirationFromMs,
-            messageExpirationMs
+            messageDisappearingSettings
         )
     }
 
@@ -101,8 +98,7 @@ data class Conversations(
         groupDescription: String,
         groupPinnedFrameUrl: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
-        messageExpirationFromMs: Long?,
-        messageExpirationMs: Long?,
+        messageDisappearingSettings: FfiMessageDisappearingSettings?,
     ): Group {
         if (accountAddresses.any { it.equals(client.address, ignoreCase = true) }) {
             throw XMTPException("Recipient is sender")
@@ -124,8 +120,7 @@ data class Conversations(
                     groupDescription = groupDescription,
                     groupPinnedFrameUrl = groupPinnedFrameUrl,
                     customPermissionPolicySet = permissionsPolicySet,
-                    messageExpirationFromMs = messageExpirationFromMs,
-                    messageExpirationMs = messageExpirationMs,
+                    messageDisappearingSettings = messageDisappearingSettings
                 )
             )
         return Group(client.inboxId, group)
@@ -138,8 +133,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
-        messageExpirationFromMs: Long? = null,
-        messageExpirationMs: Long? = null,
+        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
             inboxIds,
@@ -149,8 +143,7 @@ data class Conversations(
             groupDescription,
             groupPinnedFrameUrl,
             null,
-            messageExpirationFromMs,
-            messageExpirationMs,
+            messageDisappearingSettings
         )
     }
 
@@ -161,8 +154,7 @@ data class Conversations(
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         groupPinnedFrameUrl: String = "",
-        messageExpirationFromMs: Long? = null,
-        messageExpirationMs: Long? = null,
+        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
             inboxIds,
@@ -172,8 +164,7 @@ data class Conversations(
             groupDescription,
             groupPinnedFrameUrl,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
-            messageExpirationFromMs,
-            messageExpirationMs
+            messageDisappearingSettings
         )
     }
 
@@ -185,8 +176,7 @@ data class Conversations(
         groupDescription: String,
         groupPinnedFrameUrl: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
-        messageExpirationFromMs: Long?,
-        messageExpirationMs: Long?,
+        messageDisappearingSettings: FfiMessageDisappearingSettings?,
     ): Group {
         if (inboxIds.any { it.equals(client.inboxId, ignoreCase = true) }) {
             throw XMTPException("Recipient is sender")
@@ -202,8 +192,7 @@ data class Conversations(
                     groupDescription = groupDescription,
                     groupPinnedFrameUrl = groupPinnedFrameUrl,
                     customPermissionPolicySet = permissionsPolicySet,
-                    messageExpirationFromMs = messageExpirationFromMs,
-                    messageExpirationMs = messageExpirationMs,
+                    messageDisappearingSettings = messageDisappearingSettings
                 )
             )
         return Group(client.inboxId, group)
@@ -237,12 +226,8 @@ data class Conversations(
         if (falseAddresses.isNotEmpty()) {
             throw XMTPException("${falseAddresses.joinToString()} not on network")
         }
-        var dm = client.findDmByAddress(peerAddress)
-        if (dm == null) {
-            val dmConversation = ffiConversations.createDm(peerAddress.lowercase())
-            dm = Dm(client.inboxId, dmConversation)
-        }
-        return dm
+        val dmConversation = ffiConversations.findOrCreateDm(peerAddress.lowercase())
+        return Dm(client.inboxId, dmConversation)
     }
 
     suspend fun newConversationWithInboxId(peerInboxId: String): Conversation {
@@ -254,12 +239,8 @@ data class Conversations(
         if (peerInboxId.lowercase() == client.inboxId.lowercase()) {
             throw XMTPException("Recipient is sender")
         }
-        var dm = client.findDmByInboxId(peerInboxId)
-        if (dm == null) {
-            val dmConversation = ffiConversations.createDmWithInboxId(peerInboxId.lowercase())
-            dm = Dm(client.inboxId, dmConversation)
-        }
-        return dm
+        val dmConversation = ffiConversations.findOrCreateDmByInboxId(peerInboxId.lowercase())
+        return Dm(client.inboxId, dmConversation)
     }
 
     fun listGroups(

@@ -434,7 +434,7 @@ class GroupPermissionsTest {
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
             updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
-            updateMessageExpirationPolicy = PermissionOption.Admin,
+            updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
         val boGroup = runBlocking {
             boClient.conversations.newGroupCustomPermissions(
@@ -469,7 +469,7 @@ class GroupPermissionsTest {
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
             updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
-            updateMessageExpirationPolicy = PermissionOption.Admin,
+            updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
 
         assertThrows(GenericException.GroupMutablePermissions::class.java) {
@@ -490,7 +490,7 @@ class GroupPermissionsTest {
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
             updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
-            updateMessageExpirationPolicy = PermissionOption.Allow,
+            updateMessageDisappearingPolicy = PermissionOption.Allow,
         )
 
         // Valid custom policy works as expected
@@ -518,7 +518,7 @@ class GroupPermissionsTest {
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
             updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
-            updateMessageExpirationPolicy = PermissionOption.Admin,
+            updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
         val boGroup = runBlocking {
             boClient.conversations.newGroupCustomPermissionsWithInboxIds(

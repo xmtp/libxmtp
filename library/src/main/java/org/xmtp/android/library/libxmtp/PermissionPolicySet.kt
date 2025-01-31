@@ -55,7 +55,7 @@ data class PermissionPolicySet(
     val updateGroupDescriptionPolicy: PermissionOption,
     val updateGroupImagePolicy: PermissionOption,
     val updateGroupPinnedFrameUrlPolicy: PermissionOption,
-    val updateMessageExpirationPolicy: PermissionOption,
+    val updateMessageDisappearingPolicy: PermissionOption,
 ) {
     companion object {
         fun toFfiPermissionPolicySet(permissionPolicySet: PermissionPolicySet): FfiPermissionPolicySet {
@@ -68,7 +68,7 @@ data class PermissionPolicySet(
                 updateGroupDescriptionPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupDescriptionPolicy),
                 updateGroupImageUrlSquarePolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupImagePolicy),
                 updateGroupPinnedFrameUrlPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateGroupPinnedFrameUrlPolicy),
-                updateMessageExpirationMsPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateMessageExpirationPolicy),
+                updateMessageDisappearingPolicy = PermissionOption.toFfiPermissionPolicy(permissionPolicySet.updateMessageDisappearingPolicy),
             )
         }
 
@@ -82,7 +82,7 @@ data class PermissionPolicySet(
                 updateGroupDescriptionPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupDescriptionPolicy),
                 updateGroupImagePolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupImageUrlSquarePolicy),
                 updateGroupPinnedFrameUrlPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateGroupPinnedFrameUrlPolicy),
-                updateMessageExpirationPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateMessageExpirationMsPolicy)
+                updateMessageDisappearingPolicy = PermissionOption.fromFfiPermissionPolicy(ffiPermissionPolicySet.updateMessageDisappearingPolicy)
             )
         }
     }
