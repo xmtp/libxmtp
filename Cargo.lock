@@ -493,7 +493,6 @@ dependencies = [
  "prost",
  "serde",
  "serde-wasm-bindgen",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-web",
