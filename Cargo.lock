@@ -7519,6 +7519,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
+ "futures-util",
  "getrandom",
  "gloo-timers 0.3.0",
  "hex",

@@ -1,6 +1,6 @@
 use super::BackupImporter;
 use crate::groups::device_sync::DeviceSyncError;
-use futures::io::BufReader;
+use futures_util::io::BufReader;
 use std::{path::Path, pin::Pin};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 

@@ -24,6 +24,7 @@ impl BatchExportStream {
         let input_streams = opts
             .elements
             .iter()
+            .filter(|&e| !matches!(e, BackupElementSelection::Unspecified))
             .flat_map(|&e| match e {
                 BackupElementSelection::Consent => {
                     vec![BackupRecordStreamer::<ConsentSave>::new_stream(
@@ -35,6 +36,7 @@ impl BatchExportStream {
                     BackupRecordStreamer::<GroupSave>::new_stream(provider, opts),
                     BackupRecordStreamer::<GroupMessageSave>::new_stream(provider, opts),
                 ],
+                BackupElementSelection::Unspecified => unreachable!(),
             })
             .rev()
             .collect();

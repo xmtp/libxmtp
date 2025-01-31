@@ -1,6 +1,6 @@
 use super::BackupExporter;
 use crate::groups::device_sync::DeviceSyncError;
-use futures::AsyncReadExt;
+use futures_util::AsyncReadExt;
 use std::path::Path;
 use tokio::{fs::File, io::AsyncWriteExt};
 

@@ -60,6 +60,8 @@ impl From<GroupSave> for StoredGroup {
             conversation_type,
             dm_id: value.dm_id,
             last_message_ns: value.last_message_ns,
+            message_disappear_from_ns: value.message_disappear_from_ns,
+            message_disappear_in_ns: value.message_disappear_in_ns,
         }
     }
 }
@@ -100,6 +102,8 @@ impl From<StoredGroup> for GroupSave {
             conversation_type: conversation_type as i32,
             dm_id: value.dm_id,
             last_message_ns: value.last_message_ns,
+            message_disappear_from_ns: value.message_disappear_from_ns,
+            message_disappear_in_ns: value.message_disappear_in_ns,
         }
     }
 }

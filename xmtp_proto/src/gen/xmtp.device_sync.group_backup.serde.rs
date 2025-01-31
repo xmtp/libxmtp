@@ -185,6 +185,12 @@ impl serde::Serialize for GroupSave {
         if self.last_message_ns.is_some() {
             len += 1;
         }
+        if self.message_disappear_from_ns.is_some() {
+            len += 1;
+        }
+        if self.message_disappear_in_ns.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.group_backup.GroupSave", len)?;
         if !self.id.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -232,6 +238,16 @@ impl serde::Serialize for GroupSave {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("lastMessageNs", ToString::to_string(&v).as_str())?;
         }
+        if let Some(v) = self.message_disappear_from_ns.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("messageDisappearFromNs", ToString::to_string(&v).as_str())?;
+        }
+        if let Some(v) = self.message_disappear_in_ns.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("messageDisappearInNs", ToString::to_string(&v).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -261,6 +277,10 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             "dmId",
             "last_message_ns",
             "lastMessageNs",
+            "message_disappear_from_ns",
+            "messageDisappearFromNs",
+            "message_disappear_in_ns",
+            "messageDisappearInNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -275,6 +295,8 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             ConversationType,
             DmId,
             LastMessageNs,
+            MessageDisappearFromNs,
+            MessageDisappearInNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -306,6 +328,8 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             "conversationType" | "conversation_type" => Ok(GeneratedField::ConversationType),
                             "dmId" | "dm_id" => Ok(GeneratedField::DmId),
                             "lastMessageNs" | "last_message_ns" => Ok(GeneratedField::LastMessageNs),
+                            "messageDisappearFromNs" | "message_disappear_from_ns" => Ok(GeneratedField::MessageDisappearFromNs),
+                            "messageDisappearInNs" | "message_disappear_in_ns" => Ok(GeneratedField::MessageDisappearInNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -335,6 +359,8 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                 let mut conversation_type__ = None;
                 let mut dm_id__ = None;
                 let mut last_message_ns__ = None;
+                let mut message_disappear_from_ns__ = None;
+                let mut message_disappear_in_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -409,6 +435,22 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::MessageDisappearFromNs => {
+                            if message_disappear_from_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("messageDisappearFromNs"));
+                            }
+                            message_disappear_from_ns__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
+                        GeneratedField::MessageDisappearInNs => {
+                            if message_disappear_in_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("messageDisappearInNs"));
+                            }
+                            message_disappear_in_ns__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(GroupSave {
@@ -422,6 +464,8 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                     conversation_type: conversation_type__.unwrap_or_default(),
                     dm_id: dm_id__,
                     last_message_ns: last_message_ns__,
+                    message_disappear_from_ns: message_disappear_from_ns__,
+                    message_disappear_in_ns: message_disappear_in_ns__,
                 })
             }
         }

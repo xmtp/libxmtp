@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
-use xmtp_id::associations::verify_signed_with_public_context;
+use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -664,12 +664,20 @@ impl From<FfiBackupElementSelection> for BackupElementSelection {
         }
     }
 }
-impl From<BackupElementSelection> for FfiBackupElementSelection {
-    fn from(value: BackupElementSelection) -> Self {
-        match value {
+
+impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
+    type Error = DeserializationError;
+    fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
+        let v = match value {
+            BackupElementSelection::Unspecified => {
+                return Err(DeserializationError::Unspecified(
+                    "Backup Element Selection",
+                ))
+            }
             BackupElementSelection::Consent => Self::Consent,
             BackupElementSelection::Messages => Self::Messages,
-        }
+        };
+        Ok(v)
     }
 }
 

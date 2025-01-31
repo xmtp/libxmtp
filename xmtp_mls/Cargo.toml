@@ -52,6 +52,7 @@ bincode.workspace = true
 bytes.workspace = true
 diesel_migrations.workspace = true
 futures = { workspace = true, features = ["alloc"] }
+futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
 hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
