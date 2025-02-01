@@ -1842,10 +1842,13 @@ fn validate_dm_group(
     let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
 
     if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
-        && permissions.policies.remove_member_policy != expected_permissions.policies.remove_member_policy
+        && permissions.policies.remove_member_policy
+            != expected_permissions.policies.remove_member_policy
         && permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
-        && permissions.policies.remove_admin_policy != expected_permissions.policies.remove_admin_policy
-        && permissions.policies.update_permissions_policy != expected_permissions.policies.update_permissions_policy
+        && permissions.policies.remove_admin_policy
+            != expected_permissions.policies.remove_admin_policy
+        && permissions.policies.update_permissions_policy
+            != expected_permissions.policies.update_permissions_policy
     {
         return Err(GroupError::Generic(
             "Invalid permissions for DM group".to_string(),
