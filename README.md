@@ -107,9 +107,9 @@ encrypt and exchange messages.
 
 - **Run a specific category of benchmark**
   `cargo bench --features bench -p xmtp_mls --bench group_limit`
-- **Run against dev grpc** DEV_GRPC=1 cargo bench --features bench -p xmtp_mls
-  --bench group_limit
-- **Just run all benchmarks** ./dev/bench
-- **Run one specific benchmark** ./dev/bench add_1_member_to_group
-- **Generate flamegraph from one benchmark** ./dev/flamegraph
-  add_1_member_to_group
+- **Run against dev grpc** `DEV_GRPC=1 cargo bench --features bench -p xmtp_mls
+  --bench group_limit`
+- **Just run all benchmarks** `./dev/bench`
+- **Run one specific benchmark** `./dev/bench add_1_member_to_group`
+- **Generate flamegraph from one benchmark** `./dev/flamegraph
+  add_1_member_to_group`
