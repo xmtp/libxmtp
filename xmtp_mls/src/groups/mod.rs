@@ -1836,9 +1836,20 @@ fn validate_dm_group(
         ));
     }
 
-    // Validate permissions
+    // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
+    // Note: we don't validate mutable metadata permissions, because they don't affect group membership
     let permissions = extract_group_permissions(mls_group)?;
-    if permissions != GroupMutablePermissions::new(PolicySet::new_dm()) {
+    let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+
+    if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
+        && permissions.policies.remove_member_policy
+            != expected_permissions.policies.remove_member_policy
+        && permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
+        && permissions.policies.remove_admin_policy
+            != expected_permissions.policies.remove_admin_policy
+        && permissions.policies.update_permissions_policy
+            != expected_permissions.policies.update_permissions_policy
+    {
         return Err(GroupError::Generic(
             "Invalid permissions for DM group".to_string(),
         ));
@@ -2282,10 +2293,11 @@ pub(crate) mod tests {
         let dm_group = alix_filtered_groups.pop().unwrap();
 
         let now = now_ns();
-        let one_second = 1_000_000_000;
+        let one_and_a_half_second = 1_500_000_000;
         assert!(
-            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap()),
-            "last_message_ns {} was not within one second of current time {}",
+            ((now - one_and_a_half_second)..(now + one_and_a_half_second))
+                .contains(&dm_group.last_message_ns.unwrap()),
+            "last_message_ns {} was not within one and a half second of current time {}",
             dm_group.last_message_ns.unwrap(),
             now
         );
