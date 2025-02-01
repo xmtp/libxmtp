@@ -488,10 +488,31 @@ describe('Conversations', () => {
     await client1.conversations().createGroup([user3.account.address])
     await client1.conversations().createDm(user4.account.address)
 
-    let messages: Message[] = []
+    const messages: Message[] = []
     const stream = client1.conversations().streamAllMessages((err, message) => {
       messages.push(message!)
     })
+
+    const messages2: Message[] = []
+    const stream2 = client2
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages2.push(message!)
+      })
+
+    const messages3: Message[] = []
+    const stream3 = client3
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages3.push(message!)
+      })
+
+    const messages4: Message[] = []
+    const stream4 = client4
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages4.push(message!)
+      })
 
     const groups2 = client2.conversations()
     await groups2.sync()
@@ -512,8 +533,17 @@ describe('Conversations', () => {
     await sleep()
 
     stream.end()
+    stream2.end()
+    stream3.end()
+    stream4.end()
     expect(messages.length).toBe(3)
     expect(messages.map((m) => m.id)).toEqual([message1, message2, message3])
+    expect(messages2.length).toBe(1)
+    expect(messages2.map((m) => m.id)).toEqual([message1])
+    expect(messages3.length).toBe(1)
+    expect(messages3.map((m) => m.id)).toEqual([message2])
+    expect(messages4.length).toBe(1)
+    expect(messages4.map((m) => m.id)).toEqual([message3])
   })
 
   it('should only stream group chat messages', async () => {
