@@ -20,7 +20,7 @@ public enum SortDirection {
 public struct Message: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
-    let childMessages: [Message]?
+    public let childMessages: [Message]?
 
 	public var id: String {
 		ffiMessage.id.toHex
