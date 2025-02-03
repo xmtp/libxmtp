@@ -13,7 +13,6 @@ pub(super) mod subscriptions;
 pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
-use diesel::sql_types::Integer;
 use intents::SendMessageIntentData;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -218,7 +217,7 @@ pub enum GroupError {
     #[error("Failed to acquire semaphore lock")]
     LockFailedToAcquire,
     #[error("Exceeded max characters for this field. Must be under: {length}")]
-    TooManyCharacters { length: usize }
+    TooManyCharacters { length: usize },
 }
 
 impl RetryableError for GroupError {
@@ -273,7 +272,7 @@ impl RetryableError for GroupError {
             | Self::AddressValidation(_)
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
-            | Self::EncodeError(_) 
+            | Self::EncodeError(_)
             | Self::TooManyCharacters { .. } => false,
         }
     }
@@ -1023,7 +1022,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         if group_name.len() > MAX_GROUP_NAME_LENGTH {
-            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_NAME_LENGTH });
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_NAME_LENGTH,
+            });
         }
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
@@ -1085,7 +1086,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_description: String,
     ) -> Result<(), GroupError> {
         if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
-            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_DESCRIPTION_LENGTH });
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_DESCRIPTION_LENGTH,
+            });
         }
 
         let provider = self.client.mls_provider()?;
@@ -1118,7 +1121,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
         if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
-            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_IMAGE_URL_LENGTH });
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_IMAGE_URL_LENGTH,
+            });
         }
 
         let provider = self.client.mls_provider()?;
@@ -1873,6 +1878,9 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+    use crate::groups::{
+        MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    };
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -4364,5 +4372,89 @@ pub(crate) mod tests {
             ),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
         ));
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_respects_character_limits_for_group_metadata() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let overlong_name = "a".repeat(MAX_GROUP_NAME_LENGTH + 1);
+        let overlong_description = "b".repeat(MAX_GROUP_DESCRIPTION_LENGTH + 1);
+        let overlong_image_url =
+            "http://example.com/".to_string() + &"c".repeat(MAX_GROUP_IMAGE_URL_LENGTH);
+
+        // Verify that updating the name with an excessive length fails
+        let result = amal_group.update_group_name(overlong_name).await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_NAME_LENGTH)
+        );
+
+        // Verify that updating the description with an excessive length fails
+        let result = amal_group
+            .update_group_description(overlong_description)
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_DESCRIPTION_LENGTH)
+        );
+
+        // Verify that updating the image URL with an excessive length fails
+        let result = amal_group
+            .update_group_image_url_square(overlong_image_url)
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_IMAGE_URL_LENGTH)
+        );
+
+        // Verify updates with valid lengths are successful
+        let valid_name = "Valid Group Name".to_string();
+        let valid_description = "Valid group description within limit.".to_string();
+        let valid_image_url = "http://example.com/image.png".to_string();
+
+        amal_group
+            .update_group_name(valid_name.clone())
+            .await
+            .unwrap();
+        amal_group
+            .update_group_description(valid_description.clone())
+            .await
+            .unwrap();
+        amal_group
+            .update_group_image_url_square(valid_image_url.clone())
+            .await
+            .unwrap();
+
+        // Sync and verify stored values
+        amal_group.sync().await.unwrap();
+
+        let provider = amal_group.mls_provider().unwrap();
+        let metadata = amal_group.mutable_metadata(&provider).unwrap();
+
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap(),
+            &valid_name
+        );
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::Description.to_string())
+                .unwrap(),
+            &valid_description
+        );
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::GroupImageUrlSquare.to_string())
+                .unwrap(),
+            &valid_image_url
+        );
     }
 }
