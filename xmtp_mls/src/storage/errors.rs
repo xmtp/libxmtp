@@ -50,8 +50,6 @@ pub enum StorageError {
     Duplicate(DuplicateItem),
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
-    #[error("Connection is already marked as in transaction")]
-    AlreadyInTransaction,
     #[error("Transaction was intentionally rolled back")]
     IntentionalRollback,
 }
