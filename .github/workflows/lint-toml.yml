@@ -1,0 +1,27 @@
+name: Lint TOML
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "**/*.toml"
+jobs:
+  lint:
+    name: Lint
+    runs-on: warp-ubuntu-latest-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Taplo
+        env:
+          version: "0.9.3"
+        run: |
+          curl -Ls "https://github.com/tamasfe/taplo/releases/download/${{ env.version }}/taplo-full-linux-x86_64.gz" | \
+          gzip -d > taplo && \
+          chmod +x taplo && \
+          sudo mv taplo /usr/local/bin/taplo
+      - name: Run format check
+        run: taplo format --check
+      - name: Run validation check
+        run: taplo check

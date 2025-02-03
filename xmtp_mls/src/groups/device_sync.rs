@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -138,15 +139,26 @@ where
         self.set_sync_worker_handle(worker.handle.clone());
         worker.spawn_worker();
     }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::trace!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaner worker"
+        );
+
+        let worker = DisappearingMessagesCleanerWorker::new(client);
+        worker.spawn_worker();
+    }
 }
 
 pub struct SyncWorker<ApiClient, V> {
     client: Client<ApiClient, V>,
     /// The sync events stream
     #[allow(clippy::type_complexity)]
-    stream: Pin<
-        Box<dyn Stream<Item = Result<LocalEvents<Client<ApiClient, V>>, SubscribeError>> + Send>,
-    >,
+    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send>>,
     init: OnceCell<()>,
     retry: Retry,
 
@@ -194,7 +206,7 @@ where
                     )?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::error!("Incoming preference update");
+                    tracing::info!("Incoming preference update");
                 }
                 _ => {}
             }
@@ -588,7 +600,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group_with_conn(provider.conn_ref(), id)?;
+            let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
         }
@@ -605,7 +617,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
-            let group = self.group_with_conn(conn, group.id)?;
+            let group = self.group_with_conn(conn, &group.id)?;
             Box::pin(
                 group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
             )
@@ -727,9 +739,9 @@ where
     pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group_id = conn
             .latest_sync_group()?
-            .ok_or(GroupError::GroupNotFound)?
+            .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
             .id;
-        let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
+        let sync_group = self.group_with_conn(conn, &sync_group_id)?;
 
         Ok(sync_group)
     }

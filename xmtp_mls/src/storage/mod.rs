@@ -4,8 +4,23 @@ pub mod serialization;
 pub mod sql_key_store;
 pub mod xmtp_openmls_provider;
 
+use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;
+
+impl DbConnection {
+    #[allow(unused)]
+    pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
+        Ok(())
+    }
+
+    #[allow(unused)]
+    pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
+        Ok(())
+    }
+}
 
 /// Initialize the SQLite WebAssembly Library
 #[cfg(target_arch = "wasm32")]

@@ -113,17 +113,6 @@ where
 
     /// Internal-only API to get the underlying `diesel::Connection` reference
     /// without a scope
-    pub(super) fn read_ref(&self) -> Arc<Mutex<C>> {
-        if self.in_transaction() {
-            if let Some(write) = &self.write {
-                return write.clone();
-            };
-        }
-        self.read.clone()
-    }
-
-    /// Internal-only API to get the underlying `diesel::Connection` reference
-    /// without a scope
     /// Must be used with care. holding this reference while calling `raw_query`
     /// will cause a deadlock.
     pub(super) fn write_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
@@ -131,12 +120,6 @@ where
             return self.read_mut_ref();
         };
         write.lock()
-    }
-
-    /// Internal-only API to get the underlying `diesel::Connection` reference
-    /// without a scope
-    pub(super) fn write_ref(&self) -> Option<Arc<Mutex<C>>> {
-        self.write.clone()
     }
 }
 

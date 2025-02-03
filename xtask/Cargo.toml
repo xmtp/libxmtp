@@ -6,6 +6,6 @@ license.workspace = true
 
 [dependencies]
 color-eyre = "0.6"
-xshell = "0.2"
-xflags = "0.3"
 spinach = "3"
+xflags = "0.3"
+xshell = "0.2"

@@ -20,15 +20,15 @@ hex = { workspace = true }
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 thiserror.workspace = true
+tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
 warp = "0.3.6"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
-tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 
 [dev-dependencies]
 anyhow.workspace = true
@@ -36,7 +36,7 @@ ethers.workspace = true
 rand = { workspace = true }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"]}
+xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [features]
 test-utils = ["xmtp_id/test-utils"]

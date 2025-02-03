@@ -1,16 +1,11 @@
+use futures::stream::{self, FuturesUnordered, StreamExt};
+use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-};
-
-use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::{
-    framing::{MlsMessageBodyIn, MlsMessageIn},
-    messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -25,14 +20,12 @@ use xmtp_id::{
     InboxId, InboxIdRef,
 };
 
-use xmtp_proto::xmtp::mls::api::v1::{
-    welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-    GroupMessage, WelcomeMessage,
-};
+use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::{mls_ext::DecryptedWelcome, ConversationListItem};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -41,7 +34,6 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
-    intents::ProcessIntentError,
     mutex_registry::MutexRegistry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -58,7 +50,6 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
-use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -151,7 +142,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
     pub(crate) history_sync_url: Option<String>,
-    pub(crate) local_events: broadcast::Sender<LocalEvents<Self>>,
+    pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
 
@@ -262,7 +253,7 @@ where
         }
     }
 
-    pub fn scw_verifier(&self) -> &V {
+    pub fn scw_verifier(&self) -> &Arc<V> {
         &self.scw_verifier
     }
 }
@@ -526,7 +517,9 @@ where
         )?;
 
         // notify streams of our new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
     }
@@ -561,27 +554,7 @@ where
     }
 
     /// Create a new Direct Message with the default settings
-    pub async fn create_dm(&self, account_address: String) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating dm with address: {}", account_address);
-        let provider = self.mls_provider()?;
-
-        let inbox_id = match self
-            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                return Err(ClientError::Storage(StorageError::NotFound(
-                    NotFound::InboxIdForAddress(account_address),
-                )));
-            }
-        };
-
-        self.create_dm_by_inbox_id(inbox_id).await
-    }
-
-    /// Create a new Direct Message with the default settings
-    pub async fn create_dm_by_inbox_id(
+    async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -600,9 +573,48 @@ where
             .await?;
 
         // notify any streams of the new group
-        let _ = self.local_events.send(LocalEvents::NewGroup(group.clone()));
+        let _ = self
+            .local_events
+            .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         Ok(group)
+    }
+
+    /// Find or create a Direct Message with the default settings
+    pub async fn find_or_create_dm(
+        &self,
+        account_address: String,
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        tracing::info!("finding or creating dm with address: {}", account_address);
+        let provider = self.mls_provider()?;
+        let inbox_id = match self
+            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
+            .await?
+        {
+            Some(id) => id,
+            None => {
+                return Err(NotFound::InboxIdForAddress(account_address).into());
+            }
+        };
+
+        self.find_or_create_dm_by_inbox_id(inbox_id).await
+    }
+
+    /// Find or create a Direct Message by inbox_id with the default settings
+    pub async fn find_or_create_dm_by_inbox_id(
+        &self,
+        inbox_id: InboxId,
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
+        let provider = self.mls_provider()?;
+        let group = provider.conn_ref().find_dm_group(&DmMembers {
+            member_one_inbox_id: self.inbox_id(),
+            member_two_inbox_id: &inbox_id,
+        })?;
+        if let Some(group) = group {
+            return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
+        }
+        self.create_dm_by_inbox_id(inbox_id).await
     }
 
     pub(crate) fn create_sync_group(
@@ -622,12 +634,12 @@ where
     pub fn group_with_conn(
         &self,
         conn: &DbConnection,
-        group_id: Vec<u8>,
+        group_id: &Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
-            .ok_or(NotFound::GroupById(group_id))
+            .ok_or(NotFound::GroupById(group_id.clone()))
             .map_err(Into::into)
     }
 
@@ -637,7 +649,7 @@ where
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
-        self.group_with_conn(conn, group_id)
+        self.group_with_conn(conn, &group_id)
     }
 
     /**
@@ -749,20 +761,12 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_key_package(
+    pub async fn rotate_and_upload_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        provider
-            .transaction_async(move |provider| {
-                let provider = &provider;
-                async {
-                    self.identity()
-                        .rotate_key_package(provider, &self.api_client)
-                        .await?;
-                    Ok::<_, IdentityError>(())
-                }
-            })
+        self.identity()
+            .rotate_and_upload_key_package(provider, &self.api_client)
             .await?;
 
         Ok(())
@@ -823,16 +827,18 @@ where
     pub async fn sync_welcomes(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
         let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
-                let welcome_v1 = match extract_welcome_message(envelope) {
-                    Ok(inner) => inner,
-                    Err(err) => {
-                        tracing::error!("failed to extract welcome message: {}", err);
+                let welcome_v1 = match envelope.version {
+                    Some(welcome_message::Version::V1(v1)) => v1,
+                    _ => {
+                        tracing::error!(
+                            "failed to extract welcome message, invalid payload only v1 supported."
+                        );
                         return None;
                     }
                 };
@@ -847,7 +853,7 @@ where
 
         // If any welcomes were found, rotate your key package
         if num_envelopes > 0 {
-            self.rotate_key_package(provider).await?;
+            self.rotate_and_upload_key_package(provider).await?;
         }
 
         Ok(groups)
@@ -855,52 +861,47 @@ where
 
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
-    /// applies the update after the welcome processed succesfully.
+    /// applies the update after the welcome processed successfully.
     async fn process_new_welcome(
         &self,
         provider: &XmtpOpenMlsProvider,
-        welcome: &WelcomeMessageV1,
+        welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        provider
-            .transaction_async(|provider| async move {
-                let cursor = welcome.id;
-                let is_updated = provider.conn_ref().update_cursor(
-                    self.installation_public_key(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        let cursor = welcome.id;
+        let welcome_id = welcome.id;
+        let welcome_data = DecryptedWelcome::from_encrypted_bytes(
+            provider,
+            welcome.hpke_public_key.as_slice(),
+            &welcome.data,
+        )?;
+        let result = MlsGroup::create_from_welcome(
+            self,
+            provider,
+            welcome_data.staged_welcome,
+            welcome_data.added_by_inbox_id,
+            welcome_id as i64,
+            Some(cursor as i64),
+        )
+        .await;
+
+        match result {
+            Ok(mls_group) => Ok(mls_group),
+            Err(err) => {
+                use crate::DuplicateItem::*;
+                use crate::StorageError::*;
+
+                if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                    tracing::warn!(
+                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        err
+                    );
+                } else {
+                    tracing::error!("failed to create group from welcome: {}", err);
                 }
-                let result = MlsGroup::create_from_encrypted_welcome(
-                    Arc::new(self.clone()),
-                    provider,
-                    welcome.hpke_public_key.as_slice(),
-                    &welcome.data,
-                    welcome.id as i64,
-                )
-                .await;
 
-                match result {
-                    Ok(mls_group) => Ok(mls_group),
-                    Err(err) => {
-                        use crate::DuplicateItem::*;
-                        use crate::StorageError::*;
-
-                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                            tracing::warn!(
-                            "failed to create group from welcome due to duplicate welcome ID: {}",
-                            err
-                        );
-                        } else {
-                            tracing::error!("failed to create group from welcome: {}", err);
-                        }
-
-                        Err(err)
-                    }
-                }
-            })
-            .await
+                Err(err)
+            }
+        }
     }
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
@@ -1028,28 +1029,6 @@ where
     }
 }
 
-pub(crate) fn extract_welcome_message(
-    welcome: WelcomeMessage,
-) -> Result<WelcomeMessageV1, ClientError> {
-    match welcome.version {
-        Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
-    }
-}
-
-pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
-    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
-    match welcome.extract() {
-        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -1150,7 +1129,7 @@ pub(crate) mod tests {
 
         // Rotate and fetch again.
         client
-            .rotate_key_package(&client.mls_provider().unwrap())
+            .rotate_and_upload_key_package(&client.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -1599,5 +1578,49 @@ pub(crate) mod tests {
             .unwrap()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
         assert!(bo_original_after_delete.is_err());
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_find_or_create_dm_by_inbox_id() {
+        let user1 = generate_local_wallet();
+        let user2 = generate_local_wallet();
+        let client1 = ClientBuilder::new_test_client(&user1).await;
+        let client2 = ClientBuilder::new_test_client(&user2).await;
+
+        // First call should create a new DM
+        let dm1 = client1
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        // Verify DM was created with correct properties
+        let metadata = dm1
+            .metadata(&client1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            metadata.dm_members.clone().unwrap().member_one_inbox_id,
+            client1.inbox_id()
+        );
+        assert_eq!(
+            metadata.dm_members.unwrap().member_two_inbox_id,
+            client2.inbox_id()
+        );
+
+        // Second call should find the existing DM
+        let dm2 = client1
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .await
+            .unwrap();
+
+        // Verify we got back the same DM
+        assert_eq!(dm1.group_id, dm2.group_id);
+        assert_eq!(dm1.created_at_ns, dm2.created_at_ns);
+
+        // Verify the DM appears in conversations list
+        let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(conversations.len(), 1);
+        assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 }

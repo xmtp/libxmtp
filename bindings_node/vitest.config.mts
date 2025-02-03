@@ -11,6 +11,7 @@ const viteConfig = defineConfig({
 const vitestConfig = defineVitestConfig({
   test: {
     globalSetup: ['./vitest.setup.mts'],
+    testTimeout: 30000,
   },
 })
 

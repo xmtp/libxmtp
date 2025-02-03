@@ -7,8 +7,10 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::conversation::MessageDisappearingSettings;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{StreamCallback, StreamCloser};
 use crate::{client::RustXmtpClient, conversation::Conversation};
 
 #[wasm_bindgen]
@@ -130,10 +132,8 @@ pub struct CreateGroupOptions {
   pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  #[wasm_bindgen(js_name = messageExpirationFromMillis)]
-  pub message_expiration_from_ms: Option<i64>,
-  #[wasm_bindgen(js_name = messageExpirationMillis)]
-  pub message_expiration_ms: Option<i64>,
+  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 #[wasm_bindgen]
@@ -147,8 +147,7 @@ impl CreateGroupOptions {
     group_description: Option<String>,
     group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
-    message_expiration_from_ms: Option<i64>,
-    message_expiration_ms: Option<i64>,
+    message_disappearing_settings: Option<MessageDisappearingSettings>,
   ) -> Self {
     Self {
       permissions,
@@ -157,8 +156,7 @@ impl CreateGroupOptions {
       group_description,
       group_pinned_frame_url,
       custom_permission_policy_set,
-      message_expiration_from_ms,
-      message_expiration_ms,
+      message_disappearing_settings,
     }
   }
 }
@@ -170,8 +168,9 @@ impl CreateGroupOptions {
       image_url_square: self.group_image_url_square,
       description: self.group_description,
       pinned_frame_url: self.group_pinned_frame_url,
-      message_expiration_from_ms: self.message_expiration_from_ms,
-      message_expiration_ms: self.message_expiration_ms,
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
     }
   }
 }
@@ -218,8 +217,7 @@ impl Conversations {
       group_description: None,
       group_pinned_frame_url: None,
       custom_permission_policy_set: None,
-      message_expiration_from_ms: None,
-      message_expiration_ms: None,
+      message_disappearing_settings: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -275,10 +273,10 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = createDm)]
-  pub async fn create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
+  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
-      .create_dm(account_address)
+      .find_or_create_dm(account_address)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -414,6 +412,61 @@ impl Conversations {
       hmac_map.insert(id, keys);
     }
 
-    Ok(serde_wasm_bindgen::to_value(&hmac_map)?)
+    Ok(crate::to_value(&hmac_map)?)
+  }
+
+  #[wasm_bindgen(js_name = stream)]
+  pub fn stream(
+    &self,
+    callback: StreamCallback,
+    conversation_type: Option<ConversationType>,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      move |message| match message {
+        Ok(item) => {
+          let conversation = Conversation::from(item);
+          callback.on_item(JsValue::from(conversation))
+        }
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
+    );
+
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[wasm_bindgen(js_name = "streamGroups")]
+  pub fn stream_groups(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    self.stream(callback, Some(ConversationType::Group))
+  }
+
+  #[wasm_bindgen(js_name = "streamDms")]
+  pub fn stream_dms(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    self.stream(callback, Some(ConversationType::Dm))
+  }
+
+  #[wasm_bindgen(js_name = "streamAllMessages")]
+  pub fn stream_all_messages(
+    &self,
+    callback: StreamCallback,
+    conversation_type: Option<ConversationType>,
+  ) -> Result<StreamCloser, JsError> {
+    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+      self.inner_client.clone(),
+      conversation_type.map(Into::into),
+      move |message| match message {
+        Ok(m) => {
+          let serialized = crate::to_value(&m);
+          if let Err(e) = serialized {
+            callback.on_error(JsError::from(e));
+          } else {
+            callback.on_item(serialized.expect("checked for err"))
+          }
+        }
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
+    );
+    Ok(StreamCloser::new(stream_closer))
   }
 }

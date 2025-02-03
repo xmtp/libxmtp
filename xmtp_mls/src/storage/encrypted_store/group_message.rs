@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use diesel::dsl::sql;
+use diesel::sql_types::BigInt;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -8,8 +8,10 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::ops::Sub;
+use xmtp_common::time::now_ns;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
     text, transaction_reference,
@@ -290,7 +292,7 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read( |conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
     /// Query for group messages with their reactions
@@ -341,7 +343,7 @@ impl DbConnection {
         };
 
         let reactions: Vec<StoredGroupMessage> =
-            self.raw_query_read( |conn| reactions_query.load(conn))?;
+            self.raw_query_read(|conn| reactions_query.load(conn))?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -377,7 +379,7 @@ impl DbConnection {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read( |conn| {
+        Ok(self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first(conn)
@@ -390,7 +392,7 @@ impl DbConnection {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read( |conn| {
+        Ok(self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(timestamp))
@@ -404,7 +406,7 @@ impl DbConnection {
         msg_id: &MessageId,
         timestamp: u64,
     ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write( |conn| {
+        Ok(self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -419,10 +421,56 @@ impl DbConnection {
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write( |conn| {
+        Ok(self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
+                .execute(conn)
+        })?)
+    }
+
+    pub fn delete_expired_messages(&self) -> Result<usize, StorageError> {
+        Ok(self.raw_query_write(|conn| {
+            use diesel::prelude::*;
+            let disappear_from_ns = groups_dsl::message_disappear_from_ns
+                .assume_not_null()
+                .into_sql::<BigInt>();
+            let disappear_duration_ns = groups_dsl::message_disappear_in_ns
+                .assume_not_null()
+                .into_sql::<BigInt>();
+            let now = now_ns();
+
+            let expire_messages = dsl::group_messages
+                .left_join(
+                    groups_dsl::groups.on(sql::<diesel::sql_types::Text>(
+                        "lower(hex(group_messages.group_id))",
+                    )
+                    .eq(sql::<diesel::sql_types::Text>("lower(hex(groups.id))"))),
+                )
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
+                .filter(
+                    groups_dsl::message_disappear_from_ns
+                        .is_not_null()
+                        .and(groups_dsl::message_disappear_in_ns.is_not_null()),
+                )
+                .filter(
+                    disappear_from_ns
+                        .gt(0) // to make sure the settings are correct
+                        .and(
+                            dsl::sent_at_ns.gt(disappear_from_ns).and(
+                                dsl::sent_at_ns.lt(sql::<BigInt>("")
+                                    .bind::<BigInt, _>(now)
+                                    .assume_not_null()
+                                    .sub(disappear_duration_ns)),
+                            ),
+                        ),
+                )
+                .select(dsl::id);
+            let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;
+
+            // Then delete the rows by their IDs
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
                 .execute(conn)
         })?)
     }
@@ -455,7 +503,7 @@ pub(crate) mod tests {
             sender_installation_id: rand_vec::<24>(),
             sender_inbox_id: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
-            delivery_status: DeliveryStatus::Unpublished,
+            delivery_status: DeliveryStatus::Published,
             content_type: content_type.unwrap_or(ContentType::Unknown),
             version_major: 0,
             version_minor: 0,
@@ -517,7 +565,7 @@ pub(crate) mod tests {
             }
 
             let count: i64 = conn
-                .raw_query_read( |raw_conn| {
+                .raw_query_read(|raw_conn| {
                     dsl::group_messages
                         .select(diesel::dsl::count_star())
                         .first(raw_conn)
@@ -585,6 +633,49 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             assert_eq!(messages.len(), 2);
+        })
+        .await
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test)]
+    async fn it_deletes_middle_message_by_expiration_time() {
+        with_connection(|conn| {
+            let mut group = generate_group(None);
+
+            let disappear_from_ns = Some(1_000_500_000); // After Message 1
+            let disappear_in_ns = Some(500_000); // Before Message 3
+            group.message_disappear_from_ns = disappear_from_ns;
+            group.message_disappear_in_ns = disappear_in_ns;
+
+            group.store(conn).unwrap();
+
+            let messages = vec![
+                generate_message(None, Some(&group.id), Some(1_000_000_000), None),
+                generate_message(None, Some(&group.id), Some(1_001_000_000), None),
+                generate_message(None, Some(&group.id), Some(2_000_000_000_000_000_000), None),
+            ];
+            assert_ok!(messages.store(conn));
+
+            let result = conn.delete_expired_messages().unwrap();
+            assert_eq!(result, 1); // Ensure exactly 1 message is deleted
+
+            let remaining_messages = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+
+            // Verify the count and content of the remaining messages
+            assert_eq!(remaining_messages.len(), 2);
+            assert!(remaining_messages
+                .iter()
+                .any(|msg| msg.sent_at_ns == 1_000_000_000)); // Message 1
+            assert!(remaining_messages
+                .iter()
+                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)); // Message 3
         })
         .await
     }

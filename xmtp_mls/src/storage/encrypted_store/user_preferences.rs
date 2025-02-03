@@ -55,9 +55,9 @@ impl StoredUserPreferences {
         Ok(result.pop().unwrap_or_default())
     }
 
-    pub fn new_hmac_key<C>(
+    pub fn new_hmac_key(
         conn: &DbConnection,
-        local_events: &Sender<LocalEvents<C>>,
+        local_events: &Sender<LocalEvents>,
     ) -> Result<Vec<u8>, StorageError> {
         let mut preferences = Self::load(conn)?;
 
