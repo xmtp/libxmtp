@@ -213,6 +213,15 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		}
 	}
+	
+	public var client: Client {
+		switch self {
+		case let .group(group):
+			return group.client
+		case let .dm(dm):
+			return dm.client
+		}
+	}
     
     public func messagesWithReactions(
         limit: Int? = nil,

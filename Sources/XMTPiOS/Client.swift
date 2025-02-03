@@ -479,7 +479,7 @@ public final class Client {
 			return Group(
 				ffiGroup: try ffiClient.conversation(
 					conversationId: groupId.hexToData),
-				clientInboxId: self.inboxID)
+				client: self)
 		} catch {
 			return nil
 		}
@@ -525,7 +525,7 @@ public final class Client {
 			let conversation = try ffiClient.dmConversation(
 				targetInboxId: inboxId)
 			return Dm(
-				ffiConversation: conversation, clientInboxId: self.inboxID)
+				ffiConversation: conversation, client: self)
 		} catch {
 			return nil
 		}

@@ -4,7 +4,7 @@ import LibXMTP
 public struct Dm: Identifiable, Equatable, Hashable {
 	var ffiConversation: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
-	var clientInboxId: String
+	var client: Client
 	let streamHolder = StreamHolder()
 
 	public var id: String {
@@ -32,7 +32,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		return try await metadata().creatorInboxId() == clientInboxId
+		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
 	public func creatorInboxId() async throws -> String {

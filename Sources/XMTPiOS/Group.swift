@@ -24,7 +24,7 @@ final class StreamHolder {
 public struct Group: Identifiable, Equatable, Hashable {
 	var ffiGroup: FfiConversation
 	var ffiLastMessage: FfiMessage? = nil
-	var clientInboxId: String
+	var client: Client
 	let streamHolder = StreamHolder()
 
 	public var id: String {
@@ -60,7 +60,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func isCreator() async throws -> Bool {
-		return try await metadata().creatorInboxId() == clientInboxId
+		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
 	public func isAdmin(inboxId: String) throws -> Bool {
@@ -119,7 +119,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var peerInboxIds: [String] {
 		get async throws {
 			var ids = try await members.map(\.inboxId)
-			if let index = ids.firstIndex(of: clientInboxId) {
+			if let index = ids.firstIndex(of: client.inboxID) {
 				ids.remove(at: index)
 			}
 			return ids
