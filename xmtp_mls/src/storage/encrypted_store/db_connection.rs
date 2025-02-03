@@ -122,7 +122,7 @@ pub struct TransactionGuard<'a> {
     in_transaction: Arc<AtomicBool>,
     _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
-impl<'_> Drop for TransactionGuard<'_> {
+impl Drop for TransactionGuard<'_> {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }
