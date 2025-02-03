@@ -1,9 +1,15 @@
+use crate::storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError};
+use diesel::connection::TransactionManager;
 use parking_lot::Mutex;
-use std::fmt;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
+use std::{
+    fmt,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
-use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use super::XmtpDb;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type DbConnection = DbConnectionPrivate<super::RawDbConnection>;
@@ -22,7 +28,8 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 pub struct DbConnectionPrivate<C> {
     read: Arc<Mutex<C>>,
     write: Option<Arc<Mutex<C>>>,
-    pub(super) transaction_count: Arc<AtomicI32>,
+    // This field will funnel all reads / writes to the write connection if true.
+    pub(super) in_transaction: Arc<AtomicBool>,
 }
 
 impl<C> Clone for DbConnectionPrivate<C> {
@@ -30,7 +37,7 @@ impl<C> Clone for DbConnectionPrivate<C> {
         Self {
             read: self.read.clone(),
             write: self.write.clone(),
-            transaction_count: self.transaction_count.clone(),
+            in_transaction: self.in_transaction.clone(),
         }
     }
 }
@@ -38,15 +45,11 @@ impl<C> Clone for DbConnectionPrivate<C> {
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
-    pub(super) fn from_arc_mutex(
-        read: Arc<Mutex<C>>,
-        write: Option<Arc<Mutex<C>>>,
-        is_transaction: bool,
-    ) -> Self {
+    pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Option<Arc<Mutex<C>>>) -> Self {
         Self {
             read,
             write,
-            transaction_count: Arc::new(AtomicI32::new(is_transaction as i32)),
+            in_transaction: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -55,15 +58,27 @@ impl<C> DbConnectionPrivate<C>
 where
     C: diesel::Connection,
 {
-    fn in_transaction(&self) -> bool {
-        self.transaction_count.load(Ordering::SeqCst) != 0
+    pub(crate) fn start_transaction<Db: XmtpDb<Connection = C>>(
+        &self,
+    ) -> Result<TransactionGuard, StorageError> {
+        let mut write = self
+            .write
+            .as_ref()
+            .expect("Tried to open transaction on read-only connection")
+            .lock();
+        <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *write)?;
+
+        if self.in_transaction.swap(true, Ordering::SeqCst) {
+            panic!("Already in transaction.");
+        }
+
+        Ok(TransactionGuard {
+            in_transaction: self.in_transaction.clone(),
+        })
     }
 
-    pub(crate) fn start_transaction(&self) -> TransactionGuard {
-        self.transaction_count.fetch_add(1, Ordering::SeqCst);
-        TransactionGuard {
-            transaction_count: self.transaction_count.clone(),
-        }
+    fn in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
     }
 
     /// Do a scoped query with a mutable [`diesel::Connection`]
@@ -97,30 +112,6 @@ where
         let mut lock = self.read.lock();
         fun(&mut lock)
     }
-
-    /// Internal-only API to get the underlying `diesel::Connection` reference
-    /// without a scope
-    /// Must be used with care. holding this reference while calling `raw_query`
-    /// will cause a deadlock.
-    pub(super) fn read_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
-        if self.in_transaction() {
-            if let Some(write) = &self.write {
-                return write.lock();
-            }
-        }
-        self.read.lock()
-    }
-
-    /// Internal-only API to get the underlying `diesel::Connection` reference
-    /// without a scope
-    /// Must be used with care. holding this reference while calling `raw_query`
-    /// will cause a deadlock.
-    pub(super) fn write_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
-        let Some(write) = &self.write else {
-            return self.read_mut_ref();
-        };
-        write.lock()
-    }
 }
 
 // Forces a move for conn
@@ -143,10 +134,10 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
 }
 
 pub struct TransactionGuard {
-    transaction_count: Arc<AtomicI32>,
+    in_transaction: Arc<AtomicBool>,
 }
 impl Drop for TransactionGuard {
     fn drop(&mut self) {
-        self.transaction_count.fetch_add(-1, Ordering::SeqCst);
+        self.in_transaction.store(false, Ordering::SeqCst);
     }
 }

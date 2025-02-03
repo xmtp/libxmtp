@@ -385,14 +385,8 @@ where
     {
         tracing::debug!("Transaction beginning");
 
-        let _guard = {
-            let wrapper = self.conn_ref();
-            let mut connection = wrapper.write_mut_ref();
-            <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-            wrapper.start_transaction()
-        };
-
         let conn = self.conn_ref();
+        let _guard = conn.start_transaction::<Db>()?;
 
         match fun(self) {
             Ok(value) => {
