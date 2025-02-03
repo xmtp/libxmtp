@@ -27,9 +27,13 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct DbConnectionPrivate<C> {
+    // Connection with read-only privileges
     read: Option<Arc<Mutex<C>>>,
+    // Connection with write privileges
     write: Arc<Mutex<C>>,
+    // Is any connection (possibly this one) currently in a transaction?
     transaction_lock: Arc<Mutex<()>>,
+    // Is this particular connection in a transaction?
     in_transaction: Arc<AtomicBool>,
 }
 
@@ -118,7 +122,7 @@ pub struct TransactionGuard<'a> {
     in_transaction: Arc<AtomicBool>,
     _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
-impl<'a> Drop for TransactionGuard<'a> {
+impl<'_> Drop for TransactionGuard<'_> {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }
