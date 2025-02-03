@@ -315,7 +315,7 @@ class Client() {
 
     fun findGroup(groupId: String): Group? {
         return try {
-            Group(this.inboxId, ffiClient.conversation(groupId.hexToByteArray()))
+            Group(this, ffiClient.conversation(groupId.hexToByteArray()))
         } catch (e: Exception) {
             null
         }
@@ -325,8 +325,8 @@ class Client() {
         return try {
             val conversation = ffiClient.conversation(conversationId.hexToByteArray())
             when (conversation.conversationType()) {
-                FfiConversationType.GROUP -> Conversation.Group(Group(this.inboxId, conversation))
-                FfiConversationType.DM -> Conversation.Dm(Dm(this.inboxId, conversation))
+                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
                 else -> null
             }
         } catch (e: Exception) {
@@ -341,8 +341,8 @@ class Client() {
         return try {
             val conversation = ffiClient.conversation(conversationId.hexToByteArray())
             when (conversation.conversationType()) {
-                FfiConversationType.GROUP -> Conversation.Group(Group(this.inboxId, conversation))
-                FfiConversationType.DM -> Conversation.Dm(Dm(this.inboxId, conversation))
+                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
                 else -> null
             }
         } catch (e: Exception) {
@@ -352,7 +352,7 @@ class Client() {
 
     fun findDmByInboxId(inboxId: String): Dm? {
         return try {
-            Dm(this.inboxId, ffiClient.dmConversation(inboxId))
+            Dm(this, ffiClient.dmConversation(inboxId))
         } catch (e: Exception) {
             null
         }

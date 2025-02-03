@@ -22,7 +22,7 @@ import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
-class Dm(private val clientInboxId: String, private val libXMTPGroup: FfiConversation, private val ffiLastMessage: FfiMessage? = null) {
+class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private val ffiLastMessage: FfiMessage? = null) {
     val id: String
         get() = libXMTPGroup.id().toHex()
 
@@ -172,7 +172,7 @@ class Dm(private val clientInboxId: String, private val libXMTPGroup: FfiConvers
     }
 
     suspend fun isCreator(): Boolean {
-        return metadata().creatorInboxId() == clientInboxId
+        return metadata().creatorInboxId() == client.inboxId
     }
 
     suspend fun members(): List<Member> {
