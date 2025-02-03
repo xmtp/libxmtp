@@ -12,6 +12,7 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -121,8 +122,7 @@ pub struct CreateGroupOptions {
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  pub message_expiration_from_ms: Option<i64>,
-  pub message_expiration_ms: Option<i64>,
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl CreateGroupOptions {
@@ -131,8 +131,9 @@ impl CreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      message_expiration_from_ms: self.message_expiration_from_ms,
-      message_expiration_ms: self.message_expiration_ms,
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
     }
   }
 }
@@ -160,8 +161,7 @@ impl Conversations {
       group_image_url_square: None,
       group_description: None,
       custom_permission_policy_set: None,
-      message_expiration_from_ms: None,
-      message_expiration_ms: None,
+      message_disappearing_settings: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -218,11 +218,11 @@ impl Conversations {
     Ok(convo.into())
   }
 
-  #[napi]
-  pub async fn create_dm(&self, account_address: String) -> Result<Conversation> {
+  #[napi(js_name = "createDm")]
+  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .create_dm(account_address)
+      .find_or_create_dm(account_address)
       .await
       .map_err(ErrorWrapper::from)?;
 

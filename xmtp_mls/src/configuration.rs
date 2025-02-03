@@ -20,7 +20,8 @@ const NS_IN_DAY: i64 = NS_IN_HOUR * 24;
 
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = 30 * NS_IN_DAY;
 
-pub const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
+#[allow(dead_code)]
+const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
@@ -59,3 +60,21 @@ pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
+
+#[cfg(debug_assertions)]
+pub mod debug_config {
+    use super::*;
+    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600;
+    // 1 second
+}
+
+pub fn sync_update_installations_interval_ns() -> i64 {
+    #[cfg(debug_assertions)]
+    {
+        debug_config::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
+    }
+}

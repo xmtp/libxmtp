@@ -25,6 +25,13 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
+use super::{
+    group_membership::GroupMembership,
+    group_mutable_metadata::MetadataField,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    scoped_client::ScopedGroupClient,
+    GroupError, MlsGroup,
+};
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     storage::{
@@ -35,14 +42,6 @@ use crate::{
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpOpenMlsProvider,
-};
-
-use super::{
-    group_membership::GroupMembership,
-    group_mutable_metadata::MetadataField,
-    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    scoped_client::ScopedGroupClient,
-    GroupError, MlsGroup,
 };
 
 #[derive(Debug, Error)]
@@ -232,6 +231,19 @@ impl UpdateMetadataIntentData {
         Self {
             field_name: MetadataField::Description.to_string(),
             field_value: group_description,
+        }
+    }
+
+    pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
+        Self {
+            field_name: MetadataField::MessageDisappearFromNS.to_string(),
+            field_value: from_ns.to_string(),
+        }
+    }
+    pub fn new_update_conversation_message_disappear_in_ns(in_ns: i64) -> Self {
+        Self {
+            field_name: MetadataField::MessageDisappearInNS.to_string(),
+            field_value: in_ns.to_string(),
         }
     }
 }

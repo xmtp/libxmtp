@@ -45,7 +45,7 @@ export const createClient = async (user: User) => {
     user.account.address,
     undefined,
     undefined,
-    { level: LogLevel.info }
+    { level: LogLevel.off }
   )
 }
 
