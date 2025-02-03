@@ -1,8 +1,3 @@
-use futures::{Stream, StreamExt};
-
-use prost::Message;
-use tokio::sync::oneshot;
-
 use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
@@ -13,6 +8,9 @@ use crate::{
     },
     types::GroupId,
 };
+use futures::{Stream, StreamExt};
+use prost::Message;
+use tokio::sync::oneshot;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
