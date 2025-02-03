@@ -44,7 +44,7 @@ impl XmtpDb for WasmDb {
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
         Ok(DbConnectionPrivate::from_arc_mutex(
             self.conn.clone(),
-            Some(self.conn.clone()),
+            self.conn.clone(),
         ))
     }
 
