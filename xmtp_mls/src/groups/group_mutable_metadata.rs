@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::GroupMetadataOptions;
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
-    DEFAULT_GROUP_PINNED_FRAME_URL, MUTABLE_METADATA_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID,
 };
 
 /// Errors that can occur when working with GroupMutableMetadata.
@@ -44,7 +44,6 @@ pub enum MetadataField {
     GroupName,
     Description,
     GroupImageUrlSquare,
-    GroupPinnedFrameUrl,
     MessageDisappearFromNS,
     MessageDisappearInNS,
 }
@@ -56,7 +55,6 @@ impl MetadataField {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
-            MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
             MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
             MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
         }
@@ -136,11 +134,6 @@ impl GroupMutableMetadata {
             opts.image_url_square
                 .unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
-        attributes.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            opts.pinned_frame_url
-                .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
-        );
 
         if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
             attributes.insert(
@@ -178,10 +171,6 @@ impl GroupMutableMetadata {
             MetadataField::GroupImageUrlSquare.to_string(),
             DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string(),
         );
-        attributes.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            DEFAULT_GROUP_PINNED_FRAME_URL.to_string(),
-        );
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {
@@ -199,7 +188,6 @@ impl GroupMutableMetadata {
             MetadataField::GroupName,
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
-            MetadataField::GroupPinnedFrameUrl,
             MetadataField::MessageDisappearFromNS,
             MetadataField::MessageDisappearInNS,
         ]
