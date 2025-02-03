@@ -106,7 +106,7 @@ use xmtp_id::{InboxId, InboxIdRef};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_common::retry::RetryableError;
 
-const MAX_GROUP_DESCRIPTION_LENGTH: usize = 300;
+const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
@@ -217,8 +217,8 @@ pub enum GroupError {
     LockUnavailable,
     #[error("Failed to acquire semaphore lock")]
     LockFailedToAcquire,
-    #[error("Exceeded max characters for this field. Must be under: {0}")]
-    TooManyCharacters(Integer)
+    #[error("Exceeded max characters for this field. Must be under: {length}")]
+    TooManyCharacters { length: usize }
 }
 
 impl RetryableError for GroupError {
@@ -274,7 +274,7 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_) 
-            | Self::TooManyCharacters(_) => false,
+            | Self::TooManyCharacters { .. } => false,
         }
     }
 }
@@ -1023,7 +1023,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         if group_name.len() > MAX_GROUP_NAME_LENGTH {
-            return Err(GroupError::TooManyCharacters(MAX_GROUP_NAME_LENGTH));
+            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_NAME_LENGTH });
         }
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
@@ -1085,7 +1085,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_description: String,
     ) -> Result<(), GroupError> {
         if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
-            return Err(GroupError::TooManyCharacters(MAX_GROUP_DESCRIPTION_LENGTH));
+            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_DESCRIPTION_LENGTH });
         }
 
         let provider = self.client.mls_provider()?;
@@ -1118,7 +1118,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
         if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
-            return Err(GroupError::TooManyCharacters(MAX_GROUP_IMAGE_URL_LENGTH));
+            return Err(GroupError::TooManyCharacters { length: MAX_GROUP_IMAGE_URL_LENGTH });
         }
 
         let provider = self.client.mls_provider()?;
