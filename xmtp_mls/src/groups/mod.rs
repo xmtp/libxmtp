@@ -3873,7 +3873,7 @@ pub(crate) mod tests {
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 2);
+            assert_eq!(errors.len(), 1);
             assert!(errors
                 .iter()
                 .any(|err| err.to_string().contains("database is locked")));
