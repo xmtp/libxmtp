@@ -28,7 +28,7 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 #[derive(Clone)]
 pub struct DbConnectionPrivate<C> {
     read: Arc<Mutex<C>>,
-    write: Option<Arc<Mutex<C>>>,
+    write: Arc<Mutex<C>>,
     // This field will funnel all reads / writes to the write connection if true.
     pub(super) in_transaction: Arc<AtomicBool>,
 }
@@ -36,7 +36,7 @@ pub struct DbConnectionPrivate<C> {
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
-    pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Option<Arc<Mutex<C>>>) -> Self {
+    pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Arc<Mutex<C>>) -> Self {
         Self {
             read,
             write,
@@ -52,11 +52,7 @@ where
     pub(crate) fn start_transaction<Db: XmtpDb<Connection = C>>(
         &self,
     ) -> Result<TransactionGuard, StorageError> {
-        let mut write = self
-            .write
-            .as_ref()
-            .expect("Tried to open transaction on read-only connection")
-            .lock();
+        let mut write = self.write.lock();
         <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *write)?;
 
         if self.in_transaction.swap(true, Ordering::SeqCst) {
@@ -79,10 +75,8 @@ where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
         if self.in_transaction() {
-            if let Some(write) = &self.write {
-                let mut lock = write.lock();
-                return fun(&mut lock);
-            };
+            let mut lock = self.write.lock();
+            return fun(&mut lock);
         }
 
         let mut lock = self.read.lock();
@@ -95,12 +89,7 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        if let Some(write_conn) = &self.write {
-            let mut lock = write_conn.lock();
-            return fun(&mut lock);
-        }
-
-        let mut lock = self.read.lock();
+        let mut lock = self.write.lock();
         fun(&mut lock)
     }
 }
