@@ -25,7 +25,6 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
 #[doc(hidden)]
-#[derive(Clone)]
 pub struct DbConnectionPrivate<C> {
     // Connection with read-only privileges
     read: Option<Arc<Mutex<C>>>,
