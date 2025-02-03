@@ -94,6 +94,12 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
+        let _guard;
+        // If this connection is not in a transaction
+        if !self.in_transaction.load(Ordering::SeqCst) {
+            // Make sure another connection isn't
+            _guard = self.transaction_lock.lock();
+        }
         fun(&mut self.write.lock())
     }
 }
