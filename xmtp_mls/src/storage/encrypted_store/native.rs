@@ -127,6 +127,7 @@ impl NativeDb {
         };
 
         let write_conn = if matches!(opts, StorageOption::Persistent(_)) {
+            // Take one of the connections and use it as the only writer.
             let mut write_conn = pool.get()?;
             write_conn.batch_execute("PRAGMA query_only = OFF;")?;
             Some(Arc::new(Mutex::new(write_conn)))
