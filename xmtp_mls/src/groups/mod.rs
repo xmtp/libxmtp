@@ -15,7 +15,6 @@ pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
-use mls_ext::build_group_join_config;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -28,7 +27,7 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{
         BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
+        MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
