@@ -60,7 +60,7 @@ where
         <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *write)?;
 
         if self.in_transaction.swap(true, Ordering::SeqCst) {
-            panic!("Already in transaction.");
+            return Err(StorageError::AlreadyInTransaction);
         }
 
         Ok(TransactionGuard {
