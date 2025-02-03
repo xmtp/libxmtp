@@ -31,7 +31,7 @@ pub struct DbConnectionPrivate<C> {
     // Connection with write privileges
     write: Arc<Mutex<C>>,
     // Is any connection (possibly this one) currently in a transaction?
-    transaction_lock: Arc<Mutex<()>>,
+    global_transaction_lock: Arc<Mutex<()>>,
     // Is this particular connection in a transaction?
     in_transaction: Arc<AtomicBool>,
 }
@@ -47,7 +47,7 @@ impl<C> DbConnectionPrivate<C> {
         Self {
             read,
             write,
-            transaction_lock,
+            global_transaction_lock: transaction_lock,
             in_transaction: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -60,7 +60,7 @@ where
     pub(crate) fn start_transaction<Db: XmtpDb<Connection = C>>(
         &self,
     ) -> Result<TransactionGuard<'_>, StorageError> {
-        let guard = self.transaction_lock.lock();
+        let guard = self.global_transaction_lock.lock();
         let mut write = self.write.lock();
         <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *write)?;
         self.in_transaction.store(true, Ordering::SeqCst);
@@ -98,7 +98,7 @@ where
         // If this connection is not in a transaction
         if !self.in_transaction.load(Ordering::SeqCst) {
             // Make sure another connection isn't
-            _guard = self.transaction_lock.lock();
+            _guard = self.global_transaction_lock.lock();
         }
         fun(&mut self.write.lock())
     }
