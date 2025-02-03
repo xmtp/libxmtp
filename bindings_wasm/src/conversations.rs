@@ -128,8 +128,6 @@ pub struct CreateGroupOptions {
   pub group_image_url_square: Option<String>,
   #[wasm_bindgen(js_name = groupDescription)]
   pub group_description: Option<String>,
-  #[wasm_bindgen(js_name = groupPinnedFrameUrl)]
-  pub group_pinned_frame_url: Option<String>,
   #[wasm_bindgen(js_name = customPermissionPolicySet)]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   #[wasm_bindgen(js_name = messageDisappearingSettings)]
@@ -145,7 +143,6 @@ impl CreateGroupOptions {
     group_name: Option<String>,
     group_image_url_square: Option<String>,
     group_description: Option<String>,
-    group_pinned_frame_url: Option<String>,
     custom_permission_policy_set: Option<PermissionPolicySet>,
     message_disappearing_settings: Option<MessageDisappearingSettings>,
   ) -> Self {
@@ -154,7 +151,6 @@ impl CreateGroupOptions {
       group_name,
       group_image_url_square,
       group_description,
-      group_pinned_frame_url,
       custom_permission_policy_set,
       message_disappearing_settings,
     }
@@ -167,7 +163,6 @@ impl CreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      pinned_frame_url: self.group_pinned_frame_url,
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
@@ -215,7 +210,6 @@ impl Conversations {
       group_name: None,
       group_image_url_square: None,
       group_description: None,
-      group_pinned_frame_url: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
     });
