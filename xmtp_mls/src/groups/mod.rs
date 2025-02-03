@@ -7,6 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod scoped_client;
 
+mod disappearing_messages;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
@@ -35,7 +36,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -65,16 +66,10 @@ use crate::storage::{
     NotFound, StorageError,
 };
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
-    message_contents::{
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
-    },
+use xmtp_proto::xmtp::mls::message_contents::{
+    content_types::ReactionV2,
+    plaintext_envelope::{Content, V1},
+    EncodedContent, PlaintextEnvelope,
 };
 
 use crate::{
@@ -107,12 +102,13 @@ use std::{collections::HashSet, sync::Arc};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_common::retry::RetryableError;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
-    #[error("group not found")]
-    GroupNotFound,
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
@@ -245,7 +241,7 @@ impl RetryableError for GroupError {
             Self::LockUnavailable => true,
             Self::LockFailedToAcquire => true,
             Self::SyncFailedToWait => true,
-            Self::GroupNotFound
+            Self::NotFound(_)
             | Self::GroupMetadata(_)
             | Self::GroupMutableMetadata(_)
             | Self::GroupMutablePermissions(_)
@@ -292,8 +288,7 @@ pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
     pub description: Option<String>,
-    pub message_expiration_from_ms: Option<i64>,
-    pub message_expiration_ms: Option<i64>,
+    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -352,13 +347,12 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             content_type_id.version_major,
         ) {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
-                let reaction = ReactionV2::decode(content.content.as_slice())?;
-                hex::decode(reaction.reference).ok()
+                ReactionV2::decode(content.content.as_slice())
+                    .ok()
+                    .and_then(|reaction| hex::decode(reaction.reference).ok())
             }
-            (ReactionCodec::TYPE_ID, _) => {
-                // TODO: Implement JSON deserialization for legacy reaction format
-                None
-            }
+            (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
+                .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
             _ => None,
         };
 
@@ -382,7 +376,33 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
     }
 
-    pub fn new_from_arc(client: Arc<ScopedClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    /// Creates a new group instance. Validate that the group exists in the DB before constructing
+    /// the group.
+    ///
+    /// # Returns
+    ///
+    /// Returns the Group and the stored group information as a tuple.
+    pub fn new_validated(
+        client: ScopedClient,
+        group_id: Vec<u8>,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(Self, StoredGroup), GroupError> {
+        if let Some(group) = provider.conn_ref().find_group(&group_id)? {
+            Ok((
+                Self::new_from_arc(Arc::new(client), group_id, group.created_at_ns),
+                group,
+            ))
+        } else {
+            tracing::error!("Failed to validate existence of group");
+            Err(NotFound::GroupById(group_id).into())
+        }
+    }
+
+    pub(crate) fn new_from_arc(
+        client: Arc<ScopedClient>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+    ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         Self {
             group_id: group_id.clone(),
@@ -420,8 +440,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(|_| GroupError::GroupNotFound)?
-                .ok_or(GroupError::GroupNotFound)?;
+                .map_err(|_| NotFound::MlsGroup)?
+                .ok_or(NotFound::MlsGroup)?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -562,12 +582,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
     async fn create_from_welcome(
-        client: Arc<ScopedClient>,
+        client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
         added_by_inbox: String,
         welcome_id: i64,
-    ) -> Result<Self, GroupError> {
+    ) -> Result<Self, GroupError>
+    where
+        ScopedClient: Clone,
+    {
         tracing::info!("Creating from welcome");
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -590,7 +613,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 dm_members,
             ),
             ConversationType::Dm => {
-                validate_dm_group(client.as_ref(), &mls_group, &added_by_inbox)?;
+                validate_dm_group(client, &mls_group, &added_by_inbox)?;
                 StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
@@ -614,13 +637,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client.as_ref(), provider.conn_ref(), &mls_group).await?;
+        validate_initial_group_membership(&client, provider.conn_ref(), &mls_group).await?;
 
         // Insert or replace the group in the database.
         // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
         let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-        Ok(Self::new_from_arc(
+        Ok(Self::new(
             client.clone(),
             stored_group.id,
             stored_group.created_at_ns,
@@ -629,12 +652,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub async fn create_from_encrypted_welcome(
-        client: Arc<ScopedClient>,
+        client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
         welcome_id: i64,
-    ) -> Result<Self, GroupError> {
+    ) -> Result<Self, GroupError>
+    where
+        ScopedClient: Clone,
+    {
         tracing::info!("Trying to decrypt welcome");
         let welcome_bytes = decrypt_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
 
@@ -706,9 +732,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Send a message on this users XMTP [`Client`].
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
-        tracing::debug!(inbox_id = self.client.inbox_id(), "sending message");
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await
     }
 
@@ -726,7 +750,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved(provider).await?;
-
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
@@ -771,7 +794,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     fn extract_queryable_content_fields(message: &[u8]) -> QueryableContentFields {
         // Return early with default if decoding fails or type is missing
         EncodedContent::decode(message)
-            .inspect_err(|e| tracing::debug!("Failed to decode message as EncodedContent: {}", e))
+            .inspect_err(|_| {
+                tracing::debug!("No queryable content fields, msg not formatted as encoded content")
+            })
             .and_then(|content| {
                 QueryableContentFields::try_from(content).inspect_err(|e| {
                     tracing::debug!(
@@ -1106,6 +1131,80 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
     }
 
+    pub async fn update_conversation_message_disappearing_settings(
+        &self,
+        settings: MessageDisappearingSettings,
+    ) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+
+        self.update_conversation_message_disappear_from_ns(&provider, settings.from_ns)
+            .await?;
+        self.update_conversation_message_disappear_in_ns(&provider, settings.in_ns)
+            .await
+    }
+
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GroupError> {
+        self.update_conversation_message_disappearing_settings(
+            MessageDisappearingSettings::default(),
+        )
+        .await
+    }
+
+    async fn update_conversation_message_disappear_from_ns(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_from_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
+                expire_from_ms,
+            )
+            .into();
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    async fn update_conversation_message_disappear_in_ns(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        expire_in_ms: i64,
+    ) -> Result<(), GroupError> {
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
+                .into();
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    pub fn conversation_message_disappearing_settings(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MessageDisappearingSettings, GroupError> {
+        let mutable_metadata = self.mutable_metadata(provider)?;
+        let disappear_from_ns = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string());
+        let disappear_in_ns = mutable_metadata
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string());
+
+        if let (Some(Ok(message_disappear_from_ns)), Some(Ok(message_disappear_in_ns))) = (
+            disappear_from_ns.map(|s| s.parse::<i64>()),
+            disappear_in_ns.map(|s| s.parse::<i64>()),
+        ) {
+            Ok(MessageDisappearingSettings::new(
+                message_disappear_from_ns,
+                message_disappear_in_ns,
+            ))
+        } else {
+            Err(GroupError::GroupMetadata(
+                GroupMetadataError::MissingExtension,
+            ))
+        }
+    }
+
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     pub fn admin_list(&self, provider: &XmtpOpenMlsProvider) -> Result<Vec<String>, GroupError> {
         let mutable_metadata = self.mutable_metadata(provider)?;
@@ -1176,23 +1275,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context().store().conn()?;
-        conn.find_group(self.group_id.clone())
-            .map_err(GroupError::from)
-            .and_then(|fetch_result| {
-                fetch_result
-                    .map(|group| group.added_by_inbox_id.clone())
-                    .ok_or_else(|| GroupError::GroupNotFound)
-            })
+        let group = conn
+            .find_group(&self.group_id)?
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
+        Ok(group.added_by_inbox_id)
     }
 
     /// Find the `inbox_id` of the group member who is the peer of this dm
     pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
         let conn = self.context().store().conn()?;
         let group = conn
-            .find_group(self.group_id.clone())?
-            .ok_or(GroupError::GroupNotFound)?;
+            .find_group(&self.group_id)?
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
         let inbox_id = self.client.inbox_id();
-        let dm_id = &group.dm_id.ok_or(GroupError::GroupNotFound)?;
+        let dm_id = &group
+            .dm_id
+            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
         Ok(dm_id.other_inbox_id(inbox_id))
     }
 
@@ -1343,22 +1441,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             group_id,
             stored_group.created_at_ns,
         ))
-    }
-}
-
-fn extract_message_v1(
-    message: GroupMessage,
-) -> Result<GroupMessageV1, GroupMessageProcessingError> {
-    match message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
-    }
-}
-
-pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, GroupMessageProcessingError> {
-    match &message.version {
-        Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
-        _ => Err(GroupMessageProcessingError::InvalidPayload),
     }
 }
 
@@ -1722,9 +1804,20 @@ fn validate_dm_group(
         ));
     }
 
-    // Validate permissions
+    // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
+    // Note: we don't validate mutable metadata permissions, because they don't affect group membership
     let permissions = extract_group_permissions(mls_group)?;
-    if permissions != GroupMutablePermissions::new(PolicySet::new_dm()) {
+    let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+
+    if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
+        && permissions.policies.remove_member_policy
+            != expected_permissions.policies.remove_member_policy
+        && permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
+        && permissions.policies.remove_admin_policy
+            != expected_permissions.policies.remove_admin_policy
+        && permissions.policies.update_permissions_policy
+            != expected_permissions.policies.update_permissions_policy
+    {
         return Err(GroupError::Generic(
             "Invalid permissions for DM group".to_string(),
         ));
@@ -1759,6 +1852,8 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
+    use super::{group_permissions::PolicySet, MlsGroup};
+    use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -1784,8 +1879,6 @@ pub(crate) mod tests {
         utils::test::FullXmtpClient,
         InboxOwner, StreamHandle as _,
     };
-
-    use super::{group_permissions::PolicySet, MlsGroup};
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2135,11 +2228,11 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let bo_dm = bo
-            .create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
             .await
             .unwrap();
         let alix_dm = alix
-            .create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
             .await
             .unwrap();
 
@@ -2168,9 +2261,13 @@ pub(crate) mod tests {
         let dm_group = alix_filtered_groups.pop().unwrap();
 
         let now = now_ns();
-        let one_second = 1_000_000_000;
+        let one_and_a_half_second = 1_500_000_000;
         assert!(
-            ((now - one_second)..(now + one_second)).contains(&dm_group.last_message_ns.unwrap())
+            ((now - one_and_a_half_second)..(now + one_and_a_half_second))
+                .contains(&dm_group.last_message_ns.unwrap()),
+            "last_message_ns {} was not within one and a half second of current time {}",
+            dm_group.last_message_ns.unwrap(),
+            now
         );
 
         let dm_group = alix.group(dm_group.id).unwrap();
@@ -2570,6 +2667,9 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_group_options() {
+        let expected_group_message_disappearing_settings =
+            MessageDisappearingSettings::new(100, 200);
+
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
@@ -2579,8 +2679,9 @@ pub(crate) mod tests {
                     name: Some("Group Name".to_string()),
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
-                    message_expiration_from_ms: None,
-                    message_expiration_ms: None,
+                    message_disappearing_settings: Some(
+                        expected_group_message_disappearing_settings.clone(),
+                    ),
                 },
             )
             .unwrap();
@@ -2600,10 +2701,29 @@ pub(crate) mod tests {
             .attributes
             .get(&MetadataField::Description.to_string())
             .unwrap();
-
+        let amal_group_message_disappear_from_ns = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string())
+            .unwrap();
+        let amal_group_message_disappear_in_ns = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "Group Name");
         assert_eq!(amal_group_image_url, "url");
         assert_eq!(amal_group_description, "group description");
+        assert_eq!(
+            amal_group_message_disappear_from_ns.clone(),
+            expected_group_message_disappearing_settings
+                .from_ns
+                .to_string()
+        );
+        assert_eq!(
+            amal_group_message_disappear_in_ns.clone(),
+            expected_group_message_disappearing_settings
+                .in_ns
+                .to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -2826,6 +2946,68 @@ pub(crate) mod tests {
             .get(&MetadataField::GroupImageUrlSquare.to_string())
             .unwrap();
         assert_eq!(amal_group_image_url, "a url");
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_update_group_message_expiration_settings() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let group_mutable_metadata = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::MessageDisappearInNS.to_string()),
+            None
+        );
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::MessageDisappearFromNS.to_string()),
+            None
+        );
+
+        // Update group name
+        let expected_group_message_expiration_settings = MessageDisappearingSettings::new(100, 200);
+
+        amal_group
+            .update_conversation_message_disappearing_settings(
+                expected_group_message_expiration_settings.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+        let binding = amal_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .expect("msg");
+        let amal_message_expiration_from_ms: &String = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearFromNS.to_string())
+            .unwrap();
+        let amal_message_disappear_in_ns: &String = binding
+            .attributes
+            .get(&MetadataField::MessageDisappearInNS.to_string())
+            .unwrap();
+        assert_eq!(
+            amal_message_expiration_from_ms.clone(),
+            expected_group_message_expiration_settings
+                .from_ns
+                .to_string()
+        );
+        assert_eq!(
+            amal_message_disappear_in_ns.clone(),
+            expected_group_message_expiration_settings.in_ns.to_string()
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -3544,7 +3726,7 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .create_dm_by_inbox_id(bola.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string())
             .await
             .unwrap();
 

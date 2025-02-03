@@ -8,17 +8,17 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook.workspace = true
+futures.workspace = true
 hex.workspace = true
 js-sys.workspace = true
 prost.workspace = true
-serde-wasm-bindgen = "0.6.5"
 serde.workspace = true
-tokio.workspace = true
+serde-wasm-bindgen = "0.6.5"
+tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"
-tracing.workspace = true
-wasm-bindgen-futures.workspace = true
 wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_common.workspace = true
 xmtp_cryptography = { path = "../xmtp_cryptography" }
@@ -28,3 +28,7 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+split-linked-modules = true

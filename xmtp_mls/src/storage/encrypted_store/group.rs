@@ -51,6 +51,10 @@ pub struct StoredGroup {
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: Option<i64>,
+    /// The Time in NS when the messages should be deleted
+    pub message_disappear_from_ns: Option<i64>,
+    /// How long a message in the group can live in NS
+    pub message_disappear_in_ns: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -78,6 +82,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 
@@ -103,6 +109,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 
@@ -124,6 +132,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: None,
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 }
@@ -346,13 +356,12 @@ impl DbConnection {
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-
-        query = query.limit(1).filter(dsl::id.eq(id));
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
-
-        // Manually extract the first element
+    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .limit(1)
+            .filter(dsl::id.eq(id));
+        let groups = self.raw_query(|conn| query.load(conn))?;
         Ok(groups.into_iter().next())
     }
 
@@ -365,11 +374,13 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let groups = self.raw_query(|conn| query.load(conn))?;
         if groups.len() > 1 {
-            tracing::error!("More than one group found for welcome_id {}", welcome_id);
+            tracing::warn!(
+                welcome_id,
+                "More than one group found for welcome_id {welcome_id}"
+            );
         }
-
         Ok(groups.into_iter().next())
     }
 
@@ -458,6 +469,34 @@ impl DbConnection {
         Ok(())
     }
 
+    pub fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_from_ns.eq(from_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_in_ns.eq(in_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
         let stored_group = self.raw_query(|conn| {
@@ -490,6 +529,22 @@ impl DbConnection {
         })?;
 
         Ok(stored_group)
+    }
+
+    /// Get all the welcome ids turned into groups
+    pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+        self.raw_query(|conn| {
+            Ok::<_, StorageError>(
+                dsl::groups
+                    .filter(dsl::welcome_id.is_not_null())
+                    .select(dsl::welcome_id)
+                    .load::<Option<i64>>(conn)?
+                    .into_iter()
+                    .map(|id| id.expect("SQL explicity filters for none"))
+                    .collect(),
+            )
+        })
+        .map_err(Into::into)
     }
 }
 
@@ -632,6 +687,25 @@ pub(crate) mod tests {
         )
     }
 
+    /// Generate a test group with welcome
+    pub fn generate_group_with_welcome(
+        state: Option<GroupMembershipState>,
+        welcome_id: Option<i64>,
+    ) -> StoredGroup {
+        let id = rand_vec::<24>();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        StoredGroup::new_from_welcome(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+            welcome_id.unwrap_or(xmtp_common::rand_i64()),
+            ConversationType::Group,
+            None,
+        )
+    }
+
     /// Generate a test consent
     pub fn generate_consent_record(
         entity_type: ConsentType,
@@ -768,6 +842,11 @@ pub(crate) mod tests {
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_3.store(conn).unwrap();
 
+            let other_inbox_id = test_group_3
+                .dm_id
+                .unwrap()
+                .other_inbox_id("placeholder_inbox_id_1");
+
             let all_results = conn
                 .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
                 .unwrap();
@@ -815,11 +894,10 @@ pub(crate) mod tests {
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
-
             let dm_result = conn
                 .find_dm_group(&DmMembers {
                     member_one_inbox_id: "placeholder_inbox_id_1",
-                    member_two_inbox_id: "placeholder_inbox_id_2",
+                    member_two_inbox_id: &other_inbox_id,
                 })
                 .unwrap();
             assert!(dm_result.is_some());
@@ -976,6 +1054,24 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_group_welcome_ids() {
+        with_connection(|conn| {
+            let mls_groups = vec![
+                generate_group_with_welcome(None, Some(30)),
+                generate_group(None),
+                generate_group(None),
+                generate_group_with_welcome(None, Some(10)),
+            ];
+            for g in mls_groups.iter() {
+                g.store(conn).unwrap();
+            }
+            assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
         .await
     }

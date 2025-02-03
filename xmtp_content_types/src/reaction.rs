@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{CodecError, ContentCodec};
 use prost::Message;
 
+use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{
     content_types::ReactionV2, ContentTypeId, EncodedContent,
 };
@@ -47,6 +48,42 @@ impl ContentCodec<ReactionV2> for ReactionCodec {
     }
 }
 
+// JSON format for legacy reaction is defined here: https://github.com/xmtp/xmtp-js/blob/main/content-types/content-type-reaction/src/Reaction.ts
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LegacyReaction {
+    /// The message ID for the message that is being reacted to
+    pub reference: String,
+    /// The inbox ID of the user who sent the message that is being reacted to
+    #[serde(rename = "referenceInboxId", skip_serializing_if = "Option::is_none")]
+    pub reference_inbox_id: Option<String>,
+    /// The action of the reaction ("added" or "removed")
+    pub action: String,
+    /// The content of the reaction
+    pub content: String,
+    /// The schema of the content ("unicode", "shortcode", or "custom")
+    pub schema: String,
+}
+
+impl LegacyReaction {
+    pub fn decode(content: &[u8]) -> Option<LegacyReaction> {
+        // Try to decode the content as UTF-8 string first
+        if let Ok(decoded_content) = String::from_utf8(content.to_vec()) {
+            tracing::info!(
+                "attempting legacy json deserialization: {}",
+                decoded_content
+            );
+            // Try parsing as canonical JSON format
+            if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
+                return Some(reaction);
+            }
+            tracing::error!("legacy json deserialization failed");
+        } else {
+            tracing::error!("utf-8 deserialization failed");
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -56,6 +93,7 @@ pub(crate) mod tests {
         ReactionAction, ReactionSchema, ReactionV2,
     };
 
+    use serde_json::json;
     use xmtp_common::rand_string;
 
     use super::*;
@@ -79,5 +117,28 @@ pub(crate) mod tests {
         assert_eq!(decoded.action, ReactionAction::Added as i32);
         assert_eq!(decoded.content, "👍".to_string());
         assert_eq!(decoded.schema, ReactionSchema::Unicode as i32);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn test_legacy_reaction_deserialization() {
+        let reference = "0123456789abcdef";
+        let legacy_json = json!({
+            "reference": reference,
+            "referenceInboxId": "some_inbox_id",
+            "action": "added",
+            "content": "👍",
+            "schema": "unicode"
+        });
+
+        let content = legacy_json.to_string().into_bytes();
+        let decoded_reference: String = LegacyReaction::decode(&content).unwrap().reference;
+
+        assert_eq!(decoded_reference, reference);
+
+        // Test invalid JSON
+        let invalid_content = b"invalid json";
+        let failed_decode = LegacyReaction::decode(invalid_content);
+        assert!(failed_decode.is_none());
     }
 }
