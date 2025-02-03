@@ -2766,7 +2766,7 @@ pub(crate) mod tests {
         let group_mutable_metadata = amal_group
             .mutable_metadata(&amal_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata.attributes.len().eq(&4));
+        assert!(group_mutable_metadata.attributes.len().eq(&3));
         assert!(group_mutable_metadata
             .attributes
             .get(&MetadataField::GroupName.to_string())
