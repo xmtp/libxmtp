@@ -10,15 +10,15 @@ use crate::{
     api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
-        encrypted_store::ProviderTransactions, group::StoredGroup,
-        group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError,
+        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
+        StorageError,
     },
     types::GroupId,
     XmtpOpenMlsProvider,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
-use xmtp_common::FutureWrapper;
+use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
@@ -439,11 +439,14 @@ where
 
     /// stream processing function
     async fn process_stream_entry(&self) {
-        let process_result = self
-            .provider
-            .retryable_transaction_async(None, |provider| async move {
-                let (group, _) =
-                    MlsGroup::new_validated(&self.client, self.msg.group_id.clone(), provider)?;
+        let process_result = retry_async!(
+            Retry::default(),
+            (async {
+                let (group, _) = MlsGroup::new_validated(
+                    &self.client,
+                    self.msg.group_id.clone(),
+                    &self.provider,
+                )?;
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
@@ -452,12 +455,12 @@ where
                     self.inbox_id(),
                 );
                 group
-                    .process_message(provider, &self.msg, false)
+                    .process_message(&self.provider, &self.msg, false, None)
                     .await
                     // NOTE: We want to make sure we retry an error in process_message
                     .map_err(SubscribeError::ReceiveGroup)
             })
-            .await;
+        );
 
         if let Err(SubscribeError::ReceiveGroup(e)) = process_result {
             tracing::warn!("error processing streamed message {e}");

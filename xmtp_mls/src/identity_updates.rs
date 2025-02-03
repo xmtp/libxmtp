@@ -18,7 +18,7 @@ use xmtp_id::{
         InstallationKeyContext, MemberIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    InboxIdRef,
+    AsIdRef, InboxIdRef,
 };
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
@@ -95,13 +95,13 @@ where
     pub async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'a>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         let association_states = try_join_all(
             identifiers
                 .iter()
                 .map(|(inbox_id, to_sequence_id)| {
-                    self.get_association_state(conn, inbox_id, *to_sequence_id)
+                    self.get_association_state(conn, inbox_id.as_ref(), *to_sequence_id)
                 })
                 .collect::<Vec<_>>(),
         )

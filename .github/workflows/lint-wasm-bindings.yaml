@@ -30,7 +30,7 @@ jobs:
       - name: Run clippy and fail on warnings
         run: cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps --message-format=json | clippy-sarif | tee results.sarif | sarif-fmt
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
       - name: Run format check
