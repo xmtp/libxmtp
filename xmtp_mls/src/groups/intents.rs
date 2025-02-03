@@ -234,13 +234,6 @@ impl UpdateMetadataIntentData {
         }
     }
 
-    pub fn new_update_group_pinned_frame_url(pinned_frame_url: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
-            field_value: pinned_frame_url,
-        }
-    }
-
     pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
         Self {
             field_name: MetadataField::MessageDisappearFromNS.to_string(),
