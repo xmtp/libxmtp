@@ -403,7 +403,7 @@ where
                 MlsGroup::create_from_welcome(
                     client,
                     provider,
-                    welcome_data.welcome,
+                    welcome_data.staged_welcome,
                     welcome_data.added_by_inbox_id,
                     id,
                     None,

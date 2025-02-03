@@ -877,7 +877,7 @@ where
         let result = MlsGroup::create_from_welcome(
             self,
             provider,
-            welcome_data.welcome,
+            welcome_data.staged_welcome,
             welcome_data.added_by_inbox_id,
             welcome_id as i64,
             Some(cursor as i64),

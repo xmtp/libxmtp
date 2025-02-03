@@ -586,7 +586,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
-        welcome: MlsWelcome,
+        staged_welcome: StagedWelcome,
         added_by_inbox: String,
         welcome_id: i64,
         cursor: Option<i64>,
@@ -594,10 +594,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         ScopedClient: Clone,
     {
-        tracing::info!("Creating from welcome");
-        let staged_welcome =
-            StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
-
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;

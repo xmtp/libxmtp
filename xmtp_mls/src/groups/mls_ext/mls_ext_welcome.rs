@@ -1,5 +1,5 @@
 use openmls::{
-    group::{MlsGroupJoinConfig, ProcessedWelcome, WireFormatPolicy},
+    group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{BasicCredential, MlsMessageBodyIn, MlsMessageIn, Welcome},
 };
 use tls_codec::Deserialize;
@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(crate) struct DecryptedWelcome {
-    pub(crate) welcome: Welcome,
+    pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
 }
 
@@ -42,7 +42,7 @@ impl DecryptedWelcome {
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
 
         Ok(DecryptedWelcome {
-            welcome,
+            staged_welcome,
             added_by_inbox_id,
         })
     }
