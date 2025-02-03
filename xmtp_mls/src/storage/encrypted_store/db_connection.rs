@@ -25,21 +25,12 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
 #[doc(hidden)]
+#[derive(Clone)]
 pub struct DbConnectionPrivate<C> {
     read: Arc<Mutex<C>>,
     write: Option<Arc<Mutex<C>>>,
     // This field will funnel all reads / writes to the write connection if true.
     pub(super) in_transaction: Arc<AtomicBool>,
-}
-
-impl<C> Clone for DbConnectionPrivate<C> {
-    fn clone(&self) -> Self {
-        Self {
-            read: self.read.clone(),
-            write: self.write.clone(),
-            in_transaction: self.in_transaction.clone(),
-        }
-    }
 }
 
 /// Owned DBConnection Methods
