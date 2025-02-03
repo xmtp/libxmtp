@@ -423,7 +423,6 @@ pub(crate) mod tests {
     use diesel::sql_types::{BigInt, Blob, Integer, Text};
     use group::ConversationType;
     use schema::groups;
-    use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
