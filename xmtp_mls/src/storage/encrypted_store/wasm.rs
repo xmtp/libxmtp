@@ -42,10 +42,7 @@ impl XmtpDb for WasmDb {
     type TransactionManager = AnsiTransactionManager;
 
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
-        Ok(DbConnectionPrivate::from_arc_mutex(
-            self.conn.clone(),
-            self.conn.clone(),
-        ))
+        Ok(DbConnectionPrivate::from_arc_mutex(self.conn.clone(), None))
     }
 
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
