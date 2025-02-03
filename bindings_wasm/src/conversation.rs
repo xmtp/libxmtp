@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
-use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::group::ConversationType;
 
@@ -259,7 +258,7 @@ impl Conversation {
       })
       .collect();
 
-    Ok(serde_wasm_bindgen::to_value(&members)?)
+    Ok(crate::to_value(&members)?)
   }
 
   #[wasm_bindgen(js_name = adminList)]
@@ -530,15 +529,14 @@ impl Conversation {
       self.group_id.clone(),
       move |message| match message {
         Ok(item) => {
-          let f = callback.on_item();
-          let _ = f
-            .call0(&serde_wasm_bindgen::to_value(&item).unwrap_throw())
-            .unwrap_throw();
+          let serialized = crate::to_value(&item);
+          if let Err(e) = serialized {
+            callback.on_error(JsError::from(e));
+          } else {
+            callback.on_item(serialized.expect("checked for err"))
+          }
         }
-        Err(e) => {
-          let f = callback.on_error();
-          let _ = f.call0(&JsValue::from(JsError::from(e))).unwrap_throw();
-        }
+        Err(e) => callback.on_error(JsError::from(e)),
       },
     );
 
@@ -612,5 +610,35 @@ impl Conversation {
       )
       .await
       .map_err(Into::into)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+  use xmtp_mls::storage::group_message::{
+    ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+  };
+  wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+  #[wasm_bindgen_test]
+  fn test_group_message_to_object() {
+    let stored_message = StoredGroupMessage {
+      id: xmtp_common::rand_vec::<32>(),
+      group_id: xmtp_common::rand_vec::<32>(),
+      decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
+      sent_at_ns: 1738354508964432000,
+      kind: GroupMessageKind::Application,
+      sender_installation_id: xmtp_common::rand_vec::<32>(),
+      sender_inbox_id: String::from("test"),
+      delivery_status: DeliveryStatus::Published,
+      content_type: ContentType::Text,
+      version_major: 4,
+      version_minor: 123,
+      authority_id: String::from("test"),
+      reference_id: None,
+    };
+    let value = crate::to_value(&stored_message).unwrap();
   }
 }

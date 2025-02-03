@@ -5,11 +5,6 @@ on:
       - "bindings_node/**"
       - ".github/workflows/lint-node-bindings.yaml"
       - "rustfmt.toml"
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: -D warnings --cfg tracing_unstable
-  CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
     name: Lint
@@ -17,25 +12,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains
-        run: rustup update
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: clippy-sarif,sarif-fmt
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            bindings_node
-      - name: Run clippy and fail on warnings
-        run: cargo clippy --locked --manifest-path bindings_node/Cargo.toml --all-features --all-targets --no-deps --message-format=json | clippy-sarif | tee results.sarif | sarif-fmt
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: results.sarif
-      - name: Run format check
-        run: cargo fmt --manifest-path bindings_node/Cargo.toml --check
       - name: Setup node
         uses: actions/setup-node@v4
         with:

@@ -1,6 +1,7 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::UnwrapThrowExt;
 use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };
@@ -94,7 +95,7 @@ impl From<XmtpEncodedContent> for EncodedContent {
 
     EncodedContent {
       r#type,
-      parameters: serde_wasm_bindgen::to_value(&content.parameters).unwrap(),
+      parameters: crate::to_value(&content.parameters).unwrap_throw(),
       fallback: content.fallback,
       compression: content.compression,
       content: content.content.as_slice().into(),
@@ -108,7 +109,7 @@ impl From<EncodedContent> for XmtpEncodedContent {
 
     XmtpEncodedContent {
       r#type,
-      parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap(),
+      parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap_throw(),
       fallback: content.fallback,
       compression: content.compression,
       content: content.content.to_vec(),

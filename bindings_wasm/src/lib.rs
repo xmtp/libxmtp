@@ -10,6 +10,15 @@ pub mod permissions;
 pub mod signatures;
 pub mod streams;
 
-fn error(e: impl std::error::Error) -> wasm_bindgen::JsError {
-  wasm_bindgen::JsError::new(&format!("{}", e))
+fn error(e: impl std::error::Error) -> JsError {
+  JsError::new(&format!("{}", e))
+}
+use serde_wasm_bindgen::Serializer;
+use wasm_bindgen::{JsError, JsValue};
+
+/// Converts a Rust value into a [`JsValue`].
+pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(
+  value: &T,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+  value.serialize(&Serializer::new().serialize_large_number_types_as_bigints(true))
 }
