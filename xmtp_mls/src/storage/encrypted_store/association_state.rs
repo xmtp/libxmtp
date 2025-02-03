@@ -109,7 +109,7 @@ impl StoredAssociationState {
             );
 
         let association_states =
-            conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+            conn.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
         association_states
             .into_iter()
