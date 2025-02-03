@@ -11,6 +11,7 @@ use super::{db_connection::DbConnectionPrivate, StorageError, StorageOption, Xmt
 pub struct WasmDb {
     conn: Arc<Mutex<SqliteConnection>>,
     opts: StorageOption,
+    transaction_lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Debug for WasmDb {
@@ -33,6 +34,7 @@ impl WasmDb {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             opts: opts.clone(),
+            transaction_lock: Arc::new(Mutex::new(())),
         })
     }
 }
@@ -42,7 +44,11 @@ impl XmtpDb for WasmDb {
     type TransactionManager = AnsiTransactionManager;
 
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
-        Ok(DbConnectionPrivate::from_arc_mutex(self.conn.clone(), None))
+        Ok(DbConnectionPrivate::from_arc_mutex(
+            self.conn.clone(),
+            None,
+            self.transaction_lock.clone(),
+        ))
     }
 
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
