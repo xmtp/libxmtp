@@ -1403,7 +1403,6 @@ pub(crate) mod tests {
         not(target_arch = "wasm32"),
         tokio::test(flavor = "multi_thread", worker_threads = 1)
     )]
-    #[ignore]
     async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
