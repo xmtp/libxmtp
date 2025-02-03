@@ -29,17 +29,22 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 pub struct DbConnectionPrivate<C> {
     read: Option<Arc<Mutex<C>>>,
     write: Arc<Mutex<C>>,
-    // This field will funnel all reads / writes to the write connection if true.
-    pub(super) in_transaction: Arc<AtomicBool>,
+    transaction_lock: Arc<Mutex<()>>,
+    in_transaction: Arc<AtomicBool>,
 }
 
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
-    pub(super) fn from_arc_mutex(write: Arc<Mutex<C>>, read: Option<Arc<Mutex<C>>>) -> Self {
+    pub(super) fn from_arc_mutex(
+        write: Arc<Mutex<C>>,
+        read: Option<Arc<Mutex<C>>>,
+        transaction_lock: Arc<Mutex<()>>,
+    ) -> Self {
         Self {
             read,
             write,
+            transaction_lock,
             in_transaction: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -51,21 +56,16 @@ where
 {
     pub(crate) fn start_transaction<Db: XmtpDb<Connection = C>>(
         &self,
-    ) -> Result<TransactionGuard, StorageError> {
+    ) -> Result<TransactionGuard<'_>, StorageError> {
+        let guard = self.transaction_lock.lock();
         let mut write = self.write.lock();
         <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *write)?;
-
-        if self.in_transaction.swap(true, Ordering::SeqCst) {
-            return Err(StorageError::AlreadyInTransaction);
-        }
+        self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
+            _mutex_guard: guard,
             in_transaction: self.in_transaction.clone(),
         })
-    }
-
-    fn in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
     }
 
     /// Do a scoped query with a mutable [`diesel::Connection`]
@@ -74,8 +74,7 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        let mut lock = if self.in_transaction() {
-            tracing::debug!("Funneling read to write connection due to being in a transaction.");
+        let mut lock = if self.in_transaction.load(Ordering::SeqCst) {
             self.write.lock()
         } else if let Some(read) = &self.read {
             read.lock()
@@ -115,10 +114,11 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
     }
 }
 
-pub struct TransactionGuard {
+pub struct TransactionGuard<'a> {
     in_transaction: Arc<AtomicBool>,
+    _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
-impl Drop for TransactionGuard {
+impl<'a> Drop for TransactionGuard<'a> {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }

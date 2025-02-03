@@ -94,6 +94,7 @@ impl StorageOption {
 pub struct NativeDb {
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
     pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
+    transaction_lock: Arc<Mutex<()>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
 }
@@ -133,6 +134,7 @@ impl NativeDb {
         Ok(Self {
             pool: Arc::new(Some(pool).into()),
             write_conn: Arc::new(Mutex::new(write_conn)),
+            transaction_lock: Arc::new(Mutex::new(())),
             customizer,
             opts: opts.clone(),
         })
@@ -169,6 +171,7 @@ impl XmtpDb for NativeDb {
         Ok(DbConnectionPrivate::from_arc_mutex(
             self.write_conn.clone(),
             conn.map(|conn| Arc::new(parking_lot::Mutex::new(conn))),
+            self.transaction_lock.clone(),
         ))
     }
 
