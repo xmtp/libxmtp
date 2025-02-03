@@ -27,7 +27,7 @@ pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteCo
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct DbConnectionPrivate<C> {
-    read: Arc<Mutex<C>>,
+    read: Option<Arc<Mutex<C>>>,
     write: Arc<Mutex<C>>,
     // This field will funnel all reads / writes to the write connection if true.
     pub(super) in_transaction: Arc<AtomicBool>,
@@ -36,7 +36,7 @@ pub struct DbConnectionPrivate<C> {
 /// Owned DBConnection Methods
 impl<C> DbConnectionPrivate<C> {
     /// Create a new [`DbConnectionPrivate`] from an existing Arc<Mutex<C>>
-    pub(super) fn from_arc_mutex(read: Arc<Mutex<C>>, write: Arc<Mutex<C>>) -> Self {
+    pub(super) fn from_arc_mutex(write: Arc<Mutex<C>>, read: Option<Arc<Mutex<C>>>) -> Self {
         Self {
             read,
             write,
@@ -74,12 +74,15 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        if self.in_transaction() {
-            let mut lock = self.write.lock();
-            return fun(&mut lock);
-        }
+        let mut lock = if self.in_transaction() {
+            tracing::debug!("Funneling read to write connection due to being in a transaction.");
+            self.write.lock()
+        } else if let Some(read) = &self.read {
+            read.lock()
+        } else {
+            self.write.lock()
+        };
 
-        let mut lock = self.read.lock();
         fun(&mut lock)
     }
 
@@ -89,8 +92,7 @@ where
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
-        let mut lock = self.write.lock();
-        fun(&mut lock)
+        fun(&mut self.write.lock())
     }
 }
 

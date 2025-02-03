@@ -92,8 +92,8 @@ impl StorageOption {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
+    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
     customizer: Option<Box<dyn XmtpConnection>>,
     opts: StorageOption,
 }
@@ -119,7 +119,7 @@ impl NativeDb {
 
         let pool = match opts {
             StorageOption::Ephemeral => builder
-                .max_size(2)
+                .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
             StorageOption::Persistent(ref path) => builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
@@ -131,8 +131,8 @@ impl NativeDb {
         write_conn.batch_execute("PRAGMA query_only = OFF;")?;
 
         Ok(Self {
-            write_conn: Arc::new(Mutex::new(write_conn)),
             pool: Arc::new(Some(pool).into()),
+            write_conn: Arc::new(Mutex::new(write_conn)),
             customizer,
             opts: opts.clone(),
         })
@@ -161,10 +161,14 @@ impl XmtpDb for NativeDb {
 
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
-        let conn = self.raw_conn()?;
+        let conn = match self.opts {
+            StorageOption::Ephemeral => None,
+            StorageOption::Persistent(_) => Some(self.raw_conn()?),
+        };
+
         Ok(DbConnectionPrivate::from_arc_mutex(
-            Arc::new(parking_lot::Mutex::new(conn)),
             self.write_conn.clone(),
+            conn.map(|conn| Arc::new(parking_lot::Mutex::new(conn))),
         ))
     }
 

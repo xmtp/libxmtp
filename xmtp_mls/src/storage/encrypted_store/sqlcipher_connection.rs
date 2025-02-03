@@ -204,9 +204,7 @@ impl EncryptedConnection {
 
     /// Output the corect order of PRAGMAS to instantiate a connection
     fn pragmas(&self) -> impl Display {
-        let Self {
-            ref key, ref salt, ..
-        } = self;
+        let Self { ref key, ref salt } = self;
 
         if let Some(s) = salt {
             format!(
