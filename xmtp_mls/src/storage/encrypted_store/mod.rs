@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use xmtp_common::{retry_async, Retry, RetryableError};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -358,24 +357,6 @@ where
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<StorageError>;
-    #[allow(async_fn_in_trait)]
-    async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError>,
-        Db: 'a;
-    #[allow(async_fn_in_trait)]
-    async fn retryable_transaction_async<'a, T, F, E, Fut>(
-        &'a self,
-        retry: Option<Retry>,
-        fun: F,
-    ) -> Result<T, E>
-    where
-        F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError> + RetryableError,
-        Db: 'a;
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -430,78 +411,6 @@ where
             }
         }
     }
-
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// # Arguments
-    /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
-    /// async context.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// store.transaction_async(|provider| async move {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// }).await
-    /// ```
-    async fn transaction_async<'a, T, F, E, Fut>(&'a self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError>,
-        Db: 'a,
-    {
-        tracing::debug!("Transaction async beginning");
-        {
-            let connection = self.conn_ref();
-            let mut connection = connection.inner_mut_ref();
-            <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-        }
-
-        // ensuring we have only one strong reference
-        let result = fun(self).await;
-        let local_connection = self.conn_ref().inner_ref();
-
-        // after the closure finishes, `local_provider` should have the only reference ('strong')
-        // to `XmtpOpenMlsProvider` inner `DbConnection`..
-        let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
-        match result {
-            Ok(value) => {
-                local_connection.raw_query(|conn| {
-                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })?;
-                tracing::debug!("Transaction async being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                tracing::debug!("Transaction async being rolled back");
-                match local_connection.raw_query(|conn| {
-                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
-        }
-    }
-
-    async fn retryable_transaction_async<'a, T, F, E, Fut>(
-        &'a self,
-        retry: Option<Retry>,
-        fun: F,
-    ) -> Result<T, E>
-    where
-        F: Copy + FnMut(&'a XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Fut,
-        Fut: futures::Future<Output = Result<T, E>>,
-        E: From<diesel::result::Error> + From<StorageError> + RetryableError,
-    {
-        retry_async!(
-            retry.unwrap_or_default(),
-            (async { self.transaction_async(fun).await })
-        )
-    }
 }
 
 #[cfg(test)]
@@ -519,7 +428,7 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
+        Fetch, Store,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 
@@ -768,8 +677,8 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_transaction_rollback() {
-        use std::sync::Arc;
-        use std::sync::Barrier;
+        use crate::XmtpOpenMlsProvider;
+        use std::sync::{Arc, Barrier};
 
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -830,52 +739,6 @@ pub(crate) mod tests {
             .unwrap()
             .find_group(b"should not exist")
             .unwrap();
-        assert_eq!(groups, None);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_async_transaction() {
-        let db_path = tmp_path();
-
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-
-        let store_pointer = store.clone();
-        let provider = XmtpOpenMlsProvider::new(store_pointer.conn().unwrap());
-        let handle = crate::spawn(None, async move {
-            provider
-                .transaction_async(|provider| async move {
-                    let conn1 = provider.conn_ref();
-                    StoredIdentity::new("crab".to_string(), rand_vec::<24>(), rand_vec::<24>())
-                        .store(conn1)
-                        .unwrap();
-
-                    let group = StoredGroup::new(
-                        b"should not exist".to_vec(),
-                        0,
-                        GroupMembershipState::Allowed,
-                        "goodbye".to_string(),
-                        None,
-                    );
-                    group.store(conn1).unwrap();
-
-                    anyhow::bail!("force a rollback")
-                })
-                .await?;
-            Ok::<_, anyhow::Error>(())
-        });
-
-        let result = handle.join().await.unwrap();
-        assert!(result.is_err());
-
-        let conn = store.conn().unwrap();
-        // this group should not exist because of the rollback
-        let groups = conn.find_group(b"should not exist").unwrap();
         assert_eq!(groups, None);
     }
 }

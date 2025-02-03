@@ -51,12 +51,6 @@ where
     pub(super) fn inner_mut_ref(&self) -> parking_lot::MutexGuard<'_, C> {
         self.inner.lock()
     }
-
-    /// Internal-only API to get the underlying `diesel::Connection` reference
-    /// without a scope
-    pub(super) fn inner_ref(&self) -> Arc<Mutex<C>> {
-        self.inner.clone()
-    }
 }
 
 // Forces a move for conn

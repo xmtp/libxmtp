@@ -1,16 +1,11 @@
+use futures::stream::{self, FuturesUnordered, StreamExt};
+use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-};
-
-use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::{
-    framing::{MlsMessageBodyIn, MlsMessageIn},
-    messages::Welcome,
-    prelude::tls_codec::{Deserialize, Error as TlsCodecError},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -30,6 +25,7 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
+use crate::groups::{mls_ext::DecryptedWelcome, ConversationListItem};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -38,7 +34,6 @@ use crate::{
     },
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
-    intents::ProcessIntentError,
     mutex_registry::MutexRegistry,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -55,7 +50,6 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
-use crate::{groups::ConversationListItem, storage::ProviderTransactions};
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -767,20 +761,12 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_key_package(
+    pub async fn rotate_and_upload_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        provider
-            .transaction_async(move |provider| {
-                let provider = &provider;
-                async {
-                    self.identity()
-                        .rotate_key_package(provider, &self.api_client)
-                        .await?;
-                    Ok::<_, IdentityError>(())
-                }
-            })
+        self.identity()
+            .rotate_and_upload_key_package(provider, &self.api_client)
             .await?;
 
         Ok(())
@@ -867,7 +853,7 @@ where
 
         // If any welcomes were found, rotate your key package
         if num_envelopes > 0 {
-            self.rotate_key_package(provider).await?;
+            self.rotate_and_upload_key_package(provider).await?;
         }
 
         Ok(groups)
@@ -881,46 +867,41 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        provider
-            .transaction_async(|provider| async move {
-                let cursor = welcome.id;
-                let is_updated = provider.conn_ref().update_cursor(
-                    self.installation_public_key(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
+        let cursor = welcome.id;
+        let welcome_id = welcome.id;
+        let welcome_data = DecryptedWelcome::from_encrypted_bytes(
+            provider,
+            welcome.hpke_public_key.as_slice(),
+            &welcome.data,
+        )?;
+        let result = MlsGroup::create_from_welcome(
+            self,
+            provider,
+            welcome_data.staged_welcome,
+            welcome_data.added_by_inbox_id,
+            welcome_id as i64,
+            Some(cursor as i64),
+        )
+        .await;
+
+        match result {
+            Ok(mls_group) => Ok(mls_group),
+            Err(err) => {
+                use crate::DuplicateItem::*;
+                use crate::StorageError::*;
+
+                if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
+                    tracing::warn!(
+                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                        err
+                    );
+                } else {
+                    tracing::error!("failed to create group from welcome: {}", err);
                 }
-                let result = MlsGroup::create_from_encrypted_welcome(
-                    self,
-                    provider,
-                    welcome.hpke_public_key.as_slice(),
-                    &welcome.data,
-                    welcome.id as i64,
-                )
-                .await;
 
-                match result {
-                    Ok(mls_group) => Ok(mls_group),
-                    Err(err) => {
-                        use crate::DuplicateItem::*;
-                        use crate::StorageError::*;
-
-                        if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                            tracing::warn!(
-                            "failed to create group from welcome due to duplicate welcome ID: {}",
-                            err
-                        );
-                        } else {
-                            tracing::error!("failed to create group from welcome: {}", err);
-                        }
-
-                        Err(err)
-                    }
-                }
-            })
-            .await
+                Err(err)
+            }
+        }
     }
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
@@ -1048,17 +1029,6 @@ where
     }
 }
 
-pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
-    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
-    match welcome.extract() {
-        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -1159,7 +1129,7 @@ pub(crate) mod tests {
 
         // Rotate and fetch again.
         client
-            .rotate_key_package(&client.mls_provider().unwrap())
+            .rotate_and_upload_key_package(&client.mls_provider().unwrap())
             .await
             .unwrap();
 

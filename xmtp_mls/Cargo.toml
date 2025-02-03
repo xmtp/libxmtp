@@ -103,18 +103,18 @@ tracing-subscriber = { workspace = true, features = [
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-chrono = { workspace = true, features = ["clock"] }
 diesel = { workspace = true, features = [
   "r2d2",
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
 ] }
+chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
 openmls.workspace = true
-openssl-sys.workspace = true
 openssl.workspace = true
+openssl-sys.workspace = true
 tokio = { workspace = true, features = [
   "macros",
   "tracing",
