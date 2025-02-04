@@ -419,10 +419,7 @@ impl Conversations {
       self.inner_client.clone(),
       conversation_type.map(Into::into),
       move |message| match message {
-        Ok(item) => {
-          let conversation = Conversation::from(item);
-          callback.on_item(JsValue::from(conversation))
-        }
+        Ok(item) => callback.on_conversation(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
     );
@@ -450,14 +447,7 @@ impl Conversations {
       self.inner_client.clone(),
       conversation_type.map(Into::into),
       move |message| match message {
-        Ok(m) => {
-          let serialized = crate::to_value(&m);
-          if let Err(e) = serialized {
-            callback.on_error(JsError::from(e));
-          } else {
-            callback.on_item(serialized.expect("checked for err"))
-          }
-        }
+        Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
     );
