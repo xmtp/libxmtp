@@ -115,21 +115,21 @@ mod tests {
 
         let mut consent_records: Vec<StoredConsentRecord> = alix_provider
             .conn_ref()
-            .raw_query(|conn| consent_records::table.load(conn))
+            .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop().unwrap();
 
         let mut groups: Vec<StoredGroup> = alix_provider
             .conn_ref()
-            .raw_query(|conn| groups::table.load(conn))
+            .raw_query_read(|conn| groups::table.load(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
         let old_group = groups.pop().unwrap();
 
         let old_messages: Vec<StoredGroupMessage> = alix_provider
             .conn_ref()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(old_messages.len(), 2);
 
@@ -155,7 +155,7 @@ mod tests {
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
             .conn_ref()
-            .raw_query(|conn| consent_records::table.load(conn))
+            .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 0);
 
@@ -165,7 +165,7 @@ mod tests {
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
             .conn_ref()
-            .raw_query(|conn| consent_records::table.load(conn))
+            .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
@@ -173,7 +173,7 @@ mod tests {
 
         let groups: Vec<StoredGroup> = alix2_provider
             .conn_ref()
-            .raw_query(|conn| groups::table.load(conn))
+            .raw_query_read(|conn| groups::table.load(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
         // It's the same group
@@ -181,7 +181,7 @@ mod tests {
 
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
         // Only the application messages should sync
         assert_eq!(messages.len(), 1);

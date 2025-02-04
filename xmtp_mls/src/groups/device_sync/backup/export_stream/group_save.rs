@@ -33,7 +33,7 @@ impl BackupRecordProvider for GroupSave {
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query(|conn| query.load::<StoredGroup>(conn))
+            .raw_query_read(|conn| query.load::<StoredGroup>(conn))
             .expect("Failed to load group records");
 
         batch

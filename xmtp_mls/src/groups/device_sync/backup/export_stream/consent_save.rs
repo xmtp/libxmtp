@@ -24,7 +24,7 @@ impl BackupRecordProvider for ConsentSave {
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query(|conn| query.load::<StoredConsentRecord>(conn))
+            .raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))
             .expect("Failed to load consent records");
 
         batch
