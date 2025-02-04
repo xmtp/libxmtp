@@ -10,10 +10,13 @@ async-trait = "0.1"
 base64.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 hex.workspace = true
+http = "1.2"
 prost = { workspace = true, features = ["prost-derive"] }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tracing.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_common.workspace = true
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 xmtp_v2 = { path = "../xmtp_v2" }
 zeroize.workspace = true
 

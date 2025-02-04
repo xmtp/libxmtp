@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-use xmtp_proto::{Error as ApiError, ErrorKind};
+use xmtp_proto::{ApiError, ErrorKind};
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 

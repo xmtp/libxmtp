@@ -17,6 +17,7 @@ use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
 
 use crate::grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription};
+use crate::GrpcError;
 use crate::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic,
@@ -60,7 +61,7 @@ use xmtp_proto::{
     xmtp::xmtpv4::message_api::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
-    Error, ErrorKind, InternalError,
+    ApiEndpoint, Error, ErrorKind, InternalError,
 };
 
 #[derive(Debug, Clone)]
@@ -76,28 +77,18 @@ impl ClientV4 {
         grpc_url: String,
         payer_url: String,
         is_secure: bool,
-    ) -> Result<Self, Error> {
-        let app_version = MetadataValue::try_from(&String::from("0.0.0"))
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
-        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+    ) -> Result<Self, GrpcError> {
+        let app_version = MetadataValue::try_from(&String::from("0.0.0"))?;
+        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))?;
 
         let grpc_channel = match is_secure {
             true => create_tls_channel(grpc_url).await?,
-            false => Channel::from_shared(grpc_url)
-                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
-                .connect()
-                .await
-                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+            false => Channel::from_shared(grpc_url)?.connect().await?,
         };
 
         let payer_channel = match is_secure {
             true => create_tls_channel(payer_url).await?,
-            false => Channel::from_shared(payer_url)
-                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
-                .connect()
-                .await
-                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?,
+            false => Channel::from_shared(payer_url)?.connect().await?,
         };
 
         // GroupMessageInputTODO(mkysel) for now we assume both payer and replication are on the same host
@@ -124,23 +115,22 @@ impl ClientV4 {
 }
 
 impl ClientWithMetadata for ClientV4 {
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version)
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
+    type Error = crate::GrpcError;
 
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
+        self.libxmtp_version = MetadataValue::try_from(&version)?;
         Ok(())
     }
 
-    fn set_app_version(&mut self, version: String) -> Result<(), Error> {
-        self.app_version = MetadataValue::try_from(&version)
-            .map_err(|e| Error::new(ErrorKind::MetadataError).with(e))?;
-
+    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+        self.app_version = MetadataValue::try_from(&version)?;
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
 impl XmtpApiClient for ClientV4 {
+    type Error = crate::Error;
     type Subscription = Subscription;
     type MutableSubscription = GrpcMutableSubscription;
 
@@ -148,34 +138,39 @@ impl XmtpApiClient for ClientV4 {
         &self,
         token: String,
         request: PublishRequest,
-    ) -> Result<PublishResponse, Error> {
+    ) -> Result<PublishResponse, Self::Error> {
         unimplemented!();
     }
 
-    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
+    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Self::Error> {
         unimplemented!();
     }
 
     async fn subscribe2(
         &self,
         request: SubscribeRequest,
-    ) -> Result<GrpcMutableSubscription, Error> {
+    ) -> Result<GrpcMutableSubscription, Self::Error> {
         unimplemented!();
     }
 
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         unimplemented!();
     }
 
-    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
+    async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, Self::Error> {
         unimplemented!();
     }
 }
 
 #[async_trait::async_trait]
 impl XmtpMlsClient for ClientV4 {
+    type Error = crate::GrpcError;
+
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
+    async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
         self.publish_envelopes_to_payer(std::iter::once(req)).await
     }
 
@@ -183,7 +178,7 @@ impl XmtpMlsClient for ClientV4 {
     async fn fetch_key_packages(
         &self,
         req: FetchKeyPackagesRequest,
-    ) -> Result<FetchKeyPackagesResponse, Error> {
+    ) -> Result<FetchKeyPackagesResponse, Self::Error> {
         let topics = req
             .installation_keys
             .iter()
@@ -191,31 +186,26 @@ impl XmtpMlsClient for ClientV4 {
             .collect();
 
         let envelopes = self.query_v4_envelopes(topics, 0).await?;
-        let key_packages: Result<Vec<_>, Error> = envelopes
+        let key_packages: Result<Vec<_>, _> = envelopes
             .iter()
             .map(|envelopes| {
                 // The last envelope should be the newest key package upload
-                let unsigned = envelopes.last().ok_or_else(|| {
-                    Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                        .with("No envelopes found")
-                })?;
+                let unsigned = envelopes
+                    .last()
+                    .ok_or_else(|| GrpcError::NotFound("envelopes".into()))?;
 
                 let client_env = extract_client_envelope(unsigned)?;
 
                 if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
-                    let key_package = upload_key_package.key_package.ok_or_else(|| {
-                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                            .with("Missing key package")
-                    })?;
+                    let key_package = upload_key_package
+                        .key_package
+                        .ok_or_else(|| GrpcError::NotFound("key package".into()))?;
 
                     Ok(fetch_key_packages_response::KeyPackage {
                         key_package_tls_serialized: key_package.key_package_tls_serialized,
                     })
                 } else {
-                    Err(
-                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                            .with("Payload is not a key package"),
-                    )
+                    Err(GrpcError::UnexpectedPayload)
                 }
             })
             .collect();
@@ -226,12 +216,15 @@ impl XmtpMlsClient for ClientV4 {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
+    async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
         self.publish_envelopes_to_payer(req.messages).await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
+    async fn send_welcome_messages(
+        &self,
+        req: SendWelcomeMessagesRequest,
+    ) -> Result<(), Self::Error> {
         self.publish_envelopes_to_payer(req.messages).await
     }
 
@@ -239,7 +232,7 @@ impl XmtpMlsClient for ClientV4 {
     async fn query_group_messages(
         &self,
         req: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Error> {
+    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
         let client = &mut self.client.clone();
         let res = client
             .query_envelopes(QueryEnvelopesRequest {
@@ -250,8 +243,7 @@ impl XmtpMlsClient for ClientV4 {
                 }),
                 limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+            .await?;
 
         let envelopes = res.into_inner().envelopes;
         let response = QueryGroupMessagesResponse {
@@ -261,19 +253,16 @@ impl XmtpMlsClient for ClientV4 {
                     let unsigned_originator_envelope =
                         extract_unsigned_originator_envelope(envelope)?;
                     let client_envelope = extract_client_envelope(envelope)?;
-                    let payload = client_envelope.payload.ok_or_else(|| {
-                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                    })?;
+                    let payload = client_envelope
+                        .payload
+                        .ok_or_else(|| GrpcError::MissingPayload)?;
                     let Payload::GroupMessage(group_message) = payload else {
-                        return Err(Error::new(ErrorKind::InternalError(
-                            InternalError::MissingPayloadError,
-                        )));
+                        return Err(GrpcError::MissingPayload);
                     };
 
-                    let group_message_input::Version::V1(v1_group_message) =
-                        group_message.version.ok_or_else(|| {
-                            Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                        })?;
+                    let group_message_input::Version::V1(v1_group_message) = group_message
+                        .version
+                        .ok_or_else(|| GrpcError::MissingPayload)?;
 
                     Ok(GroupMessage {
                         version: Some(group_message::Version::V1(group_message::V1 {
@@ -285,7 +274,7 @@ impl XmtpMlsClient for ClientV4 {
                         })),
                     })
                 })
-                .collect::<Result<Vec<_>, Error>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             paging_info: None,
         };
         Ok(response)
@@ -295,7 +284,7 @@ impl XmtpMlsClient for ClientV4 {
     async fn query_welcome_messages(
         &self,
         req: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Error> {
+    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         let client = &mut self.client.clone();
         let res = client
             .query_envelopes(QueryEnvelopesRequest {
@@ -306,8 +295,7 @@ impl XmtpMlsClient for ClientV4 {
                 }),
                 limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+            .await?;
 
         let envelopes = res.into_inner().envelopes;
         let response = QueryWelcomeMessagesResponse {
@@ -317,18 +305,15 @@ impl XmtpMlsClient for ClientV4 {
                     let unsigned_originator_envelope =
                         extract_unsigned_originator_envelope(envelope)?;
                     let client_envelope = extract_client_envelope(envelope)?;
-                    let payload = client_envelope.payload.ok_or_else(|| {
-                        Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                    })?;
+                    let payload = client_envelope
+                        .payload
+                        .ok_or_else(|| GrpcError::MissingPayload)?;
                     let Payload::WelcomeMessage(welcome_message) = payload else {
-                        return Err(Error::new(ErrorKind::InternalError(
-                            InternalError::MissingPayloadError,
-                        )));
+                        return Err(GrpcError::MissingPayload);
                     };
-                    let welcome_message_input::Version::V1(v1_welcome_message) =
-                        welcome_message.version.ok_or_else(|| {
-                            Error::new(ErrorKind::InternalError(InternalError::MissingPayloadError))
-                        })?;
+                    let welcome_message_input::Version::V1(v1_welcome_message) = welcome_message
+                        .version
+                        .ok_or_else(|| GrpcError::MissingPayload)?;
 
                     Ok(WelcomeMessage {
                         version: Some(welcome_message::Version::V1(welcome_message::V1 {
@@ -340,7 +325,7 @@ impl XmtpMlsClient for ClientV4 {
                         })),
                     })
                 })
-                .collect::<Result<Vec<_>, Error>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             paging_info: None,
         };
         Ok(response)
@@ -349,31 +334,33 @@ impl XmtpMlsClient for ClientV4 {
 
 #[async_trait::async_trait]
 impl XmtpMlsStreams for ClientV4 {
+    type Error = crate::Error;
     type GroupMessageStream<'a> = GroupMessageStream;
     type WelcomeMessageStream<'a> = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
+    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
         unimplemented!();
     }
 
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
         unimplemented!();
     }
 }
 
 #[async_trait::async_trait]
 impl XmtpIdentityClient for ClientV4 {
+    type Error = crate::GrpcError;
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Error> {
+    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         self.publish_envelopes_to_payer(vec![request]).await?;
         Ok(PublishIdentityUpdateResponse {})
     }
@@ -382,7 +369,7 @@ impl XmtpIdentityClient for ClientV4 {
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
-    ) -> Result<GetInboxIdsResponse, Error> {
+    ) -> Result<GetInboxIdsResponse, Self::Error> {
         let client = &mut self.client.clone();
         let req = GetInboxIdsRequestV4 {
             requests: request
@@ -405,20 +392,21 @@ impl XmtpIdentityClient for ClientV4 {
                     })
                     .collect(),
             })
-            .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))
+            .map_err(GrpcError::from)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_identity_updates_v2(
         &self,
         request: GetIdentityUpdatesV2Request,
-    ) -> Result<GetIdentityUpdatesV2Response, Error> {
-        let topics: Result<Vec<_>, Error> = request
+    ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        let topics = request
             .requests
             .iter()
             .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
-            .collect();
-        let v4_envelopes = self.query_v4_envelopes(topics?, 0).await?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(GrpcError::from)?;
+        let v4_envelopes = self.query_v4_envelopes(topics, 0).await?;
         let joined_data = v4_envelopes
             .into_iter()
             .zip(request.requests.into_iter())
@@ -429,14 +417,14 @@ impl XmtpIdentityClient for ClientV4 {
                 let identity_updates = envelopes
                     .iter()
                     .map(convert_v4_envelope_to_identity_update)
-                    .collect::<Result<Vec<IdentityUpdateLog>, Error>>()?;
+                    .collect::<Result<Vec<IdentityUpdateLog>, _>>()?;
 
                 Ok(get_identity_updates_response::Response {
                     inbox_id: inner_req.inbox_id.clone(),
                     updates: identity_updates,
                 })
             })
-            .collect::<Result<Vec<get_identity_updates_response::Response>, Error>>()?;
+            .collect::<Result<Vec<get_identity_updates_response::Response>, GrpcError>>()?;
 
         Ok(GetIdentityUpdatesV2Response { responses })
     }
@@ -445,7 +433,7 @@ impl XmtpIdentityClient for ClientV4 {
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
     }
 }
@@ -467,7 +455,7 @@ impl ClientV4 {
         &self,
         topics: Vec<Vec<u8>>,
         limit: u32,
-    ) -> Result<Vec<Vec<OriginatorEnvelope>>, Error> {
+    ) -> Result<Vec<Vec<OriginatorEnvelope>>, crate::GrpcError> {
         let requests = topics.iter().map(|topic| async {
             let client = &mut self.client.clone();
             let v4_envelopes = client
@@ -479,8 +467,7 @@ impl ClientV4 {
                     }),
                     limit,
                 })
-                .await
-                .map_err(|err| Error::new(ErrorKind::IdentityError).with(err))?;
+                .await?;
 
             Ok(v4_envelopes.into_inner().envelopes)
         });
@@ -492,26 +479,22 @@ impl ClientV4 {
     async fn publish_envelopes_to_payer<T>(
         &self,
         messages: impl IntoIterator<Item = T>,
-    ) -> Result<(), Error>
+    ) -> Result<(), crate::GrpcError>
     where
         T: TryInto<ClientEnvelope>,
         <T as TryInto<ClientEnvelope>>::Error: std::error::Error + Send + Sync + 'static,
+        GrpcError: From<<T as TryInto<ClientEnvelope>>::Error>,
     {
         let client = &mut self.payer_client.clone();
 
         let envelopes: Vec<ClientEnvelope> = messages
             .into_iter()
-            .map(|message| {
-                message
-                    .try_into()
-                    .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
-            })
+            .map(|message| message.try_into().map_err(GrpcError::from))
             .collect::<Result<_, _>>()?;
 
         client
             .publish_client_envelopes(PublishClientEnvelopesRequest { envelopes })
-            .await
-            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+            .await?;
 
         Ok(())
     }
@@ -519,31 +502,26 @@ impl ClientV4 {
 
 fn convert_v4_envelope_to_identity_update(
     envelope: &OriginatorEnvelope,
-) -> Result<IdentityUpdateLog, Error> {
+) -> Result<IdentityUpdateLog, crate::GrpcError> {
     let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
-    let originator_envelope = UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)
-        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+    let originator_envelope =
+        UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)?;
 
     let payer_envelope = originator_envelope
         .payer_envelope
-        .ok_or(Error::new(ErrorKind::IdentityError).with("Payer envelope is None"))?;
+        .ok_or(GrpcError::NotFound("payer envelope".into()))?;
 
     // TODO: validate payer signatures
     let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
 
-    let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)
-        .map_err(|e| Error::new(ErrorKind::IdentityError).with(e))?;
+    let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)?;
     let payload = client_envelope
         .payload
-        .ok_or(Error::new(ErrorKind::IdentityError).with("Payload is None"))?;
+        .ok_or(GrpcError::NotFound("payload".into()))?;
 
     let identity_update = match payload {
         Payload::IdentityUpdate(update) => update,
-        _ => {
-            return Err(
-                Error::new(ErrorKind::IdentityError).with("Payload is not an identity update")
-            )
-        }
+        _ => return Err(GrpcError::UnexpectedPayload),
     };
 
     Ok(IdentityUpdateLog {

@@ -239,20 +239,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.4.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df895a515f70646414f4b45c0b79082783b80552b373a68283012928df56f522"
-dependencies = [
- "futures-core",
- "futures-io",
- "memchr",
- "pin-project-lite",
- "zstd 0.13.2",
- "zstd-safe 7.2.1",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6073,7 +6059,6 @@ checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
- "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -6708,9 +6693,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.12.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
+checksum = "744018581f9a3454a9e15beb8a33b017183f1e7c0cd170232a2d1453b23a51c4"
 dependencies = [
  "getrandom",
  "rand",
@@ -7359,11 +7344,14 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
+ "http 1.2.0",
  "prost",
+ "thiserror 2.0.6",
  "tokio",
  "tonic",
  "tracing",
- "uuid 1.12.1",
+ "uuid 1.12.0",
+ "xmtp_common",
  "xmtp_proto",
  "xmtp_v2",
  "zeroize",
@@ -7528,8 +7516,6 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
- "async-compression",
- "async-stream",
  "async-trait",
  "bincode",
  "bytes",
@@ -7544,7 +7530,6 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
- "futures-util",
  "getrandom",
  "gloo-timers 0.3.0",
  "hex",
@@ -7574,7 +7559,6 @@ dependencies = [
  "tls_codec",
  "tokio",
  "tokio-stream",
- "tokio-util",
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
@@ -7606,6 +7590,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "serde",
+ "thiserror 2.0.6",
  "tonic",
  "tracing",
  "wasm-bindgen-test",
@@ -7658,7 +7643,7 @@ dependencies = [
  "tracing-oslog",
  "tracing-subscriber",
  "uniffi",
- "uuid 1.12.1",
+ "uuid 1.12.0",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
@@ -7832,7 +7817,7 @@ dependencies = [
  "pbkdf2 0.11.0",
  "sha1",
  "time",
- "zstd 0.11.2+zstd.1.5.2",
+ "zstd",
 ]
 
 [[package]]
@@ -7841,16 +7826,7 @@ version = "0.11.2+zstd.1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20cc960326ece64f010d2d2107537f26dc589a6573a316bd5b1dba685fa5fde4"
 dependencies = [
- "zstd-safe 5.0.2+zstd.1.5.2",
-]
-
-[[package]]
-name = "zstd"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
-dependencies = [
- "zstd-safe 7.2.1",
+ "zstd-safe",
 ]
 
 [[package]]
@@ -7860,15 +7836,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d2a5585e04f9eea4b2a3d1eca508c4dee9592a89ef6f450c11719da0726f4db"
 dependencies = [
  "libc",
- "zstd-sys",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "7.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
-dependencies = [
  "zstd-sys",
 ]
 

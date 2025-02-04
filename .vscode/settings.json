@@ -11,7 +11,6 @@
   "rust-analyzer.procMacro.attributes.enable": true,
   "rust-analyzer.procMacro.ignored": {
     "tracing": ["instrument"],
-    "async-trait": ["async_trait"],
     "napi-derive": ["napi"],
     "async-recursion": ["async_recursion"],
     "ctor": ["ctor"],

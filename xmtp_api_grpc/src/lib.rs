@@ -7,7 +7,107 @@ pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
+use thiserror::Error;
 
+#[derive(Debug, Error)]
+pub struct Error {
+    endpoint: Option<xmtp_proto::ApiEndpoint>,
+    #[source]
+    source: GrpcError,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(endpoint) = self.endpoint {
+            write!(f, "endpoint: {}, source: {}", endpoint, self.source)
+        } else {
+            write!(f, "{}", self.source)
+        }
+    }
+}
+
+impl Error {
+    pub fn new(endpoint: xmtp_proto::ApiEndpoint, err: GrpcError) -> Self {
+        Error {
+            endpoint: Some(endpoint),
+            source: err,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum GrpcError {
+    #[error("Invalid URI during channel creation")]
+    InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
+    #[error(transparent)]
+    Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
+    #[error(transparent)]
+    Status(#[from] tonic::Status),
+    #[error("{0} not found/empty")]
+    NotFound(String),
+    #[error("Payload not expected")]
+    UnexpectedPayload,
+    #[error("payload is missing")]
+    MissingPayload,
+    #[error(transparent)]
+    Proto(#[from] xmtp_proto::ProtoError),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+}
+
+impl xmtp_common::retry::RetryableError for Error {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
+impl xmtp_common::retry::RetryableError for GrpcError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
+}
+
+impl xmtp_proto::XmtpApiError for Error {
+    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
+        self.endpoint
+    }
+
+    fn code(&self) -> Option<xmtp_proto::Code> {
+        match &self.source {
+            GrpcError::Status(status) => Some(status.code().into()),
+            _ => None,
+        }
+    }
+
+    fn grpc_message(&self) -> Option<&str> {
+        match &self.source {
+            GrpcError::Status(status) => Some(status.message()),
+            _ => None,
+        }
+    }
+}
+
+impl xmtp_proto::XmtpApiError for GrpcError {
+    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
+        None
+    }
+
+    fn code(&self) -> Option<xmtp_proto::Code> {
+        match &self {
+            GrpcError::Status(status) => Some(status.code().into()),
+            _ => None,
+        }
+    }
+
+    fn grpc_message(&self) -> Option<&str> {
+        match &self {
+            GrpcError::Status(status) => Some(status.message()),
+            _ => None,
+        }
+    }
+}
 mod utils {
     #[cfg(feature = "test-utils")]
     mod test {
