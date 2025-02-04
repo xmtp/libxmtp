@@ -1,5 +1,11 @@
 # @xmtp/wasm-bindings
 
+## 0.0.14
+
+- Removed group pinned frame URL
+- Refactored streaming
+- Fixed DB locking issues
+
 ## 0.0.13
 
 - Fixed DM group validation across installations
