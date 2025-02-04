@@ -1,8 +1,9 @@
+use super::{BackupError, BackupMetadata};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection, ProviderTransactions, StorageError,
+        DbConnection, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
@@ -13,8 +14,6 @@ use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
-
-use super::{BackupError, BackupMetadata};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
@@ -92,34 +91,17 @@ impl BackupImporter {
     }
 
     pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        provider
-            .transaction_async(|provider| async move {
-                let conn = provider.conn_ref();
+        let conn = provider.conn_ref();
 
-                loop {
-                    match self.next_element().await {
-                        Ok(Some(element)) => match insert(element, conn) {
-                            Err(DeviceSyncError::Deserialization(err)) => {
-                                tracing::warn!("Unable to insert record: {err:?}");
-                            }
-                            Err(DeviceSyncError::Storage(err)) => {
-                                return Err(err);
-                            }
-                            Err(err) => {
-                                return Ok::<Result<(), DeviceSyncError>, StorageError>(Err(err))
-                            }
-                            _ => {}
-                        },
-                        Ok(None) => break,
-                        Err(err) => {
-                            return Ok::<Result<(), DeviceSyncError>, StorageError>(Err(err))
-                        }
-                    }
+        while let Some(element) = self.next_element().await? {
+            match insert(element, conn) {
+                Err(DeviceSyncError::Deserialization(err)) => {
+                    tracing::warn!("Unable to insert record: {err:?}");
                 }
-
-                Ok(Ok(()))
-            })
-            .await??;
+                Err(err) => return Err(err)?,
+                _ => {}
+            }
+        }
 
         Ok(())
     }
