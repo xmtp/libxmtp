@@ -183,19 +183,15 @@ where
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
+        let epoch = self.epoch(&mls_provider).await?;
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             installation_id = %self.client.installation_id(),
             group_id = hex::encode(&self.group_id),
-            "[{}] syncing group",
-            self.client.inbox_id()
-        );
-        tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
-            group_id = hex::encode(&self.group_id),
-            "current epoch for [{}] in sync()",
+            epoch = epoch,
+            "[{}] syncing group, epoch = {}",
             self.client.inbox_id(),
+            epoch
         );
         self.maybe_update_installations(&mls_provider, None).await?;
 

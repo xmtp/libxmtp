@@ -447,11 +447,14 @@ where
                     self.msg.group_id.clone(),
                     &self.provider,
                 )?;
+                let epoch = group.epoch(&self.provider).await?;
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,
-                    "current epoch for [{}] in process_stream_entry()",
+                    epoch = epoch,
+                    "epoch={} for [{}] in process_stream_entry()",
+                    epoch,
                     self.inbox_id(),
                 );
                 group
@@ -505,11 +508,14 @@ where
             self.msg.group_id.clone(),
             self.msg.created_ns as i64,
         );
+        let epoch = group.epoch(&self.provider).await.unwrap_or(0);
         tracing::debug!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
-            "attempting recovery sync"
+            epoch = epoch,
+            "attempting recovery sync epoch={}",
+            epoch
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
@@ -522,11 +528,13 @@ where
                 "recovery sync triggered by streamed message failed: {}", err
             );
         } else {
+            let epoch = group.epoch(&self.provider).await.unwrap_or(0);
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful"
+                "recovery sync triggered by streamed message successful. epoch = {}",
+                epoch
             )
         }
     }
