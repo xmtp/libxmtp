@@ -1356,6 +1356,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         .await
     }
 
+    /// Get the current epoch number of the group.
+    pub async fn epoch(&self, provider: &XmtpOpenMlsProvider) -> Result<u64, GroupError> {
+        self.load_mls_group_with_lock_async(provider, |mls_group| {
+            futures::future::ready(Ok(mls_group.epoch().as_u64()))
+        })
+        .await
+    }
+
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(
         &self,
