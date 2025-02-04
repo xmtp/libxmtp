@@ -1,26 +1,24 @@
+use super::{LocalEvents, Result, SubscribeError};
+use crate::{
+    groups::{mls_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
+    storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
+    Client, XmtpOpenMlsProvider,
+};
+use futures::{prelude::stream::Select, Stream};
+use pin_project_lite::pin_project;
 use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
 };
-
-use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, refresh_state::EntityKind, NotFound, ProviderTransactions},
-    Client, XmtpOpenMlsProvider,
-};
-use futures::{prelude::stream::Select, Stream};
-use pin_project_lite::pin_project;
 use tokio_stream::wrappers::BroadcastStream;
+use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
 };
-
-use super::{LocalEvents, Result, SubscribeError};
-use xmtp_common::FutureWrapper;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -394,18 +392,25 @@ where
             "Trying to process streamed welcome"
         );
 
-        let group = provider
-            .retryable_transaction_async(None, |provider| async {
-                MlsGroup::create_from_encrypted_welcome(
-                    client,
+        let group = retry_async!(
+            Retry::default(),
+            (async {
+                let welcome_data = DecryptedWelcome::from_encrypted_bytes(
                     provider,
                     hpke_public_key.as_slice(),
                     data,
+                )?;
+                MlsGroup::create_from_welcome(
+                    client,
+                    provider,
+                    welcome_data.staged_welcome,
+                    welcome_data.added_by_inbox_id,
                     id,
+                    None,
                 )
                 .await
             })
-            .await;
+        );
 
         if let Err(e) = group {
             tracing::info!("Processing welcome failed, trying to load existing..");

@@ -1,29 +1,5 @@
 // @generated
 pub mod xmtp {
-    #[cfg(feature = "xmtp-device_sync")]
-    // @@protoc_insertion_point(attribute:xmtp.device_sync)
-    pub mod device_sync {
-        include!("xmtp.device_sync.rs");
-        // @@protoc_insertion_point(xmtp.device_sync)
-        #[cfg(feature = "xmtp-device_sync-consent_backup")]
-        // @@protoc_insertion_point(attribute:xmtp.device_sync.consent_backup)
-        pub mod consent_backup {
-            include!("xmtp.device_sync.consent_backup.rs");
-            // @@protoc_insertion_point(xmtp.device_sync.consent_backup)
-        }
-        #[cfg(feature = "xmtp-device_sync-group_backup")]
-        // @@protoc_insertion_point(attribute:xmtp.device_sync.group_backup)
-        pub mod group_backup {
-            include!("xmtp.device_sync.group_backup.rs");
-            // @@protoc_insertion_point(xmtp.device_sync.group_backup)
-        }
-        #[cfg(feature = "xmtp-device_sync-message_backup")]
-        // @@protoc_insertion_point(attribute:xmtp.device_sync.message_backup)
-        pub mod message_backup {
-            include!("xmtp.device_sync.message_backup.rs");
-            // @@protoc_insertion_point(xmtp.device_sync.message_backup)
-        }
-    }
     #[cfg(feature = "xmtp-identity")]
     // @@protoc_insertion_point(attribute:xmtp.identity)
     pub mod identity {

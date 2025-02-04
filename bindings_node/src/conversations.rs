@@ -121,7 +121,6 @@ pub struct CreateGroupOptions {
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
-  pub group_pinned_frame_url: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
@@ -132,7 +131,6 @@ impl CreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      pinned_frame_url: self.group_pinned_frame_url,
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
@@ -162,7 +160,6 @@ impl Conversations {
       group_name: None,
       group_image_url_square: None,
       group_description: None,
-      group_pinned_frame_url: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
     });
@@ -221,7 +218,7 @@ impl Conversations {
     Ok(convo.into())
   }
 
-  #[napi]
+  #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation> {
     let convo = self
       .inner_client

@@ -60,9 +60,10 @@ impl StoredAssociationState {
 
     pub fn read_from_cache(
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: impl AsRef<str>,
         sequence_id: i64,
     ) -> Result<Option<AssociationState>, StorageError> {
+        let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
@@ -108,7 +109,7 @@ impl StoredAssociationState {
             );
 
         let association_states =
-            conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+            conn.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
         association_states
             .into_iter()

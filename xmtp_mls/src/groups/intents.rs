@@ -63,10 +63,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        provider.transaction(|provider| {
+        let res = provider.transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
-        })
+        });
+
+        res
     }
 
     fn queue_intent_with_conn(
@@ -231,13 +233,6 @@ impl UpdateMetadataIntentData {
         Self {
             field_name: MetadataField::Description.to_string(),
             field_value: group_description,
-        }
-    }
-
-    pub fn new_update_group_pinned_frame_url(pinned_frame_url: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
-            field_value: pinned_frame_url,
         }
     }
 

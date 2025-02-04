@@ -52,6 +52,8 @@ pub enum StorageError {
     OpenMlsStorage(#[from] SqlKeyStoreError),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("Transaction was intentionally rolled back")]
+    IntentionalRollback,
 }
 
 #[derive(Error, Debug)]

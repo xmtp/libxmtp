@@ -915,7 +915,6 @@ pub struct FfiPermissionPolicySet {
     pub update_group_name_policy: FfiPermissionPolicy,
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
-    pub update_group_pinned_frame_url_policy: FfiPermissionPolicy,
     pub update_message_disappearing_policy: FfiPermissionPolicy,
 }
 
@@ -944,10 +943,7 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
             MetadataField::GroupImageUrlSquare.to_string(),
             policy_set.update_group_image_url_square_policy.try_into()?,
         );
-        metadata_permissions_map.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            policy_set.update_group_pinned_frame_url_policy.try_into()?,
-        );
+
         // MessageDisappearFromNS follows the same policy as MessageDisappearInNS
         metadata_permissions_map.insert(
             MetadataField::MessageDisappearFromNS.to_string(),
@@ -977,7 +973,6 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
-    PinnedFrameUrl,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -986,7 +981,6 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
-            FfiMetadataField::PinnedFrameUrl => MetadataField::GroupPinnedFrameUrl,
         }
     }
 }
@@ -1611,7 +1605,6 @@ pub struct FfiCreateGroupOptions {
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
     pub group_description: Option<String>,
-    pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
     pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
 }
@@ -1622,7 +1615,6 @@ impl FfiCreateGroupOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
             description: self.group_description,
-            pinned_frame_url: self.group_pinned_frame_url,
             message_disappearing_settings: self
                 .message_disappearing_settings
                 .map(|settings| settings.into()),
@@ -1835,24 +1827,6 @@ impl FfiConversation {
     pub fn group_description(&self) -> Result<String, GenericError> {
         let provider = self.inner.mls_provider()?;
         Ok(self.inner.group_description(&provider)?)
-    }
-
-    pub async fn update_group_pinned_frame_url(
-        &self,
-        pinned_frame_url: String,
-    ) -> Result<(), GenericError> {
-        self.inner
-            .update_group_pinned_frame_url(pinned_frame_url)
-            .await?;
-
-        Ok(())
-    }
-
-    pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        self.inner
-            .group_pinned_frame_url(&provider)
-            .map_err(Into::into)
     }
 
     pub async fn update_conversation_message_disappearing_settings(
@@ -2408,9 +2382,6 @@ impl FfiGroupPermissions {
             update_group_description_policy: get_policy(MetadataField::Description.as_str()),
             update_group_image_url_square_policy: get_policy(
                 MetadataField::GroupImageUrlSquare.as_str(),
-            ),
-            update_group_pinned_frame_url_policy: get_policy(
-                MetadataField::GroupPinnedFrameUrl.as_str(),
             ),
             update_message_disappearing_policy: get_policy(
                 MetadataField::MessageDisappearInNS.as_str(),
@@ -3143,7 +3114,6 @@ mod tests {
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
                     group_description: Some("group description".to_string()),
-                    group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
                     message_disappearing_settings: Some(
                         conversation_message_disappearing_settings.clone(),
@@ -3158,8 +3128,6 @@ mod tests {
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
-        assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
-        assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
         assert_eq!(
             group
                 .conversation_message_disappearing_settings()
@@ -4845,7 +4813,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
@@ -4875,7 +4842,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
@@ -4906,7 +4872,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
             update_message_disappearing_policy: FfiPermissionPolicy::Allow,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
@@ -4936,7 +4901,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
@@ -4970,7 +4934,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
@@ -4998,7 +4961,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
@@ -5161,7 +5123,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
@@ -5172,7 +5133,6 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
             message_disappearing_settings: None,
         };
@@ -5209,10 +5169,7 @@ mod tests {
             group_permissions_policy_set.update_group_image_url_square_policy,
             FfiPermissionPolicy::Admin
         );
-        assert_eq!(
-            group_permissions_policy_set.update_group_pinned_frame_url_policy,
-            FfiPermissionPolicy::Admin
-        );
+
         assert_eq!(
             group_permissions_policy_set.update_message_disappearing_policy,
             FfiPermissionPolicy::Admin
@@ -5277,7 +5234,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
@@ -5289,7 +5245,6 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
             update_message_disappearing_policy: FfiPermissionPolicy::Admin,
@@ -5300,7 +5255,6 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
             message_disappearing_settings: None,
         };
@@ -5320,7 +5274,6 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
             message_disappearing_settings: None,
         };
@@ -5340,7 +5293,6 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
             message_disappearing_settings: None,
         };
@@ -5360,7 +5312,6 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
             message_disappearing_settings: None,
         };

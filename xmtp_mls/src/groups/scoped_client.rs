@@ -15,7 +15,8 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_id::{
-    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, InboxIdRef,
+    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, AsIdRef,
+    InboxIdRef,
 };
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 
@@ -76,7 +77,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -142,7 +143,7 @@ pub trait ScopedGroupClient: Sized {
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError>;
 
     async fn query_group_messages(
@@ -221,7 +222,7 @@ where
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         crate::Client::<ApiClient, Verifier>::batch_get_association_state(self, conn, identifiers)
             .await
@@ -310,7 +311,7 @@ where
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)
@@ -400,7 +401,7 @@ where
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)
@@ -491,7 +492,7 @@ where
     async fn batch_get_association_state(
         &self,
         conn: &DbConnection,
-        identifiers: &[(InboxIdRef<'_>, Option<i64>)],
+        identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         (**self)
             .batch_get_association_state(conn, identifiers)

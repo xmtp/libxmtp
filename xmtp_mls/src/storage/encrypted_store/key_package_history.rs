@@ -39,7 +39,7 @@ impl DbConnection {
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        let result = self.raw_query(|conn| {
+        let result = self.raw_query_read(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::key_package_hash_ref.eq(hash_ref))
                 .first::<StoredKeyPackageHistoryEntry>(conn)
@@ -52,7 +52,7 @@ impl DbConnection {
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        let result = self.raw_query(|conn| {
+        let result = self.raw_query_read(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::id.lt(id))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
@@ -65,10 +65,22 @@ impl DbConnection {
         &self,
         id: i32,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.lt(id)),
+            )
+            .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::delete(
+                key_package_history::dsl::key_package_history
+                    .filter(key_package_history::dsl::id.eq(id)),
             )
             .execute(conn)
         })?;
@@ -94,6 +106,13 @@ mod tests {
                 .unwrap();
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
             assert_eq!(new_entry.id, 1);
+
+            // Now delete it
+            conn.delete_key_package_entry_with_id(1).unwrap();
+            let all_entries = conn
+                .find_key_package_history_entries_before_id(100)
+                .unwrap();
+            assert!(all_entries.is_empty());
         })
         .await
     }

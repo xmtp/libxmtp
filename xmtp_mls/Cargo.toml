@@ -8,38 +8,38 @@ version.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-    "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "wasm32-unknown-unknown",
+  "aarch64-apple-darwin",
 ]
 
 [features]
 bench = [
-    "test-utils",
-    "indicatif",
-    "tracing-subscriber",
-    "anyhow",
-    "dep:xmtp_api_grpc",
-    "criterion",
-    "dep:fdlimit",
-    "dep:ethers",
-    "dep:const_format",
-    "xmtp_common/bench",
+  "test-utils",
+  "indicatif",
+  "tracing-subscriber",
+  "anyhow",
+  "dep:xmtp_api_grpc",
+  "criterion",
+  "dep:fdlimit",
+  "dep:ethers",
+  "dep:const_format",
+  "xmtp_common/bench",
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
 http-api = ["dep:xmtp_api_http"]
 test-utils = [
-    "tracing-subscriber",
-    "dep:tracing-wasm",
-    "dep:console_error_panic_hook",
-    "xmtp_id/test-utils",
-    "xmtp_proto/test-utils",
-    "xmtp_api_http/test-utils",
-    "xmtp_api_grpc/test-utils",
-    "dep:const_format",
-    "mockall",
-    "xmtp_common/test-utils",
+  "tracing-subscriber",
+  "dep:tracing-wasm",
+  "dep:console_error_panic_hook",
+  "xmtp_id/test-utils",
+  "xmtp_proto/test-utils",
+  "xmtp_api_http/test-utils",
+  "xmtp_api_grpc/test-utils",
+  "dep:const_format",
+  "mockall",
+  "xmtp_common/test-utils",
 ]
 update-schema = ["toml"]
 
@@ -68,7 +68,7 @@ sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio-stream = { version = "0.1", default-features = false, features = [
-    "sync",
+  "sync",
 ] }
 tracing.workspace = true
 trait-variant.workspace = true
@@ -97,44 +97,43 @@ hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 mockall = { version = "0.13.1", optional = true }
 tracing-subscriber = { workspace = true, features = [
-    "env-filter",
-    "fmt",
-    "ansi",
-    "json",
-    "registry",
+  "env-filter",
+  "fmt",
+  "ansi",
+  "json",
+  "registry",
 ], optional = true }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = [
+  "macros",
+  "tracing",
+  "rt",
+  "rt-multi-thread",
+] }
 chrono = { workspace = true, features = ["clock"] }
 diesel = { workspace = true, features = [
-    "r2d2",
-    "returning_clauses_for_sqlite_3_35",
-    "sqlite",
-    "32-column-tables",
+  "r2d2",
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
 ] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
-tokio = { workspace = true, features = [
-    "io-util",
-    "macros",
-    "tracing",
-    "rt",
-    "rt-multi-thread",
-] }
 tokio-util = { version = "0.7", default-features = false, features = [
-    "compat",
+  "compat",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
 diesel = { workspace = true, features = [
-    "r2d2",
-    "returning_clauses_for_sqlite_3_35",
+  "r2d2",
+  "returning_clauses_for_sqlite_3_35",
 ] }
 getrandom = { workspace = true, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
@@ -162,10 +161,10 @@ mockito = "1.6.1"
 openmls = { workspace = true }
 tempfile = "3.15.0"
 tracing-subscriber = { workspace = true, features = [
-    "env-filter",
-    "fmt",
-    "ansi",
-    "json",
+  "env-filter",
+  "fmt",
+  "ansi",
+  "json",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
@@ -206,3 +205,6 @@ required-features = ["bench"]
 #harness = false
 #name = "sync"
 #required-features = ["bench"]
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+split-linked-modules = true

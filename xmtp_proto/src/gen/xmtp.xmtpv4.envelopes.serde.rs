@@ -7,7 +7,7 @@ impl serde::Serialize for AuthenticatedData {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.target_originator != 0 {
+        if self.target_originator.is_some() {
             len += 1;
         }
         if !self.target_topic.is_empty() {
@@ -16,9 +16,12 @@ impl serde::Serialize for AuthenticatedData {
         if self.depends_on.is_some() {
             len += 1;
         }
+        if self.is_commit {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.AuthenticatedData", len)?;
-        if self.target_originator != 0 {
-            struct_ser.serialize_field("targetOriginator", &self.target_originator)?;
+        if let Some(v) = self.target_originator.as_ref() {
+            struct_ser.serialize_field("targetOriginator", v)?;
         }
         if !self.target_topic.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -27,6 +30,9 @@ impl serde::Serialize for AuthenticatedData {
         }
         if let Some(v) = self.depends_on.as_ref() {
             struct_ser.serialize_field("dependsOn", v)?;
+        }
+        if self.is_commit {
+            struct_ser.serialize_field("isCommit", &self.is_commit)?;
         }
         struct_ser.end()
     }
@@ -44,6 +50,8 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             "targetTopic",
             "depends_on",
             "dependsOn",
+            "is_commit",
+            "isCommit",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -51,6 +59,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             TargetOriginator,
             TargetTopic,
             DependsOn,
+            IsCommit,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -75,6 +84,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             "targetTopic" | "target_topic" => Ok(GeneratedField::TargetTopic),
                             "dependsOn" | "depends_on" => Ok(GeneratedField::DependsOn),
+                            "isCommit" | "is_commit" => Ok(GeneratedField::IsCommit),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -97,6 +107,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                 let mut target_originator__ = None;
                 let mut target_topic__ = None;
                 let mut depends_on__ = None;
+                let mut is_commit__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TargetOriginator => {
@@ -104,7 +115,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                                 return Err(serde::de::Error::duplicate_field("targetOriginator"));
                             }
                             target_originator__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
                         GeneratedField::TargetTopic => {
@@ -121,12 +132,19 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             }
                             depends_on__ = map_.next_value()?;
                         }
+                        GeneratedField::IsCommit => {
+                            if is_commit__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isCommit"));
+                            }
+                            is_commit__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(AuthenticatedData {
-                    target_originator: target_originator__.unwrap_or_default(),
+                    target_originator: target_originator__,
                     target_topic: target_topic__.unwrap_or_default(),
                     depends_on: depends_on__,
+                    is_commit: is_commit__.unwrap_or_default(),
                 })
             }
         }
