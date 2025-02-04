@@ -446,7 +446,11 @@ where
                     &self.client,
                     self.msg.group_id.clone(),
                     &self.provider,
-                )?;
+                )
+                .inspect_err(|err| {
+                    tracing::error!("??? {err:?}");
+                })?;
+
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
@@ -455,7 +459,7 @@ where
                     self.inbox_id(),
                 );
                 group
-                    .process_message(&self.provider, &self.msg, false, None)
+                    .process_message(&self.provider, &self.msg, false, Some(self.msg.id as i64))
                     .await
                     // NOTE: We want to make sure we retry an error in process_message
                     .map_err(SubscribeError::ReceiveGroup)

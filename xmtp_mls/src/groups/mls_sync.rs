@@ -546,11 +546,9 @@ where
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
-        let mls_group_reload = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?
-            .ok_or(GroupMessageProcessingError::Storage(
-                StorageError::NotFound(NotFound::MlsGroup),
-            ))?;
-        let _ = std::mem::replace(mls_group, mls_group_reload);
+        *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
+            GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)),
+        )?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -585,8 +583,6 @@ where
         };
 
         provider.transaction(|provider| {
-            let processed_message = mls_group.process_message(provider, message)?;
-
             if let Some(cursor) = cursor {
                 let is_updated = provider.conn_ref().update_cursor(
                     &envelope.group_id,
@@ -597,6 +593,8 @@ where
                     return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
                 }
             }
+
+            let processed_message = mls_group.process_message(provider, message)?;
 
             self.process_external_message(
                 provider,
