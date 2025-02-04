@@ -848,6 +848,8 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
+    MessageExpirationStartAtNs,
+    MessageExpirationDurationNs,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -856,6 +858,8 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
+            FfiMetadataField::MessageExpirationStartAtNs => MetadataField::MessageDisappearFromNS,
+            FfiMetadataField::MessageExpirationDurationNs => MetadataField::MessageDisappearInNS,
         }
     }
 }
