@@ -33,11 +33,13 @@ use super::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
+        MetadataField,
     },
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    ScopedGroupClient,
+    GroupError, ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -85,6 +87,8 @@ pub enum CommitValidationError {
     NoPSKSupport,
     #[error(transparent)]
     StorageError(#[from] StorageError),
+    #[error("Exceeded max characters for this field. Must be under: {length}")]
+    TooManyCharacters { length: usize },
 }
 
 impl RetryableError for CommitValidationError {
@@ -223,6 +227,7 @@ impl MetadataFieldChange {
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
  * 7. New installations may be missing from the commit but still be present in the expected diff.
+ * 8. Confirms metadata character limit is not exceeded 
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -257,6 +262,36 @@ impl ValidatedCommit {
             existing_group_extensions,
             new_group_extensions,
         )?;
+
+        // Enforce character limits for specific metadata fields
+        for field_change in &metadata_changes.metadata_field_changes {
+            if let Some(new_value) = &field_change.new_value {
+                match field_change.field_name.as_str() {
+                    val if val == MetadataField::Description.as_str()
+                        && new_value.len() > MAX_GROUP_DESCRIPTION_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_DESCRIPTION_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::GroupName.as_str()
+                        && new_value.len() > MAX_GROUP_NAME_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_NAME_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::GroupImageUrlSquare.as_str()
+                        && new_value.len() > MAX_GROUP_IMAGE_URL_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_IMAGE_URL_LENGTH,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let permissions_changed =
             extract_permissions_changed(&group_permissions, new_group_extensions)?;
