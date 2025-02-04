@@ -91,6 +91,12 @@ pub mod xmtp {
             include!("xmtp.xmtpv4.message_api.rs");
             // @@protoc_insertion_point(xmtp.xmtpv4.message_api)
         }
+        #[cfg(feature = "xmtp-xmtpv4-metadata_api")]
+        // @@protoc_insertion_point(attribute:xmtp.xmtpv4.metadata_api)
+        pub mod metadata_api {
+            include!("xmtp.xmtpv4.metadata_api.rs");
+            // @@protoc_insertion_point(xmtp.xmtpv4.metadata_api)
+        }
         #[cfg(feature = "xmtp-xmtpv4-payer_api")]
         // @@protoc_insertion_point(attribute:xmtp.xmtpv4.payer_api)
         pub mod payer_api {
