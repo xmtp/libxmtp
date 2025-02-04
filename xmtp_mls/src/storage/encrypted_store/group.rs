@@ -302,7 +302,7 @@ impl DbConnection {
                     .select(groups_dsl::groups::all_columns())
                     .order(groups_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             } else {
                 // Only include the specified states
                 let query = query
@@ -315,11 +315,11 @@ impl DbConnection {
                     .select(groups_dsl::groups::all_columns())
                     .order(groups_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             }
         } else {
             // Handle the case where `consent_states` is `None`
-            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -327,7 +327,7 @@ impl DbConnection {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query =
                 groups_dsl::groups.filter(groups_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
             groups.append(&mut sync_groups);
         }
 
@@ -335,7 +335,7 @@ impl DbConnection {
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
+        Ok(self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
@@ -343,7 +343,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
@@ -352,16 +352,18 @@ impl DbConnection {
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .limit(1);
 
-        Ok(self.raw_query(|conn| query.load(conn))?.pop())
+        Ok(self.raw_query_read(|conn| query.load(conn))?.pop())
     }
 
     /// Return a single group that matches the given ID
+
     pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
-        let groups = self.raw_query(|conn| query.load(conn))?;
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
+
         Ok(groups.into_iter().next())
     }
 
@@ -374,7 +376,8 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups = self.raw_query(|conn| query.load(conn))?;
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
+
         if groups.len() > 1 {
             tracing::warn!(
                 welcome_id,
@@ -394,7 +397,7 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(Some(dm_id)))
             .order(dsl::last_message_ns.desc());
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::info!("More than one group found for dm_inbox_id {members:?}");
         }
@@ -408,7 +411,7 @@ impl DbConnection {
         group_id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
                 .execute(conn)
@@ -418,7 +421,7 @@ impl DbConnection {
     }
 
     pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts: Option<i64> = self.raw_query(|conn| {
+        let last_ts: Option<i64> = self.raw_query_read(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
@@ -434,7 +437,7 @@ impl DbConnection {
 
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::rotated_at_ns.eq(now))
@@ -445,7 +448,7 @@ impl DbConnection {
     }
 
     pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query(|conn| {
+        let last_ts = self.raw_query_read(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::installations_last_checked)
@@ -459,7 +462,7 @@ impl DbConnection {
 
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
@@ -474,7 +477,7 @@ impl DbConnection {
         group_id: Vec<u8>,
         from_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::message_disappear_from_ns.eq(from_ns))
                 .execute(conn)
@@ -488,7 +491,7 @@ impl DbConnection {
         group_id: Vec<u8>,
         in_ns: Option<i64>,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::message_disappear_in_ns.eq(in_ns))
                 .execute(conn)
@@ -499,7 +502,7 @@ impl DbConnection {
 
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
-        let stored_group = self.raw_query(|conn| {
+        let stored_group = self.raw_query_write(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
@@ -533,7 +536,7 @@ impl DbConnection {
 
     /// Get all the welcome ids turned into groups
     pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_read(|conn| {
             Ok::<_, StorageError>(
                 dsl::groups
                     .filter(dsl::welcome_id.is_not_null())
@@ -747,7 +750,7 @@ pub(crate) mod tests {
 
             test_group.store(conn).unwrap();
             assert_eq!(
-                conn.raw_query(|raw_conn| groups.first::<StoredGroup>(raw_conn))
+                conn.raw_query_read(|raw_conn| groups.first::<StoredGroup>(raw_conn))
                     .unwrap(),
                 test_group
             );
@@ -761,7 +764,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query(|raw_conn| {
+            conn.raw_query_write(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)
@@ -941,7 +944,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query(|raw_conn| {
+            conn.raw_query_write(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)

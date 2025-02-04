@@ -1072,7 +1072,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.store().conn().unwrap();
-        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
+        conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 
         let members = group.members().await.unwrap();
@@ -1424,6 +1424,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
         tracing::info!("Syncing bolas welcomes");
+
         // See if Bola can see that they were added to the group
         bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await

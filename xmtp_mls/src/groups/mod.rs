@@ -2243,7 +2243,7 @@ pub(crate) mod tests {
 
         // The dm shows up
         let alix_groups = alix_conn
-            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(alix_groups.len(), 2);
         // They should have the same ID
@@ -3814,7 +3814,7 @@ pub(crate) mod tests {
         let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
         let conn_2 = bo.store().conn().unwrap();
         conn_2
-            .raw_query(|c| {
+            .raw_query_write(|c| {
                 c.batch_execute("BEGIN EXCLUSIVE").unwrap();
                 Ok::<_, diesel::result::Error>(())
             })
@@ -3822,10 +3822,10 @@ pub(crate) mod tests {
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 2);
-            assert!(errors
-                .iter()
-                .any(|err| err.to_string().contains("database is locked")));
+            assert_eq!(errors.len(), 1);
+            assert!(errors.iter().any(|err| err
+                .to_string()
+                .contains("cannot start a transaction within a transaction")));
         } else {
             panic!("Expected error")
         }

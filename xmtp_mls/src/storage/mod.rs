@@ -11,13 +11,13 @@ pub use errors::*;
 impl DbConnection {
     #[allow(unused)]
     pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
         Ok(())
     }
 
     #[allow(unused)]
     pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
 }
@@ -72,12 +72,12 @@ pub mod test_util {
 
             for query in queries {
                 let query = diesel::sql_query(query);
-                let _ = self.raw_query(|conn| query.execute(conn)).unwrap();
+                let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
             }
         }
 
         pub fn intents_published(&self) -> i32 {
-            self.raw_query(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
@@ -93,7 +93,7 @@ pub mod test_util {
         }
 
         pub fn intents_deleted(&self) -> i32 {
-            self.raw_query(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
@@ -107,7 +107,7 @@ pub mod test_util {
         }
 
         pub fn intents_created(&self) -> i32 {
-            self.raw_query(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();

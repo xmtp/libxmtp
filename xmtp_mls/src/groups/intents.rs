@@ -63,10 +63,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        provider.transaction(|provider| {
+        let res = provider.transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
-        })
+        });
+
+        res
     }
 
     fn queue_intent_with_conn(
