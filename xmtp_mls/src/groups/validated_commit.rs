@@ -38,7 +38,7 @@ use super::{
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    GroupError, ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
 
@@ -227,7 +227,7 @@ impl MetadataFieldChange {
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
  * 7. New installations may be missing from the commit but still be present in the expected diff.
- * 8. Confirms metadata character limit is not exceeded 
+ * 8. Confirms metadata character limit is not exceeded
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
