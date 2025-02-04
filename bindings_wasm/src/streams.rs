@@ -1,3 +1,5 @@
+use crate::conversation::Conversation;
+use crate::messages::Message;
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
@@ -14,7 +16,10 @@ extern "C" {
 
   /// Js Fn to call on an item
   #[wasm_bindgen(structural, method)]
-  pub fn on_item(this: &StreamCallback, item: JsValue);
+  pub fn on_message(this: &StreamCallback, item: Message);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_conversation(this: &StreamCallback, item: Conversation);
 
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]

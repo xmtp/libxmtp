@@ -1,5 +1,10 @@
 # @xmtp/node-bindings
 
+## 0.0.37
+
+- Removed group pinned frame URL
+- Fixed DB locking issues
+
 ## 0.0.36
 
 - Fixed DM group metadata validation
