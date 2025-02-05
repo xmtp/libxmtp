@@ -600,7 +600,7 @@ where
                 *cursor as i64,
             )?;
             if !is_updated {
-                return Err(ProcessIntentError::AlreadyProcessed(*cursor as u64).into());
+                return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
             }
             let previous_epoch = mls_group.epoch().as_u64();
             self.process_external_message(
@@ -894,7 +894,7 @@ where
                                 .conn_ref()
                                 .update_cursor(&envelope.group_id, EntityKind::Group, cursor as i64)?;
                         if !is_updated {
-                            return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
+                            return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                         }
 
                         let intent_state = match maybe_validated_commit {
