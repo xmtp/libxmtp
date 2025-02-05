@@ -45,8 +45,7 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use crate::{
-    api::WrappedApiError,
-    client::{ClientError, XmtpMlsLocalContext},
+    client::{deserialize_welcome, ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,

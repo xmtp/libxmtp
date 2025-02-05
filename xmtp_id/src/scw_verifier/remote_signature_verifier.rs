@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use ethers::types::{BlockNumber, Bytes};
+use xmtp_api::ApiClientWrapper;
 
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpIdentityClient},
@@ -12,13 +13,13 @@ use xmtp_proto::{
     },
 };
 
-pub struct RemoteSignatureVerifier<C> {
-    identity_client: Arc<C>,
+pub struct RemoteSignatureVerifier<ApiClient> {
+    api: Arc<ApiClientWrapper<ApiClient>>,
 }
 
-impl<C> RemoteSignatureVerifier<C> {
-    pub fn new(identity_client: Arc<C>) -> Self {
-        Self { identity_client }
+impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
+    pub fn new(api: Arc<ApiClientWrapper<ApiClient>>) -> Self {
+        Self { api }
     }
 }
 
@@ -27,7 +28,6 @@ impl<C> RemoteSignatureVerifier<C> {
 impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
 where
     C: XmtpApi,
-    VerifierError: From<<C as XmtpIdentityClient>::Error>,
 {
     async fn is_valid_signature(
         &self,
@@ -39,7 +39,7 @@ where
         let block_number = block_number.and_then(|bn| bn.as_number()).map(|bn| bn.0[0]);
 
         let result = self
-            .identity_client
+            .api
             .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {
                 signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
                     account_id: account_id.into(),

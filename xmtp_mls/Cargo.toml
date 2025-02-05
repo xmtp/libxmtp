@@ -35,6 +35,7 @@ test-utils = [
   "dep:console_error_panic_hook",
   "xmtp_id/test-utils",
   "xmtp_proto/test-utils",
+  "xmtp_api/test-utils",
   "xmtp_api_http/test-utils",
   "xmtp_api_grpc/test-utils",
   "dep:const_format",
@@ -76,6 +77,7 @@ xmtp_common.workspace = true
 zeroize.workspace = true
 
 # XMTP/Local
+xmtp_api = { workspace = true }
 xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
@@ -127,7 +129,7 @@ openssl-sys.workspace = true
 tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
+xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
@@ -147,7 +149,7 @@ web-sys.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 const_format.workspace = true
-mockall = "0.13.1"
+mockall.workspace = true
 openmls_basic_credential.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
@@ -167,8 +169,8 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
-xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
+xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 console_error_panic_hook = { version = "0.1" }

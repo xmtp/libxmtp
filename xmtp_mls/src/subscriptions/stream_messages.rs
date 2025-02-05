@@ -7,7 +7,6 @@ use std::{
 
 use super::{Result, SubscribeError};
 use crate::{
-    api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
         group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
@@ -19,6 +18,7 @@ use crate::{
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_common::{retry_async, FutureWrapper, Retry};
+use xmtp_api::GroupFilter;
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},

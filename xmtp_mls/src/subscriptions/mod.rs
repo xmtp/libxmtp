@@ -185,14 +185,16 @@ pub enum SubscribeError {
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     Storage(#[from] StorageError),
-    #[error(transparent)]
-    Api(#[from] xmtp_proto::Error),
+    // #[error(transparent)]
+    // Api(#[from] xmtp_proto::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     MessageStream(#[from] stream_messages::MessageStreamError),
     #[error(transparent)]
     ConversationStream(#[from] stream_conversations::ConversationStreamError),
+    #[error(transparent)]
+    Api(#[from] xmtp_api::Error),
 }
 
 impl RetryableError for SubscribeError {
@@ -209,6 +211,7 @@ impl RetryableError for SubscribeError {
             NotFound(e) => retryable!(e),
             MessageStream(e) => retryable!(e),
             ConversationStream(e) => retryable!(e),
+            Api(e) => retryable!(e),
         }
     }
 }

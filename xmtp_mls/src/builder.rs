@@ -7,13 +7,13 @@ use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
 
 use crate::{
-    api::ApiClientWrapper,
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     storage::EncryptedMessageStore,
     StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::Retry;
 
 #[derive(Error, Debug)]
@@ -38,7 +38,7 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     Identity(#[from] crate::identity::IdentityError),
     #[error(transparent)]
-    WrappedApiError(#[from] crate::api::WrappedApiError),
+    WrappedApiError(#[from] xmtp_api::Error),
     #[error(transparent)]
     GroupError(#[from] crate::groups::GroupError),
     #[error(transparent)]
@@ -231,12 +231,13 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use std::sync::atomic::AtomicBool;
 
-    use crate::api::ApiClientWrapper;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
     use crate::{api::test_utils::*, identity::Identity, storage::identity::StoredIdentity, Store};
+    use xmtp_api::test_utils::*;
+    use xmtp_api::Error as WrappedApiError;
     use xmtp_common::{rand_vec, tmp_path, Retry};
 
     use openmls::credentials::{Credential, CredentialType};

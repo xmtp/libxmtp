@@ -28,7 +28,6 @@ use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::{
-    api::ApiClientWrapper,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
         group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
@@ -51,6 +50,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -75,7 +75,7 @@ pub enum ClientError {
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
-    Api(#[from] crate::api::WrappedApiError),
+    Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]

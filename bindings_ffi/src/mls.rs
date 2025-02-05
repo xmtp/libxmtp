@@ -6389,7 +6389,7 @@ mod tests {
 
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
         let client_b3 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),

@@ -4,7 +4,6 @@ use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::ProviderTransactions;
 use crate::{
-    api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
     Fetch, Store, XmtpApi,
@@ -27,6 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
+use xmtp_api::{ApiClientWrapper, Error as WrappedApiError};
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;

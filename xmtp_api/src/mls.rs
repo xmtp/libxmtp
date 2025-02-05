@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::ApiClientWrapper;
-use crate::XmtpApi;
+use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-use xmtp_proto::{ApiError, ErrorKind};
+use xmtp_proto::ApiError;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -72,7 +72,7 @@ where
         &self,
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
-    ) -> Result<Vec<GroupMessage>, ApiError> {
+    ) -> Result<Vec<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(&group_id),
             id_cursor,
@@ -96,7 +96,8 @@ where
                         })
                         .await
                 })
-            )?;
+            )
+            .map_err(ApiError::from)?;
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
 
@@ -119,7 +120,7 @@ where
     pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
         &self,
         group_id: Id,
-    ) -> Result<Option<GroupMessage>, ApiError> {
+    ) -> Result<Option<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(group_id),
             inbox_id = self.inbox_id,
@@ -139,7 +140,8 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(result.messages.into_iter().next())
     }
@@ -149,7 +151,7 @@ where
         &self,
         installation_id: Id,
         id_cursor: Option<u64>,
-    ) -> Result<Vec<WelcomeMessage>, ApiError> {
+    ) -> Result<Vec<WelcomeMessage>> {
         tracing::debug!(
             installation_id = hex::encode(installation_id),
             cursor = id_cursor,
@@ -174,7 +176,8 @@ where
                         })
                         .await
                 })
-            )?;
+            )
+            .map_err(ApiError::from)?;
 
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
@@ -203,7 +206,7 @@ where
         &self,
         key_package: Vec<u8>,
         is_inbox_id_credential: bool,
-    ) -> Result<(), ApiError> {
+    ) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "upload key packages");
         retry_async!(
             self.retry_strategy,
@@ -217,7 +220,8 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
@@ -226,7 +230,7 @@ where
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
-    ) -> Result<KeyPackageMap, ApiError> {
+    ) -> Result<KeyPackageMap> {
         tracing::debug!(inbox_id = self.inbox_id, "fetch key packages");
         let res = retry_async!(
             self.retry_strategy,
@@ -237,11 +241,14 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         if res.key_packages.len() != installation_keys.len() {
-            println!("mismatched number of results");
-            return Err(ApiError::new(ErrorKind::MlsError));
+            return Err(crate::Error::MismatchedKeyPackages {
+                key_packages: res.key_packages.len(),
+                installation_keys: installation_keys.len(),
+            });
         }
 
         let mapping: KeyPackageMap = res
@@ -260,10 +267,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_welcome_messages(
-        &self,
-        messages: &[WelcomeMessageInput],
-    ) -> Result<(), ApiError> {
+    pub async fn send_welcome_messages(&self, messages: &[WelcomeMessageInput]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
             self.retry_strategy,
@@ -274,16 +278,14 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_group_messages(
-        &self,
-        group_messages: Vec<GroupMessageInput>,
-    ) -> Result<(), ApiError> {
+    pub async fn send_group_messages(&self, group_messages: Vec<GroupMessageInput>) -> Result<()> {
         tracing::debug!(
             inbox_id = self.inbox_id,
             "sending [{}] group messages",
@@ -299,15 +301,16 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
 
-    pub(crate) async fn subscribe_group_messages(
+    pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -317,13 +320,15 @@ where
                 filters: filters.into_iter().map(|f| f.into()).collect(),
             })
             .await
+            .map_err(ApiError::from)
+            .map_err(crate::Error::from)
     }
 
-    pub(crate) async fn subscribe_welcome_messages(
+    pub async fn subscribe_welcome_messages(
         &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -339,6 +344,8 @@ where
                 }],
             })
             .await
+            .map_err(ApiError::from)
+            .map_err(crate::Error::from)
     }
 }
 
@@ -350,12 +357,10 @@ pub mod tests {
     use super::super::test_utils::*;
     use super::super::*;
 
-    use xmtp_proto::{
-        xmtp::mls::api::v1::{
-            fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
-            QueryGroupMessagesResponse,
-        },
-        Error, ErrorKind,
+    use crate::test_utils::MockError;
+    use xmtp_proto::xmtp::mls::api::v1::{
+        fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
+        QueryGroupMessagesResponse,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -539,11 +544,11 @@ pub mod tests {
         mock_api
             .expect_query_group_messages()
             .times(1)
-            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+            .returning(move |_| Err(MockError::MockQuery));
         mock_api
             .expect_query_group_messages()
             .times(1)
-            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+            .returning(move |_| Err(MockError::MockQuery));
         mock_api
             .expect_query_group_messages()
             .times(1)

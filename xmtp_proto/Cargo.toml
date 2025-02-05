@@ -5,7 +5,7 @@ name = "xmtp_proto"
 version.workspace = true
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
 futures = { workspace = true }
 hex.workspace = true
 openmls_rust_crypto = { workspace = true, optional = true }
@@ -89,4 +89,3 @@ proto_full = [
 ]
 "xmtp-xmtpv4-payer_api" = ["xmtp-xmtpv4-envelopes"]
 ## @@protoc_insertion_point(features)
-

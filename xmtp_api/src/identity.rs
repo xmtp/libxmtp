@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use super::{ApiClientWrapper, WrappedApiError};
-use crate::XmtpApi;
+use super::{ApiClientWrapper, Error};
+use crate::{Result, XmtpApi};
 use futures::future::try_join_all;
 use xmtp_id::{
     associations::{unverified::UnverifiedIdentityUpdate, DeserializationError},
@@ -14,6 +14,16 @@ use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
     GetInboxIdsRequest, PublishIdentityUpdateRequest,
 };
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
+use xmtp_proto::{
+    api_client::{trait_impls::XmtpApi, XmtpIdentityClient},
+    xmtp::identity::api::v1::{
+        VerifySmartContractWalletSignatureRequestSignature,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    },
+};
+
+use xmtp_proto::ApiError;
 
 const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
@@ -66,15 +76,13 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn publish_identity_update(
-        &self,
-        update: UnverifiedIdentityUpdate,
-    ) -> Result<(), WrappedApiError> {
+    pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
                 identity_update: Some(update.into()),
             })
-            .await?;
+            .await
+            .map_err(ApiError::from)?;
 
         Ok(())
     }
@@ -83,17 +91,18 @@ where
     pub async fn get_identity_updates_v2(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<InboxUpdateMap, WrappedApiError> {
+    ) -> Result<InboxUpdateMap> {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>, WrappedApiError> =
+        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>> =
             try_join_all(chunks.map(|chunk| async move {
                 let result = self
                     .api_client
                     .get_identity_updates_v2(GetIdentityUpdatesV2Request {
                         requests: chunk.iter().map(|filter| filter.into()).collect(),
                     })
-                    .await?;
+                    .await
+                    .map_err(ApiError::from)?;
 
                 Ok(result)
             }))
@@ -106,13 +115,13 @@ where
                     let deserialized_updates = item
                         .updates
                         .into_iter()
-                        .map(|update| update.try_into().map_err(WrappedApiError::from))
-                        .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+                        .map(|update| update.try_into().map_err(Error::from))
+                        .collect::<Result<Vec<InboxUpdate>>>()?;
 
                     Ok((item.inbox_id, deserialized_updates))
                 })
             })
-            .collect::<Result<InboxUpdateMap, WrappedApiError>>()?;
+            .collect::<Result<InboxUpdateMap>>()?;
 
         Ok(inbox_map)
     }
@@ -121,7 +130,7 @@ where
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<AddressToInboxIdMap, WrappedApiError> {
+    ) -> Result<AddressToInboxIdMap> {
         tracing::info!(
             "Getting inbox_ids for account addresses: {:?}",
             &account_addresses
@@ -134,13 +143,22 @@ where
                     .map(|address| GetInboxIdsRequestProto { address })
                     .collect(),
             })
-            .await?;
+            .await
+            .map_err(ApiError::from)?;
 
         Ok(result
             .responses
             .into_iter()
             .filter_map(|resp| Some((resp.address, resp.inbox_id?)))
             .collect())
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse> {
+        todo!()
     }
 }
 
@@ -151,7 +169,7 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::api::ApiClientWrapper;
+    use crate::ApiClientWrapper;
     use xmtp_common::{rand_hexstring, Retry};
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::api::v1::{

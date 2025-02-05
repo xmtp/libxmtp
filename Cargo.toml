@@ -9,6 +9,7 @@ members = [
   "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
+  "xmtp_api",
   "xmtp_id",
   "bindings_wasm",
   "bindings_node",
@@ -58,11 +59,12 @@ js-sys = "0.3"
 libsqlite3-sys = { version = "0.29", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
+mockall = "0.13"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 parking_lot = "0.12.3"
@@ -93,20 +95,23 @@ tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
 trait-variant = "0.1.2"
 url = "2.5.0"
-wasm-bindgen = { version = "=0.2.100", features = ["enable-interning"] }
+wasm-bindgen = "=0.2.100"
 wasm-bindgen-futures = "0.4.50"
 wasm-bindgen-test = "0.3.50"
 web-sys = "0.3"
 zeroize = "1.8"
 
 # Internal Crate Dependencies
+xmtp_api = { path = "xmtp_api" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
+xmtp_api_http = { path = "xmtp_api_http" }
 xmtp_common = { path = "common" }
 xmtp_content_types = { path = "xmtp_content_types" }
 xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_id = { path = "xmtp_id" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
+
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,

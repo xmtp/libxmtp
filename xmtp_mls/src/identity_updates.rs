@@ -23,12 +23,12 @@ use xmtp_id::{
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
-    api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
     Client, XmtpApi,
 };
+use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate};
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {

@@ -1,14 +1,14 @@
 [package]
 edition = "2021"
+license.workspace = true
 name = "xmtp_api_http"
 version.workspace = true
-license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
 bytes = "1.9"
 futures = { workspace = true, default-features = false }
 pin-project-lite = "0.2.15"
@@ -22,8 +22,8 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_common.workspace = true
 
 [dev-dependencies]
-xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

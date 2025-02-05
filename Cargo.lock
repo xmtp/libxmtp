@@ -239,6 +239,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df895a515f70646414f4b45c0b79082783b80552b373a68283012928df56f522"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "memchr",
+ "pin-project-lite",
+ "zstd 0.13.2",
+ "zstd-safe 7.2.1",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3871,7 +3885,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "fluvio-wasm-timer",
  "getrandom",
@@ -3886,7 +3900,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3899,7 +3913,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "log",
  "openmls_traits",
@@ -3911,7 +3925,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3935,7 +3949,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
 dependencies = [
  "serde",
  "tls_codec",
@@ -6059,6 +6073,7 @@ checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -7336,6 +7351,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "672423d4fea7ffa2f6c25ba60031ea13dc6258070556f125cc4d790007d4a155"
 
 [[package]]
+name = "xmtp_api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "hex",
+ "mockall",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp_common",
+ "xmtp_id",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_api_grpc"
 version = "0.1.0"
 dependencies = [
@@ -7516,6 +7548,8 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "async-compression",
+ "async-stream",
  "async-trait",
  "bincode",
  "bytes",
@@ -7530,6 +7564,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
+ "futures-util",
  "getrandom",
  "gloo-timers 0.3.0",
  "hex",
@@ -7559,6 +7594,7 @@ dependencies = [
  "tls_codec",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
@@ -7567,6 +7603,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
@@ -7817,7 +7854,7 @@ dependencies = [
  "pbkdf2 0.11.0",
  "sha1",
  "time",
- "zstd",
+ "zstd 0.11.2+zstd.1.5.2",
 ]
 
 [[package]]
@@ -7826,7 +7863,16 @@ version = "0.11.2+zstd.1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20cc960326ece64f010d2d2107537f26dc589a6573a316bd5b1dba685fa5fde4"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 5.0.2+zstd.1.5.2",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
+dependencies = [
+ "zstd-safe 7.2.1",
 ]
 
 [[package]]
@@ -7836,6 +7882,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d2a5585e04f9eea4b2a3d1eca508c4dee9592a89ef6f450c11719da0726f4db"
 dependencies = [
  "libc",
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
+dependencies = [
  "zstd-sys",
 ]
 

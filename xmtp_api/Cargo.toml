@@ -1,0 +1,37 @@
+[package]
+edition = "2021"
+license.workspace = true
+name = "xmtp_api"
+version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures = { workspace = true }
+hex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+xmtp_common.workspace = true
+xmtp_id.workspace = true
+xmtp_proto = { workspace = true, features = ["convert"] }
+
+[dev-dependencies]
+mockall.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
+wasm-bindgen-test.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+
+[features]
+default = []
+test-utils = [
+  "xmtp_common/test-utils",
+  "xmtp_proto/test-utils",
+  "xmtp_id/test-utils",
+]

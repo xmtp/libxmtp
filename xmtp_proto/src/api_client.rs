@@ -210,7 +210,7 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsClient {
-    type Error: crate::XmtpApiError;
+    type Error: crate::XmtpApiError + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
         -> Result<(), Self::Error>;
     async fn fetch_key_packages(
@@ -296,7 +296,7 @@ pub trait XmtpMlsStreams {
     type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send + 'a
     where
         Self: 'a;
-    type Error: crate::XmtpApiError;
+    type Error: crate::XmtpApiError + 'static;
 
     async fn subscribe_group_messages(
         &self,
@@ -311,14 +311,14 @@ pub trait XmtpMlsStreams {
 #[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Error>> + 'a
+    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Self::Error>> + 'a
     where
         Self: 'a;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Error>> + 'a
+    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Self::Error>> + 'a
     where
         Self: 'a;
-    type Error: crate::XmtpApiError;
+    type Error: crate::XmtpApiError + 'static;
 
     async fn subscribe_group_messages(
         &self,
@@ -366,7 +366,7 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpIdentityClient {
-    type Error: crate::XmtpApiError;
+    type Error: crate::XmtpApiError + 'static;
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
