@@ -602,6 +602,23 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         ScopedClient: Clone,
     {
+        // Check if this welcome was already processed. Return the existing group if so.
+        if provider
+            .conn_ref()
+            .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
+            >= welcome.id as i64
+        {
+            let group = provider
+                .conn_ref()
+                .find_group_by_welcome_id(welcome.id as i64)?
+                .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
+                    welcome.id as i64,
+                )))?;
+            let group = Self::new(client.clone(), group.id, group.created_at_ns);
+
+            return Ok(group);
+        };
+
         let mut decrypted_welcome = None;
         let result = provider.transaction(|provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
@@ -617,22 +634,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         };
 
         let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
-
-        // Check if this welcome was already processed. Return the existing group if so.
-        if provider
-            .conn_ref()
-            .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
-            >= welcome.id as i64
-        {
-            let group_id = staged_welcome.public_group().group_id().to_vec();
-            let group = provider
-                .conn_ref()
-                .find_group(&group_id)?
-                .ok_or(GroupError::NotFound(NotFound::GroupById(group_id)))?;
-            let group = Self::new(client.clone(), group.id, group.created_at_ns);
-
-            return Ok(group);
-        };
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.

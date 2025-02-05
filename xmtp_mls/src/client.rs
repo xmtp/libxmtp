@@ -25,7 +25,7 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::{mls_ext::DecryptedWelcome, ConversationListItem};
+use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
