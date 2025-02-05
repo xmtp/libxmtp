@@ -58,7 +58,7 @@ pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 }
 
 impl<ApiClient, V> Client<ApiClient, V> {
-    /// Ge tthe builder for this [`Client`]
+    /// Get the builder for this [`Client`]
     pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<ApiClient, V> {
         ClientBuilder::<ApiClient, V>::new(strategy)
     }
