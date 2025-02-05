@@ -220,6 +220,8 @@ where
         client.start_sync_worker();
     }
 
+    client.start_disappearing_messages_cleaner_worker();
+
     Ok(client)
 }
 
