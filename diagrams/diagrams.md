@@ -7,7 +7,7 @@ The diagrams represent the creation of a group chat between Alice, Bob, and Char
 Note: calls into LibXMTP with the `conversations.` prefix use the [Conversations](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L188) protocol, and calls with a `group.` prefix use the [Group](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L315) protocol.
 
 - _form-group.mermaid_ - Covers Steps 1-4 of forming a group. In LibXMTP, steps 1 and 2 happen at the same time, and steps 3 and 4 can also be consolidated by calling `newGroup()` with multiple participants.
-- _send-receive.mermaid_ - Covers sending and receiving messages to the newly formed group.
+- _send-receive.mermaid_ - Covers sending and receiving messages in the newly formed group.
 - _add-remove.mermaid_ - Covers adding and removing group members.
 - _sync-installations.mermaid_ - Covers how to find out if group members have added/removed an installation, and how to respond.
 
