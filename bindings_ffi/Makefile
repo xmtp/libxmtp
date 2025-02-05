@@ -72,11 +72,11 @@ framework: lipo
 	rm -rf LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-output LibXMTPSwiftFFI.xcframework
 
 # build uniffi bindings for swift
