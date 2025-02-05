@@ -72,11 +72,11 @@ framework: lipo
 	rm -rf LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_ios_sim/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-library build/lipo_macos/$(LIB) \
-		-headers build/swift/include/ \
+		-headers build/swift/include/libxmtp/ \
 		-output LibXMTPSwiftFFI.xcframework
 
 # build uniffi bindings for swift
@@ -89,9 +89,9 @@ swift: libxmtp-version
 		--out-dir build/swift \
 		--language swift
 	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
-	mkdir -p build/swift/include
-	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
-	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
+	mkdir -p build/swift/include/libxmtp
+	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/libxmtp/  # Move header
+	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/libxmtp/module.modulemap  # Move modulemap
 	cp libxmtp-version.txt build/swift/
 
 swiftlocal: libxmtpv3.a swift framework

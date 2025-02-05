@@ -395,6 +395,7 @@ where
     }
 
     /// process a message, returning the message from the database and the cursor of the message.
+    #[tracing::instrument(skip_all)]
     pub(crate) async fn process(self) -> Result<Option<(StoredGroupMessage, u64)>> {
         let group_message::V1 {
             // the cursor ID is the position in the monolithic backend topic
@@ -407,7 +408,7 @@ where
             inbox_id = self.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id,
-            "client inbox_id=[{}]  is about to process streamed envelope cursor_id=[{}]",
+            "[{}]  is about to process streamed envelope cursor_id=[{}]",
             self.inbox_id(),
             &cursor_id
         );
@@ -424,6 +425,11 @@ where
             .get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
 
         if let Some(msg) = new_message {
+            tracing::debug!(
+                "[{}] processed stream envelope [{}]",
+                self.inbox_id(),
+                &cursor_id
+            );
             Ok(Some((msg, *cursor_id)))
         } else {
             tracing::warn!(
@@ -446,20 +452,20 @@ where
                     &self.client,
                     self.msg.group_id.clone(),
                     &self.provider,
-                )
-                .inspect_err(|err| {
-                    tracing::error!("??? {err:?}");
-                })?;
+                )?;
+                let epoch = group.epoch(&self.provider).await?;
 
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,
-                    "current epoch for [{}] in process_stream_entry()",
+                    epoch = epoch,
+                    "epoch={} for [{}] in process_stream_entry()",
+                    epoch,
                     self.inbox_id(),
                 );
                 group
-                    .process_message(&self.provider, &self.msg, false, Some(self.msg.id as i64))
+                    .process_message(&self.provider, &self.msg, false)
                     .await
                     // NOTE: We want to make sure we retry an error in process_message
                     .map_err(SubscribeError::ReceiveGroup)
@@ -509,11 +515,14 @@ where
             self.msg.group_id.clone(),
             self.msg.created_ns as i64,
         );
+        let epoch = group.epoch(&self.provider).await.unwrap_or(0);
         tracing::debug!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
-            "attempting recovery sync"
+            epoch = epoch,
+            "attempting recovery sync epoch={}",
+            epoch
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
@@ -526,11 +535,13 @@ where
                 "recovery sync triggered by streamed message failed: {}", err
             );
         } else {
+            let epoch = group.epoch(&self.provider).await.unwrap_or(0);
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful"
+                "recovery sync triggered by streamed message successful. epoch = {}",
+                epoch
             )
         }
     }
