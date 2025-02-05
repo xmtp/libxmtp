@@ -19,19 +19,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Update rust toolchains
         run: rustup update
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: clippy-sarif,sarif-fmt
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             bindings_wasm
       - name: Run clippy and fail on warnings
-        run: cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps --message-format=json | clippy-sarif | tee results.sarif | sarif-fmt
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
+        run: cargo clippy --locked --manifest-path bindings_wasm/Cargo.toml --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings
       - name: Run format check
         run: cargo fmt --manifest-path bindings_wasm/Cargo.toml --check

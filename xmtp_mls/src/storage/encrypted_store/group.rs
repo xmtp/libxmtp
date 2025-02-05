@@ -356,7 +356,6 @@ impl DbConnection {
     }
 
     /// Return a single group that matches the given ID
-
     pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
