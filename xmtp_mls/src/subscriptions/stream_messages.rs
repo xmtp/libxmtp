@@ -454,6 +454,7 @@ where
                     &self.provider,
                 )?;
                 let epoch = group.epoch(&self.provider).await?;
+
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
