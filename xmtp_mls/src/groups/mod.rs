@@ -615,6 +615,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             added_by_inbox_id,
             staged_welcome,
         } = welcome_data.unwrap();
+        let _lock = MLS_COMMIT_LOCK
+            .get_lock_sync(staged_welcome.public_group().group_id().to_vec())
+            .unwrap();
         let cursor = Some(welcome.id as i64);
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified

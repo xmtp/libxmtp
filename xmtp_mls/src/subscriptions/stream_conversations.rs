@@ -377,8 +377,7 @@ where
             id,
             created_ns: _,
             ref installation_key,
-            ref data,
-            ref hpke_public_key,
+            ..   
         } = welcome;
         let id = *id as i64;
 
