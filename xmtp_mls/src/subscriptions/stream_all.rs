@@ -115,7 +115,10 @@ mod tests {
 
     use std::sync::Arc;
 
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{
+        assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions,
+        storage::group_message::MsgQueryArgs,
+    };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
@@ -408,5 +411,103 @@ mod tests {
 
         tracing::info!("Total Messages: {}", messages.len());
         assert_eq!(messages.len(), 5);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    async fn test_stream_all_messages_with_metadata_update() {
+        // Create test clients
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Start Bo's message stream
+        let stream = bo.stream_all_messages(None).await.unwrap();
+        futures::pin_mut!(stream);
+
+        // IF WE MOVE THIS LINE ABOVE THE STREAM, THE TEST PASSES
+        alix_group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Send first message
+        alix_group.send_message(b"hello1").await.unwrap();
+
+        // Update group name
+        alix_group
+            .update_group_name("new name".to_string())
+            .await
+            .unwrap();
+
+        // Send second message
+        alix_group.send_message(b"hello2").await.unwrap();
+
+        let mut messages = Vec::new();
+        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(20), async {
+            futures::pin_mut!(stream);
+            loop {
+                if messages.len() < 3 {
+                    if let Some(Ok(msg)) = stream.next().await {
+                        tracing::info!(
+                            message_id = hex::encode(&msg.id),
+                            sender_inbox_id = msg.sender_inbox_id,
+                            sender_installation_id = hex::encode(&msg.sender_installation_id),
+                            group_id = hex::encode(&msg.group_id),
+                            "GOT MESSAGE {}, text={}",
+                            messages.len(),
+                            String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
+                        );
+                        messages.push(msg)
+                    }
+                } else {
+                    break;
+                }
+            }
+        })
+        .await;
+
+        tracing::info!("Total Messages: {}", messages.len());
+        assert_eq!(messages.len(), 3);
+
+        // Get Bo's version of the group
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+
+        // Sync both groups
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Get Bo's messages and verify count
+        let bo_messages = bo_group
+            .find_messages(&MsgQueryArgs {
+                content_types: None,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(bo_messages.len(), 3); // 2 application messages + 1 metadata update
+
+        assert_eq!(bo_messages[0].decrypted_message_bytes, b"hello1".to_vec());
+        assert_eq!(bo_messages[2].decrypted_message_bytes, b"hello2".to_vec());
+
+        // THIS ASSERTION IS FAILING: Verify both groups are at the same epoch
+        let alix_epoch = alix_group
+            .epoch(&alix.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bo_epoch = bo_group.epoch(&bo.mls_provider().unwrap()).await.unwrap();
+        assert_eq!(alix_epoch, bo_epoch);
+
+        // Verify group name was updated for both clients
+        let alix_name = alix_group
+            .group_name(&alix.mls_provider().unwrap())
+            .unwrap();
+        let bo_name = bo_group.group_name(&bo.mls_provider().unwrap()).unwrap();
+        assert_eq!(alix_name, "new name");
+        // THIS ASSERTION IS FAILING ALSO
+        assert_eq!(bo_name, "new name");
     }
 }
