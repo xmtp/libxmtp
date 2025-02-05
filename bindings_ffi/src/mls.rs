@@ -1868,9 +1868,9 @@ impl FfiConversation {
         Ok(conversation_type.into())
     }
 
-    pub async fn epoch(&self) -> u64 {
-        let provider = self.inner.mls_provider().unwrap();
-        self.inner.epoch(&provider).await.unwrap()
+    pub async fn epoch(&self) -> Result<u64, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        Ok(self.inner.epoch(&provider).await?)
     }
 }
 
@@ -6534,7 +6534,10 @@ mod tests {
         assert_eq!(message_types[2], "text");
 
         // this assertion is failing even though bo_group has the group_updated msg in the DB (returned from find_messages() call)
-        assert_eq!(alix_group.epoch().await, bo_group.epoch().await);
+        assert_eq!(
+            alix_group.epoch().await.unwrap(),
+            bo_group.epoch().await.unwrap()
+        );
         assert_eq!(alix_group.group_name().unwrap(), "hello");
         // this assertion will also fail
         assert_eq!(bo_group.group_name().unwrap(), "hello");
