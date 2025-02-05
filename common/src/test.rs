@@ -14,41 +14,55 @@ pub use traced_test::TestWriter;
 
 use crate::time::Expired;
 
+mod logger;
 mod macros;
 
 static INIT: OnceLock<()> = OnceLock::new();
 
-/// A simple test logger that defaults to the INFO level
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub fn logger() {
-    use tracing_subscriber::{
-        fmt::{self, format},
-        layer::SubscriberExt,
-        util::SubscriberInitExt,
-        EnvFilter, Layer,
+use tracing_subscriber::{
+    fmt::{self, format},
+    registry::LookupSpan,
+    EnvFilter, Layer,
+};
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub fn logger_layer<S>() -> impl Layer<S>
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+{
+    let structured = std::env::var("STRUCTURED");
+    let contextual = std::env::var("CONTEXTUAL");
+
+    let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
+    let is_contextual = matches!(contextual, Ok(c) if c == "true" || c == "1");
+    let filter = || {
+        EnvFilter::builder()
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .from_env_lossy()
     };
 
-    INIT.get_or_init(|| {
-        let structured = std::env::var("STRUCTURED");
-        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
-
-        let filter = || {
-            EnvFilter::builder()
-                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-                .from_env_lossy()
-        };
-
-        let _ = tracing_subscriber::registry()
-            // structured JSON logger only if STRUCTURED=true
-            .with(is_structured.then(|| {
+    vec![
+        is_structured
+            .then(|| {
                 tracing_subscriber::fmt::layer()
                     .json()
                     .flatten_event(true)
                     .with_level(true)
                     .with_filter(filter())
-            }))
-            // default logger
-            .with((!is_structured).then(|| {
+            })
+            .boxed(),
+        is_contextual
+            .then(|| {
+                let processor =
+                    tracing_forest::printer::Printer::new().formatter(logger::Contextual);
+                tracing_forest::ForestLayer::new(processor, tracing_forest::tag::NoTag)
+                    .with_filter(filter())
+            })
+            .boxed(),
+        // default logger
+        (!is_structured && !is_contextual)
+            .then(|| {
                 fmt::layer()
                     .compact()
                     .fmt_fields({
@@ -60,7 +74,19 @@ pub fn logger() {
                         })
                     })
                     .with_filter(filter())
-            }))
+            })
+            .boxed(),
+    ]
+}
+
+/// A simple test logger that defaults to the INFO level
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub fn logger() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+    INIT.get_or_init(|| {
+        let _ = tracing_subscriber::registry()
+            .with(logger_layer())
             .try_init();
     });
 }

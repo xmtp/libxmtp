@@ -330,6 +330,7 @@ where
     C: ScopedGroupClient + Clone,
 {
     /// Process the welcome. if its a group, create the group and return it.
+    #[tracing::instrument(skip_all)]
     pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
         use WelcomeOrGroup::*;
         let (group, welcome_id) = match self.item {

@@ -147,8 +147,8 @@ impl NativeDb {
             .as_ref()
             .ok_or(StorageError::PoolNeedsConnection)?;
 
-        tracing::debug!(
-            "Pulling connection from pool, idle_connections={}, total_connections={}",
+        tracing::trace!(
+            "pulling connection from pool, idle={}, total={}",
             pool.state().idle_connections,
             pool.state().connections
         );
