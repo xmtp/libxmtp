@@ -599,42 +599,23 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         ScopedClient: Clone,
     {
-        let mut welcome_data = None;
-        provider.transaction(|provider| {
-            let decrypted = DecryptedWelcome::from_encrypted_bytes(
-                provider,
-                &welcome.hpke_public_key,
-                &welcome.data,
-            )
-            .unwrap();
-            welcome_data = Some(decrypted);
-            Err::<(), StorageError>(StorageError::IntentionalRollback)
-        });
+        let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
+            provider,
+            &welcome.hpke_public_key,
+            &welcome.data,
+        )?;
 
         let DecryptedWelcome {
             added_by_inbox_id,
             staged_welcome,
-        } = welcome_data.unwrap();
-        let _lock = MLS_COMMIT_LOCK
-            .get_lock_sync(staged_welcome.public_group().group_id().to_vec())
-            .unwrap();
-        let cursor = Some(welcome.id as i64);
+            ..
+        } = decrypted_welcome;
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
-            let decrypted = DecryptedWelcome::from_encrypted_bytes(
-                provider,
-                &welcome.hpke_public_key,
-                &welcome.data,
-            )
-            .unwrap();
-            let DecryptedWelcome {
-                added_by_inbox_id,
-                staged_welcome,
-            } = decrypted;
             let cursor = Some(welcome.id as i64);
 
             if let Some(cursor) = cursor {
