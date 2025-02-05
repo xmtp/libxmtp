@@ -221,6 +221,8 @@ pub enum GroupError {
     LockFailedToAcquire,
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    #[error("Welcome already processed")]
+    WelcomeAlreadyProcessed,
 }
 
 impl RetryableError for GroupError {
@@ -276,7 +278,8 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_)
-            | Self::TooManyCharacters { .. } => false,
+            | Self::TooManyCharacters { .. }
+            | Self::WelcomeAlreadyProcessed => false,
         }
     }
 }
@@ -599,6 +602,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         ScopedClient: Clone,
     {
+        if provider
+            .conn_ref()
+            .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
+            >= welcome.id as i64
+        {
+            return Err(GroupError::WelcomeAlreadyProcessed);
+        };
+
         let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
             provider,
             &welcome.hpke_public_key,

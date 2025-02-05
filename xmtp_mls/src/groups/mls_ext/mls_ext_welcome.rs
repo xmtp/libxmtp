@@ -13,7 +13,7 @@ use crate::{
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
-    pub(crate) group_guard: SemaphoreGuard,
+    // pub(crate) group_guard: SemaphoreGuard,
 }
 
 impl DecryptedWelcome {
@@ -44,13 +44,13 @@ impl DecryptedWelcome {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
 
-        let group_guard =
-            MLS_COMMIT_LOCK.get_lock_sync(staged_welcome.public_group().group_id().to_vec())?;
+        // let group_guard =
+        // MLS_COMMIT_LOCK.get_lock_sync(staged_welcome.public_group().group_id().to_vec())?;
 
         Ok(DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
-            group_guard,
+            // group_guard,
         })
     }
 }
