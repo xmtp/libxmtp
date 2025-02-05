@@ -1331,6 +1331,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(())
     }
 
+    /// Get the current epoch number of the group.
+    pub async fn epoch(&self, provider: &XmtpOpenMlsProvider) -> Result<u64, GroupError> {
+        self.load_mls_group_with_lock_async(provider, |mls_group| {
+            futures::future::ready(Ok(mls_group.epoch().as_u64()))
+        })
+        .await
+    }
+
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
@@ -4090,7 +4098,7 @@ pub(crate) mod tests {
         };
         let provider = client.mls_provider().unwrap();
         let process_result = group
-            .process_message(&provider, &first_message, false, None)
+            .process_message(&provider, &first_message, false)
             .await;
 
         assert_err!(

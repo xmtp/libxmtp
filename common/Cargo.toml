@@ -15,6 +15,7 @@ xmtp_cryptography.workspace = true
 once_cell = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
+tracing-forest = { version = "0.1", optional = true, features = ["chrono"] }
 tracing-subscriber = { workspace = true, features = [
   "fmt",
   "env-filter",
@@ -34,6 +35,7 @@ wasm-bindgen.workspace = true
 
 [dev-dependencies]
 thiserror.workspace = true
+tracing-forest = { version = "0.1", features = ["chrono"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
@@ -53,6 +55,7 @@ test-utils = [
   "dep:tracing-subscriber",
   "dep:tracing-wasm",
   "dep:console_error_panic_hook",
+  "dep:tracing-forest",
 ]
 bench = [
   "test-utils",

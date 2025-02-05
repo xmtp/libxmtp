@@ -46,47 +46,7 @@ mod other {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        use tracing_subscriber::{
-            fmt::{self, format},
-            EnvFilter, Layer,
-        };
-        let structured = std::env::var("STRUCTURED");
-        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
-
-        let filter = || {
-            EnvFilter::builder()
-                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-                .from_env_lossy()
-        };
-
-        vec![
-            // structured JSON logger
-            is_structured
-                .then(|| {
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .flatten_event(true)
-                        .with_level(true)
-                        .with_filter(filter())
-                })
-                .boxed(),
-            // default logger
-            (!is_structured)
-                .then(|| {
-                    fmt::layer()
-                        .compact()
-                        .fmt_fields({
-                            format::debug_fn(move |writer, field, value| {
-                                if field.name() == "message" {
-                                    write!(writer, "{:?}", value)?;
-                                }
-                                Ok(())
-                            })
-                        })
-                        .with_filter(filter())
-                })
-                .boxed(),
-        ]
+        xmtp_common::logger_layer()
     }
 }
 
