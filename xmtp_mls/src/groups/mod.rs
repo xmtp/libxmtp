@@ -602,42 +602,61 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     where
         ScopedClient: Clone,
     {
+        let mut decrypted_welcome = None;
+        let result = provider.transaction(|provider| {
+            let result = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            );
+            decrypted_welcome = Some(result);
+            Err(StorageError::IntentionalRollback)
+        });
+        let Err(StorageError::IntentionalRollback) = result else {
+            return Err(result?);
+        };
+
+        let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
+
+        // Check if this welcome was already processed. Return the existing group if so.
         if provider
             .conn_ref()
             .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
             >= welcome.id as i64
         {
-            return Err(GroupError::WelcomeAlreadyProcessed);
+            let group_id = staged_welcome.public_group().group_id().to_vec();
+            let group = provider
+                .conn_ref()
+                .find_group(&group_id)?
+                .ok_or(GroupError::NotFound(NotFound::GroupById(group_id)))?;
+            let group = Self::new(client.clone(), group.id, group.created_at_ns);
+
+            return Ok(group);
         };
-
-        let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
-            provider,
-            &welcome.hpke_public_key,
-            &welcome.data,
-        )?;
-
-        let DecryptedWelcome {
-            added_by_inbox_id,
-            staged_welcome,
-            ..
-        } = decrypted_welcome;
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
-            let cursor = Some(welcome.id as i64);
+            let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            )?;
+            let DecryptedWelcome {
+                staged_welcome,
+                added_by_inbox_id,
+                ..
+            } = decrypted_welcome;
 
-            if let Some(cursor) = cursor {
-                let is_updated = provider.conn_ref().update_cursor(
-                    client.context().installation_public_key(),
-                    EntityKind::Welcome,
-                    cursor,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
-                }
+            let is_updated = provider.conn_ref().update_cursor(
+                client.context().installation_public_key(),
+                EntityKind::Welcome,
+                welcome.id as i64,
+            )?;
+            if !is_updated {
+                return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
