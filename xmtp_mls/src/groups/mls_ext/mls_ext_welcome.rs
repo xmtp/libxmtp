@@ -29,6 +29,7 @@ impl DecryptedWelcome {
 
         let processed_welcome =
             ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+
         let psks = processed_welcome.psks();
         if !psks.is_empty() {
             tracing::error!("No PSK support for welcome");

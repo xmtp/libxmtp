@@ -394,22 +394,7 @@ where
 
         let group = retry_async!(
             Retry::default(),
-            (async {
-                let welcome_data = DecryptedWelcome::from_encrypted_bytes(
-                    provider,
-                    hpke_public_key.as_slice(),
-                    data,
-                )?;
-                MlsGroup::create_from_welcome(
-                    client,
-                    provider,
-                    welcome_data.staged_welcome,
-                    welcome_data.added_by_inbox_id,
-                    id,
-                    None,
-                )
-                .await
-            })
+            (async { MlsGroup::create_from_welcome(client, provider, welcome).await })
         );
 
         if let Err(e) = group {

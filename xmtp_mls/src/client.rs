@@ -869,20 +869,14 @@ where
     ) -> Result<MlsGroup<Self>, GroupError> {
         let cursor = welcome.id;
         let welcome_id = welcome.id;
+
         let welcome_data = DecryptedWelcome::from_encrypted_bytes(
             provider,
             welcome.hpke_public_key.as_slice(),
             &welcome.data,
         )?;
-        let result = MlsGroup::create_from_welcome(
-            self,
-            provider,
-            welcome_data.staged_welcome,
-            welcome_data.added_by_inbox_id,
-            welcome_id as i64,
-            Some(cursor as i64),
-        )
-        .await;
+
+        let result = MlsGroup::create_from_welcome(self, provider, welcome).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),

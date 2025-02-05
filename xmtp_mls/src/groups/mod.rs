@@ -15,6 +15,7 @@ pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
+use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -65,10 +66,13 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::ReactionV2,
-    plaintext_envelope::{Content, V1},
-    EncodedContent, PlaintextEnvelope,
+use xmtp_proto::xmtp::mls::{
+    api::v1::welcome_message,
+    message_contents::{
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+        EncodedContent, PlaintextEnvelope,
+    },
 };
 
 use crate::{
@@ -587,23 +591,49 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
-        staged_welcome: StagedWelcome,
-        added_by_inbox: String,
-        welcome_id: i64,
-        cursor: Option<i64>,
+        welcome: &welcome_message::V1,
     ) -> Result<Self, GroupError>
     where
         ScopedClient: Clone,
     {
+        let mut welcome_data = None;
+        provider.transaction(|provider| {
+            let decrypted = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            )
+            .unwrap();
+            welcome_data = Some(decrypted);
+            Err::<(), StorageError>(StorageError::IntentionalRollback)
+        });
+
+        let DecryptedWelcome {
+            added_by_inbox_id,
+            staged_welcome,
+        } = welcome_data.unwrap();
+        let cursor = Some(welcome.id as i64);
+
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
+            let decrypted = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            )
+            .unwrap();
+            let DecryptedWelcome {
+                added_by_inbox_id,
+                staged_welcome,
+            } = decrypted;
+            let cursor = Some(welcome.id as i64);
+
             if let Some(cursor) = cursor {
                 let is_updated = provider.conn_ref().update_cursor(
                     client.context().installation_public_key(),
@@ -626,19 +656,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Pending,
-                    added_by_inbox,
-                    welcome_id,
+                    added_by_inbox_id,
+                    welcome.id as i64,
                     conversation_type,
                     dm_members,
                 ),
                 ConversationType::Dm => {
-                    validate_dm_group(client, &mls_group, &added_by_inbox)?;
+                    validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
                     StoredGroup::new_from_welcome(
                         group_id.clone(),
                         now_ns(),
                         GroupMembershipState::Pending,
-                        added_by_inbox,
-                        welcome_id,
+                        added_by_inbox_id,
+                        welcome.id as i64,
                         conversation_type,
                         dm_members,
                     )
@@ -647,8 +677,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Allowed,
-                    added_by_inbox,
-                    welcome_id,
+                    added_by_inbox_id,
+                    welcome.id as i64,
                     conversation_type,
                     dm_members,
                 ),
@@ -1749,6 +1779,7 @@ async fn validate_initial_group_membership(
     }
 
     tracing::info!("Group membership validated");
+
     Ok(())
 }
 
