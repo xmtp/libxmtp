@@ -1,6 +1,6 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
-    groups::{mls_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
+    groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
     Client, XmtpOpenMlsProvider,
 };
@@ -377,7 +377,7 @@ where
             id,
             created_ns: _,
             ref installation_key,
-            ..   
+            ..
         } = welcome;
         let id = *id as i64;
 

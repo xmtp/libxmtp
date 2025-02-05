@@ -870,15 +870,6 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let cursor = welcome.id;
-        let welcome_id = welcome.id;
-
-        let welcome_data = DecryptedWelcome::from_encrypted_bytes(
-            provider,
-            welcome.hpke_public_key.as_slice(),
-            &welcome.data,
-        )?;
-
         let result = MlsGroup::create_from_welcome(self, provider, welcome).await;
 
         match result {
