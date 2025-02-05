@@ -273,6 +273,9 @@ where
         if self.history_sync_url.is_some() {
             self.start_sync_worker();
         }
+
+        self.start_disappearing_messages_cleaner_worker();
+
         Ok(())
     }
 }
