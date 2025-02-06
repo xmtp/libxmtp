@@ -122,7 +122,7 @@ pub struct MembershipDiffWithKeyPackages {
     pub failed_installations: Vec<Vec<u8>>,
 }
 
-impl<'a> MembershipDiffWithKeyPackages {
+impl MembershipDiffWithKeyPackages {
     pub fn new(
         new_installations: Vec<Installation>,
         new_key_packages: Vec<KeyPackage>,
