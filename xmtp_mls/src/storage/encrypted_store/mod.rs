@@ -357,7 +357,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError>;
+        E: From<diesel::result::Error> + From<StorageError> + std::error::Error;
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -381,7 +381,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError>,
+        E: From<diesel::result::Error> + From<StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 

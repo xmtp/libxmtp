@@ -25,7 +25,7 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::{mls_ext::DecryptedWelcome, ConversationListItem};
+use crate::groups::ConversationListItem;
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -273,6 +273,9 @@ where
         if self.history_sync_url.is_some() {
             self.start_sync_worker();
         }
+
+        self.start_disappearing_messages_cleaner_worker();
+
         Ok(())
     }
 }
@@ -867,22 +870,7 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let cursor = welcome.id;
-        let welcome_id = welcome.id;
-        let welcome_data = DecryptedWelcome::from_encrypted_bytes(
-            provider,
-            welcome.hpke_public_key.as_slice(),
-            &welcome.data,
-        )?;
-        let result = MlsGroup::create_from_welcome(
-            self,
-            provider,
-            welcome_data.staged_welcome,
-            welcome_data.added_by_inbox_id,
-            welcome_id as i64,
-            Some(cursor as i64),
-        )
-        .await;
+        let result = MlsGroup::create_from_welcome(self, provider, welcome).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),

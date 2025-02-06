@@ -141,7 +141,7 @@ where
         }
 
         if let Some(association_state) =
-            StoredAssociationState::read_from_cache(conn, inbox_id.to_string(), last_sequence_id)?
+            StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
         {
             return Ok(association_state);
         }

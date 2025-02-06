@@ -153,6 +153,7 @@ wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+fdlimit = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

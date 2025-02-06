@@ -1,6 +1,6 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
-    groups::{mls_ext::DecryptedWelcome, scoped_client::ScopedGroupClient, MlsGroup},
+    groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
     Client, XmtpOpenMlsProvider,
 };
@@ -330,6 +330,7 @@ where
     C: ScopedGroupClient + Clone,
 {
     /// Process the welcome. if its a group, create the group and return it.
+    #[tracing::instrument(skip_all)]
     pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
         use WelcomeOrGroup::*;
         let (group, welcome_id) = match self.item {
@@ -376,8 +377,7 @@ where
             id,
             created_ns: _,
             ref installation_key,
-            ref data,
-            ref hpke_public_key,
+            ..
         } = welcome;
         let id = *id as i64;
 
@@ -394,22 +394,7 @@ where
 
         let group = retry_async!(
             Retry::default(),
-            (async {
-                let welcome_data = DecryptedWelcome::from_encrypted_bytes(
-                    provider,
-                    hpke_public_key.as_slice(),
-                    data,
-                )?;
-                MlsGroup::create_from_welcome(
-                    client,
-                    provider,
-                    welcome_data.staged_welcome,
-                    welcome_data.added_by_inbox_id,
-                    id,
-                    None,
-                )
-                .await
-            })
+            (async { MlsGroup::create_from_welcome(client, provider, welcome).await })
         );
 
         if let Err(e) = group {

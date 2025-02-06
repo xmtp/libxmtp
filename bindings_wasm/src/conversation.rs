@@ -498,14 +498,7 @@ impl Conversation {
       self.inner_client.clone(),
       self.group_id.clone(),
       move |message| match message {
-        Ok(item) => {
-          let serialized = crate::to_value(&item);
-          if let Err(e) = serialized {
-            callback.on_error(JsError::from(e));
-          } else {
-            callback.on_item(serialized.expect("checked for err"))
-          }
-        }
+        Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
     );

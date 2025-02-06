@@ -15,6 +15,7 @@ pub mod validated_commit;
 
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
+use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -65,10 +66,13 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::ReactionV2,
-    plaintext_envelope::{Content, V1},
-    EncodedContent, PlaintextEnvelope,
+use xmtp_proto::xmtp::mls::{
+    api::v1::welcome_message,
+    message_contents::{
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+        EncodedContent, PlaintextEnvelope,
+    },
 };
 
 use crate::{
@@ -103,6 +107,10 @@ use xmtp_id::{InboxId, InboxIdRef};
 
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_common::retry::RetryableError;
+
+const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
+const MAX_GROUP_NAME_LENGTH: usize = 100;
+const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -211,6 +219,10 @@ pub enum GroupError {
     LockUnavailable,
     #[error("Failed to acquire semaphore lock")]
     LockFailedToAcquire,
+    #[error("Exceeded max characters for this field. Must be under: {length}")]
+    TooManyCharacters { length: usize },
+    #[error("Welcome already processed")]
+    WelcomeAlreadyProcessed,
 }
 
 impl RetryableError for GroupError {
@@ -265,7 +277,9 @@ impl RetryableError for GroupError {
             | Self::AddressValidation(_)
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
-            | Self::EncodeError(_) => false,
+            | Self::EncodeError(_)
+            | Self::TooManyCharacters { .. }
+            | Self::WelcomeAlreadyProcessed => false,
         }
     }
 }
@@ -580,32 +594,70 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
-
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
-        staged_welcome: StagedWelcome,
-        added_by_inbox: String,
-        welcome_id: i64,
-        cursor: Option<i64>,
+        welcome: &welcome_message::V1,
     ) -> Result<Self, GroupError>
     where
         ScopedClient: Clone,
     {
+        // Check if this welcome was already processed. Return the existing group if so.
+        if provider
+            .conn_ref()
+            .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
+            >= welcome.id as i64
+        {
+            let group = provider
+                .conn_ref()
+                .find_group_by_welcome_id(welcome.id as i64)?
+                .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
+                    welcome.id as i64,
+                )))?;
+            let group = Self::new(client.clone(), group.id, group.created_at_ns);
+
+            return Ok(group);
+        };
+
+        let mut decrypted_welcome = None;
+        let result = provider.transaction(|provider| {
+            let result = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            );
+            decrypted_welcome = Some(result);
+            Err(StorageError::IntentionalRollback)
+        });
+        let Err(StorageError::IntentionalRollback) = result else {
+            return Err(result?);
+        };
+
+        let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
+
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
-            if let Some(cursor) = cursor {
-                let is_updated = provider.conn_ref().update_cursor(
-                    client.context().installation_public_key(),
-                    EntityKind::Welcome,
-                    cursor,
-                )?;
-                if !is_updated {
-                    return Err(ProcessIntentError::AlreadyProcessed(cursor as u64).into());
-                }
+            let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+            )?;
+            let DecryptedWelcome {
+                staged_welcome,
+                added_by_inbox_id,
+                ..
+            } = decrypted_welcome;
+
+            let is_updated = provider.conn_ref().update_cursor(
+                client.context().installation_public_key(),
+                EntityKind::Welcome,
+                welcome.id as i64,
+            )?;
+            if !is_updated {
+                return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
@@ -619,19 +671,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Pending,
-                    added_by_inbox,
-                    welcome_id,
+                    added_by_inbox_id,
+                    welcome.id as i64,
                     conversation_type,
                     dm_members,
                 ),
                 ConversationType::Dm => {
-                    validate_dm_group(client, &mls_group, &added_by_inbox)?;
+                    validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
                     StoredGroup::new_from_welcome(
                         group_id.clone(),
                         now_ns(),
                         GroupMembershipState::Pending,
-                        added_by_inbox,
-                        welcome_id,
+                        added_by_inbox_id,
+                        welcome.id as i64,
                         conversation_type,
                         dm_members,
                     )
@@ -640,8 +692,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Allowed,
-                    added_by_inbox,
-                    welcome_id,
+                    added_by_inbox_id,
+                    welcome.id as i64,
                     conversation_type,
                     dm_members,
                 ),
@@ -988,6 +1040,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        if group_name.len() > MAX_GROUP_NAME_LENGTH {
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_NAME_LENGTH,
+            });
+        }
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1047,6 +1104,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_DESCRIPTION_LENGTH,
+            });
+        }
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1076,6 +1139,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
+            return Err(GroupError::TooManyCharacters {
+                length: MAX_GROUP_IMAGE_URL_LENGTH,
+            });
+        }
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1305,6 +1374,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
 
         Ok(())
+    }
+
+    /// Get the current epoch number of the group.
+    pub async fn epoch(&self, provider: &XmtpOpenMlsProvider) -> Result<u64, GroupError> {
+        self.load_mls_group_with_lock_async(provider, |mls_group| {
+            futures::future::ready(Ok(mls_group.epoch().as_u64()))
+        })
+        .await
     }
 
     /// Update this installation's leaf key in the group by creating a key update commit
@@ -1717,6 +1794,7 @@ async fn validate_initial_group_membership(
     }
 
     tracing::info!("Group membership validated");
+
     Ok(())
 }
 
@@ -1822,6 +1900,9 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+    use crate::groups::{
+        MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    };
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
@@ -4063,7 +4144,7 @@ pub(crate) mod tests {
         };
         let provider = client.mls_provider().unwrap();
         let process_result = group
-            .process_message(&provider, &first_message, false, None)
+            .process_message(&provider, &first_message, false)
             .await;
 
         assert_err!(
@@ -4308,5 +4389,89 @@ pub(crate) mod tests {
             ),
             Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
         ));
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_respects_character_limits_for_group_metadata() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
+        let amal_group = amal
+            .create_group(policy_set, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let overlong_name = "a".repeat(MAX_GROUP_NAME_LENGTH + 1);
+        let overlong_description = "b".repeat(MAX_GROUP_DESCRIPTION_LENGTH + 1);
+        let overlong_image_url =
+            "http://example.com/".to_string() + &"c".repeat(MAX_GROUP_IMAGE_URL_LENGTH);
+
+        // Verify that updating the name with an excessive length fails
+        let result = amal_group.update_group_name(overlong_name).await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_NAME_LENGTH)
+        );
+
+        // Verify that updating the description with an excessive length fails
+        let result = amal_group
+            .update_group_description(overlong_description)
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_DESCRIPTION_LENGTH)
+        );
+
+        // Verify that updating the image URL with an excessive length fails
+        let result = amal_group
+            .update_group_image_url_square(overlong_image_url)
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::TooManyCharacters { length }) if length == MAX_GROUP_IMAGE_URL_LENGTH)
+        );
+
+        // Verify updates with valid lengths are successful
+        let valid_name = "Valid Group Name".to_string();
+        let valid_description = "Valid group description within limit.".to_string();
+        let valid_image_url = "http://example.com/image.png".to_string();
+
+        amal_group
+            .update_group_name(valid_name.clone())
+            .await
+            .unwrap();
+        amal_group
+            .update_group_description(valid_description.clone())
+            .await
+            .unwrap();
+        amal_group
+            .update_group_image_url_square(valid_image_url.clone())
+            .await
+            .unwrap();
+
+        // Sync and verify stored values
+        amal_group.sync().await.unwrap();
+
+        let provider = amal_group.mls_provider().unwrap();
+        let metadata = amal_group.mutable_metadata(&provider).unwrap();
+
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap(),
+            &valid_name
+        );
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::Description.to_string())
+                .unwrap(),
+            &valid_description
+        );
+        assert_eq!(
+            metadata
+                .attributes
+                .get(&MetadataField::GroupImageUrlSquare.to_string())
+                .unwrap(),
+            &valid_image_url
+        );
     }
 }
