@@ -107,6 +107,8 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
+use crate::groups::intents::UpdateGroupMembershipResult;
+
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
@@ -934,8 +936,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If any existing members have new installations that have not been added or removed, the
     /// group membership will be updated to include those changes as well.
+    /// # Returns
+    /// - `Ok(UpdateGroupMembershipResult)`: Contains details about the membership changes, including:
+    ///   - `added_members`: list of added installations
+    ///   - `removed_members`: A list of installations that were removed.
+    ///   - `members_with_errors`: A list of members that encountered errors during the update.
+    /// - `Err(GroupError)`: If the operation fails due to an error.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(&self, account_addresses_to_add: &[String]) -> Result<(), GroupError> {
+    pub async fn add_members(
+        &self,
+        account_addresses_to_add: &[String],
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client
@@ -969,7 +980,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members_by_inbox_id<S: AsRef<str>>(
         &self,
         inbox_ids: &[S],
-    ) -> Result<(), GroupError> {
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let provider = self.client.mls_provider()?;
         self.add_members_by_inbox_id_with_provider(&provider, inbox_ids)
             .await
@@ -980,7 +991,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
-    ) -> Result<(), GroupError> {
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
@@ -989,9 +1000,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // TODO:nm this isn't the best test for whether the request is valid
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
+        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
+
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return Ok(());
+            return ok_result;
         }
 
         let intent = self.queue_intent(
@@ -1000,7 +1013,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data.into(),
         )?;
 
-        self.sync_until_intent_resolved(provider, intent.id).await
+        match self.sync_until_intent_resolved(provider, intent.id).await {
+            Ok(_) => ok_result,
+            Err(error) => Err(error),
+        }
     }
 
     /// Removes members from the group by their account addresses.
@@ -2639,17 +2655,21 @@ pub(crate) mod tests {
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
+        let bola_wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+        let charlie = ClientBuilder::new_test_client(&bola_wallet).await;
+        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&[bola.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id(), charlie.inbox_id(), dave.inbox_id()])
             .await
             .unwrap();
 
+        assert_eq!(group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();

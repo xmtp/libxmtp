@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-
 use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
 };
 use prost::{bytes::Bytes, DecodeError, Message};
+use std::collections::HashMap;
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
@@ -286,22 +285,59 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct UpdateGroupMembershipResult {
+    pub added_members: HashMap<String, u64>,
+    pub removed_members: Vec<String>,
+    pub members_with_errors: Vec<String>,
+}
+
+impl UpdateGroupMembershipResult {
+    pub fn new(
+        added_members: HashMap<String, u64>,
+        removed_members: Vec<String>,
+        members_with_errors: Vec<String>,
+    ) -> Self {
+        Self {
+            added_members,
+            removed_members,
+            members_with_errors,
+        }
+    }
+}
+
+impl From<UpdateGroupMembershipIntentData> for UpdateGroupMembershipResult {
+    fn from(value: UpdateGroupMembershipIntentData) -> Self {
+        UpdateGroupMembershipResult::new(
+            value.membership_updates,
+            value.removed_members,
+            value.members_with_errors,
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
+    pub members_with_errors: Vec<String>,
 }
 
 impl UpdateGroupMembershipIntentData {
-    pub fn new(membership_updates: HashMap<String, u64>, removed_members: Vec<String>) -> Self {
+    pub fn new(
+        membership_updates: HashMap<String, u64>,
+        removed_members: Vec<String>,
+        members_with_errors: Vec<String>,
+    ) -> Self {
         Self {
             membership_updates,
             removed_members,
+            members_with_errors,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.membership_updates.is_empty() && self.removed_members.is_empty()
+        self.membership_updates.is_empty() && self.removed_members.is_empty() && self.members_with_errors.is_empty()
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
@@ -344,7 +380,11 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data.as_slice())?
         {
-            Ok(Self::new(v1.membership_updates, v1.removed_members))
+            Ok(Self::new(
+                v1.membership_updates,
+                v1.removed_members,
+                Vec::new(), // we don't need to store the members_with_errors and restoring them from the db
+            ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
         }
@@ -359,7 +399,11 @@ impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
         } = UpdateGroupMembershipData::decode(data.as_slice())?
         {
-            Ok(Self::new(v1.membership_updates, v1.removed_members))
+            Ok(Self::new(
+                v1.membership_updates,
+                v1.removed_members,
+                Vec::new(), // we don't need to store the members_with_errors and restoring them from the db
+            ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
         }
@@ -763,8 +807,11 @@ pub(crate) mod tests {
         let mut membership_updates = HashMap::new();
         membership_updates.insert("foo".to_string(), 123);
 
-        let intent =
-            UpdateGroupMembershipIntentData::new(membership_updates, vec!["bar".to_string()]);
+        let intent = UpdateGroupMembershipIntentData::new(
+            membership_updates,
+            vec!["bar".to_string()],
+            Vec::new(),
+        );
 
         let as_bytes: Vec<u8> = intent.clone().into();
         let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
