@@ -36,21 +36,6 @@ mod ios {
     }
 }
 
-#[cfg(test)]
-pub use test_logger::*;
-
-#[cfg(test)]
-mod test_logger {
-    use super::*;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        xmtp_common::logger_layer()
-    }
-}
-
 // production logger for anything not ios/android mobile
 #[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 pub use other::*;
@@ -89,4 +74,19 @@ pub fn init_logger() {
         let native_layer = native_layer();
         let _ = tracing_subscriber::registry().with(native_layer).try_init();
     });
+}
+
+#[cfg(test)]
+pub use test_logger::*;
+
+#[cfg(test)]
+mod test_logger {
+    use super::*;
+
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        xmtp_common::logger_layer()
+    }
 }
