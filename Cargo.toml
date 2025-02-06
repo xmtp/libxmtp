@@ -70,7 +70,7 @@ pbjson = "0.7.0"
 pbjson-types = "0.7.0"
 prost = "^0.13"
 prost-types = "^0.13"
-rand = "0.8.5"
+rand = "0.9.0"
 regex = "1.10.4"
 rustc-hex = "2.1.0"
 serde = { version = "1.0", default-features = false }
@@ -81,10 +81,10 @@ sqlite-web = "0.0.1"
 thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.43.0", default-features = false }
-uuid = "1.12"
+uuid = "1.13"
 vergen-git2 = "1.0.2"
 web-time = "1.1"
-bytes = "1.9"
+bytes = "1.10"
 pin-project-lite = "0.2"
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
 tonic = { version = "0.12", default-features = false }
