@@ -106,10 +106,9 @@ impl AuthenticatedData {
     pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
             //TODO(mkysel) originator is hardcoded for now, but will have to become configurable
-            target_originator: Some(100),
+            target_originator: 100,
             target_topic: topic,
             depends_on: None,
-            is_commit: false,
         }
     }
 }
