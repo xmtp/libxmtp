@@ -22,6 +22,7 @@ use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, Back
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::HmacKey;
 use xmtp_mls::storage::group::ConversationType;
@@ -1418,6 +1419,37 @@ impl FfiConversationListItem {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiUpdateGroupMembershipResult {
+    added_members: HashMap<String, u64>,
+    removed_members: Vec<String>,
+    members_with_errors: Vec<String>,
+}
+
+impl FfiUpdateGroupMembershipResult {
+    fn new(
+        added_members: HashMap<String, u64>,
+        removed_members: Vec<String>,
+        members_with_errors: Vec<String>,
+    ) -> Self {
+        FfiUpdateGroupMembershipResult {
+            added_members,
+            removed_members,
+            members_with_errors,
+        }
+    }
+}
+
+impl From<UpdateGroupMembershipResult> for FfiUpdateGroupMembershipResult {
+    fn from(value: UpdateGroupMembershipResult) -> Self {
+        FfiUpdateGroupMembershipResult::new(
+            value.added_members,
+            value.removed_members,
+            value.members_with_errors,
+        )
+    }
+}
+
 /// Settings for disappearing messages in a conversation.
 ///
 /// # Fields
@@ -1748,23 +1780,29 @@ impl FfiConversation {
         Ok(members)
     }
 
-    pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
+    pub async fn add_members(
+        &self,
+        account_addresses: Vec<String>,
+    ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
         log::info!("adding members: {}", account_addresses.join(","));
 
-        self.inner.add_members(&account_addresses).await?;
-
-        Ok(())
+        self.inner
+            .add_members(&account_addresses)
+            .await
+            .map(FfiUpdateGroupMembershipResult::from)
+            .map_err(Into::into)
     }
 
     pub async fn add_members_by_inbox_id(
         &self,
         inbox_ids: Vec<String>,
-    ) -> Result<(), GenericError> {
-        log::info!("adding members by inbox id: {}", inbox_ids.join(","));
+    ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
+        log::info!("Adding members by inbox ID: {}", inbox_ids.join(", "));
 
         self.inner
             .add_members_by_inbox_id(&inbox_ids)
             .await
+            .map(FfiUpdateGroupMembershipResult::from)
             .map_err(Into::into)
     }
 
