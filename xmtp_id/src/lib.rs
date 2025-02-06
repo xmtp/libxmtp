@@ -39,6 +39,32 @@ pub type InboxId = String;
 
 pub type WalletAddress = String;
 
+use crate::associations::{unverified::UnverifiedIdentityUpdate, DeserializationError};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
+
+#[derive(Clone)]
+pub struct InboxUpdate {
+    pub sequence_id: u64,
+    pub server_timestamp_ns: u64,
+    pub update: UnverifiedIdentityUpdate,
+}
+
+impl TryFrom<IdentityUpdateLog> for InboxUpdate {
+    type Error = DeserializationError;
+
+    fn try_from(update: IdentityUpdateLog) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sequence_id: update.sequence_id,
+            server_timestamp_ns: update.server_timestamp_ns,
+            update: update
+                .update
+                .ok_or(DeserializationError::MissingUpdate)?
+                // TODO: Figure out what to do with requests that don't deserialize correctly. Maybe we want to just filter them out?,
+                .try_into()?,
+        })
+    }
+}
+
 pub trait AsIdRef: Send + Sync {
     fn as_ref(&'_ self) -> InboxIdRef<'_>;
 }

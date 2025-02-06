@@ -111,7 +111,7 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Self::Error>> +
 }
 
 pub trait ClientWithMetadata {
-    type Error;
+    type Error: crate::XmtpApiError + 'static;
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
 }

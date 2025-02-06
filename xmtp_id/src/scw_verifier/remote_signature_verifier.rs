@@ -6,7 +6,7 @@ use ethers::types::{BlockNumber, Bytes};
 use xmtp_api::ApiClientWrapper;
 
 use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpIdentityClient},
+    api_client::trait_impls::XmtpApi,
     xmtp::identity::api::v1::{
         VerifySmartContractWalletSignatureRequestSignature,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
@@ -18,8 +18,8 @@ pub struct RemoteSignatureVerifier<ApiClient> {
 }
 
 impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
-    pub fn new(api: Arc<ApiClientWrapper<ApiClient>>) -> Self {
-        Self { api }
+    pub fn new(api: ApiClientWrapper<ApiClient>) -> Self {
+        Self { api: Arc::new(api) }
     }
 }
 
@@ -66,7 +66,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            identity_client: self.identity_client.clone(),
+            api: self.api.clone(),
         }
     }
 }

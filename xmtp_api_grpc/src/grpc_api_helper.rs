@@ -116,14 +116,14 @@ impl Client {
 }
 
 impl ClientWithMetadata for Client {
-    type Error = crate::GrpcError;
+    type Error = crate::Error;
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version)?;
+        self.libxmtp_version = MetadataValue::try_from(&version).map_err(crate::GrpcError::from)?;
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.app_version = MetadataValue::try_from(&version)?;
+        self.app_version = MetadataValue::try_from(&version).map_err(crate::GrpcError::from)?;
         Ok(())
     }
 }

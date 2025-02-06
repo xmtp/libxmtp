@@ -8,7 +8,6 @@ pub mod test_utils;
 use std::sync::Arc;
 
 use xmtp_common::{Retry, RetryableError};
-use xmtp_id::{associations::DeserializationError as AssociationDeserializationError, InboxId};
 pub use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::ApiError;
 
@@ -21,8 +20,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("API client error: {0}")]
     Api(#[from] ApiError),
-    #[error("Deserialization error {0}")]
-    AssociationDeserialization(#[from] AssociationDeserializationError),
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,
@@ -45,7 +42,7 @@ pub struct ApiClientWrapper<ApiClient> {
     // todo: this should be private to impl
     pub api_client: Arc<ApiClient>,
     pub(crate) retry_strategy: Retry,
-    pub(crate) inbox_id: Option<InboxId>,
+    pub(crate) inbox_id: Option<String>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
@@ -62,7 +59,7 @@ where
 
     /// Attach an InboxId to this API Client Wrapper.
     /// Attaches an inbox_id context to tracing logs, useful for debugging
-    pub fn attach_inbox_id(&mut self, inbox_id: Option<InboxId>) {
+    pub fn attach_inbox_id(&mut self, inbox_id: Option<String>) {
         self.inbox_id = inbox_id;
     }
 }

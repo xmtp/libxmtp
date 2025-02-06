@@ -35,6 +35,15 @@ impl Error {
     }
 }
 
+impl From<GrpcError> for Error {
+    fn from(e: GrpcError) -> Error {
+        Error {
+            endpoint: None,
+            source: e,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum GrpcError {
     #[error("Invalid URI during channel creation")]

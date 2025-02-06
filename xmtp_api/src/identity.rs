@@ -3,10 +3,6 @@ use std::collections::HashMap;
 use super::{ApiClientWrapper, Error};
 use crate::{Result, XmtpApi};
 use futures::future::try_join_all;
-use xmtp_id::{
-    associations::{unverified::UnverifiedIdentityUpdate, DeserializationError},
-    InboxId,
-};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
@@ -14,14 +10,10 @@ use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
     GetInboxIdsRequest, PublishIdentityUpdateRequest,
 };
-use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
-use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpIdentityClient},
-    xmtp::identity::api::v1::{
-        VerifySmartContractWalletSignatureRequestSignature,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-    },
+use xmtp_proto::xmtp::identity::api::v1::{
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 use xmtp_proto::ApiError;
 
@@ -30,7 +22,7 @@ const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 #[derive(Debug)]
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
-    pub inbox_id: InboxId,
+    pub inbox_id: String,
     pub sequence_id: Option<u64>,
 }
 
@@ -43,34 +35,11 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
     }
 }
 
-#[derive(Clone)]
-pub struct InboxUpdate {
-    pub sequence_id: u64,
-    pub server_timestamp_ns: u64,
-    pub update: UnverifiedIdentityUpdate,
-}
-
-impl TryFrom<IdentityUpdateLog> for InboxUpdate {
-    type Error = DeserializationError;
-
-    fn try_from(update: IdentityUpdateLog) -> Result<Self, Self::Error> {
-        Ok(Self {
-            sequence_id: update.sequence_id,
-            server_timestamp_ns: update.server_timestamp_ns,
-            update: update
-                .update
-                .ok_or(DeserializationError::MissingUpdate)?
-                // TODO: Figure out what to do with requests that don't deserialize correctly. Maybe we want to just filter them out?,
-                .try_into()?,
-        })
-    }
-}
-
 /// A mapping of `inbox_id` -> Vec<InboxUpdate>
-type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
+// type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, InboxId>;
+type AddressToInboxIdMap = HashMap<String, String>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
@@ -88,10 +57,14 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn get_identity_updates_v2(
+    pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<InboxUpdateMap> {
+    ) -> Result<impl Iterator<Item = Result<(String, Vec<T>)>>>
+    where
+        T: TryFrom<IdentityUpdateLog>,
+        Error: From<<T as TryFrom<IdentityUpdateLog>>::Error>,
+    {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
         let chunked_results: Result<Vec<GetIdentityUpdatesResponse>> =
@@ -108,22 +81,17 @@ where
             }))
             .await;
 
-        let inbox_map = chunked_results?
-            .into_iter()
-            .flat_map(|response| {
-                response.responses.into_iter().map(|item| {
-                    let deserialized_updates = item
-                        .updates
-                        .into_iter()
-                        .map(|update| update.try_into().map_err(Error::from))
-                        .collect::<Result<Vec<InboxUpdate>>>()?;
+        Ok(chunked_results?.into_iter().flat_map(|response| {
+            response.responses.into_iter().map(|item| {
+                let deserialized_updates = item
+                    .updates
+                    .into_iter()
+                    .map(|update| update.try_into().map_err(Error::from))
+                    .collect::<Result<Vec<T>>>()?;
 
-                    Ok((item.inbox_id, deserialized_updates))
-                })
+                Ok((item.inbox_id, deserialized_updates))
             })
-            .collect::<Result<InboxUpdateMap>>()?;
-
-        Ok(inbox_map)
+        }))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -158,7 +126,11 @@ where
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse> {
-        todo!()
+        self.api_client
+            .verify_smart_contract_wallet_signatures(request)
+            .await
+            .map_err(ApiError::from)
+            .map_err(Error::from)
     }
 }
 

@@ -28,7 +28,8 @@ use crate::{
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
     Client, XmtpApi,
 };
-use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate};
+use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
+use xmtp_id::InboxUpdate;
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {

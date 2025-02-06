@@ -11,7 +11,6 @@ hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
-xmtp_id.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 [dev-dependencies]

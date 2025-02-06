@@ -44,6 +44,8 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     ApiError(#[from] xmtp_proto::Error),
     #[error(transparent)]
+    Api(#[from] xmtp_proto::ApiError),
+    #[error(transparent)]
     DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
 }
 
@@ -123,7 +125,7 @@ where
 
 impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
 where
-    ApiClient: XmtpApi + 'static + Send + Sync,
+    ApiClient: XmtpApi + 'static + Send + Sync + Clone,
 {
     /// Build with the default [`RemoteSignatureVerifier`]
     #[tracing::instrument(level = "trace", skip_all)]
@@ -136,7 +138,7 @@ where
 
 fn inner_build_api_client<ApiClient, V>(
     mut builder: ClientBuilder<ApiClient, V>,
-) -> Result<(ClientBuilder<ApiClient, V>, Arc<ApiClient>), ClientBuilderError>
+) -> Result<(ClientBuilder<ApiClient, V>, ApiClientWrapper<ApiClient>), ClientBuilderError>
 where
     ApiClient: XmtpApi,
 {
@@ -152,18 +154,20 @@ where
             parameter: "api_client",
         })?;
 
-    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())?;
+    api_client
+        .set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())
+        .map_err(xmtp_proto::ApiError::from)?;
     if let Some(app_version) = app_version {
         api_client.set_app_version(app_version.to_string())?;
     }
-
-    Ok((builder, Arc::new(api_client)))
+    let api = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+    Ok((builder, api))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn inner_build<C, V>(
     client: ClientBuilder<C, V>,
-    api_client: Arc<C>,
+    api_client: ApiClientWrapper<C>,
 ) -> Result<Client<C, V>, ClientBuilderError>
 where
     C: XmtpApi + 'static + Send + Sync,
@@ -185,14 +189,13 @@ where
             parameter: "scw_verifier",
         })?;
 
-    let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
     let store = store
         .take()
         .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
     let conn = store.conn()?;
     let provider = XmtpOpenMlsProvider::new(conn);
     let identity = identity_strategy
-        .initialize_identity(&api_client_wrapper, &provider, &scw_verifier)
+        .initialize_identity(&api_client, &provider, &scw_verifier)
         .await?;
 
     debug!(
@@ -202,14 +205,14 @@ where
     );
     // get sequence_id from identity updates and loaded into the DB
     load_identity_updates(
-        &api_client_wrapper,
+        &api_client,
         provider.conn_ref(),
         vec![identity.inbox_id.as_str()].as_slice(),
     )
     .await?;
 
     let client = Client::new(
-        api_client_wrapper,
+        api_client,
         identity,
         store,
         scw_verifier,
