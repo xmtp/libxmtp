@@ -5063,11 +5063,9 @@ mod tests {
             group_from_db.unwrap().message_disappear_in_ns.unwrap(),
             disappearing_settings.in_ns
         );
-        assert!(
-            alix_group
-                .is_conversation_message_disappearing_enabled()
-                .unwrap()
-        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
 
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
