@@ -2630,6 +2630,7 @@ pub(crate) mod tests {
 
         assert_eq!(group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
         // Finished with setup
