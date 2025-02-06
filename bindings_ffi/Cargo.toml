@@ -56,9 +56,10 @@ rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
-xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
