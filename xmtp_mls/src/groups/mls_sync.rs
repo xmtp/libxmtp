@@ -1546,9 +1546,12 @@ where
                 .collect();
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
-            if changes_with_kps.failed_installations.len() == inbox_ids_to_add.len() {
+            // skip if the inbox ids is 0 from the beginning
+            if inbox_ids_to_add.len() != 0
+                && changes_with_kps.failed_installations.len() == inbox_ids_to_add.len()
+            {
                 return Err(GroupError::Generic(
-                    "Failed to add all installations.".to_string(),
+                    "Failed to add all installations".to_string(),
                 ));
             }
 
