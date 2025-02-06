@@ -337,7 +337,9 @@ impl UpdateGroupMembershipIntentData {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.membership_updates.is_empty() && self.removed_members.is_empty() && self.members_with_errors.is_empty()
+        self.membership_updates.is_empty()
+            && self.removed_members.is_empty()
+            && self.members_with_errors.is_empty()
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
