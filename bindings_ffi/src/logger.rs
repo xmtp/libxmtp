@@ -36,9 +36,10 @@ mod ios {
     }
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+// production logger for anything not ios/android mobile
+#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 pub use other::*;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 mod other {
     use super::*;
 
@@ -46,7 +47,24 @@ mod other {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        xmtp_common::logger_layer()
+        use tracing_subscriber::{
+            fmt::{self, format},
+            EnvFilter, Layer,
+        };
+        let filter = EnvFilter::builder()
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .from_env_lossy();
+        fmt::layer()
+            .compact()
+            .fmt_fields({
+                format::debug_fn(move |writer, field, value| {
+                    if field.name() == "message" {
+                        write!(writer, "{:?}", value)?;
+                    }
+                    Ok(())
+                })
+            })
+            .with_filter(filter)
     }
 }
 
@@ -56,4 +74,19 @@ pub fn init_logger() {
         let native_layer = native_layer();
         let _ = tracing_subscriber::registry().with(native_layer).try_init();
     });
+}
+
+#[cfg(test)]
+pub use test_logger::*;
+
+#[cfg(test)]
+mod test_logger {
+    use super::*;
+
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        xmtp_common::logger_layer()
+    }
 }
