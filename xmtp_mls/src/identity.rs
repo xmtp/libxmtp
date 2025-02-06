@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
-use xmtp_api::{ApiClientWrapper, Error as WrappedApiError};
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -172,8 +172,6 @@ pub enum IdentityError {
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
-    WrappedApi(#[from] WrappedApiError),
-    #[error(transparent)]
     Api(#[from] xmtp_proto::Error),
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
@@ -219,13 +217,15 @@ pub enum IdentityError {
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
+    #[error(transparent)]
+    ApiClient(#[from] xmtp_api::Error),
 }
 
 impl RetryableError for IdentityError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Api(_) => true,
-            Self::WrappedApi(err) => retryable!(err),
+            Self::ApiClient(err) => retryable!(err),
             Self::StorageError(err) => retryable!(err),
             Self::OpenMlsStorageError(err) => retryable!(err),
             Self::DieselResult(err) => retryable!(err),
@@ -573,7 +573,7 @@ impl Identity {
                 self.delete_key_package(provider, hash_ref)?;
                 conn.delete_key_package_entry_with_id(history_id)?;
 
-                Err(IdentityError::WrappedApi(WrappedApiError::Api(err)))
+                Err(IdentityError::ApiClient(err))
             }
         }
     }

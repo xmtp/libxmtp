@@ -61,10 +61,10 @@ libsqlite3-sys = { version = "0.29", features = [
 ] }
 mockall = "0.13"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "043b347cb18d528647df36f500725ab57c41c7db" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 parking_lot = "0.12.3"

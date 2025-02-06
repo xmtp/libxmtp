@@ -504,14 +504,17 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
     let updates = api_client.get_identity_updates_v2(filters).await?;
 
     let to_store = updates
-        .iter()
-        .flat_map(|(inbox_id, updates)| {
-            updates.iter().map(|update| StoredIdentityUpdate {
-                inbox_id: inbox_id.clone(),
-                sequence_id: update.sequence_id as i64,
-                server_timestamp_ns: update.server_timestamp_ns as i64,
-                payload: update.update.clone().into(),
-            })
+        .flat_map(|v| {
+            let (inbox_id, updates) = v?;
+            Ok(updates
+                .iter()
+                .map(|update: &InboxUpdate| StoredIdentityUpdate {
+                    inbox_id: inbox_id.clone(),
+                    sequence_id: update.sequence_id as i64,
+                    server_timestamp_ns: update.server_timestamp_ns as i64,
+                    payload: update.update.clone().into(),
+                })
+                .collect::<Vec<StoredIdentitUpdate>>())
         })
         .collect::<Vec<StoredIdentityUpdate>>();
 

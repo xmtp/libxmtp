@@ -3885,7 +3885,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "fluvio-wasm-timer",
  "getrandom",
@@ -3900,7 +3900,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3913,7 +3913,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "log",
  "openmls_traits",
@@ -3925,7 +3925,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3949,7 +3949,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "serde",
  "tls_codec",
