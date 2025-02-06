@@ -1745,13 +1745,13 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
-    let membership_diff = old_group_membership.diff(&new_group_membership);
+    let membership_diff = old_group_membership.diff(new_group_membership);
 
     let installation_diff = client
         .get_installation_diff(
             provider.conn_ref(),
             old_group_membership,
-            &new_group_membership,
+            new_group_membership,
             &membership_diff,
         )
         .await?;

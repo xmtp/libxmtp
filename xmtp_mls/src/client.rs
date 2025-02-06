@@ -1548,10 +1548,7 @@ pub(crate) mod tests {
                     "fetched malformed keypackage".to_string(),
                 ))?;
 
-        Ok(serialize_key_package_hash_ref(
-            &kp_result.clone().unwrap().inner,
-            &client.mls_provider()?,
-        )?)
+        serialize_key_package_hash_ref(&kp_result.clone().unwrap().inner, &client.mls_provider()?)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
