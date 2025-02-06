@@ -1541,12 +1541,11 @@ pub(crate) mod tests {
             .await
             .map_err(|_| IdentityError::NewIdentity("fetched malformed keypackage".to_string()))?;
 
-        let kp_result =
-            kps_map
-                .get(&installation_id.as_ref().to_vec())
-                .ok_or(IdentityError::NewIdentity(
-                    "fetched malformed keypackage".to_string(),
-                ))?;
+        let kp_result = kps_map
+            .get(installation_id.as_ref())
+            .ok_or(IdentityError::NewIdentity(
+                "fetched malformed keypackage".to_string(),
+            ))?;
 
         serialize_key_package_hash_ref(&kp_result.clone().unwrap().inner, &client.mls_provider()?)
     }
