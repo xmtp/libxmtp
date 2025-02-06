@@ -1,6 +1,5 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
 use crate::verified_key_package_v2::KeyPackageVerificationError;
-use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
@@ -14,7 +13,6 @@ use crate::{
     verified_key_package_v2::VerifiedKeyPackageV2,
     Client,
 };
-use std::collections::HashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
