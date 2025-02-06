@@ -107,7 +107,9 @@ use xmtp_proto::xmtp::mls::{
     },
 };
 
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::intents::UpdateGroupMembershipResult;
+use xmtp_common::retry::RetryableError;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;

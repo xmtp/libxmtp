@@ -856,9 +856,8 @@ where
                 .iter()
                 .zip(key_package_results.values())
                 .map(|(installation_id, bytes)| {
-                    let parsed_result =
-                        VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice())
-                            .map_err(|e| e);
+                    let parsed_result = VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice())
+                        .map_err(|e| e);
                     (installation_id.clone(), parsed_result)
                 })
                 .collect();
