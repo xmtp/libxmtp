@@ -57,6 +57,10 @@ pub enum GenericError {
     #[error(transparent)]
     Identity(#[from] xmtp_mls::identity::IdentityError),
     #[error(transparent)]
+    JoinError(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    IoError(#[from] tokio::io::Error),
+    #[error(transparent)]
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
 }
 

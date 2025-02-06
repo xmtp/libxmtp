@@ -267,7 +267,7 @@ macro_rules! impl_fetch_list {
         {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.load::<$model>(conn))?)
+                Ok(self.raw_query_read(|conn| $table.load::<$model>(conn))?)
             }
         }
     };

@@ -45,11 +45,14 @@ update-schema = ["toml"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
+async-compression.workspace = true
+async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
 diesel_migrations.workspace = true
-futures = { workspace = true, features = ["alloc"] }
+futures = { workspace = true, features = ["alloc", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
 hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
@@ -103,23 +106,26 @@ tracing-subscriber = { workspace = true, features = [
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = [
+  "macros",
+  "tracing",
+  "rt",
+  "rt-multi-thread",
+] }
+chrono = { workspace = true, features = ["clock"] }
 diesel = { workspace = true, features = [
   "r2d2",
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
 ] }
-chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
-tokio = { workspace = true, features = [
-  "macros",
-  "tracing",
-  "rt",
-  "rt-multi-thread",
+tokio-util = { version = "0.7", default-features = false, features = [
+  "compat",
 ] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc", optional = true }
 

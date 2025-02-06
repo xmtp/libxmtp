@@ -20,6 +20,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use backup::BackupError;
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
@@ -31,7 +32,7 @@ use tracing::{instrument, warn};
 use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_cryptography::utils as crypto_utils;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
@@ -43,6 +44,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
 
+pub mod backup;
 pub mod consent_sync;
 pub mod message_sync;
 pub mod preference_sync;
@@ -106,6 +108,12 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[error(transparent)]
+    Backup(#[from] BackupError),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
 }
 
 impl RetryableError for DeviceSyncError {

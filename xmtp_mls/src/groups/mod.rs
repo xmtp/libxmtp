@@ -13,30 +13,6 @@ pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
-use device_sync::preference_sync::UserPreferenceUpdate;
-use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
-use mls_sync::GroupMessageProcessingError;
-use openmls::{
-    credentials::CredentialType,
-    error::LibraryError,
-    extensions::{
-        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
-        UnknownExtension,
-    },
-    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig},
-    messages::proposals::ProposalType,
-    prelude::{
-        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy,
-    },
-};
-use openmls_traits::OpenMlsProvider;
-use prost::Message;
-use thiserror::Error;
-use tokio::sync::Mutex;
-use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
-
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::scoped_client::ScopedGroupClient;
@@ -59,22 +35,13 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
-use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
-    },
-};
-
 use crate::{
     api::WrappedApiError,
     client::{ClientError, XmtpMlsLocalContext},
@@ -100,13 +67,43 @@ use crate::{
     utils::id::calculate_message_id,
     Store, MLS_COMMIT_LOCK,
 };
+use device_sync::preference_sync::UserPreferenceUpdate;
+use intents::SendMessageIntentData;
+use mls_ext::DecryptedWelcome;
+use mls_sync::GroupMessageProcessingError;
+use openmls::{
+    credentials::CredentialType,
+    error::LibraryError,
+    extensions::{
+        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
+        UnknownExtension,
+    },
+    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig},
+    messages::proposals::ProposalType,
+    prelude::{
+        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
+        MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy,
+    },
+};
+use openmls_traits::OpenMlsProvider;
+use prost::Message;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
+use thiserror::Error;
+use tokio::sync::Mutex;
+use xmtp_common::retry::RetryableError;
+use xmtp_common::time::now_ns;
+use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
-
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_common::retry::RetryableError;
+use xmtp_proto::xmtp::mls::{
+    api::v1::welcome_message,
+    message_contents::{
+        content_types::ReactionV2,
+        plaintext_envelope::{Content, V1},
+        EncodedContent, PlaintextEnvelope,
+    },
+};
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -221,8 +218,6 @@ pub enum GroupError {
     LockFailedToAcquire,
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
-    #[error("Welcome already processed")]
-    WelcomeAlreadyProcessed,
 }
 
 impl RetryableError for GroupError {
@@ -278,8 +273,7 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_)
-            | Self::TooManyCharacters { .. }
-            | Self::WelcomeAlreadyProcessed => false,
+            | Self::TooManyCharacters { .. } => false,
         }
     }
 }
