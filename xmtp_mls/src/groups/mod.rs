@@ -1015,10 +1015,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data.into(),
         )?;
 
-        match self.sync_until_intent_resolved(provider, intent.id).await {
-            Ok(_) => ok_result,
-            Err(error) => Err(error),
-        }
+        self.sync_until_intent_resolved(provider, intent.id).await?;
+        ok_result
     }
 
     /// Removes members from the group by their account addresses.
