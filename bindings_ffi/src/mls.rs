@@ -1866,9 +1866,7 @@ impl FfiConversation {
         ))
     }
 
-    pub fn is_conversation_message_disappearing_enabled(
-        &self
-    ) -> Result<bool, GenericError> {
+    pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
         let settings = self.conversation_message_disappearing_settings()?;
 
         Ok(settings.from_ns > 0 && settings.in_ns > 0)
@@ -5065,11 +5063,10 @@ mod tests {
             group_from_db.unwrap().message_disappear_in_ns.unwrap(),
             disappearing_settings.in_ns
         );
-        assert_eq!(
+        assert!(
             alix_group
                 .is_conversation_message_disappearing_enabled()
-                .unwrap(),
-            true
+                .unwrap()
         );
 
         // Step 5: Send additional messages
@@ -5112,12 +5109,9 @@ mod tests {
                 .unwrap(),
             0
         );
-        assert_eq!(
-            alix_group
-                .is_conversation_message_disappearing_enabled()
-                .unwrap(),
-            false
-        );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
 
         assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
 
