@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use super::group_membership::{GroupMembership, MembershipDiff};
+use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
@@ -13,6 +13,7 @@ use crate::{
     verified_key_package_v2::VerifiedKeyPackageV2,
     Client,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_id::{
@@ -20,7 +21,6 @@ use xmtp_id::{
     InboxIdRef,
 };
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
-use crate::verified_key_package_v2::KeyPackageVerificationError;
 
 #[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(ScopedGroupClient: Send))]
 #[cfg(not(target_arch = "wasm32"))]

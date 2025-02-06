@@ -844,8 +844,10 @@ where
         HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
         ClientError,
     > {
-
-        let key_package_results = self.api_client.fetch_key_packages(installation_ids.clone()).await?;
+        let key_package_results = self
+            .api_client
+            .fetch_key_packages(installation_ids.clone())
+            .await?;
 
         let crypto_provider = XmtpOpenMlsProvider::new_crypto();
 
@@ -854,8 +856,9 @@ where
                 .iter()
                 .zip(key_package_results.values())
                 .map(|(installation_id, bytes)| {
-                    let parsed_result = VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice())
-                        .map_err(|e| e);
+                    let parsed_result =
+                        VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice())
+                            .map_err(|e| e);
                     (installation_id.clone(), parsed_result)
                 })
                 .collect();
@@ -1148,7 +1151,7 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
 
-        let installation_public_key =client.installation_public_key().to_vec();
+        let installation_public_key = client.installation_public_key().to_vec();
         // Get original KeyPackage.
         let kp1 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
@@ -1539,11 +1542,17 @@ pub(crate) mod tests {
             .await
             .map_err(|_| IdentityError::NewIdentity("fetched malformed keypackage".to_string()))?;
 
-        let kp_result = kps_map
-            .get(&installation_id.as_ref().to_vec())
-            .ok_or(IdentityError::NewIdentity("fetched malformed keypackage".to_string()))?;
+        let kp_result =
+            kps_map
+                .get(&installation_id.as_ref().to_vec())
+                .ok_or(IdentityError::NewIdentity(
+                    "fetched malformed keypackage".to_string(),
+                ))?;
 
-        Ok(serialize_key_package_hash_ref(&kp_result.clone().unwrap().inner, &client.mls_provider()?)?)
+        Ok(serialize_key_package_hash_ref(
+            &kp_result.clone().unwrap().inner,
+            &client.mls_provider()?,
+        )?)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1556,9 +1565,12 @@ pub(crate) mod tests {
         let bo_store = bo.store();
 
         let alix_original_init_key =
-            get_key_package_init_key(&alix, alix.installation_public_key()).await.unwrap();
-        let bo_original_init_key =
-            get_key_package_init_key(&bo, bo.installation_public_key()).await.unwrap();
+            get_key_package_init_key(&alix, alix.installation_public_key())
+                .await
+                .unwrap();
+        let bo_original_init_key = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
 
         // Bo's original key should be deleted
         let bo_original_from_db = bo_store
@@ -1577,19 +1589,25 @@ pub(crate) mod tests {
 
         bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
 
-        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key()).await.unwrap();
+        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
         bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
-        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key()).await.unwrap();
+        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
         alix.sync_welcomes(&alix.mls_provider().unwrap())
             .await
             .unwrap();
-        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key()).await.unwrap();
+        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key())
+            .await
+            .unwrap();
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 

@@ -1577,7 +1577,9 @@ where
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             if changes_with_kps.failed_installations.len() == inbox_ids_to_add.len() {
-                return Err(GroupError::Generic("Failed to add all installations.".to_string()));
+                return Err(GroupError::Generic(
+                    "Failed to add all installations.".to_string(),
+                ));
             }
 
             Ok(UpdateGroupMembershipIntentData::new(
@@ -1829,9 +1831,7 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    new_extensions.add_or_replace(build_group_membership_extension(
-        &new_group_membership,
-    ));
+    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit
     let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
