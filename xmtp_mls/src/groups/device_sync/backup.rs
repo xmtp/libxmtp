@@ -138,12 +138,24 @@ mod tests {
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
         let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
 
-        {
-            let reader = BufReader::new(Cursor::new(file));
-            let reader = Box::pin(reader);
-            let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-            importer.insert(&alix2_provider).await.unwrap();
-        }
+        // No messages
+        let messages: Vec<StoredGroupMessage> = alix2_provider
+            .conn_ref()
+            .raw_query_read(|conn| group_messages::table.load(conn))
+            .unwrap();
+        assert_eq!(messages.len(), 0);
+
+        let reader = BufReader::new(Cursor::new(file));
+        let reader = Box::pin(reader);
+        let mut importer = BackupImporter::load(reader, &key).await.unwrap();
+        importer.insert(&alix2_provider).await.unwrap();
+
+        // One message.
+        let messages: Vec<StoredGroupMessage> = alix2_provider
+            .conn_ref()
+            .raw_query_read(|conn| group_messages::table.load(conn))
+            .unwrap();
+        assert_eq!(messages.len(), 1);
     }
 
     #[tokio::test]
