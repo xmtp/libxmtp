@@ -1,5 +1,7 @@
+use crate::groups::intents::Installation;
+use openmls::key_packages::KeyPackage;
 use prost::{DecodeError, Message};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,11 +108,34 @@ impl From<&GroupMembership> for Vec<u8> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MembershipDiff<'inbox_id> {
     pub added_inboxes: Vec<&'inbox_id String>,
     pub removed_inboxes: Vec<&'inbox_id String>,
     pub updated_inboxes: Vec<&'inbox_id String>,
+}
+
+pub struct MembershipDiffWithKeyPackages {
+    pub new_installations: Vec<Installation>,
+    pub new_key_packages: Vec<KeyPackage>,
+    pub removed_installations: HashSet<Vec<u8>>,
+    pub failed_installations: Vec<Vec<u8>>,
+}
+
+impl<'a> MembershipDiffWithKeyPackages {
+    pub fn new(
+        new_installations: Vec<Installation>,
+        new_key_packages: Vec<KeyPackage>,
+        removed_installations: HashSet<Vec<u8>>,
+        failed_installations: Vec<Vec<u8>>,
+    ) -> MembershipDiffWithKeyPackages {
+        MembershipDiffWithKeyPackages {
+            new_installations,
+            new_key_packages,
+            removed_installations,
+            failed_installations,
+        }
+    }
 }
 
 #[cfg(test)]
