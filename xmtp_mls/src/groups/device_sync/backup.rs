@@ -95,8 +95,8 @@ mod tests {
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_buffer_read() {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    async fn test_buffer_export_import() {
         use futures::io::BufReader;
         use futures_util::AsyncReadExt;
 
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
-    async fn test_backup() {
+    async fn test_file_backup() {
         let alix_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
