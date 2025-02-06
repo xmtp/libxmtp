@@ -76,7 +76,6 @@ impl BackupOptions {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))]
 mod tests {
     use super::*;
     use crate::{
@@ -92,10 +91,63 @@ mod tests {
     use backup_exporter::BackupExporter;
     use backup_importer::BackupImporter;
     use diesel::RunQueryDsl;
+    use futures::io::Cursor;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_buffer_read() {
+        use futures::io::BufReader;
+        use futures_util::AsyncReadExt;
+
+        let alix_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix_provider = Arc::new(alix.mls_provider().unwrap());
+
+        let bo_wallet = generate_local_wallet();
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        alix_group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+        alix_group.send_message(b"hello there").await.unwrap();
+
+        let opts = BackupOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+        };
+
+        let key = vec![7; 32];
+
+        let file = {
+            let mut file = Vec::new();
+            let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
+            exporter.read_to_end(&mut file).await.unwrap();
+            file
+        };
+
+        let alix2_wallet = generate_local_wallet();
+        let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
+        let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
+
+        {
+            let reader = BufReader::new(Cursor::new(file));
+            let reader = Box::pin(reader);
+            let mut importer = BackupImporter::load(reader, &key).await.unwrap();
+            importer.insert(&alix2_provider).await.unwrap();
+        }
+    }
+
     #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_backup() {
         let alix_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
