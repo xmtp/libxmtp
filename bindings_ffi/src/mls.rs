@@ -1866,6 +1866,12 @@ impl FfiConversation {
         ))
     }
 
+    pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
+        let settings = self.conversation_message_disappearing_settings()?;
+
+        Ok(settings.from_ns > 0 && settings.in_ns > 0)
+    }
+
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
         let provider = self.inner.mls_provider()?;
         self.inner.admin_list(&provider).map_err(Into::into)
@@ -5057,6 +5063,9 @@ mod tests {
             group_from_db.unwrap().message_disappear_in_ns.unwrap(),
             disappearing_settings.in_ns
         );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
 
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
@@ -5098,6 +5107,10 @@ mod tests {
                 .unwrap(),
             0
         );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
         assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
 
         // Step 9: Send another message
