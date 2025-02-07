@@ -54,7 +54,6 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        groupPinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternal(
@@ -63,7 +62,6 @@ data class Conversations(
             groupName,
             groupImageUrlSquare,
             groupDescription,
-            groupPinnedFrameUrl,
             null,
             messageDisappearingSettings,
         )
@@ -75,7 +73,6 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        groupPinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternal(
@@ -84,7 +81,6 @@ data class Conversations(
             groupName,
             groupImageUrlSquare,
             groupDescription,
-            groupPinnedFrameUrl,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
             messageDisappearingSettings
         )
@@ -96,7 +92,6 @@ data class Conversations(
         groupName: String,
         groupImageUrlSquare: String,
         groupDescription: String,
-        groupPinnedFrameUrl: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
         messageDisappearingSettings: FfiMessageDisappearingSettings?,
     ): Group {
@@ -118,7 +113,6 @@ data class Conversations(
                     groupName = groupName,
                     groupImageUrlSquare = groupImageUrlSquare,
                     groupDescription = groupDescription,
-                    groupPinnedFrameUrl = groupPinnedFrameUrl,
                     customPermissionPolicySet = permissionsPolicySet,
                     messageDisappearingSettings = messageDisappearingSettings
                 )
@@ -132,7 +126,6 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        groupPinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
@@ -141,7 +134,6 @@ data class Conversations(
             groupName,
             groupImageUrlSquare,
             groupDescription,
-            groupPinnedFrameUrl,
             null,
             messageDisappearingSettings
         )
@@ -153,7 +145,6 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        groupPinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
@@ -162,7 +153,6 @@ data class Conversations(
             groupName,
             groupImageUrlSquare,
             groupDescription,
-            groupPinnedFrameUrl,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
             messageDisappearingSettings
         )
@@ -174,7 +164,6 @@ data class Conversations(
         groupName: String,
         groupImageUrlSquare: String,
         groupDescription: String,
-        groupPinnedFrameUrl: String,
         permissionsPolicySet: FfiPermissionPolicySet?,
         messageDisappearingSettings: FfiMessageDisappearingSettings?,
     ): Group {
@@ -190,7 +179,6 @@ data class Conversations(
                     groupName = groupName,
                     groupImageUrlSquare = groupImageUrlSquare,
                     groupDescription = groupDescription,
-                    groupPinnedFrameUrl = groupPinnedFrameUrl,
                     customPermissionPolicySet = permissionsPolicySet,
                     messageDisappearingSettings = messageDisappearingSettings
                 )

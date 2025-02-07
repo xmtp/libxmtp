@@ -372,58 +372,6 @@ class GroupPermissionsTest {
     }
 
     @Test
-    fun testCanUpdatePinnedFrameUrl() {
-        val boGroup = runBlocking {
-            boClient.conversations.newGroup(
-                listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
-                ),
-                GroupPermissionPreconfiguration.ADMIN_ONLY
-            )
-        }
-        runBlocking { alixClient.conversations.sync() }
-        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
-
-        // Verify that alix can NOT update pinned frame
-        assert(boGroup.pinnedFrameUrl == "")
-        val exception = assertThrows(XMTPException::class.java) {
-            runBlocking {
-                alixGroup.updateGroupPinnedFrameUrl("new pinned frame url")
-            }
-        }
-        assertEquals(exception.message, "Permission denied: Unable to update pinned frame")
-        runBlocking {
-            alixGroup.sync()
-            boGroup.sync()
-        }
-        assertEquals(
-            boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
-            PermissionOption.Admin
-        )
-
-        // Update group name permissions so Alix can update
-        runBlocking {
-            boGroup.updateGroupPinnedFrameUrlPermission(PermissionOption.Allow)
-            boGroup.sync()
-            alixGroup.sync()
-        }
-        assertEquals(
-            boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
-            PermissionOption.Allow
-        )
-
-        // Verify that alix can now update group name
-        runBlocking {
-            alixGroup.updateGroupPinnedFrameUrl("new pinned frame url 2")
-            alixGroup.sync()
-            boGroup.sync()
-        }
-        assert(boGroup.pinnedFrameUrl == "new pinned frame url 2")
-        assert(alixGroup.pinnedFrameUrl == "new pinned frame url 2")
-    }
-
-    @Test
     fun canCreateGroupWithCustomPermissions() {
         val permissionPolicySet = PermissionPolicySet(
             addMemberPolicy = PermissionOption.Admin,
@@ -433,7 +381,6 @@ class GroupPermissionsTest {
             updateGroupNamePolicy = PermissionOption.Admin,
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
-            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
             updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
         val boGroup = runBlocking {
@@ -454,7 +401,6 @@ class GroupPermissionsTest {
         assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
         assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
         assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
-        assert(alixPermissionSet.updateGroupPinnedFrameUrlPolicy == PermissionOption.Deny)
     }
 
     @Test
@@ -468,7 +414,6 @@ class GroupPermissionsTest {
             updateGroupNamePolicy = PermissionOption.Admin,
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
-            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
             updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
 
@@ -489,7 +434,6 @@ class GroupPermissionsTest {
             updateGroupNamePolicy = PermissionOption.Admin,
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
-            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
             updateMessageDisappearingPolicy = PermissionOption.Allow,
         )
 
@@ -517,7 +461,6 @@ class GroupPermissionsTest {
             updateGroupNamePolicy = PermissionOption.Admin,
             updateGroupDescriptionPolicy = PermissionOption.Allow,
             updateGroupImagePolicy = PermissionOption.Admin,
-            updateGroupPinnedFrameUrlPolicy = PermissionOption.Deny,
             updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
         val boGroup = runBlocking {
@@ -538,6 +481,5 @@ class GroupPermissionsTest {
         assert(alixPermissionSet.updateGroupNamePolicy == PermissionOption.Admin)
         assert(alixPermissionSet.updateGroupDescriptionPolicy == PermissionOption.Allow)
         assert(alixPermissionSet.updateGroupImagePolicy == PermissionOption.Admin)
-        assert(alixPermissionSet.updateGroupPinnedFrameUrlPolicy == PermissionOption.Deny)
     }
 }
