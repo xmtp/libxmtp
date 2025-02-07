@@ -1,4 +1,5 @@
 pub mod attachment;
+pub mod encryption;
 pub mod group_updated;
 pub mod membership_change;
 pub mod multi_remote_attachment;
@@ -35,4 +36,38 @@ pub fn encoded_content_to_bytes(content: EncodedContent) -> Vec<u8> {
 
 pub fn bytes_to_encoded_content(bytes: Vec<u8>) -> EncodedContent {
     EncodedContent::decode(&mut bytes.as_slice()).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn test_encoded_content_conversion() {
+        // Create a sample EncodedContent
+        let original = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: "".to_string(),
+                type_id: "test".to_string(),
+                version_major: 0,
+                version_minor: 0,
+            }),
+            parameters: HashMap::new(),
+            compression: None,
+            content: vec![1, 2, 3, 4],
+            fallback: Some("test".to_string()),
+        };
+
+        // Convert to bytes
+        let bytes = encoded_content_to_bytes(original.clone());
+
+        // Convert back to EncodedContent
+        let recovered = bytes_to_encoded_content(bytes);
+
+        // Verify the recovered content matches the original
+        assert_eq!(recovered.content, original.content);
+        assert_eq!(recovered.fallback, original.fallback);
+    }
 }
