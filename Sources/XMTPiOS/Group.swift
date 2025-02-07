@@ -158,10 +158,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.groupDescription()
 	}
 
-	public func groupPinnedFrameUrl() throws -> String {
-		return try ffiGroup.groupPinnedFrameUrl()
-	}
-
 	public func updateGroupName(groupName: String) async throws {
 		try await ffiGroup.updateGroupName(groupName: groupName)
 	}
@@ -174,13 +170,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func updateGroupDescription(groupDescription: String) async throws {
 		try await ffiGroup.updateGroupDescription(
 			groupDescription: groupDescription)
-	}
-
-	public func updateGroupPinnedFrameUrl(groupPinnedFrameUrl: String)
-		async throws
-	{
-		try await ffiGroup.updateGroupPinnedFrameUrl(
-			pinnedFrameUrl: groupPinnedFrameUrl)
 	}
 
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
@@ -247,16 +236,6 @@ public struct Group: Identifiable, Equatable, Hashable {
 			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
 				option: newPermissionOption),
 			metadataField: FfiMetadataField.imageUrlSquare)
-	}
-
-	public func updateGroupPinnedFrameUrlPermission(
-		newPermissionOption: PermissionOption
-	) async throws {
-		try await ffiGroup.updatePermissionPolicy(
-			permissionUpdateType: FfiPermissionUpdateType.updateMetadata,
-			permissionPolicyOption: PermissionOption.toFfiPermissionPolicy(
-				option: newPermissionOption),
-			metadataField: FfiMetadataField.pinnedFrameUrl)
 	}
 
 	public func updateConsentState(state: ConsentState) async throws {

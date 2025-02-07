@@ -305,50 +305,6 @@ class GroupPermissionTests: XCTestCase {
 			try alixGroup.groupDescription(), "alix group description")
 	}
 
-	func testCanUpdatePinnedFrameUrl() async throws {
-		let fixtures = try await fixtures()
-		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
-			permissions: .adminOnly,
-			pinnedFrameUrl: "initial url"
-		)
-		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try await fixtures.alixClient.conversations
-			.listGroups().first!
-
-		// Verify that alix cannot update group pinned frame url
-		XCTAssertEqual(try boGroup.groupPinnedFrameUrl(), "initial url")
-		await assertThrowsAsyncError(
-			try await alixGroup.updateGroupPinnedFrameUrl(
-				groupPinnedFrameUrl: "https://foo/bar.com")
-		)
-
-		try await alixGroup.sync()
-		try await boGroup.sync()
-		XCTAssertEqual(
-			try boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
-			.admin)
-
-		// Update group pinned frame url permissions so alix can update
-		try await boGroup.updateGroupPinnedFrameUrlPermission(
-			newPermissionOption: .allow)
-		try await boGroup.sync()
-		try await alixGroup.sync()
-		XCTAssertEqual(
-			try boGroup.permissionPolicySet().updateGroupPinnedFrameUrlPolicy,
-			.allow)
-
-		// Verify that alix can now update group pinned frame url
-		try await alixGroup.updateGroupPinnedFrameUrl(
-			groupPinnedFrameUrl: "https://foo/barz.com")
-		try await alixGroup.sync()
-		try await boGroup.sync()
-		XCTAssertEqual(
-			try boGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
-		XCTAssertEqual(
-			try alixGroup.groupPinnedFrameUrl(), "https://foo/barz.com")
-	}
-
 	func testCanCreateGroupWithCustomPermissions() async throws {
 		let fixtures = try await fixtures()
 		let permissionPolicySet = PermissionPolicySet(
@@ -359,14 +315,12 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
             updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissions(
 				with: [fixtures.alix.address, fixtures.caro.address],
-				permissionPolicySet: permissionPolicySet,
-				pinnedFrameUrl: "initial url"
+				permissionPolicySet: permissionPolicySet
 			)
 
 		try await fixtures.alixClient.conversations.sync()
@@ -387,9 +341,6 @@ class GroupPermissionTests: XCTestCase {
 				== PermissionOption.allow)
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin)
-		XCTAssert(
-			alixPermissionSet.updateGroupPinnedFrameUrlPolicy
-				== PermissionOption.deny)
 	}
 	
 	func testCanCreateGroupWithInboxIdCustomPermissions() async throws {
@@ -402,14 +353,12 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
             updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissionsWithInboxIds(
 				with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
-				permissionPolicySet: permissionPolicySet,
-				pinnedFrameUrl: "initial url"
+				permissionPolicySet: permissionPolicySet
 			)
 
 		try await fixtures.alixClient.conversations.sync()
@@ -430,9 +379,6 @@ class GroupPermissionTests: XCTestCase {
 				== PermissionOption.allow)
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin)
-		XCTAssert(
-			alixPermissionSet.updateGroupPinnedFrameUrlPolicy
-				== PermissionOption.deny)
 	}
 
 	func testCreateGroupWithInvalidPermissionsFails() async throws {
@@ -446,15 +392,13 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-			updateGroupPinnedFrameUrlPolicy: PermissionOption.deny,
             updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		await assertThrowsAsyncError(
 			try await fixtures.boClient.conversations
 				.newGroupCustomPermissions(
 					with: [fixtures.alix.address, fixtures.caro.address],
-					permissionPolicySet: permissionPolicySetInvalid,
-					pinnedFrameUrl: "initial url"
+					permissionPolicySet: permissionPolicySetInvalid
 				)
 		)
 	}

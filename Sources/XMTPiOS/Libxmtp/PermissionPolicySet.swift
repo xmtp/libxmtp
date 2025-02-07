@@ -67,7 +67,6 @@ public class PermissionPolicySet {
 	public var updateGroupNamePolicy: PermissionOption
 	public var updateGroupDescriptionPolicy: PermissionOption
 	public var updateGroupImagePolicy: PermissionOption
-	public var updateGroupPinnedFrameUrlPolicy: PermissionOption
 	public var updateMessageDisappearingPolicy: PermissionOption
 
 	public init(
@@ -76,7 +75,6 @@ public class PermissionPolicySet {
 		updateGroupNamePolicy: PermissionOption,
 		updateGroupDescriptionPolicy: PermissionOption,
 		updateGroupImagePolicy: PermissionOption,
-		updateGroupPinnedFrameUrlPolicy: PermissionOption,
         updateMessageDisappearingPolicy: PermissionOption
 	) {
 		self.addMemberPolicy = addMemberPolicy
@@ -86,7 +84,6 @@ public class PermissionPolicySet {
 		self.updateGroupNamePolicy = updateGroupNamePolicy
 		self.updateGroupDescriptionPolicy = updateGroupDescriptionPolicy
 		self.updateGroupImagePolicy = updateGroupImagePolicy
-		self.updateGroupPinnedFrameUrlPolicy = updateGroupPinnedFrameUrlPolicy
 		self.updateMessageDisappearingPolicy = updateMessageDisappearingPolicy
 	}
 
@@ -110,9 +107,6 @@ public class PermissionPolicySet {
 			updateGroupImageUrlSquarePolicy:
 				PermissionOption.toFfiPermissionPolicy(
 					option: permissionPolicySet.updateGroupImagePolicy),
-			updateGroupPinnedFrameUrlPolicy:
-				PermissionOption.toFfiPermissionPolicy(
-					option: permissionPolicySet.updateGroupPinnedFrameUrlPolicy),
             updateMessageDisappearingPolicy:
 				PermissionOption.toFfiPermissionPolicy(
 					option: permissionPolicySet.updateMessageDisappearingPolicy)
@@ -141,10 +135,6 @@ public class PermissionPolicySet {
 			updateGroupImagePolicy: PermissionOption.fromFfiPermissionPolicy(
 				ffiPolicy: ffiPermissionPolicySet
 					.updateGroupImageUrlSquarePolicy),
-			updateGroupPinnedFrameUrlPolicy:
-				PermissionOption.fromFfiPermissionPolicy(
-					ffiPolicy: ffiPermissionPolicySet
-						.updateGroupPinnedFrameUrlPolicy),
             updateMessageDisappearingPolicy:
 				PermissionOption.fromFfiPermissionPolicy(
 					ffiPolicy: ffiPermissionPolicySet

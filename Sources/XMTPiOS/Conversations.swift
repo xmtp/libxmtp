@@ -278,7 +278,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil,
 		messageExpirationMs: Int64? = nil
 	) async throws -> Group {
@@ -290,7 +289,6 @@ public actor Conversations {
 			name: name,
 			imageUrlSquare: imageUrlSquare,
 			description: description,
-			pinnedFrameUrl: pinnedFrameUrl,
 			permissionPolicySet: nil,
             messageDisappearingSettings: messageDisappearingSettings
 		)
@@ -302,7 +300,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil
 	) async throws -> Group {
 		return try await newGroupInternal(
@@ -311,7 +308,6 @@ public actor Conversations {
 			name: name,
 			imageUrlSquare: imageUrlSquare,
 			description: description,
-			pinnedFrameUrl: pinnedFrameUrl,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet),
             messageDisappearingSettings: messageDisappearingSettings
@@ -324,7 +320,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil
 	) async throws -> Group {
@@ -350,7 +345,6 @@ public actor Conversations {
 				groupName: name,
 				groupImageUrlSquare: imageUrlSquare,
 				groupDescription: description,
-				groupPinnedFrameUrl: pinnedFrameUrl,
 				customPermissionPolicySet: permissionPolicySet,
                 messageDisappearingSettings: messageDisappearingSettings
             )
@@ -364,7 +358,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil
 	) async throws -> Group {
 		return try await newGroupInternalWithInboxIds(
@@ -375,7 +368,6 @@ public actor Conversations {
 			name: name,
 			imageUrlSquare: imageUrlSquare,
 			description: description,
-			pinnedFrameUrl: pinnedFrameUrl,
 			permissionPolicySet: nil,
             messageDisappearingSettings: messageDisappearingSettings
 		)
@@ -387,7 +379,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil
 	) async throws -> Group {
 		return try await newGroupInternalWithInboxIds(
@@ -396,7 +387,6 @@ public actor Conversations {
 			name: name,
 			imageUrlSquare: imageUrlSquare,
 			description: description,
-			pinnedFrameUrl: pinnedFrameUrl,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet),
             messageDisappearingSettings: messageDisappearingSettings
@@ -409,7 +399,6 @@ public actor Conversations {
 		name: String = "",
 		imageUrlSquare: String = "",
 		description: String = "",
-		pinnedFrameUrl: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
         messageDisappearingSettings: FfiMessageDisappearingSettings? = nil
 	) async throws -> Group {
@@ -425,7 +414,6 @@ public actor Conversations {
 				groupName: name,
 				groupImageUrlSquare: imageUrlSquare,
 				groupDescription: description,
-				groupPinnedFrameUrl: pinnedFrameUrl,
 				customPermissionPolicySet: permissionPolicySet,
                 messageDisappearingSettings: messageDisappearingSettings
 			)

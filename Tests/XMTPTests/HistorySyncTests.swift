@@ -23,6 +23,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
+                // useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -37,6 +38,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -82,14 +84,14 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
 		let group = try await alixClient.conversations.newGroup(
 			with: [fixtures.bo.walletAddress])
-		try await group.send(content: "hi")
 		let messageCount = try await group.messages().count
-		XCTAssertEqual(messageCount, 2)
+		XCTAssertEqual(messageCount, 1)
 
 		let alixClient2 = try await Client.create(
 			account: alix,
@@ -97,23 +99,31 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
 		let state = try await alixClient2.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 2)
 
+        // If we move this line before alixClient2 create, we fail with the group
+		// not being found. history sync seems to get messages, but maybe
+		// not groups?
+        try await group.send(content: "hi")
+
 		try await alixClient.conversations.syncAllConversations()
 		sleep(2)
 		try await alixClient2.conversations.syncAllConversations()
 		sleep(2)
 
-		if let dm2 = try await alixClient2.findConversation(
-			conversationId: group.id)
+		if let group2 = try await alixClient2.findGroup(
+			groupId: group.id)
 		{
-			let messageCount = try await group.messages().count
-			XCTAssertEqual(messageCount, 2)
-		}
+			let messageCount2 = try await group2.messages().count
+			XCTAssertEqual(messageCount2, 2)
+        } else {
+            XCTFail()
+        }
 	}
 
 	func testStreamConsent() async throws {
@@ -128,6 +138,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -141,6 +152,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
@@ -184,6 +196,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 		
@@ -205,6 +218,7 @@ class HistorySyncTests: XCTestCase {
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
 				dbDirectory: "xmtp_db2"
+//                useDefaultHistorySyncUrl: false
 			)
 		)
 
