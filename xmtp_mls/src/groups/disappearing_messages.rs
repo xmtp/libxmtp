@@ -79,15 +79,10 @@ where
 {
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let provider = self.client.mls_provider()?;
-        match provider.conn_ref().delete_expired_messages() {
-            Ok(deleted_count) => {
-                tracing::info!("Successfully deleted {} expired messages", deleted_count);
-            }
-            Err(e) => {
-                tracing::error!("Failed to delete expired messages, error: {:?}", e);
-            }
-        }
+        self.client
+            .mls_provider()?
+            .conn_ref()
+            .delete_expired_messages()?;
         Ok(())
     }
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
@@ -104,9 +99,7 @@ where
             #[cfg(not(target_arch = "wasm32"))]
             interval.tick().await;
 
-            if let Err(err) = self.delete_expired_messages().await {
-                tracing::error!("Error during deletion of expired messages: {:?}", err);
-            }
+            self.delete_expired_messages().await?
         }
     }
 }
