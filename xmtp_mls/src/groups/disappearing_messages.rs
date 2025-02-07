@@ -10,7 +10,7 @@ use xmtp_proto::api_client::trait_impls::XmtpApi;
 #[cfg(target_arch = "wasm32")]
 use futures::stream::StreamExt;
 #[cfg(target_arch = "wasm32")]
-use gloo_timers::future::Interval;
+use gloo_timers::callback::Interval;
 
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time;
