@@ -219,12 +219,12 @@ where
                             this.state.set(ProcessState::Processing {
                                 future: FutureWrapper::new(future.process()),
                             });
-                            
+
                             let Processing { future } = this.state.project() else {
                                 unreachable!()
                             };
                             let poll = future.poll(cx);
-                            
+
                             // Instead of immediately returning, we handle the result:
                             match self.as_mut().try_process(poll, cx) {
                                 // If we got Ready(None) or Ready(Some(_)), return it
