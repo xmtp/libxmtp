@@ -70,6 +70,7 @@ use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -84,7 +85,6 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
-use xmtp_proto::xmtp::mls::message_contents::group_updated;
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -992,18 +992,18 @@ where
         for change in metadata_field_changes {
             match change.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                    let parsed_value = change.new_value.as_deref().and_then(|v| v.parse::<i64>().ok());
-                    conn.update_message_disappearing_from_ns(
-                        self.group_id.clone(),
-                        parsed_value,
-                    )?
+                    let parsed_value = change
+                        .new_value
+                        .as_deref()
+                        .and_then(|v| v.parse::<i64>().ok());
+                    conn.update_message_disappearing_from_ns(self.group_id.clone(), parsed_value)?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                    let parsed_value = change.new_value.as_deref().and_then(|v| v.parse::<i64>().ok());
-                    conn.update_message_disappearing_in_ns(
-                        self.group_id.clone(),
-                        parsed_value,
-                    )?
+                    let parsed_value = change
+                        .new_value
+                        .as_deref()
+                        .and_then(|v| v.parse::<i64>().ok());
+                    conn.update_message_disappearing_in_ns(self.group_id.clone(), parsed_value)?
                 }
                 _ => {} // Handle other metadata updates if needed
             }
