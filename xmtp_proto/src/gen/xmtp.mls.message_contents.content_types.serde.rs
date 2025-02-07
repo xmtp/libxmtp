@@ -10,9 +10,6 @@ impl serde::Serialize for MultiRemoteAttachment {
         if !self.secret.is_empty() {
             len += 1;
         }
-        if !self.salt.is_empty() {
-            len += 1;
-        }
         if !self.attachments.is_empty() {
             len += 1;
         }
@@ -27,11 +24,6 @@ impl serde::Serialize for MultiRemoteAttachment {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("secret", pbjson::private::base64::encode(&self.secret).as_str())?;
-        }
-        if !self.salt.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("salt", pbjson::private::base64::encode(&self.salt).as_str())?;
         }
         if !self.attachments.is_empty() {
             struct_ser.serialize_field("attachments", &self.attachments)?;
@@ -53,7 +45,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
     {
         const FIELDS: &[&str] = &[
             "secret",
-            "salt",
             "attachments",
             "num_attachments",
             "numAttachments",
@@ -64,7 +55,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Secret,
-            Salt,
             Attachments,
             NumAttachments,
             MaxAttachmentContentLength,
@@ -90,7 +80,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                     {
                         match value {
                             "secret" => Ok(GeneratedField::Secret),
-                            "salt" => Ok(GeneratedField::Salt),
                             "attachments" => Ok(GeneratedField::Attachments),
                             "numAttachments" | "num_attachments" => Ok(GeneratedField::NumAttachments),
                             "maxAttachmentContentLength" | "max_attachment_content_length" => Ok(GeneratedField::MaxAttachmentContentLength),
@@ -114,7 +103,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut secret__ = None;
-                let mut salt__ = None;
                 let mut attachments__ = None;
                 let mut num_attachments__ = None;
                 let mut max_attachment_content_length__ = None;
@@ -125,14 +113,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                                 return Err(serde::de::Error::duplicate_field("secret"));
                             }
                             secret__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Salt => {
-                            if salt__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("salt"));
-                            }
-                            salt__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -162,7 +142,6 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                 }
                 Ok(MultiRemoteAttachment {
                     secret: secret__.unwrap_or_default(),
-                    salt: salt__.unwrap_or_default(),
                     attachments: attachments__.unwrap_or_default(),
                     num_attachments: num_attachments__,
                     max_attachment_content_length: max_attachment_content_length__,
@@ -501,6 +480,9 @@ impl serde::Serialize for RemoteAttachmentInfo {
         if !self.nonce.is_empty() {
             len += 1;
         }
+        if !self.salt.is_empty() {
+            len += 1;
+        }
         if !self.scheme.is_empty() {
             len += 1;
         }
@@ -518,6 +500,11 @@ impl serde::Serialize for RemoteAttachmentInfo {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("nonce", pbjson::private::base64::encode(&self.nonce).as_str())?;
+        }
+        if !self.salt.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("salt", pbjson::private::base64::encode(&self.salt).as_str())?;
         }
         if !self.scheme.is_empty() {
             struct_ser.serialize_field("scheme", &self.scheme)?;
@@ -541,6 +528,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             "content_digest",
             "contentDigest",
             "nonce",
+            "salt",
             "scheme",
             "url",
             "filename",
@@ -550,6 +538,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
         enum GeneratedField {
             ContentDigest,
             Nonce,
+            Salt,
             Scheme,
             Url,
             Filename,
@@ -576,6 +565,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                         match value {
                             "contentDigest" | "content_digest" => Ok(GeneratedField::ContentDigest),
                             "nonce" => Ok(GeneratedField::Nonce),
+                            "salt" => Ok(GeneratedField::Salt),
                             "scheme" => Ok(GeneratedField::Scheme),
                             "url" => Ok(GeneratedField::Url),
                             "filename" => Ok(GeneratedField::Filename),
@@ -600,6 +590,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             {
                 let mut content_digest__ = None;
                 let mut nonce__ = None;
+                let mut salt__ = None;
                 let mut scheme__ = None;
                 let mut url__ = None;
                 let mut filename__ = None;
@@ -616,6 +607,14 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                                 return Err(serde::de::Error::duplicate_field("nonce"));
                             }
                             nonce__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Salt => {
+                            if salt__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("salt"));
+                            }
+                            salt__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -642,6 +641,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                 Ok(RemoteAttachmentInfo {
                     content_digest: content_digest__.unwrap_or_default(),
                     nonce: nonce__.unwrap_or_default(),
+                    salt: salt__.unwrap_or_default(),
                     scheme: scheme__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
                     filename: filename__.unwrap_or_default(),

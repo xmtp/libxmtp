@@ -5,7 +5,10 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
+use xmtp_content_types::encryption::EncryptedEncodedContent;
+use xmtp_content_types::multi_remote_attachment::{
+    EncryptedMultiRemoteAttachmentPreUpload, MultiRemoteAttachmentCodec,
+};
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
@@ -2210,6 +2213,7 @@ pub struct FfiRemoteAttachmentInfo {
     pub scheme: String,
     pub url: String,
     pub filename: String,
+    pub salt: Vec<u8>,
 }
 
 impl From<FfiRemoteAttachmentInfo> for RemoteAttachmentInfo {
@@ -2217,6 +2221,7 @@ impl From<FfiRemoteAttachmentInfo> for RemoteAttachmentInfo {
         RemoteAttachmentInfo {
             content_digest: ffi_remote_attachment_info.content_digest,
             nonce: ffi_remote_attachment_info.nonce,
+            salt: ffi_remote_attachment_info.salt,
             scheme: ffi_remote_attachment_info.scheme,
             url: ffi_remote_attachment_info.url,
             filename: ffi_remote_attachment_info.filename,
@@ -2232,6 +2237,55 @@ impl From<RemoteAttachmentInfo> for FfiRemoteAttachmentInfo {
             scheme: remote_attachment_info.scheme,
             url: remote_attachment_info.url,
             filename: remote_attachment_info.filename,
+            salt: remote_attachment_info.salt,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiEncryptedEncodedContent {
+    pub content_digest: String,
+    pub nonce: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub content_length: Option<u32>,
+    pub filename: Option<String>,
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiMultiEncryptedAttachment {
+    pub secret: Vec<u8>,
+    pub encrypted_attachments: Vec<FfiEncryptedEncodedContent>,
+    pub num_attachments: Option<u32>,
+    pub max_attachment_content_length: Option<u32>,
+}
+
+impl From<FfiMultiEncryptedAttachment> for EncryptedMultiRemoteAttachmentPreUpload {
+    fn from(value: FfiMultiEncryptedAttachment) -> Self {
+        let secret = value.secret;
+        let attachments = value
+            .encrypted_attachments
+            .into_iter()
+            .map(|a| a.into_encrypted_encoded_content(secret.clone()))
+            .collect();
+
+        EncryptedMultiRemoteAttachmentPreUpload {
+            secret,
+            attachments,
+        }
+    }
+}
+
+impl FfiEncryptedEncodedContent {
+    pub fn into_encrypted_encoded_content(self, secret: Vec<u8>) -> EncryptedEncodedContent {
+        EncryptedEncodedContent {
+            content_digest: self.content_digest,
+            nonce: self.nonce,
+            payload: self.payload,
+            content_length: self.content_length,
+            filename: self.filename,
+            salt: self.salt,
+            secret,
         }
     }
 }
@@ -2239,17 +2293,70 @@ impl From<RemoteAttachmentInfo> for FfiRemoteAttachmentInfo {
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiMultiRemoteAttachment {
     pub secret: Vec<u8>,
-    pub salt: Vec<u8>,
     pub attachments: Vec<FfiRemoteAttachmentInfo>,
     pub num_attachments: Option<u32>,
     pub max_attachment_content_length: Option<u32>,
+}
+
+// Given an Vec of encoded content bytes, return a FfiMultiRemoteAttachmentPreUpload
+#[uniffi::export]
+pub fn encrypt_encoded_content_array(
+    encoded_content_bytes: Vec<Vec<u8>>,
+) -> Result<FfiMultiEncryptedAttachment, GenericError> {
+    let pre_upload = EncryptedMultiRemoteAttachmentPreUpload::try_from(encoded_content_bytes)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    Ok(pre_upload.into())
+}
+
+// Given a FfiMultiEncryptedAttachment, return a Vec of encoded content bytes
+#[uniffi::export]
+pub fn decrypt_multi_encrypted_attachment(
+    multi_encrypted_attachment: FfiMultiEncryptedAttachment,
+) -> Result<Vec<Vec<u8>>, GenericError> {
+    let multi_encrypted_attachment: EncryptedMultiRemoteAttachmentPreUpload =
+        multi_encrypted_attachment.into();
+    println!(
+        "GOT HERE!! => multi_encrypted_attachment: {:?}",
+        multi_encrypted_attachment.secret
+    );
+    let attachments = multi_encrypted_attachment
+        .try_into_bytes()
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+    Ok(attachments)
+}
+
+impl From<EncryptedMultiRemoteAttachmentPreUpload> for FfiMultiEncryptedAttachment {
+    fn from(pre_upload: EncryptedMultiRemoteAttachmentPreUpload) -> Self {
+        FfiMultiEncryptedAttachment {
+            secret: pre_upload.secret,
+            encrypted_attachments: pre_upload
+                .attachments
+                .into_iter()
+                .map(|a| a.into())
+                .collect(),
+            num_attachments: None,
+            max_attachment_content_length: None,
+        }
+    }
+}
+
+impl From<EncryptedEncodedContent> for FfiEncryptedEncodedContent {
+    fn from(encrypted_encoded_content: EncryptedEncodedContent) -> Self {
+        FfiEncryptedEncodedContent {
+            content_digest: encrypted_encoded_content.content_digest,
+            nonce: encrypted_encoded_content.nonce,
+            salt: encrypted_encoded_content.salt,
+            payload: encrypted_encoded_content.payload,
+            content_length: encrypted_encoded_content.content_length,
+            filename: encrypted_encoded_content.filename,
+        }
+    }
 }
 
 impl From<FfiMultiRemoteAttachment> for MultiRemoteAttachment {
     fn from(ffi_multi_remote_attachment: FfiMultiRemoteAttachment) -> Self {
         MultiRemoteAttachment {
             secret: ffi_multi_remote_attachment.secret,
-            salt: ffi_multi_remote_attachment.salt,
             attachments: ffi_multi_remote_attachment
                 .attachments
                 .into_iter()
@@ -2266,7 +2373,6 @@ impl From<MultiRemoteAttachment> for FfiMultiRemoteAttachment {
     fn from(multi_remote_attachment: MultiRemoteAttachment) -> Self {
         FfiMultiRemoteAttachment {
             secret: multi_remote_attachment.secret,
-            salt: multi_remote_attachment.salt,
             attachments: multi_remote_attachment
                 .attachments
                 .into_iter()
@@ -2521,14 +2627,15 @@ mod tests {
     };
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        decrypt_multi_encrypted_attachment, encode_multi_remote_attachment, encode_reaction,
+        encrypt_encoded_content_array, get_inbox_id_for_address, inbox_owner::SigningError,
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions, FfiDirection,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
+        FfiMetadataField, FfiMultiEncryptedAttachment, FfiMultiRemoteAttachment,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -6802,7 +6909,6 @@ mod tests {
         // Create a test attachment
         let original_attachment = FfiMultiRemoteAttachment {
             secret: vec![1, 2, 3],
-            salt: vec![4, 5, 6],
             num_attachments: Some(2),
             max_attachment_content_length: Some(1024),
             attachments: vec![
@@ -6810,6 +6916,7 @@ mod tests {
                     filename: "test1.jpg".to_string(),
                     content_digest: "123".to_string(),
                     nonce: vec![7, 8, 9],
+                    salt: vec![1, 2, 3],
                     scheme: "https".to_string(),
                     url: "https://example.com/test1.jpg".to_string(),
                 },
@@ -6817,6 +6924,7 @@ mod tests {
                     filename: "test2.pdf".to_string(),
                     content_digest: "456".to_string(),
                     nonce: vec![10, 11, 12],
+                    salt: vec![1, 2, 3],
                     scheme: "https".to_string(),
                     url: "https://example.com/test2.pdf".to_string(),
                 },
@@ -6833,7 +6941,6 @@ mod tests {
 
         // Verify the decoded attachment matches the original
         assert_eq!(decoded_attachment.secret, original_attachment.secret);
-        assert_eq!(decoded_attachment.salt, original_attachment.salt);
         assert_eq!(
             decoded_attachment.num_attachments,
             original_attachment.num_attachments
@@ -6859,5 +6966,36 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+
+    #[tokio::test]
+    async fn test_multi_remote_attachment_encrypt_decrypt() {
+        // The content of the remote attachment can be any Encoded Content
+        // lets encode some text encoded content as an example
+        let text_content_1 = TextCodec::encode("hello".to_string()).unwrap();
+        let text_content_2 = TextCodec::encode("world".to_string()).unwrap();
+
+        // Let's convert the encoded content to bytes, and send both in a Vec to be encrypted
+        let encoded_content_bytes = vec![
+            encoded_content_to_bytes(text_content_1),
+            encoded_content_to_bytes(text_content_2),
+        ];
+        let multi_encrypted_attachment: FfiMultiEncryptedAttachment =
+            encrypt_encoded_content_array(encoded_content_bytes).unwrap();
+
+        assert!(multi_encrypted_attachment.secret.len() > 0);
+        assert!(multi_encrypted_attachment.encrypted_attachments.len() == 2);
+
+        // Now let's decrypt the attachments
+        let decrypted_attachments =
+            decrypt_multi_encrypted_attachment(multi_encrypted_attachment).unwrap();
+        assert!(decrypted_attachments.len() == 2);
+
+        // Convert the decrypted attachments to encoded content
+        let decoded_content_1 = bytes_to_encoded_content(decrypted_attachments[0].clone());
+        let decoded_content_2 = bytes_to_encoded_content(decrypted_attachments[1].clone());
+
+        assert_eq!(TextCodec::decode(decoded_content_1).unwrap(), "hello");
+        assert_eq!(TextCodec::decode(decoded_content_2).unwrap(), "world");
     }
 }

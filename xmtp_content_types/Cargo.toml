@@ -11,6 +11,12 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing.workspace = true
+libsecp256k1 = { version = "0.7.1", default-features = false, features = [
+  "static-context",
+] }
+xmtp_v2 = { path = "../xmtp_v2" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+hex = { workspace = true }
 
 # XMTP/Local
 xmtp_common = { workspace = true }
