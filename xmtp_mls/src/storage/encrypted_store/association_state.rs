@@ -1,10 +1,8 @@
 use diesel::prelude::*;
 use prost::Message;
-use xmtp_id::{
-    associations::{AssociationState, DeserializationError},
-    InboxId,
-};
+use xmtp_id::{associations::AssociationState, InboxId};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
+use xmtp_proto::ConversionError;
 
 use super::{
     schema::association_state::{self, dsl},
@@ -25,7 +23,7 @@ impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
 impl TryFrom<StoredAssociationState> for AssociationState {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
         AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
@@ -68,18 +66,10 @@ impl StoredAssociationState {
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| {
-                stored_state
-                    .try_into()
-                    .map_err(|err: DeserializationError| {
-                        StorageError::Deserialization(format!(
-                            "Failed to deserialize stored association state: {err:?}"
-                        ))
-                    })
-            })
-            .transpose();
+            .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
+            .transpose()?;
 
-        if let Ok(Some(_)) = result {
+        if let Some(_) = result {
             tracing::debug!(
                 "Loaded association state from cache: {} {}",
                 inbox_id,
@@ -87,7 +77,7 @@ impl StoredAssociationState {
             );
         }
 
-        result
+        Ok(result)
     }
 
     pub fn batch_read_from_cache(
@@ -114,8 +104,8 @@ impl StoredAssociationState {
         association_states
             .into_iter()
             .map(|stored_association_state| stored_association_state.try_into())
-            .collect::<Result<Vec<AssociationState>, DeserializationError>>()
-            .map_err(|err| StorageError::Deserialization(err.to_string()))
+            .collect::<Result<Vec<AssociationState>, ConversionError>>()
+            .map_err(Into::into)
     }
 }
 

@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+ed25519-dalek.workspace = true
 futures = { workspace = true }
 hex.workspace = true
 openmls_rust_crypto = { workspace = true, optional = true }

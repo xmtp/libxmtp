@@ -7620,6 +7620,7 @@ name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "ed25519-dalek",
  "futures",
  "hex",
  "openmls",

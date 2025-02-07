@@ -22,6 +22,12 @@ pub struct ApiError {
     inner: Box<dyn XmtpApiError>,
 }
 
+impl RetryableError for ApiError {
+    fn is_retryable(&self) -> bool {
+        self.inner.is_retryable()
+    }
+}
+
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
@@ -36,18 +42,7 @@ where
         Self { inner: Box::new(v) }
     }
 }
-/*
-impl<E, T> From<E> for T
-where
-    E: XmtpApiError + std::error::Error + std::fmt::Display + std::fmt::Debug + 'static,
-    T: From<ApiError>,
-{
-    fn from(v: E) -> T {
-        let api = ApiError { inner: Box::new(v) };
-        T::from(api)
-    }
-}
-*/
+
 // GRPC Error Code
 pub enum Code {
     /// The operation completed successfully.
@@ -177,6 +172,39 @@ impl std::fmt::Display for ApiEndpoint {
             PublishEnvelopes => write!(f, "publish_envelopes"),
         }
     }
+}
+
+/// General Error types for use when converting/deserializing From/To Protos
+/// Loosely Modeled after serdes [error](https://docs.rs/serde/latest/serde/de/value/struct.Error.html) type.
+/// This general error type avoid circular hard-dependencies on crates further up the tree
+/// (xmtp_id/xmtp_mls) if they had defined the error themselves.
+#[derive(thiserror::Error, Debug)]
+pub enum ConversionError {
+    #[error("missing field {} of type {} during conversion from protobuf", .item, .r#type)]
+    Missing {
+        item: &'static str,
+        r#type: &'static str,
+    },
+    #[error("type {} has invalid length. expected {} got {}", .item, .expected, .got)]
+    InvalidLength {
+        item: &'static str,
+        expected: usize,
+        got: usize,
+    },
+    #[error("type {} invalid. expected {}, got {}", .item, .expected, .got)]
+    InvalidValue {
+        /// the item being converted
+        item: &'static str,
+        /// description of the item expected, i.e 'a negative integer'
+        expected: &'static str,
+        /// description of the value received i.e 'a positive integer'
+        got: &'static str,
+    },
+    #[error("decoding proto {0}")]
+    Decode(#[from] prost::DecodeError),
+    // we keep Ed signature bytes on ProtoBuf definitions
+    #[error(transparent)]
+    EdSignature(#[from] ed25519_dalek::ed25519::Error),
 }
 
 /// Error resulting from proto conversions/mutations

@@ -17,8 +17,8 @@ use crate::{
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
-use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_api::GroupFilter;
+use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
@@ -253,7 +253,10 @@ where
         let mut drained = VecDeque::new();
         let mut this = self.as_mut().project();
         while let Poll::Ready(msg) = this.inner.as_mut().poll_next(cx) {
-            drained.push_back(msg.map(|v| v.map_err(SubscribeError::from)));
+            drained.push_back(msg.map(|v| {
+                v.map_err(xmtp_proto::ApiError::from)
+                    .map_err(SubscribeError::from)
+            }));
         }
         drained
     }
@@ -282,7 +285,10 @@ where
                     return self.try_update_state(cx);
                 }
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
-                    let future = ProcessMessageFuture::new(*this.client, envelope?)?;
+                    let future = ProcessMessageFuture::new(
+                        *this.client,
+                        envelope.map_err(xmtp_proto::ApiError::from)?,
+                    )?;
                     let future = future.process();
                     this.state.set(State::Processing {
                         future: FutureWrapper::new(future),

@@ -1,5 +1,3 @@
-use std::sync::PoisonError;
-
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
@@ -22,18 +20,12 @@ pub enum StorageError {
     Pool(#[from] diesel::r2d2::PoolError),
     #[error("Error with connection to Sqlite {0}")]
     DbConnection(#[from] diesel::r2d2::Error),
-    #[error("incorrect encryptionkey or file is not a database: {0}")]
-    DbInit(String),
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
-    #[error("serialization error")]
-    Serialization(String),
-    #[error("deserialization error")]
-    Deserialization(String),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     NotFound(#[from] NotFound),
-    #[error("lock {0}")]
-    Lock(String),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
     #[error(transparent)]
@@ -54,6 +46,10 @@ pub enum StorageError {
     Generic(String),
     #[error("Transaction was intentionally rolled back")]
     IntentionalRollback,
+    #[error("failed to deserialize from db")]
+    DbDeserialize,
+    #[error("failed to serialize from db")]
+    DbSerialize,
 }
 
 #[derive(Error, Debug)]
@@ -104,12 +100,6 @@ impl RetryableError for DuplicateItem {
     }
 }
 
-impl<T> From<PoisonError<T>> for StorageError {
-    fn from(_: PoisonError<T>) -> Self {
-        StorageError::Lock("Lock poisoned".into())
-    }
-}
-
 impl RetryableError<Mls> for diesel::result::Error {
     fn is_retryable(&self) -> bool {
         use diesel::result::Error::*;
@@ -134,7 +124,6 @@ impl RetryableError for StorageError {
             Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Pool(_) => true,
-            Self::Lock(_) => true,
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,

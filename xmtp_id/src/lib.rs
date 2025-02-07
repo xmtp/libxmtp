@@ -39,8 +39,9 @@ pub type InboxId = String;
 
 pub type WalletAddress = String;
 
-use crate::associations::{unverified::UnverifiedIdentityUpdate, DeserializationError};
+use crate::associations::unverified::UnverifiedIdentityUpdate;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::ConversionError;
 
 #[derive(Clone)]
 pub struct InboxUpdate {
@@ -50,7 +51,7 @@ pub struct InboxUpdate {
 }
 
 impl TryFrom<IdentityUpdateLog> for InboxUpdate {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(update: IdentityUpdateLog) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -58,7 +59,10 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
             server_timestamp_ns: update.server_timestamp_ns,
             update: update
                 .update
-                .ok_or(DeserializationError::MissingUpdate)?
+                .ok_or(ConversionError::Missing {
+                    item: "update",
+                    r#type: std::any::type_name::<IdentityUpdateLog>(),
+                })?
                 // TODO: Figure out what to do with requests that don't deserialize correctly. Maybe we want to just filter them out?,
                 .try_into()?,
         })

@@ -7,8 +7,8 @@ use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
-    GetInboxIdsRequest, PublishIdentityUpdateRequest,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
 };
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
@@ -60,38 +60,38 @@ where
     pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<impl Iterator<Item = Result<(String, Vec<T>)>>>
+    ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
     where
         T: TryFrom<IdentityUpdateLog>,
         Error: From<<T as TryFrom<IdentityUpdateLog>>::Error>,
     {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>> =
-            try_join_all(chunks.map(|chunk| async move {
-                let result = self
-                    .api_client
+        Ok(try_join_all(chunks.map(|chunk| async move {
+            Ok::<_, Error>(
+                self.api_client
                     .get_identity_updates_v2(GetIdentityUpdatesV2Request {
                         requests: chunk.iter().map(|filter| filter.into()).collect(),
                     })
                     .await
-                    .map_err(ApiError::from)?;
-
-                Ok(result)
-            }))
-            .await;
-
-        Ok(chunked_results?.into_iter().flat_map(|response| {
-            response.responses.into_iter().map(|item| {
-                let deserialized_updates = item
-                    .updates
+                    .map_err(ApiError::from)?
+                    .responses
                     .into_iter()
-                    .map(|update| update.try_into().map_err(Error::from))
-                    .collect::<Result<Vec<T>>>()?;
-
-                Ok((item.inbox_id, deserialized_updates))
-            })
+                    .flat_map(|item| {
+                        item.updates.into_iter().map(move |update| {
+                            update
+                                .try_into()
+                                .map(|u| (item.inbox_id.clone(), u))
+                                .map_err(Error::from)
+                        })
+                    }),
+            )
         }))
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Result<(String, Vec<T>)>>()
+        .into_iter())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

@@ -29,6 +29,8 @@ pub enum Error {
         key_packages: usize,
         installation_keys: usize,
     },
+    #[error(transparent)]
+    ProtoConversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl RetryableError for Error {

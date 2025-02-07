@@ -158,7 +158,9 @@ where
         .set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())
         .map_err(xmtp_proto::ApiError::from)?;
     if let Some(app_version) = app_version {
-        api_client.set_app_version(app_version.to_string())?;
+        api_client
+            .set_app_version(app_version.to_string())
+            .map_err(xmtp_proto::ApiError::from)?;
     }
     let api = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
     Ok((builder, api))
