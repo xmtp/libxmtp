@@ -165,8 +165,11 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
+        use crate::utils::HISTORY_SYNC_URL;
+
         let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix =
+            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
 
         let bo_wallet = generate_local_wallet();
@@ -192,14 +195,14 @@ mod tests {
             .conn_ref()
             .raw_query_read(|conn| groups::table.load(conn))
             .unwrap();
-        assert_eq!(groups.len(), 1);
+        assert_eq!(groups.len(), 2);
         let old_group = groups.pop().unwrap();
 
         let old_messages: Vec<StoredGroupMessage> = alix_provider
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
-        assert_eq!(old_messages.len(), 2);
+        assert_eq!(old_messages.len(), 6);
 
         let opts = BackupOptions {
             start_ns: None,
@@ -212,7 +215,7 @@ mod tests {
 
         let key = vec![7; 32];
         let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
-        let path = Path::new("archive.zstd");
+        let path = Path::new("archive.xmtp");
         let _ = std::fs::remove_file(path);
         exporter.write_to_file(path).await.unwrap();
 
