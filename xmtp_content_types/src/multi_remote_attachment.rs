@@ -43,7 +43,6 @@ impl ContentCodec<MultiRemoteAttachment> for MultiRemoteAttachmentCodec {
 
         Ok(decoded)
     }
-    
 }
 
 #[cfg(test)]
@@ -86,7 +85,10 @@ pub(crate) mod tests {
         };
 
         let encoded = MultiRemoteAttachmentCodec::encode(new_multi_remote_attachment_data).unwrap();
-        assert_eq!(encoded.clone().r#type.unwrap().type_id, "multiRemoteStaticAttachment");
+        assert_eq!(
+            encoded.clone().r#type.unwrap().type_id,
+            "multiRemoteStaticAttachment"
+        );
         assert!(!encoded.content.is_empty());
 
         let decoded = MultiRemoteAttachmentCodec::decode(encoded).unwrap();

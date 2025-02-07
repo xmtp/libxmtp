@@ -5,6 +5,7 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
@@ -54,7 +55,9 @@ use xmtp_mls::{
     AbortHandle, GenericStreamHandle, StreamHandle,
 };
 use xmtp_proto::xmtp::device_sync::BackupElementSelection;
-use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+use xmtp_proto::xmtp::mls::message_contents::content_types::{
+    MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
+};
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
@@ -2200,6 +2203,115 @@ impl From<FfiReactionSchema> for i32 {
     }
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiRemoteAttachmentInfo {
+    pub content_digest: String,
+    pub nonce: Vec<u8>,
+    pub scheme: String,
+    pub url: String,
+    pub filename: String,
+}
+
+impl From<FfiRemoteAttachmentInfo> for RemoteAttachmentInfo {
+    fn from(ffi_remote_attachment_info: FfiRemoteAttachmentInfo) -> Self {
+        RemoteAttachmentInfo {
+            content_digest: ffi_remote_attachment_info.content_digest,
+            nonce: ffi_remote_attachment_info.nonce,
+            scheme: ffi_remote_attachment_info.scheme,
+            url: ffi_remote_attachment_info.url,
+            filename: ffi_remote_attachment_info.filename,
+        }
+    }
+}
+
+impl From<RemoteAttachmentInfo> for FfiRemoteAttachmentInfo {
+    fn from(remote_attachment_info: RemoteAttachmentInfo) -> Self {
+        FfiRemoteAttachmentInfo {
+            content_digest: remote_attachment_info.content_digest,
+            nonce: remote_attachment_info.nonce,
+            scheme: remote_attachment_info.scheme,
+            url: remote_attachment_info.url,
+            filename: remote_attachment_info.filename,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiMultiRemoteAttachment {
+    pub secret: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub attachments: Vec<FfiRemoteAttachmentInfo>,
+    pub num_attachments: Option<u32>,
+    pub max_attachment_content_length: Option<u32>,
+}
+
+impl From<FfiMultiRemoteAttachment> for MultiRemoteAttachment {
+    fn from(ffi_multi_remote_attachment: FfiMultiRemoteAttachment) -> Self {
+        MultiRemoteAttachment {
+            secret: ffi_multi_remote_attachment.secret,
+            salt: ffi_multi_remote_attachment.salt,
+            attachments: ffi_multi_remote_attachment
+                .attachments
+                .into_iter()
+                .map(|a| a.into())
+                .collect(),
+            num_attachments: ffi_multi_remote_attachment.num_attachments,
+            max_attachment_content_length: ffi_multi_remote_attachment
+                .max_attachment_content_length,
+        }
+    }
+}
+
+impl From<MultiRemoteAttachment> for FfiMultiRemoteAttachment {
+    fn from(multi_remote_attachment: MultiRemoteAttachment) -> Self {
+        FfiMultiRemoteAttachment {
+            secret: multi_remote_attachment.secret,
+            salt: multi_remote_attachment.salt,
+            attachments: multi_remote_attachment
+                .attachments
+                .into_iter()
+                .map(|a| a.into())
+                .collect(),
+            num_attachments: multi_remote_attachment.num_attachments,
+            max_attachment_content_length: multi_remote_attachment.max_attachment_content_length,
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_multi_remote_attachment(
+    ffi_multi_remote_attachment: FfiMultiRemoteAttachment,
+) -> Result<Vec<u8>, GenericError> {
+    // Convert FfiMultiRemoteAttachment to MultiRemoteAttachment
+    let multi_remote_attachment: MultiRemoteAttachment = ffi_multi_remote_attachment.into();
+
+    // Use MultiRemoteAttachmentCodec to encode the reaction
+    let encoded = MultiRemoteAttachmentCodec::encode(multi_remote_attachment)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Encode the EncodedContent to bytes
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_multi_remote_attachment(
+    bytes: Vec<u8>,
+) -> Result<FfiMultiRemoteAttachment, GenericError> {
+    // Decode bytes into EncodedContent
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Use MultiRemoteAttachmentCodec to decode into MultiRemoteAttachment and convert to FfiMultiRemoteAttachment
+    MultiRemoteAttachmentCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -2408,14 +2520,15 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, decode_reaction, encode_reaction, get_inbox_id_for_address,
+        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
+        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
         inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
         FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
-        FfiSubscribeError,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -6682,5 +6795,69 @@ mod tests {
 
         // Clean up stream
         stream.end_and_wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multi_remote_attachment_encode_decode() {
+        // Create a test attachment
+        let original_attachment = FfiMultiRemoteAttachment {
+            secret: vec![1, 2, 3],
+            salt: vec![4, 5, 6],
+            num_attachments: Some(2),
+            max_attachment_content_length: Some(1024),
+            attachments: vec![
+                FfiRemoteAttachmentInfo {
+                    filename: "test1.jpg".to_string(),
+                    content_digest: "123".to_string(),
+                    nonce: vec![7, 8, 9],
+                    scheme: "https".to_string(),
+                    url: "https://example.com/test1.jpg".to_string(),
+                },
+                FfiRemoteAttachmentInfo {
+                    filename: "test2.pdf".to_string(),
+                    content_digest: "456".to_string(),
+                    nonce: vec![10, 11, 12],
+                    scheme: "https".to_string(),
+                    url: "https://example.com/test2.pdf".to_string(),
+                },
+            ],
+        };
+
+        // Encode the attachment
+        let encoded_bytes = encode_multi_remote_attachment(original_attachment.clone())
+            .expect("Should encode multi remote attachment successfully");
+
+        // Decode the attachment
+        let decoded_attachment = decode_multi_remote_attachment(encoded_bytes)
+            .expect("Should decode multi remote attachment successfully");
+
+        // Verify the decoded attachment matches the original
+        assert_eq!(decoded_attachment.secret, original_attachment.secret);
+        assert_eq!(decoded_attachment.salt, original_attachment.salt);
+        assert_eq!(
+            decoded_attachment.num_attachments,
+            original_attachment.num_attachments
+        );
+        assert_eq!(
+            decoded_attachment.max_attachment_content_length,
+            original_attachment.max_attachment_content_length
+        );
+
+        assert_eq!(
+            decoded_attachment.attachments.len(),
+            original_attachment.attachments.len()
+        );
+
+        for (decoded, original) in decoded_attachment
+            .attachments
+            .iter()
+            .zip(original_attachment.attachments.iter())
+        {
+            assert_eq!(decoded.filename, original.filename);
+            assert_eq!(decoded.content_digest, original.content_digest);
+            assert_eq!(decoded.nonce, original.nonce);
+            assert_eq!(decoded.scheme, original.scheme);
+            assert_eq!(decoded.url, original.url);
+        }
     }
 }
