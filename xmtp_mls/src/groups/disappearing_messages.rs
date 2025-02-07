@@ -7,8 +7,19 @@ use tokio::sync::OnceCell;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
-/// Restart the DisappearingMessagesCleanerWorker every 1 sec to delete the expired messages
+#[cfg(target_arch = "wasm32")]
+use futures::stream::StreamExt;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::Interval;
+
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::time;
+
+/// Duration to wait before restarting the worker in case of an error.
 pub const WORKER_RESTART_DELAY: Duration = Duration::from_secs(1);
+
+/// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Error)]
 pub enum DisappearingMessagesCleanerError {
@@ -80,9 +91,22 @@ where
         Ok(())
     }
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        if let Err(err) = self.delete_expired_messages().await {
-            tracing::error!("Error during deletion of expired messages: {:?}", err);
+        #[cfg(target_arch = "wasm32")]
+        let mut interval = Interval::new(INTERVAL_DURATION.as_millis() as u32);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut interval = time::interval(INTERVAL_DURATION);
+
+        loop {
+            #[cfg(target_arch = "wasm32")]
+            interval.next().await;
+
+            #[cfg(not(target_arch = "wasm32"))]
+            interval.tick().await;
+
+            if let Err(err) = self.delete_expired_messages().await {
+                tracing::error!("Error during deletion of expired messages: {:?}", err);
+            }
         }
-        Ok(())
     }
 }

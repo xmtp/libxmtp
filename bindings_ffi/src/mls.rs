@@ -5080,10 +5080,6 @@ mod tests {
             .unwrap();
         let msg_counts_before_cleanup = alix_messages.len();
 
-        // Step 7: Start cleanup worker and delete expired messages
-        alix.inner_client
-            .start_disappearing_messages_cleaner_worker();
-
         // Wait for cleanup to complete
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
