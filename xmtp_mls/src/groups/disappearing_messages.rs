@@ -4,16 +4,9 @@ use crate::Client;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use xmtp_common::time::Interval;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-
-#[cfg(target_arch = "wasm32")]
-use futures::stream::StreamExt;
-#[cfg(target_arch = "wasm32")]
-use gloo_timers::callback::Interval;
-
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::time;
 
 /// Duration to wait before restarting the worker in case of an error.
 pub const WORKER_RESTART_DELAY: Duration = Duration::from_secs(1);
@@ -86,20 +79,11 @@ where
         Ok(())
     }
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        #[cfg(target_arch = "wasm32")]
-        let mut interval = Interval::new(INTERVAL_DURATION.as_millis() as u32);
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut interval = time::interval(INTERVAL_DURATION);
+        let mut interval = Interval::new(INTERVAL_DURATION);
 
         loop {
-            #[cfg(target_arch = "wasm32")]
-            interval.next().await;
-
-            #[cfg(not(target_arch = "wasm32"))]
             interval.tick().await;
-
-            self.delete_expired_messages().await?
+            self.delete_expired_messages().await?;
         }
     }
 }
