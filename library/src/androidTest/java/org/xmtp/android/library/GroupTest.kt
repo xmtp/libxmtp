@@ -936,7 +936,6 @@ class GroupTest {
         val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
         val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
-        runBlocking { assertEquals(alixGroup.consentState(), ConsentState.ALLOWED) }
         assertEquals(runBlocking { alixGroup.messages() }.size, 1)
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
@@ -951,7 +950,7 @@ class GroupTest {
             alixGroup.publishMessages()
             alixGroup.sync()
         }
-
+        runBlocking { assertEquals(alixGroup.consentState(), ConsentState.ALLOWED) }
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
             1

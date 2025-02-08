@@ -1197,6 +1197,8 @@ internal open class UniffiVTableCallbackInterfaceFfiV2SubscriptionCallback(
 
 
 
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1279,6 +1281,8 @@ internal interface UniffiLib : Library {
     fun uniffi_xmtpv3_fn_method_fficonversation_is_active(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_xmtpv3_fn_method_fficonversation_is_admin(`ptr`: Pointer,`inboxId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_xmtpv3_fn_method_fficonversation_is_conversation_message_disappearing_enabled(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_xmtpv3_fn_method_fficonversation_is_super_admin(`ptr`: Pointer,`inboxId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
@@ -1784,6 +1788,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_method_fficonversation_is_admin(
     ): Short
+    fun uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled(
+    ): Short
     fun uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin(
     ): Short
     fun uniffi_xmtpv3_checksum_method_fficonversation_list_members(
@@ -2134,6 +2140,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 12325.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled() != 13756.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 25811.toShort()) {
@@ -3280,6 +3289,8 @@ public interface FfiConversationInterface {
     
     fun `isAdmin`(`inboxId`: kotlin.String): kotlin.Boolean
     
+    fun `isConversationMessageDisappearingEnabled`(): kotlin.Boolean
+    
     fun `isSuperAdmin`(`inboxId`: kotlin.String): kotlin.Boolean
     
     suspend fun `listMembers`(): List<FfiConversationMember>
@@ -3764,6 +3775,19 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface 
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_is_admin(
         it, FfiConverterString.lower(`inboxId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(GenericException::class)override fun `isConversationMessageDisappearingEnabled`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_is_conversation_message_disappearing_enabled(
+        it, _status)
 }
     }
     )
