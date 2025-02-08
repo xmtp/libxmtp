@@ -945,9 +945,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(isGroupAllowed, .unknown)
 		let preparedMessageId = try await alixGroup.prepareMessage(
 			content: "Test text")
-		let isGroupAllowed2 = try await fixtures.alixClient.preferences
-			.conversationState(conversationId: boGroup.id)
-		XCTAssertEqual(isGroupAllowed2, .allowed)
+
 		let messageCount = try await alixGroup.messages().count
 		XCTAssertEqual(messageCount, 1)
 		let messageCountPublished = try await alixGroup.messages(
@@ -961,6 +959,9 @@ class GroupTests: XCTestCase {
 
 		_ = try await alixGroup.publishMessages()
 		try await alixGroup.sync()
+		let isGroupAllowed2 = try await fixtures.alixClient.preferences
+			.conversationState(conversationId: boGroup.id)
+		XCTAssertEqual(isGroupAllowed2, .allowed)
 
 		let messageCountPublished2 = try await alixGroup.messages(
 			deliveryStatus: .published
