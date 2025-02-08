@@ -354,8 +354,8 @@ pub mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use super::super::test_utils::*;
-    use super::super::*;
+    use crate::test_utils::*;
+    use crate::*;
 
     use crate::test_utils::MockError;
     use xmtp_proto::xmtp::mls::api::v1::{
@@ -383,7 +383,7 @@ pub mod tests {
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper.upload_key_package(key_package_clone, false).await;
         assert!(result.is_ok());
     }
@@ -406,7 +406,7 @@ pub mod tests {
                 ],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
             .fetch_key_packages(installation_keys.clone())
             .await
@@ -444,7 +444,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -476,7 +476,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -527,7 +527,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone2, None)
@@ -561,7 +561,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -602,11 +602,17 @@ pub mod tests {
                 })
             });
         let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
             .duration(std::time::Duration::from_secs(1))
             .build();
         let wrapper = ApiClientWrapper::new(
             mock_api.into(),
-            Retry::builder().with_strategy(strategy).build(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
         );
 
         let result = wrapper
@@ -616,6 +622,76 @@ pub mod tests {
         let failed = time_failure.lock().unwrap().unwrap();
         let success = time_success.lock().unwrap().unwrap();
         assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
+        assert_eq!(result.len(), 50);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_exponentially_increases_the_cooldown() {
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+        let group_id_clone = group_id.clone();
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_failure2 = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(None));
+
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let f = time_failure2.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = s.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            });
+
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(1))
+            .multiplier(4)
+            .build();
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
+        );
+
+        let result = wrapper
+            .query_group_messages(group_id_clone, None)
+            .await
+            .unwrap();
+        let failed = time_failure.lock().unwrap().unwrap();
+        let failed2 = time_failure2.lock().unwrap().unwrap();
+        let success = time_success.lock().unwrap().unwrap();
+        assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
+        assert!((failed2.elapsed() - success.elapsed()) > std::time::Duration::from_secs(4));
         assert_eq!(result.len(), 50);
     }
 }

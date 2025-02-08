@@ -25,7 +25,13 @@ use xmtp_proto::{
 #[cfg(target_arch = "wasm32")]
 use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
+use xmtp_common::{ExponentialBackoff, Retry, RetryBuilder};
 use xmtp_proto::api_client::XmtpTestClient;
+
+pub fn exponential() -> RetryBuilder<ExponentialBackoff, ExponentialBackoff> {
+    let e = ExponentialBackoff::default();
+    Retry::builder().with_strategy(e.clone()).with_cooldown(e)
+}
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
     let mut out: Vec<GroupMessage> = vec![];
@@ -66,6 +72,10 @@ impl xmtp_proto::XmtpApiError for MockError {
 impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         true
+    }
+
+    fn needs_cooldown(&self) -> bool {
+        matches!(self, MockError::RateLimit)
     }
 }
 

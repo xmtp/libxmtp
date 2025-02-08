@@ -30,8 +30,34 @@ pub struct NotSpecialized;
 /// All Errors are not retryable by-default.
 pub trait RetryableError<SP = NotSpecialized>: std::error::Error {
     fn is_retryable(&self) -> bool;
+
+    /// If the global scope this `Retry` operates in needs to be
+    /// backed off on an error (e.g. a Rate Limit) this should return `true`
     fn needs_cooldown(&self) -> bool {
         false
+    }
+}
+
+impl<T> RetryableError for &'_ T
+where
+    T: RetryableError,
+{
+    fn is_retryable(&self) -> bool {
+        (**self).is_retryable()
+    }
+
+    fn needs_cooldown(&self) -> bool {
+        (**self).needs_cooldown()
+    }
+}
+
+impl<E: RetryableError> RetryableError for Box<E> {
+    fn is_retryable(&self) -> bool {
+        (**self).is_retryable()
+    }
+
+    fn needs_cooldown(&self) -> bool {
+        (**self).needs_cooldown()
     }
 }
 
@@ -42,10 +68,14 @@ pub struct Retry<S = ExponentialBackoff, C = ()> {
     strategy: S,
     /// global cooldown for this retry strategy
     cooldown: C,
-    // If Some, the time we started cooling down
+    /// whether we are currently in a cooldown period
     is_cooling: Arc<AtomicBool>,
+    /// since when have we been cooling
     cooling_since: Arc<ArcSwap<crate::time::Instant>>,
+    /// how many consecutive cooldown attempts
     cooldown_attempts: Arc<AtomicUsize>,
+    /// the last error we got before cooling down
+    last_err: Arc<AtomicBool>,
 }
 
 impl Default for Retry {
@@ -57,6 +87,8 @@ impl Default for Retry {
             cooling_since: Arc::new(ArcSwap::from_pointee(Instant::now())),
             is_cooling: Arc::new(AtomicBool::new(false)),
             cooldown_attempts: Arc::new(AtomicUsize::new(0usize)),
+            // whether the last error was a cooldown error
+            last_err: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -74,7 +106,7 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
     pub async fn cooldown(&self) {
         if self.is_cooling.load(Ordering::SeqCst) {
             if let Some(c) = self.cooldown.backoff(
-                self.cooldown_attempts.fetch_add(1, Ordering::SeqCst),
+                self.cooldown_attempts.load(Ordering::SeqCst),
                 **self.cooling_since.load(),
             ) {
                 crate::time::sleep(c.saturating_sub(self.cooling_since.load().elapsed())).await;
@@ -94,6 +126,27 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
 
     fn cooldown_off(&self) {
         self.is_cooling.store(false, Ordering::SeqCst);
+        if self.last_err.load(Ordering::SeqCst) {}
+    }
+
+    pub fn last_err(&self, err: impl RetryableError) {
+        if !self.is_cooling.load(Ordering::SeqCst) {
+            self.last_err.store(err.needs_cooldown(), Ordering::SeqCst)
+        }
+    }
+}
+
+impl<S: Strategy + 'static, C: Strategy + 'static> Retry<S, C> {
+    pub fn boxed(self) -> Retry<Box<dyn Strategy>, Box<dyn Strategy>> {
+        Retry {
+            strategy: Box::new(self.strategy),
+            cooldown: Box::new(self.cooldown),
+            retries: self.retries,
+            is_cooling: self.is_cooling,
+            cooling_since: self.cooling_since,
+            cooldown_attempts: self.cooldown_attempts,
+            last_err: self.last_err,
+        }
     }
 }
 
@@ -108,6 +161,12 @@ pub trait Strategy {
 impl Strategy for () {
     fn backoff(&self, _attempts: usize, _time_spent: crate::time::Instant) -> Option<Duration> {
         Some(Duration::ZERO)
+    }
+}
+
+impl<S: ?Sized + Strategy> Strategy for Box<S> {
+    fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
+        (**self).backoff(attempts, time_spent)
     }
 }
 
@@ -148,6 +207,7 @@ impl Default for ExponentialBackoff {
 pub struct ExponentialBackoffBuilder {
     duration: Option<Duration>,
     max_jitter: Option<Duration>,
+    multiplier: Option<u32>,
 }
 
 impl ExponentialBackoffBuilder {
@@ -161,10 +221,16 @@ impl ExponentialBackoffBuilder {
         self
     }
 
+    pub fn multiplier(mut self, multiplier: u32) -> Self {
+        self.multiplier = Some(multiplier);
+        self
+    }
+
     pub fn build(self) -> ExponentialBackoff {
         ExponentialBackoff {
             duration: self.duration.unwrap_or(Duration::from_millis(25)),
             max_jitter: self.max_jitter.unwrap_or(Duration::from_millis(25)),
+            multiplier: self.multiplier.unwrap_or(3),
             ..Default::default()
         }
     }
@@ -176,7 +242,7 @@ impl Strategy for ExponentialBackoff {
             return None;
         }
         let mut duration = self.duration;
-        for _ in 0..attempts - 1 {
+        for _ in 0..attempts.saturating_sub(1) {
             duration *= self.multiplier;
             if duration > self.individual_wait_max {
                 duration = self.individual_wait_max;
@@ -190,7 +256,7 @@ impl Strategy for ExponentialBackoff {
 }
 
 /// Builder for [`Retry`]
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct RetryBuilder<S, C> {
     retries: Option<usize>,
     strategy: S,
@@ -227,6 +293,7 @@ impl<S: Strategy, C: Strategy> RetryBuilder<S, C> {
             cooling_since: Arc::new(ArcSwap::from_pointee(Instant::now())),
             is_cooling: Arc::new(AtomicBool::new(false)),
             cooldown_attempts: Arc::new(AtomicUsize::new(0)),
+            last_err: Arc::new(AtomicBool::new(false)),
         };
 
         if let Some(retries) = self.retries {
@@ -250,6 +317,13 @@ impl<S: Strategy, C: Strategy> RetryBuilder<S, C> {
         }
     }
 
+    /// Choose a cooldown strategy.
+    /// the Cooldown strategy is independant of the retry strategy.
+    /// The cooldown strategy additionally operates over the entire scope
+    /// of `Retry`.
+    /// This means any retry!() blocks using the same `Retry` strategy
+    /// would also be paused for the duration of the cooldown backoff.
+    /// By default this strategy resolves immediately (there is no cooldown period.)
     pub fn with_cooldown<Cd>(self, cooldown: Cd) -> RetryBuilder<S, Cd> {
         RetryBuilder {
             retries: self.retries,
@@ -325,7 +399,9 @@ macro_rules! retry_async {
             match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
+                    $retry.last_err(&e);
                     if (&e).needs_cooldown() {
+                        tracing::warn!("Hit {}, cooling down", e);
                         $retry.toggle_cooldown();
                     }
                     $retry.cooldown().await;

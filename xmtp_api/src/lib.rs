@@ -7,7 +7,7 @@ pub mod test_utils;
 
 use std::sync::Arc;
 
-use xmtp_common::{Retry, RetryableError};
+use xmtp_common::{ExponentialBackoff, Retry, RetryableError};
 pub use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::ApiError;
 
@@ -50,7 +50,7 @@ impl RetryableError for Error {
 pub struct ApiClientWrapper<ApiClient> {
     // todo: this should be private to impl
     pub api_client: Arc<ApiClient>,
-    pub(crate) retry_strategy: Retry,
+    pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff, ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
 }
 
@@ -58,10 +58,13 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub fn new(api_client: Arc<ApiClient>, retry_strategy: Retry) -> Self {
+    pub fn new(
+        api_client: Arc<ApiClient>,
+        retry_strategy: Retry<ExponentialBackoff, ExponentialBackoff>,
+    ) -> Self {
         Self {
             api_client,
-            retry_strategy,
+            retry_strategy: retry_strategy.into(),
             inbox_id: None,
         }
     }
@@ -70,5 +73,15 @@ where
     /// Attaches an inbox_id context to tracing logs, useful for debugging
     pub fn attach_inbox_id(&mut self, inbox_id: Option<String>) {
         self.inbox_id = inbox_id;
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        xmtp_common::logger();
     }
 }
