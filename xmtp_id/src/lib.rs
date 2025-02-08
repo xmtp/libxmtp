@@ -63,7 +63,6 @@ impl TryFrom<IdentityUpdateLog> for InboxUpdate {
                     item: "update",
                     r#type: std::any::type_name::<IdentityUpdateLog>(),
                 })?
-                // TODO: Figure out what to do with requests that don't deserialize correctly. Maybe we want to just filter them out?,
                 .try_into()?,
         })
     }

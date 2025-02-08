@@ -47,6 +47,8 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
 pub enum MockError {
     #[error("MockQuery Error")]
     MockQuery,
+    #[error("Mock Rate Limit")]
+    RateLimit,
 }
 
 impl xmtp_proto::XmtpApiError for MockError {

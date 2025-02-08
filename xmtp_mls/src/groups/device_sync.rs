@@ -30,8 +30,11 @@ use std::pin::Pin;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
-use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
+use xmtp_common::{
+    time::{now_ns, Duration},
+    ExponentialBackoff,
+};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -336,10 +339,10 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     fn new(client: Client<ApiClient, V>) -> Self {
-        let retry = Retry::builder()
-            .retries(5)
+        let strategy = ExponentialBackoff::builder()
             .duration(Duration::from_millis(20))
             .build();
+        let retry = Retry::builder().retries(5).with_strategy(strategy).build();
 
         let receiver = client.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());

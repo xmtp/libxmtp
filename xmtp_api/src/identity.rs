@@ -142,6 +142,7 @@ pub(crate) mod tests {
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
     use crate::ApiClientWrapper;
+    use std::collections::HashMap;
     use xmtp_common::{rand_hexstring, Retry};
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::api::v1::{
@@ -181,6 +182,18 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_identity_update_v2() {
+        pub struct InboxIdentityUpdate {
+            inbox_id: String,
+        }
+        impl TryFrom<IdentityUpdateLog> for InboxIdentityUpdate {
+            type Error = crate::Error;
+            fn try_from(v: IdentityUpdateLog) -> Result<InboxIdentityUpdate, Self::Error> {
+                Ok(InboxIdentityUpdate {
+                    inbox_id: v.update.unwrap().inbox_id,
+                })
+            }
+        }
+
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_hexstring();
         let inbox_id_clone = inbox_id.clone();
@@ -209,7 +222,8 @@ pub(crate) mod tests {
                 sequence_id: None,
             }])
             .await
-            .expect("should work");
+            .expect("should work")
+            .collect::<HashMap<_, Vec<InboxIdentityUpdate>>>();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result.get(&inbox_id_clone_2).unwrap().len(), 1);
@@ -219,7 +233,6 @@ pub(crate) mod tests {
                 .unwrap()
                 .first()
                 .unwrap()
-                .update
                 .inbox_id,
             inbox_id_clone_2
         );

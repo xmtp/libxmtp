@@ -363,6 +363,8 @@ pub mod tests {
         QueryGroupMessagesResponse,
     };
 
+    use std::sync::{Arc, Mutex};
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
     async fn test_upload_key_package() {
@@ -565,6 +567,55 @@ pub mod tests {
             .query_group_messages(group_id_clone, None)
             .await
             .unwrap();
+        assert_eq!(result.len(), 50);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_cools_down_then_succeeds() {
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+        let group_id_clone = group_id.clone();
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(None));
+
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = s.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            });
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(1))
+            .build();
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder().with_strategy(strategy).build(),
+        );
+
+        let result = wrapper
+            .query_group_messages(group_id_clone, None)
+            .await
+            .unwrap();
+        let failed = time_failure.lock().unwrap().unwrap();
+        let success = time_success.lock().unwrap().unwrap();
+        assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
         assert_eq!(result.len(), 50);
     }
 }

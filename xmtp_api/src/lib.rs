@@ -37,6 +37,13 @@ impl RetryableError for Error {
     fn is_retryable(&self) -> bool {
         matches!(self, Self::Api(_))
     }
+
+    fn needs_cooldown(&self) -> bool {
+        match self {
+            Self::Api(e) => e.needs_cooldown(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

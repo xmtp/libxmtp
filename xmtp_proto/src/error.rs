@@ -26,6 +26,14 @@ impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
         self.inner.is_retryable()
     }
+
+    fn needs_cooldown(&self) -> bool {
+        if let Some(code) = self.inner.code() {
+            code == Code::ResourceExhausted
+        } else {
+            false
+        }
+    }
 }
 
 impl std::fmt::Display for ApiError {
@@ -44,6 +52,7 @@ where
 }
 
 // GRPC Error Code
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Code {
     /// The operation completed successfully.
     Ok = 0,
