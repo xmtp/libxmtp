@@ -3,6 +3,7 @@ use crate::{
     groups::{
         device_sync::{DeviceSyncError, NONCE_SIZE},
         scoped_client::ScopedGroupClient,
+        MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
@@ -132,9 +133,8 @@ fn insert<Client: ScopedGroupClient>(
             consent.store(conn)?;
         }
         Element::Group(group) => {
-            let group: StoredGroup = group.try_into()?;
             tracing::info!("Inserting group: {:?}", group.id);
-            group.store(conn)?;
+            MlsGroup::restore_group_save(provider, client, group)?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;

@@ -158,6 +158,16 @@ impl From<GroupMutableMetadata> for MutableMetadataSave {
     }
 }
 
+impl From<MutableMetadataSave> for GroupMutableMetadata {
+    fn from(value: MutableMetadataSave) -> Self {
+        Self {
+            attributes: value.attributes,
+            admin_list: value.admin_list,
+            super_admin_list: value.super_admin_list,
+        }
+    }
+}
+
 impl From<GroupMembershipState> for GroupMembershipStateSave {
     fn from(value: GroupMembershipState) -> Self {
         match value {

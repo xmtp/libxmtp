@@ -138,6 +138,16 @@ pub struct DmMembers<Id: AsRef<str>> {
     pub member_two_inbox_id: Id,
 }
 
+impl DmMembers<String> {
+    pub fn from_dm_id(dm_id: &str) -> Option<Self> {
+        let mut segments: Vec<_> = dm_id.split(":").collect();
+        Some(Self {
+            member_one_inbox_id: segments.pop().map(str::to_string)?,
+            member_two_inbox_id: segments.pop().map(str::to_string)?,
+        })
+    }
+}
+
 impl<'a> DmMembers<String> {
     pub fn as_ref(&'a self) -> DmMembers<&'a str> {
         DmMembers {

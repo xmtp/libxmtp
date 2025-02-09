@@ -547,25 +547,33 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Currently used for restring groups with backups and device sync
     pub(crate) fn restore_group_save(
         provider: &XmtpOpenMlsProvider,
-        client: Arc<ScopedClient>,
-        group_save: &GroupSave,
+        client: &ScopedClient,
+        group_save: GroupSave,
     ) -> Result<(), GroupError> {
         let context = client.context();
-        let dm_id = &group_save.dm_id;
-        let (protected_metadata, mutable_metadata) = if let Some(dm_id) = dm_id {
-            let target_inbox_id = dm_id.other_inbox_id(client.inbox_id());
-            let protected_metadata =
-                build_dm_protected_metadata_extension(context.inbox_id(), target_inbox_id.clone())?;
-            let mutable_metadata =
-                build_dm_mutable_metadata_extension_default(context.inbox_id(), &target_inbox_id)?;
-            (protected_metadata, mutable_metadata)
-        } else {
-            let opts = GroupMetadataOptions::default();
-            let protected_metadata =
-                build_protected_metadata_extension("foo", ConversationType::Group)?;
-            let mutable_metadata = build_mutable_metadata_extension_default("foo", opts)?;
-            (protected_metadata, mutable_metadata)
-        };
+        let stored_group: StoredGroup = group_save.clone().try_into().unwrap();
+
+        let metadata = group_save.metdata.clone().unwrap();
+        let dm_members = stored_group
+            .dm_id
+            .as_ref()
+            .and_then(|dm_id| DmMembers::from_dm_id(dm_id));
+
+        let protected_metadata = GroupMetadata::new(
+            stored_group.conversation_type,
+            metadata.creator_inbox_id,
+            dm_members,
+        );
+        let protected_metadata = Metadata::new(protected_metadata.try_into()?);
+        let protected_metadata = Extension::ImmutableMetadata(protected_metadata);
+
+        let mutable_metadata: GroupMutableMetadata =
+            group_save.mutable_metadata.clone().unwrap().into();
+        let mutable_metadata: Vec<u8> = mutable_metadata.try_into()?;
+        let mutable_metadata = Extension::Unknown(
+            MUTABLE_METADATA_EXTENSION_ID,
+            UnknownExtension(mutable_metadata),
+        );
 
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = PolicySet::new_dm();
@@ -587,6 +595,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 signature_key: context.identity.installation_keys.public_slice().into(),
             },
         )?;
+
+        stored_group.store(provider.conn_ref())?;
 
         Ok(())
     }
