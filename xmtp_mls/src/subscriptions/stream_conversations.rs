@@ -61,18 +61,23 @@ impl Stream for BroadcastGroupStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
-        let this = self.project();
-        if let Some(event) = ready!(this.inner.poll_next(cx)) {
-            if let Some(group) =
-                xmtp_common::optify!(event, "Missed messages due to event queue lag")
-                    .and_then(LocalEvents::group_filter)
-            {
-                Ready(Some(Ok(WelcomeOrGroup::Group(group))))
+        let mut this = self.project();
+        // loop until the inner stream returns:
+        // - Ready with a group
+        // - Ready(None) - stream ended
+        // ignore None values, since it is not a group, but may indicate more values in the stream
+        // itself
+        loop {
+            if let Some(event) = ready!(this.inner.as_mut().poll_next(cx)) {
+                if let Some(group) =
+                    xmtp_common::optify!(event, "Missed messages due to event queue lag")
+                        .and_then(LocalEvents::group_filter)
+                {
+                    return Ready(Some(Ok(WelcomeOrGroup::Group(group))));
+                }
             } else {
-                Pending
+                return Ready(None);
             }
-        } else {
-            Ready(None)
         }
     }
 }

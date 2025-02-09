@@ -5015,11 +5015,16 @@ mod tests {
     async fn test_disappearing_messages_deletion() {
         let alix = new_test_client().await;
         let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let bola_provider = bola.inner_client.mls_provider().unwrap();
 
         // Step 1: Create a group
         let alix_group = alix
             .conversations()
-            .create_group(vec![], FfiCreateGroupOptions::default())
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -5035,7 +5040,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(alix_messages.len(), 1);
+        assert_eq!(alix_messages.len(), 2);
 
         // Step 4: Set disappearing settings to 5ns after the latest message
         let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
@@ -5068,6 +5073,31 @@ mod tests {
             .is_conversation_message_disappearing_enabled()
             .unwrap());
 
+        bola.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let bola_group_from_db = bola_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            bola_group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            bola_group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
             alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
@@ -5080,10 +5110,6 @@ mod tests {
             .await
             .unwrap();
         let msg_counts_before_cleanup = alix_messages.len();
-
-        // Step 7: Start cleanup worker and delete expired messages
-        alix.inner_client
-            .start_disappearing_messages_cleaner_worker();
 
         // Wait for cleanup to complete
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;

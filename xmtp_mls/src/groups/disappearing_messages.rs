@@ -4,11 +4,15 @@ use crate::Client;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use xmtp_common::time::Interval;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
-/// Restart the DisappearingMessagesCleanerWorker every 1 sec to delete the expired messages
+/// Duration to wait before restarting the worker in case of an error.
 pub const WORKER_RESTART_DELAY: Duration = Duration::from_secs(1);
+
+/// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Error)]
 pub enum DisappearingMessagesCleanerError {
@@ -80,9 +84,11 @@ where
         Ok(())
     }
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        if let Err(err) = self.delete_expired_messages().await {
-            tracing::error!("Error during deletion of expired messages: {:?}", err);
+        let mut interval = Interval::new(INTERVAL_DURATION);
+
+        loop {
+            interval.tick().await;
+            self.delete_expired_messages().await?;
         }
-        Ok(())
     }
 }
