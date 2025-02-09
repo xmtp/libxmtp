@@ -1,13 +1,25 @@
 use super::*;
-use crate::storage::{
-    group::{ConversationType, GroupMembershipState, StoredGroup},
-    schema::groups,
+use crate::{
+    groups::{
+        device_sync::DeviceSyncError, group_metadata::extract_group_metadata,
+        group_mutable_metadata::GroupMutableMetadata,
+    },
+    storage::{
+        group::{ConversationType, GroupMembershipState, StoredGroup},
+        schema::groups,
+        NotFound, StorageError,
+    },
 };
 use diesel::prelude::*;
+use openmls::group::{GroupId, MlsGroup as OpenMlsGroup};
+use openmls_traits::OpenMlsProvider;
 use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
-    group_backup::{ConversationTypeSave, GroupMembershipStateSave, GroupSave},
+    group_backup::{
+        ConversationTypeSave, GroupMembershipStateSave, GroupSave, ImmutableMetadataSave,
+        MutableMetadataSave,
+    },
 };
 
 impl BackupRecordProvider for GroupSave {
@@ -38,8 +50,13 @@ impl BackupRecordProvider for GroupSave {
 
         batch
             .into_iter()
-            .map(|record| BackupElement {
-                element: Some(Element::Group(record.into())),
+            .filter_map(|record| {
+                record
+                    .to_group_save(&streamer.provider)
+                    .ok()
+                    .map(|save| BackupElement {
+                        element: Some(Element::Group(save)),
+                    })
             })
             .collect()
     }
@@ -98,24 +115,45 @@ impl TryFrom<ConversationTypeSave> for ConversationType {
     }
 }
 
-impl From<StoredGroup> for GroupSave {
-    fn from(value: StoredGroup) -> Self {
-        let membership_state: GroupMembershipStateSave = value.membership_state.into();
-        let conversation_type: ConversationTypeSave = value.conversation_type.into();
+impl StoredGroup {
+    fn to_group_save(self, provider: &XmtpOpenMlsProvider) -> Result<GroupSave, DeviceSyncError> {
+        let membership_state: GroupMembershipStateSave = self.membership_state.into();
+        let conversation_type: ConversationTypeSave = self.conversation_type.into();
+        let mls_group = OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.id))
+            .map_err(|_| StorageError::NotFound(NotFound::MlsGroup))?
+            .ok_or(StorageError::NotFound(NotFound::MlsGroup))?;
+        let metadata = extract_group_metadata(&mls_group)?;
+        let mutable_metadata = GroupMutableMetadata::try_from(&mls_group)?;
 
-        Self {
-            id: value.id,
-            created_at_ns: value.created_at_ns,
+        let save = GroupSave {
+            id: self.id,
+            created_at_ns: self.created_at_ns,
             membership_state: membership_state as i32,
-            installations_last_checked: value.installations_last_checked,
-            added_by_inbox_id: value.added_by_inbox_id,
-            welcome_id: value.welcome_id,
-            rotated_at_ns: value.rotated_at_ns,
+            installations_last_checked: self.installations_last_checked,
+            added_by_inbox_id: self.added_by_inbox_id,
+            welcome_id: self.welcome_id,
+            rotated_at_ns: self.rotated_at_ns,
             conversation_type: conversation_type as i32,
-            dm_id: value.dm_id,
-            last_message_ns: value.last_message_ns,
-            message_disappear_from_ns: value.message_disappear_from_ns,
-            message_disappear_in_ns: value.message_disappear_in_ns,
+            dm_id: self.dm_id,
+            last_message_ns: self.last_message_ns,
+            message_disappear_from_ns: self.message_disappear_from_ns,
+            message_disappear_in_ns: self.message_disappear_in_ns,
+            metdata: Some(ImmutableMetadataSave {
+                creator_inbox_id: metadata.creator_inbox_id,
+            }),
+            mutable_metadata: Some(mutable_metadata.into()),
+        };
+
+        Ok(save)
+    }
+}
+
+impl From<GroupMutableMetadata> for MutableMetadataSave {
+    fn from(value: GroupMutableMetadata) -> Self {
+        Self {
+            attributes: value.attributes,
+            admin_list: value.admin_list,
+            super_admin_list: value.super_admin_list,
         }
     }
 }

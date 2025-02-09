@@ -1,4 +1,7 @@
-use super::{GroupError, MlsGroup};
+use super::{
+    group_metadata::GroupMetadataError, group_mutable_metadata::GroupMutableMetadataError,
+    GroupError, MlsGroup,
+};
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
@@ -114,6 +117,10 @@ pub enum DeviceSyncError {
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     Deserialization(#[from] DeserializationError),
+    #[error(transparent)]
+    GroupMetadata(#[from] GroupMetadataError),
+    #[error(transparent)]
+    GroupMutableMetadata(#[from] GroupMutableMetadataError),
 }
 
 impl RetryableError for DeviceSyncError {
