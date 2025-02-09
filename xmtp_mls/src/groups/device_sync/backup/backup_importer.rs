@@ -1,6 +1,9 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
-    groups::device_sync::{DeviceSyncError, NONCE_SIZE},
+    groups::{
+        device_sync::{DeviceSyncError, NONCE_SIZE},
+        scoped_client::ScopedGroupClient,
+    },
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
         DbConnection, StorageError,
@@ -90,11 +93,13 @@ impl BackupImporter {
         Ok(None)
     }
 
-    pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
-
+    pub async fn insert<Client: ScopedGroupClient>(
+        &mut self,
+        client: &Client,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), DeviceSyncError> {
         while let Some(element) = self.next_element().await? {
-            match insert(element, conn) {
+            match insert(client, provider, element) {
                 Err(DeviceSyncError::Deserialization(err)) => {
                     tracing::warn!("Unable to insert record: {err:?}");
                 }
@@ -111,10 +116,15 @@ impl BackupImporter {
     }
 }
 
-fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncError> {
+fn insert<Client: ScopedGroupClient>(
+    client: &Client,
+    provider: &XmtpOpenMlsProvider,
+    element: BackupElement,
+) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };
+    let conn = provider.conn_ref();
 
     match element {
         Element::Consent(consent) => {
@@ -123,6 +133,7 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
         }
         Element::Group(group) => {
             let group: StoredGroup = group.try_into()?;
+            tracing::info!("Inserting group: {:?}", group.id);
             group.store(conn)?;
         }
         Element::GroupMessage(message) => {

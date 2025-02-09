@@ -40,8 +40,8 @@ impl VerifiedSignature {
      * Verifies an ECDSA signature against the provided signature text.
      * Returns a VerifiedSignature if the signature is valid, otherwise returns an error.
      */
-    pub fn from_recoverable_ecdsa<Text: AsRef<str>>(
-        signature_text: Text,
+    pub fn from_recoverable_ecdsa(
+        signature_text: impl AsRef<str>,
         signature_bytes: &[u8],
     ) -> Result<Self, SignatureError> {
         let normalized_signature_bytes = to_lower_s(signature_bytes)?;

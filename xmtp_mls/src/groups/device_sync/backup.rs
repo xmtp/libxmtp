@@ -152,7 +152,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.insert(&alix2, &alix2_provider).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.insert(&alix2, &alix2_provider).await.unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
@@ -249,6 +249,7 @@ mod tests {
         assert_eq!(groups.len(), 1);
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
+        tracing::info!("Groups: {:?}", groups);
 
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
@@ -265,6 +266,20 @@ mod tests {
             assert_eq!(old_msg.sender_inbox_id, msg.sender_inbox_id);
             assert_eq!(old_msg.group_id, msg.group_id);
         }
+
+        alix2
+            .sync_all_welcomes_and_groups(&alix2_provider, None)
+            .await;
+        // .unwrap();
+
+        let groups: Vec<StoredGroup> = alix2_provider
+            .conn_ref()
+            .raw_query_read(|conn| groups::table.load(conn))
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        // It's the same group
+        assert_eq!(groups[0].id, old_group.id);
+        tracing::info!("Groups: {:?}", groups);
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;

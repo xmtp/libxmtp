@@ -921,6 +921,7 @@ where
                             Ok::<bool, GroupError>(mls_group.is_active())
                         })
                         .await?;
+
                     if is_active {
                         group.maybe_update_installations(provider, None).await?;
 

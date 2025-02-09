@@ -277,8 +277,8 @@ impl Identity {
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let address = address.to_lowercase();
-        let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-        let associated_inbox_id = inbox_ids.get(&address);
+        let mut inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
+        let associated_inbox_id = inbox_ids.remove(&address);
         let installation_keys = XmtpInstallationCredential::new();
         let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
 
@@ -311,7 +311,7 @@ impl Identity {
             let identity = Self {
                 inbox_id: associated_inbox_id.clone(),
                 installation_keys,
-                credential: create_credential(associated_inbox_id.clone())?,
+                credential: create_credential(associated_inbox_id)?,
                 signature_request: Some(signature_request),
                 is_ready: AtomicBool::new(false),
             };

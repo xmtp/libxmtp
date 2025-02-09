@@ -36,6 +36,7 @@ use self::{
     validated_commit::CommitValidationError,
 };
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::storage::schema::groups;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -68,6 +69,7 @@ use crate::{
     Store, MLS_COMMIT_LOCK,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
+use diesel::RunQueryDsl;
 use intents::SendMessageIntentData;
 use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
@@ -96,6 +98,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -472,6 +475,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Acquire the lock asynchronously
         let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
 
+        let groups: Vec<StoredGroup> = provider
+            .conn_ref()
+            .raw_query_read(|conn| groups::table.load(conn))
+            .unwrap();
+
+        tracing::warn!("GROUPS: {groups:?}");
+        assert!(groups.iter().any(|g| g.id == group_id));
+
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -531,6 +542,53 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
+    }
+
+    // Currently used for restring groups with backups and device sync
+    pub(crate) fn restore_group_save(
+        provider: &XmtpOpenMlsProvider,
+        client: Arc<ScopedClient>,
+        group_save: &GroupSave,
+    ) -> Result<(), GroupError> {
+        let context = client.context();
+        let dm_id = &group_save.dm_id;
+        let (protected_metadata, mutable_metadata) = if let Some(dm_id) = dm_id {
+            let target_inbox_id = dm_id.other_inbox_id(client.inbox_id());
+            let protected_metadata =
+                build_dm_protected_metadata_extension(context.inbox_id(), target_inbox_id.clone())?;
+            let mutable_metadata =
+                build_dm_mutable_metadata_extension_default(context.inbox_id(), &target_inbox_id)?;
+            (protected_metadata, mutable_metadata)
+        } else {
+            let opts = GroupMetadataOptions::default();
+            let protected_metadata =
+                build_protected_metadata_extension("foo", ConversationType::Group)?;
+            let mutable_metadata = build_mutable_metadata_extension_default("foo", opts)?;
+            (protected_metadata, mutable_metadata)
+        };
+
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let mutable_permissions = PolicySet::new_dm();
+        let mutable_permission_extension =
+            build_mutable_permissions_extension(mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permission_extension,
+        )?;
+
+        let mls_group = OpenMlsGroup::new(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
+            },
+        )?;
+
+        Ok(())
     }
 
     // Create a new DM and save it to the DB
