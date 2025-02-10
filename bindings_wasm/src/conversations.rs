@@ -173,7 +173,7 @@ impl CreateGroupOptions {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CreateDMOptions {
   #[wasm_bindgen(js_name = messageDisappearingSettings)]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
@@ -302,13 +302,12 @@ impl Conversations {
     account_address: String,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
-    let metadata_options = options.unwrap_or(CreateDMOptions {
-      message_disappearing_settings: None,
-    });
-
     let convo = self
       .inner_client
-      .find_or_create_dm(account_address, metadata_options.into_dm_metadata_options())
+      .find_or_create_dm(
+        account_address,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

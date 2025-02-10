@@ -1886,9 +1886,12 @@ impl FfiConversation {
     }
 
     pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
-        let settings = self.conversation_message_disappearing_settings()?;
-
-        Ok(matches!(settings, Some(s) if s.from_ns > 0 && s.in_ns > 0))
+        self.conversation_message_disappearing_settings()
+            .map(|settings| {
+                settings
+                    .as_ref()
+                    .map_or(false, |s| s.from_ns > 0 && s.in_ns > 0)
+            })
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
