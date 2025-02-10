@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsError, JsValue};
-use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
+use xmtp_mls::groups::{
+  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -171,6 +173,34 @@ impl CreateGroupOptions {
 }
 
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct CreateDMOptions {
+  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+}
+
+#[wasm_bindgen]
+impl CreateDMOptions {
+  #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(message_disappearing_settings: Option<MessageDisappearingSettings>) -> Self {
+    Self {
+      message_disappearing_settings,
+    }
+  }
+}
+
+impl CreateDMOptions {
+  pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
+    DMMetadataOptions {
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
 #[derive(serde::Serialize)]
 pub struct HmacKey {
   pub key: Vec<u8>,
@@ -267,10 +297,14 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = createDm)]
-  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation, JsError> {
+  pub async fn find_or_create_dm(
+    &self,
+    account_address: String,
+    options: CreateDMOptions,
+  ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
-      .find_or_create_dm(account_address)
+      .find_or_create_dm(account_address, options.into_dm_metadata_options())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

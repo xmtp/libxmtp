@@ -1511,6 +1511,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_one_inbox_id: client.inbox_id().to_string(),
                 member_two_inbox_id: dm_target_inbox_id,
             }),
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -1929,7 +1930,7 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-    use super::{group_permissions::PolicySet, MlsGroup};
+    use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -2308,11 +2309,14 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let bo_dm = bo
-            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                alix.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
         let alix_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
             .await
             .unwrap();
 
@@ -3805,7 +3809,10 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                bola.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -4329,6 +4336,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(valid_dm_group
@@ -4347,6 +4355,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4369,6 +4378,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4391,6 +4401,7 @@ pub(crate) mod tests {
             Some(non_empty_admin_list),
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4412,6 +4423,7 @@ pub(crate) mod tests {
             None,
             None,
             Some(invalid_permissions),
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(

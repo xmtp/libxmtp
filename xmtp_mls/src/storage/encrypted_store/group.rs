@@ -690,6 +690,7 @@ pub(crate) mod tests {
             membership_state,
             "placeholder_address".to_string(),
             None,
+            None,
         )
     }
 
@@ -708,6 +709,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             welcome_id.unwrap_or(xmtp_common::rand_i64()),
             ConversationType::Group,
+            None,
             None,
         )
     }
@@ -742,6 +744,7 @@ pub(crate) mod tests {
             state.unwrap_or(GroupMembershipState::Allowed),
             "placeholder_address".to_string(),
             Some(members),
+            None,
         )
     }
 
@@ -815,6 +818,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "thats_me".to_string(),
                     member_two_inbox_id: "some_wise_guy".to_string(),
                 }),
+                None,
             );
             dm1.store(conn).unwrap();
 
@@ -827,6 +831,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "some_wise_guy".to_string(),
                     member_two_inbox_id: "thats_me".to_string(),
                 }),
+                None,
             );
             dm2.store(conn).unwrap();
 

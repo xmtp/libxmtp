@@ -1053,6 +1053,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
+    use crate::groups::DMMetadataOptions;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1603,7 +1604,10 @@ pub(crate) mod tests {
 
         // First call should create a new DM
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                client2.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1623,7 +1627,10 @@ pub(crate) mod tests {
 
         // Second call should find the existing DM
         let dm2 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                client2.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 

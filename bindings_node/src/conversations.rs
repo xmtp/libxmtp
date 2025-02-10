@@ -7,7 +7,9 @@ use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
+use xmtp_mls::groups::{
+  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
@@ -138,6 +140,22 @@ impl CreateGroupOptions {
   }
 }
 
+#[napi(object)]
+#[derive(Clone)]
+pub struct CreateDMOptions {
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+}
+
+impl CreateDMOptions {
+  pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
+    DMMetadataOptions {
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
+    }
+  }
+}
+
 #[napi]
 pub struct Conversations {
   inner_client: Arc<RustXmtpClient>,
@@ -219,10 +237,14 @@ impl Conversations {
   }
 
   #[napi(js_name = "createDm")]
-  pub async fn find_or_create_dm(&self, account_address: String) -> Result<Conversation> {
+  pub async fn find_or_create_dm(
+    &self,
+    account_address: String,
+    options: CreateDMOptions,
+  ) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .find_or_create_dm(account_address)
+      .find_or_create_dm(account_address, options.into_dm_metadata_options())
       .await
       .map_err(ErrorWrapper::from)?;
 
