@@ -1,6 +1,7 @@
 //! Time primitives for native and WebAssembly
 
 use std::fmt;
+use tokio::time;
 
 #[derive(Debug)]
 pub struct Expired;
@@ -95,4 +96,42 @@ pub async fn sleep(duration: Duration) {
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
     tokio::time::sleep(duration).await
+}
+
+pub struct Interval {
+    #[cfg(target_arch = "wasm32")]
+    duration: Duration,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    inner: time::Interval,
+}
+
+impl Interval {
+    /// Creates a new interval that ticks every `duration`
+    pub fn new(duration: Duration) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            Self { duration }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Self {
+                inner: time::interval(duration),
+            }
+        }
+    }
+
+    /// Waits for the next tick of the interval
+    pub async fn tick(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            sleep(self.duration).await;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.inner.tick().await;
+        }
+    }
 }
