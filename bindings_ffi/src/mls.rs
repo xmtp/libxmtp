@@ -1890,7 +1890,7 @@ impl FfiConversation {
             .map(|settings| {
                 settings
                     .as_ref()
-                    .map_or(false, |s| s.from_ns > 0 && s.in_ns > 0)
+                    .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
             })
     }
 

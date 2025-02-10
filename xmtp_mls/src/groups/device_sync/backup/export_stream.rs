@@ -103,6 +103,7 @@ impl<R> BackupRecordStreamer<R>
 where
     R: BackupRecordProvider + Unpin + 'static,
 {
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn new_stream(
         provider: &Arc<XmtpOpenMlsProvider>,
         opts: &BackupOptions,
