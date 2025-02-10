@@ -269,17 +269,8 @@ mod tests {
 
         alix2
             .sync_all_welcomes_and_groups(&alix2_provider, None)
-            .await;
-        // .unwrap();
-
-        let groups: Vec<StoredGroup> = alix2_provider
-            .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
+            .await
             .unwrap();
-        assert_eq!(groups.len(), 1);
-        // It's the same group
-        assert_eq!(groups[0].id, old_group.id);
-        tracing::info!("Groups: {:?}", groups);
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;

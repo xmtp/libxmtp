@@ -98,7 +98,6 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -542,63 +541,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
-    }
-
-    // Currently used for restring groups with backups and device sync
-    pub(crate) fn restore_group_save(
-        provider: &XmtpOpenMlsProvider,
-        client: &ScopedClient,
-        group_save: GroupSave,
-    ) -> Result<(), GroupError> {
-        let context = client.context();
-        let stored_group: StoredGroup = group_save.clone().try_into().unwrap();
-
-        let metadata = group_save.metdata.clone().unwrap();
-        let dm_members = stored_group
-            .dm_id
-            .as_ref()
-            .and_then(|dm_id| DmMembers::from_dm_id(dm_id));
-
-        let protected_metadata = GroupMetadata::new(
-            stored_group.conversation_type,
-            metadata.creator_inbox_id,
-            dm_members,
-        );
-        let protected_metadata = Metadata::new(protected_metadata.try_into()?);
-        let protected_metadata = Extension::ImmutableMetadata(protected_metadata);
-
-        let mutable_metadata: GroupMutableMetadata =
-            group_save.mutable_metadata.clone().unwrap().into();
-        let mutable_metadata: Vec<u8> = mutable_metadata.try_into()?;
-        let mutable_metadata = Extension::Unknown(
-            MUTABLE_METADATA_EXTENSION_ID,
-            UnknownExtension(mutable_metadata),
-        );
-
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions = PolicySet::new_dm();
-        let mutable_permission_extension =
-            build_mutable_permissions_extension(mutable_permissions)?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permission_extension,
-        )?;
-
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
-
-        stored_group.store(provider.conn_ref())?;
-
-        Ok(())
     }
 
     // Create a new DM and save it to the DB

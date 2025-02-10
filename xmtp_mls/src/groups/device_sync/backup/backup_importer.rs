@@ -1,23 +1,36 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
+    configuration::MUTABLE_METADATA_EXTENSION_ID,
     groups::{
+        build_group_config, build_mutable_permissions_extension,
+        build_starting_group_membership_extension,
         device_sync::{DeviceSyncError, NONCE_SIZE},
+        group_metadata::{DmMembers, GroupMetadata},
+        group_mutable_metadata::GroupMutableMetadata,
+        group_permissions::PolicySet,
         scoped_client::ScopedGroupClient,
-        MlsGroup,
+        GroupError, MlsGroup,
     },
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection, StorageError,
+        StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures_util::{AsyncBufRead, AsyncReadExt};
+use openmls::{
+    group::{GroupId, MlsGroup as OpenMlsGroup},
+    prelude::{CredentialWithKey, Extension, Metadata, UnknownExtension},
+};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
+use xmtp_id::associations::DeserializationError;
+use xmtp_proto::xmtp::device_sync::{
+    backup_element::Element, group_backup::GroupSave, BackupElement,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
@@ -144,4 +157,66 @@ fn insert<Client: ScopedGroupClient>(
     }
 
     Ok(())
+}
+
+impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+    pub(crate) fn restore_group_save(
+        provider: &XmtpOpenMlsProvider,
+        client: &ScopedClient,
+        group_save: GroupSave,
+    ) -> Result<(), DeviceSyncError> {
+        let context = client.context();
+        let stored_group: StoredGroup = group_save.clone().try_into()?;
+
+        let Some(metadata) = group_save.metdata else {
+            return Err(DeserializationError::Unspecified("metadata"))?;
+        };
+        let dm_members = stored_group
+            .dm_id
+            .as_ref()
+            .and_then(|dm_id| DmMembers::from_dm_id(dm_id));
+
+        let protected_metadata = GroupMetadata::new(
+            stored_group.conversation_type,
+            metadata.creator_inbox_id,
+            dm_members,
+        );
+        let protected_metadata = Metadata::new(protected_metadata.try_into()?);
+        let protected_metadata = Extension::ImmutableMetadata(protected_metadata);
+
+        let mutable_metadata: GroupMutableMetadata =
+            group_save.mutable_metadata.clone().unwrap().into();
+        let mutable_metadata: Vec<u8> = mutable_metadata.try_into()?;
+        let mutable_metadata = Extension::Unknown(
+            MUTABLE_METADATA_EXTENSION_ID,
+            UnknownExtension(mutable_metadata),
+        );
+
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
+        let mutable_permissions = PolicySet::new_dm();
+        let mutable_permission_extension =
+            build_mutable_permissions_extension(mutable_permissions)?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permission_extension,
+        )?;
+
+        OpenMlsGroup::new_with_group_id(
+            &provider,
+            &context.identity.installation_keys,
+            &group_config,
+            GroupId::from_slice(&stored_group.id),
+            CredentialWithKey {
+                credential: context.identity.credential(),
+                signature_key: context.identity.installation_keys.public_slice().into(),
+            },
+        )
+        .map_err(|err| GroupError::GroupCreate(err))?;
+
+        stored_group.store(provider.conn_ref())?;
+
+        Ok(())
+    }
 }

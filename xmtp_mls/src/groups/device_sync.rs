@@ -25,6 +25,7 @@ use aes_gcm::{
 };
 use backup::BackupError;
 use futures::{Stream, StreamExt};
+use openmls::group::NewGroupError;
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
