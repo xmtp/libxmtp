@@ -25,7 +25,8 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::ConversationListItem;
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::{
     api::ApiClientWrapper,
     groups::{
@@ -560,6 +561,7 @@ where
     async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
         let provider = self.mls_provider()?;
@@ -569,6 +571,7 @@ where
             Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
+            opts,
         )?;
 
         group
@@ -587,6 +590,7 @@ where
     pub async fn find_or_create_dm(
         &self,
         account_address: String,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with address: {}", account_address);
         let provider = self.mls_provider()?;
@@ -600,13 +604,14 @@ where
             }
         };
 
-        self.find_or_create_dm_by_inbox_id(inbox_id).await
+        self.find_or_create_dm_by_inbox_id(inbox_id, opts).await
     }
 
     /// Find or create a Direct Message by inbox_id with the default settings
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: InboxId,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider()?;
@@ -617,7 +622,7 @@ where
         if let Some(group) = group {
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
-        self.create_dm_by_inbox_id(inbox_id).await
+        self.create_dm_by_inbox_id(inbox_id, opts).await
     }
 
     pub(crate) fn create_sync_group(
@@ -653,6 +658,27 @@ where
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
         self.group_with_conn(conn, &group_id)
+    }
+
+    /// Fetches the message disappearing settings for a given group ID.
+    ///
+    /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
+    /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
+    pub fn group_disappearing_settings(
+        &self,
+        group_id: Vec<u8>,
+    ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+
+        let settings = stored_group.and_then(|group| {
+            let from_ns = group.message_disappear_from_ns?;
+            let in_ns = group.message_disappear_in_ns?;
+
+            Some(MessageDisappearingSettings { from_ns, in_ns })
+        });
+
+        Ok(settings)
     }
 
     /**

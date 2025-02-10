@@ -74,9 +74,10 @@ where
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let provider = self.client.mls_provider()?;
         match provider.conn_ref().delete_expired_messages() {
-            Ok(deleted_count) => {
+            Ok(deleted_count) if deleted_count > 0 => {
                 tracing::info!("Successfully deleted {} expired messages", deleted_count);
             }
+            Ok(_) => {}
             Err(e) => {
                 tracing::error!("Failed to delete expired messages, error: {:?}", e);
             }
