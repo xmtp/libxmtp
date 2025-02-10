@@ -20,6 +20,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
