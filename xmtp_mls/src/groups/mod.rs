@@ -3987,7 +3987,7 @@ pub(crate) mod tests {
                 let group_clone = alix1_group.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(None, async move { group_clone.sync().await }).join()
+                xmtp_common::spawn(None, async move { group_clone.sync().await }).join()
             })
             .collect();
 

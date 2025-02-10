@@ -90,10 +90,14 @@ pub use wasm::*;
 mod not_wasm {
     use super::*;
     use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
+    #[derive(Clone)]
+    pub struct ApiClient;
 
     mock! {
-        pub ApiClient {}
-
+        pub ApiClient { }
+        impl Clone for ApiClient {
+            fn clone(&self) -> Self;
+        }
         #[async_trait::async_trait]
         impl ClientWithMetadata for ApiClient {
             type Error = MockError;
@@ -154,9 +158,10 @@ mod not_wasm {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
-    mock! {
-        pub ApiClient {}
+    #[derive(Clone)]
+    struct ApiClient;
 
+    mock! {
         #[async_trait::async_trait(?Send)]
         impl ClientWithMetadata for ApiClient {
             type Error = MockError;

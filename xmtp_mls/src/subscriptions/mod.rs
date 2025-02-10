@@ -277,7 +277,7 @@ where
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
-        crate::spawn(Some(rx), async move {
+        xmtp_common::spawn(Some(rx), async move {
             let stream = client.stream_conversations(conversation_type).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -314,7 +314,7 @@ where
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
-        crate::spawn(Some(rx), async move {
+        xmtp_common::spawn(Some(rx), async move {
             let stream = client.stream_all_messages(conversation_type).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
@@ -332,7 +332,7 @@ where
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
-        crate::spawn(Some(rx), async move {
+        xmtp_common::spawn(Some(rx), async move {
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_consent_updates();
 
@@ -352,7 +352,7 @@ where
     ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
-        crate::spawn(Some(rx), async move {
+        xmtp_common::spawn(Some(rx), async move {
             let receiver = client.local_events.subscribe();
             let stream = receiver.stream_preference_updates();
 

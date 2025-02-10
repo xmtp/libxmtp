@@ -106,7 +106,7 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
     pub async fn cooldown(&self) {
         if self.is_cooling.load(Ordering::SeqCst) {
             if let Some(c) = self.cooldown.backoff(
-                self.cooldown_attempts.load(Ordering::SeqCst),
+                self.cooldown_attempts.fetch_add(1, Ordering::SeqCst),
                 **self.cooling_since.load(),
             ) {
                 crate::time::sleep(c.saturating_sub(self.cooling_since.load().elapsed())).await;
@@ -120,7 +120,9 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
             return;
         }
         self.cooling_since.store(crate::time::Instant::now().into());
-        self.cooldown_attempts.store(0, Ordering::SeqCst);
+        if !self.last_err.load(Ordering::SeqCst) {
+            self.cooldown_attempts.store(0, Ordering::SeqCst);
+        }
         self.is_cooling.store(true, Ordering::SeqCst);
     }
 
@@ -242,7 +244,7 @@ impl Strategy for ExponentialBackoff {
             return None;
         }
         let mut duration = self.duration;
-        for _ in 0..attempts.saturating_sub(1) {
+        for _ in 0..attempts {
             duration *= self.multiplier;
             if duration > self.individual_wait_max {
                 duration = self.individual_wait_max;
@@ -410,8 +412,8 @@ macro_rules! retry_async {
                             "retrying function that failed with error={}",
                             e.to_string()
                         );
-                        attempts += 1;
                         if let Some(d) = $retry.backoff(attempts, time_spent) {
+                            attempts += 1;
                             $crate::time::sleep(d).await;
                         } else {
                             tracing::warn!("retry strategy exceeded max wait time");

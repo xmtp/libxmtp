@@ -13,6 +13,7 @@ tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 web-time.workspace = true
 xmtp_cryptography.workspace = true
+async-trait.workspace = true
 
 # optional
 once_cell = { workspace = true, optional = true }

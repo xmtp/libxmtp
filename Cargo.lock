@@ -7451,6 +7451,7 @@ name = "xmtp_common"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "async-trait",
  "console_error_panic_hook",
  "futures",
  "getrandom",

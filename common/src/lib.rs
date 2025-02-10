@@ -16,6 +16,9 @@ pub use retry::*;
 pub mod wasm;
 pub use wasm::*;
 
+pub mod stream_handles;
+pub use stream_handles::*;
+
 pub mod time;
 
 use rand::{

@@ -76,7 +76,7 @@ where
 {
     let (tx, rx) = oneshot::channel();
 
-    crate::spawn(Some(rx), async move {
+    xmtp_common::spawn(Some(rx), async move {
         let client_ref = &client;
         let stream = StreamGroupMessages::new(client_ref, active_conversations.collect()).await?;
         futures::pin_mut!(stream);

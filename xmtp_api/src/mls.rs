@@ -633,6 +633,7 @@ pub mod tests {
         let group_id_clone = group_id.clone();
         let time_failure = Arc::new(Mutex::new(None));
         let time_failure2 = Arc::new(Mutex::new(None));
+        let time_failure3 = Arc::new(Mutex::new(None));
         let time_success = Arc::new(Mutex::new(None));
 
         let f = time_failure.clone();
@@ -646,6 +647,16 @@ pub mod tests {
             });
 
         let f = time_failure2.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let f = time_failure3.clone();
         mock_api
             .expect_query_group_messages()
             .times(1)
@@ -673,7 +684,7 @@ pub mod tests {
             .build();
         let cooldown = xmtp_common::ExponentialBackoff::builder()
             .duration(std::time::Duration::from_secs(1))
-            .multiplier(4)
+            .multiplier(2)
             .build();
         let wrapper = ApiClientWrapper::new(
             mock_api.into(),
@@ -689,9 +700,83 @@ pub mod tests {
             .unwrap();
         let failed = time_failure.lock().unwrap().unwrap();
         let failed2 = time_failure2.lock().unwrap().unwrap();
+        let failed3 = time_failure3.lock().unwrap().unwrap();
         let success = time_success.lock().unwrap().unwrap();
         assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
-        assert!((failed2.elapsed() - success.elapsed()) > std::time::Duration::from_secs(4));
+        assert!((failed2.elapsed() - success.elapsed()) > std::time::Duration::from_secs(2));
+        tracing::info!("failed3.elapsed={:?}", failed3.elapsed());
+        assert!((failed3.elapsed() - success.elapsed()) > std::time::Duration::from_secs(4));
+
         assert_eq!(result.len(), 50);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn retries_apply_to_concurrent_fns() {
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(Vec::new()));
+
+        // first task gets rate limited
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api.expect_query_group_messages().times(4).returning({
+            let group_id = group_id.clone();
+            move |_| {
+                let mut set = s.lock();
+                set.unwrap().push(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            }
+        });
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(3))
+            .multiplier(2)
+            .build();
+
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
+        );
+
+        let result = wrapper
+            .query_group_messages(group_id.clone(), None)
+            .await
+            .unwrap();
+        xmtp_common::time::sleep(std::time::Duration::from_millis(50)).await;
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
+        assert_eq!(result.len(), 50);
+
+        let success = time_success.lock().unwrap();
+        for s in success.iter() {
+            tracing::info!("{:?}", s.elapsed());
+        }
     }
 }

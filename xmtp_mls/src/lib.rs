@@ -11,7 +11,6 @@ pub mod identity_updates;
 mod intents;
 mod mutex_registry;
 pub mod storage;
-mod stream_handles;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
@@ -150,10 +149,11 @@ pub trait Delete<Model> {
 }
 
 use crate::groups::GroupError;
+/*
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
-
+*/
 #[cfg(test)]
 pub(crate) mod tests {
     // Execute once before any tests are run

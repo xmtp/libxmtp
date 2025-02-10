@@ -359,7 +359,7 @@ where
     }
 
     fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
