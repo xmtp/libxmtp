@@ -43,7 +43,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-
+#[cfg(not(target_arch = "wasm32"))]
 pub mod backup;
 pub mod consent_sync;
 pub mod message_sync;

@@ -1,4 +1,3 @@
-#[cfg(not(target_arch = "wasm32"))]
 use super::DeviceSyncError;
 use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use backup_exporter::BackupExporter;
@@ -10,7 +9,6 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
 pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
-#[cfg(not(target_arch = "wasm32"))]
 const BACKUP_VERSION: u16 = 0;
 
 mod backup_exporter;
@@ -39,7 +37,6 @@ pub struct BackupMetadata {
 }
 
 impl BackupMetadata {
-    #[cfg(not(target_arch = "wasm32"))]
     fn from_metadata_save(save: BackupMetadataSave, backup_version: u16) -> Self {
         Self {
             elements: save.elements().collect(),
@@ -63,7 +60,6 @@ impl From<BackupOptions> for BackupMetadataSave {
 }
 
 impl BackupOptions {
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         self,
         provider: XmtpOpenMlsProvider,
