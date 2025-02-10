@@ -60,7 +60,6 @@ impl From<BackupOptions> for BackupMetadataSave {
 }
 
 impl BackupOptions {
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         self,
         provider: XmtpOpenMlsProvider,

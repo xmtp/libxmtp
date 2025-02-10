@@ -12,6 +12,7 @@ use crate::{
 
 use crate::storage::NotFound;
 
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -62,6 +63,7 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new group from a welcome message
+    #[allow(clippy::too_many_arguments)]
     pub fn new_from_welcome(
         id: ID,
         created_at_ns: i64,
@@ -70,6 +72,7 @@ impl StoredGroup {
         welcome_id: i64,
         conversation_type: ConversationType,
         dm_members: Option<DmMembers<String>>,
+        message_disappearing_settings: Option<MessageDisappearingSettings>,
     ) -> Self {
         Self {
             id,
@@ -82,8 +85,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
+            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
         }
     }
 
@@ -94,6 +97,7 @@ impl StoredGroup {
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
         dm_members: Option<DmMembers<String>>,
+        message_disappearing_settings: Option<MessageDisappearingSettings>,
     ) -> Self {
         Self {
             id,
@@ -109,8 +113,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
+            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
+            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
         }
     }
 
@@ -686,6 +690,7 @@ pub(crate) mod tests {
             membership_state,
             "placeholder_address".to_string(),
             None,
+            None,
         )
     }
 
@@ -704,6 +709,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             welcome_id.unwrap_or(xmtp_common::rand_i64()),
             ConversationType::Group,
+            None,
             None,
         )
     }
@@ -738,6 +744,7 @@ pub(crate) mod tests {
             state.unwrap_or(GroupMembershipState::Allowed),
             "placeholder_address".to_string(),
             Some(members),
+            None,
         )
     }
 
@@ -811,6 +818,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "thats_me".to_string(),
                     member_two_inbox_id: "some_wise_guy".to_string(),
                 }),
+                None,
             );
             dm1.store(conn).unwrap();
 
@@ -823,6 +831,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "some_wise_guy".to_string(),
                     member_two_inbox_id: "thats_me".to_string(),
                 }),
+                None,
             );
             dm2.store(conn).unwrap();
 

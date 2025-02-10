@@ -20,6 +20,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
@@ -43,7 +44,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-
+#[cfg(not(target_arch = "wasm32"))]
 pub mod backup;
 pub mod consent_sync;
 pub mod message_sync;
@@ -108,6 +109,7 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Backup(#[from] BackupError),
     #[error(transparent)]

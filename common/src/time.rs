@@ -1,6 +1,7 @@
 //! Time primitives for native and WebAssembly
 
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::time;
 
 #[derive(Debug)]
