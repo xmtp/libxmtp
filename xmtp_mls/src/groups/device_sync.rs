@@ -109,6 +109,7 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Backup(#[from] BackupError),
     #[error(transparent)]
