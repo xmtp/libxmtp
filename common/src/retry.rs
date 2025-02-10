@@ -106,7 +106,7 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
     pub async fn cooldown(&self) {
         if self.is_cooling.load(Ordering::SeqCst) {
             if let Some(c) = self.cooldown.backoff(
-                self.cooldown_attempts.fetch_add(1, Ordering::SeqCst),
+                self.cooldown_attempts.load(Ordering::SeqCst),
                 **self.cooling_since.load(),
             ) {
                 crate::time::sleep(c.saturating_sub(self.cooling_since.load().elapsed())).await;
@@ -120,7 +120,11 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
             return;
         }
         self.cooling_since.store(crate::time::Instant::now().into());
-        if !self.last_err.load(Ordering::SeqCst) {
+        // if the last error was also a cooldown, increase attempts
+        if self.last_err.load(Ordering::SeqCst) {
+            let attempts = self.cooldown_attempts.fetch_add(1, Ordering::SeqCst);
+            tracing::info!("Attempts: {}", attempts);
+        } else {
             self.cooldown_attempts.store(0, Ordering::SeqCst);
         }
         self.is_cooling.store(true, Ordering::SeqCst);
@@ -210,6 +214,7 @@ pub struct ExponentialBackoffBuilder {
     duration: Option<Duration>,
     max_jitter: Option<Duration>,
     multiplier: Option<u32>,
+    total_wait_max: Option<Duration>,
 }
 
 impl ExponentialBackoffBuilder {
@@ -225,6 +230,11 @@ impl ExponentialBackoffBuilder {
 
     pub fn multiplier(mut self, multiplier: u32) -> Self {
         self.multiplier = Some(multiplier);
+        self
+    }
+
+    pub fn total_wait_max(mut self, total_wait_max: Duration) -> Self {
+        self.total_wait_max = Some(total_wait_max);
         self
     }
 
@@ -244,7 +254,7 @@ impl Strategy for ExponentialBackoff {
             return None;
         }
         let mut duration = self.duration;
-        for _ in 0..attempts {
+        for _ in 0..(attempts.saturating_sub(1)) {
             duration *= self.multiplier;
             if duration > self.individual_wait_max {
                 duration = self.individual_wait_max;
@@ -397,6 +407,7 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
+            $retry.cooldown().await;
             let res = $code.instrument(span).await;
             match res {
                 Ok(v) => break Ok(v),
@@ -405,8 +416,8 @@ macro_rules! retry_async {
                     if (&e).needs_cooldown() {
                         tracing::warn!("Hit {}, cooling down", e);
                         $retry.toggle_cooldown();
+                        continue;
                     }
-                    $retry.cooldown().await;
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         tracing::warn!(
                             "retrying function that failed with error={}",

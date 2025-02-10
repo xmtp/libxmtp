@@ -162,7 +162,16 @@ where
             .set_app_version(app_version.to_string())
             .map_err(xmtp_proto::ApiError::from)?;
     }
-    let api = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+
+    let cooldown = xmtp_common::ExponentialBackoff::builder()
+        .duration(std::time::Duration::from_secs(3))
+        .multiplier(3)
+        .max_jitter(std::time::Duration::from_millis(100))
+        .total_wait_max(std::time::Duration::from_secs(120))
+        .build();
+
+    let api_retry = Retry::builder().with_cooldown(cooldown).build();
+    let api = ApiClientWrapper::new(Arc::new(api_client), api_retry);
     Ok((builder, api))
 }
 
@@ -240,10 +249,10 @@ pub(crate) mod tests {
     use crate::identity::IdentityError;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
-    use crate::{api::test_utils::*, identity::Identity, storage::identity::StoredIdentity, Store};
+    use crate::{identity::Identity, storage::identity::StoredIdentity, Store};
     use xmtp_api::test_utils::*;
-    use xmtp_api::Error as WrappedApiError;
-    use xmtp_common::{rand_vec, tmp_path, Retry};
+    use xmtp_api::ApiClientWrapper;
+    use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
@@ -292,6 +301,11 @@ pub(crate) mod tests {
             .unwrap();
 
         client.register_identity(signature_request).await.unwrap();
+    }
+
+    fn retry() -> Retry<ExponentialBackoff, ExponentialBackoff> {
+        let strategy = ExponentialBackoff::default();
+        Retry::builder().with_cooldown(strategy).build()
     }
 
     /// Generate a random legacy key proto bytes and corresponding account address.
@@ -561,7 +575,7 @@ pub(crate) mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
 
         let identity = IdentityStrategy::new("other_inbox_id".to_string(), address, nonce, None);
         assert!(matches!(
@@ -602,7 +616,7 @@ pub(crate) mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
 
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(dbg!(
@@ -642,7 +656,7 @@ pub(crate) mod tests {
             .unwrap();
 
         stored.store(&store.conn().unwrap()).unwrap();
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
         assert!(identity
             .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
@@ -680,7 +694,7 @@ pub(crate) mod tests {
 
         stored.store(&store.conn().unwrap()).unwrap();
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
 
         let inbox_id = "inbox_id".to_string();
         let identity = IdentityStrategy::new(inbox_id.clone(), address.clone(), nonce, None);

@@ -26,7 +26,7 @@ use crate::{
     Client, XmtpApi,
 };
 use thiserror::Error;
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{retryable, RetryableError, StreamHandle};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -274,7 +274,7 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>) + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
@@ -311,7 +311,7 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
@@ -329,7 +329,7 @@ where
     pub fn stream_consent_with_callback(
         client: Arc<Client<ApiClient, V>>,
         mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
@@ -349,7 +349,7 @@ where
     pub fn stream_preferences_with_callback(
         client: Arc<Client<ApiClient, V>>,
         mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>) + Send + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<()>> {
+    ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {

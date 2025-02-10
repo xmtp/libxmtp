@@ -90,6 +90,32 @@ pub enum Code {
     Unauthenticated = 16,
 }
 
+impl From<usize> for Code {
+    fn from(v: usize) -> Code {
+        use Code::*;
+        match v {
+            0 => Ok,
+            1 => Cancelled,
+            2 => Unknown,
+            3 => InvalidArgument,
+            4 => DeadlineExceeded,
+            5 => NotFound,
+            6 => AlreadyExists,
+            7 => PermissionDenied,
+            8 => ResourceExhausted,
+            9 => FailedPrecondition,
+            10 => Aborted,
+            11 => OutOfRange,
+            12 => Unimplemented,
+            13 => Internal,
+            14 => Unavailable,
+            15 => DataLoss,
+            16 => Unauthenticated,
+            _ => Unknown,
+        }
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod convert {
     impl From<super::Code> for tonic::Code {

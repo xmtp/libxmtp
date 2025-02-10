@@ -501,24 +501,25 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         })
         .collect();
 
-    let mut updates = api_client.get_identity_updates_v2(filters).await?;
+    let updates = api_client
+        .get_identity_updates_v2(filters)
+        .await?
+        .collect::<HashMap<_, Vec<InboxUpdate>>>();
 
     let to_store = updates
-        .by_ref()
+        .iter()
         .flat_map(move |(inbox_id, updates)| {
-            updates
-                .into_iter()
-                .map(move |update: InboxUpdate| StoredIdentityUpdate {
-                    inbox_id: inbox_id.clone(),
-                    sequence_id: update.sequence_id as i64,
-                    server_timestamp_ns: update.server_timestamp_ns as i64,
-                    payload: update.update.into(),
-                })
+            updates.iter().map(move |update| StoredIdentityUpdate {
+                inbox_id: inbox_id.clone(),
+                sequence_id: update.sequence_id as i64,
+                server_timestamp_ns: update.server_timestamp_ns as i64,
+                payload: update.update.clone().into(),
+            })
         })
         .collect::<Vec<StoredIdentityUpdate>>();
 
     conn.insert_or_ignore_identity_updates(&to_store)?;
-    Ok(updates.collect::<HashMap<_, _>>())
+    Ok(updates)
 }
 
 /// Convert a list of unverified updates to verified updates using the given smart contract verifier

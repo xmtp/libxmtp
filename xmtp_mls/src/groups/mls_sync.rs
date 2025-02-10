@@ -1528,6 +1528,7 @@ where
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
+                        tracing::info!("INBOX ID = {}", inbox_id);
                         match (
                             latest_sequence_id_map.get(inbox_id as &str),
                             existing_group_membership.get(inbox_id),
@@ -1540,7 +1541,7 @@ where
                                 }
                             }
                             // This is for new additions to the group
-                            (Some(latest_sequence_id), _) => {
+                            (Some(latest_sequence_id), None) => {
                                 // This is the case for net new members to the group
                                 updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
                             }

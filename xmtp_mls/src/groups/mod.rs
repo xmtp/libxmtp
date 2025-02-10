@@ -1957,8 +1957,9 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner, StreamHandle as _,
+        InboxOwner,
     };
+    use xmtp_common::StreamHandle as _;
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client

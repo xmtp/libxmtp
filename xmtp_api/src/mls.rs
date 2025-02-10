@@ -358,12 +358,14 @@ pub mod tests {
     use crate::*;
 
     use crate::test_utils::MockError;
+    use xmtp_common::StreamHandle;
     use xmtp_proto::xmtp::mls::api::v1::{
         fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
         QueryGroupMessagesResponse,
     };
 
     use std::sync::{Arc, Mutex};
+    use tokio::sync::Barrier;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
@@ -731,10 +733,10 @@ pub mod tests {
             });
 
         let s = time_success.clone();
-        mock_api.expect_query_group_messages().times(4).returning({
+        mock_api.expect_query_group_messages().times(3).returning({
             let group_id = group_id.clone();
             move |_| {
-                let mut set = s.lock();
+                let set = s.lock();
                 set.unwrap().push(xmtp_common::time::Instant::now());
                 Ok(QueryGroupMessagesResponse {
                     paging_info: None,
@@ -746,7 +748,7 @@ pub mod tests {
             .duration(std::time::Duration::from_millis(10))
             .build();
         let cooldown = xmtp_common::ExponentialBackoff::builder()
-            .duration(std::time::Duration::from_secs(3))
+            .duration(std::time::Duration::from_secs(2))
             .multiplier(2)
             .build();
 
@@ -758,25 +760,60 @@ pub mod tests {
                 .build(),
         );
 
-        let result = wrapper
-            .query_group_messages(group_id.clone(), None)
-            .await
-            .unwrap();
-        xmtp_common::time::sleep(std::time::Duration::from_millis(50)).await;
-        let g = group_id.clone();
+        let barrier = Arc::new(Barrier::new(4));
+        let c = barrier.clone();
         let api = wrapper.clone();
-        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
         let g = group_id.clone();
-        let api = wrapper.clone();
-        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
-        let g = group_id.clone();
-        let api = wrapper.clone();
-        xmtp_common::spawn(None, async move { api.query_group_messages(g, None).await });
-        assert_eq!(result.len(), 50);
+        let rate_limits = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            let _ = api.query_group_messages(g.clone(), None).await.unwrap();
+        })
+        .join();
 
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h1 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            // ensure 5ms to fire after rate limit
+            xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
+            let _ = api.query_group_messages(g, None).await;
+        })
+        .join();
+
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h2 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            // ensure 5ms to fire after rate limit
+            xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
+            let _ = api.query_group_messages(g, None).await;
+        })
+        .join();
+
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h3 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            // Firing this 1s later, should still start within duration of backoff
+            xmtp_common::time::sleep(std::time::Duration::from_millis(1_000)).await;
+            let _ = api.query_group_messages(g, None).await;
+        })
+        .join();
+        // assert_eq!(result.len(), 50);
+
+        futures::future::join_all(vec![rate_limits, h1, h2, h3]).await;
+        let fail = time_failure.lock().unwrap().unwrap();
         let success = time_success.lock().unwrap();
+        let min_expected_cooldown = std::time::Duration::from_secs(2);
+        let max_expected_cooldown = std::time::Duration::from_millis(2050);
+
         for s in success.iter() {
-            tracing::info!("{:?}", s.elapsed());
+            tracing::info!("Duration since rate limit={:?}", s.duration_since(fail));
+            assert!(s.duration_since(fail) > min_expected_cooldown);
+            assert!(s.duration_since(fail) < max_expected_cooldown);
         }
     }
 }

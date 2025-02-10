@@ -1,7 +1,9 @@
 use crate::http_stream::SubscriptionItem;
+use crate::Error;
+use crate::ErrorResponse;
+use crate::HttpClientError;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Read;
-use xmtp_proto::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
@@ -12,13 +14,6 @@ pub(crate) enum GrpcResponse<T> {
     Empty {},
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub(crate) struct ErrorResponse {
-    code: usize,
-    pub message: String,
-    details: Vec<String>,
-}
-
 /// handle JSON response from gRPC, returning either
 /// the expected deserialized response object or a gRPC [`Error`]
 pub fn handle_error<R: Read, T>(reader: R) -> Result<T, Error>
@@ -27,10 +22,10 @@ where
 {
     match serde_json::from_reader(reader) {
         Ok(GrpcResponse::Ok(response)) => Ok(response),
-        Ok(GrpcResponse::Err(e)) => Err(Error::new(ErrorKind::IdentityError).with(e.message)),
+        Ok(GrpcResponse::Err(e)) => Err(Error::new(HttpClientError::from(e))),
         Ok(GrpcResponse::Empty {}) => Ok(Default::default()),
         Ok(GrpcResponse::SubscriptionItem(item)) => Ok(item.result),
-        Err(e) => Err(Error::new(ErrorKind::QueryError).with(e.to_string())),
+        Err(e) => Err(Error::new(e)),
     }
 }
 

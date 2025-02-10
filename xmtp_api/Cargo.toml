@@ -13,6 +13,10 @@ tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
+mockall = { workspace = true, optional = true }
+
+
+# test utils
 [dev-dependencies]
 mockall.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
@@ -33,4 +37,5 @@ test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
+  "dep:mockall",
 ]

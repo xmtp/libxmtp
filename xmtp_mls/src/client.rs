@@ -1073,9 +1073,13 @@ pub(crate) mod tests {
     async fn test_group_member_recovery() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
+        tracing::info!("amal = {}", amal.inbox_id());
         // Add two separate installations for Bola
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
+        tracing::info!("BolaA = {}", bola_a.inbox_id());
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+        tracing::info!("BolaB = {}", bola_b.inbox_id());
+
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();

@@ -67,31 +67,33 @@ where
     {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        Ok(try_join_all(chunks.map(|chunk| async move {
-            Ok::<_, Error>(
-                self.api_client
-                    .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                        requests: chunk.iter().map(|filter| filter.into()).collect(),
-                    })
-                    .await
-                    .map_err(ApiError::from)?
-                    .responses
-                    .into_iter()
-                    .flat_map(|item| {
-                        item.updates.into_iter().map(move |update| {
-                            update
-                                .try_into()
-                                .map(|u| (item.inbox_id.clone(), u))
-                                .map_err(Error::from)
-                        })
-                    }),
-            )
+        let res = try_join_all(chunks.map(|chunk| async move {
+            let res = self
+                .api_client
+                .get_identity_updates_v2(GetIdentityUpdatesV2Request {
+                    requests: chunk.iter().map(|filter| filter.into()).collect(),
+                })
+                .await
+                .map_err(ApiError::from)?
+                .responses
+                .into_iter()
+                .map(|item| {
+                    let deser_items = item
+                        .updates
+                        .into_iter()
+                        .map(move |update| update.try_into().map_err(Error::from))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok::<_, Error>((item.inbox_id, deser_items))
+                });
+            Ok::<_, Error>(res)
         }))
         .await?
         .into_iter()
         .flatten()
-        .collect::<Result<(String, Vec<T>)>>()
-        .into_iter())
+        .collect::<Result<Vec<(String, Vec<T>)>>>()?
+        .into_iter();
+
+        Ok(res)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

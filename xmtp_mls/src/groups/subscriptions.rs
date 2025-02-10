@@ -11,6 +11,7 @@ use crate::{
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
+use xmtp_common::StreamHandle;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
@@ -47,7 +48,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
             + Send
             + 'static,
-    ) -> impl crate::StreamHandle<StreamOutput = Result<()>>
+    ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
         ScopedClient: 'static,
         <ScopedClient as ScopedGroupClient>::ApiClient: XmtpMlsStreams + 'static,
@@ -69,7 +70,7 @@ pub(crate) fn stream_messages_with_callback<ScopedClient>(
     #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
         + Send
         + 'static,
-) -> impl crate::StreamHandle<StreamOutput = Result<()>>
+) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     ScopedClient: ScopedGroupClient + 'static,
     <ScopedClient as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'static,

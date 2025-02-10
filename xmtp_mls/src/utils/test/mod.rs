@@ -143,7 +143,7 @@ impl ClientBuilder<TestClient> {
 
 async fn inner_build<A>(owner: impl InboxOwner, api_client: A) -> Client<A>
 where
-    A: XmtpApi + 'static + Send + Sync,
+    A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
