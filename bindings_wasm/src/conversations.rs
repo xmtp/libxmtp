@@ -300,8 +300,12 @@ impl Conversations {
   pub async fn find_or_create_dm(
     &self,
     account_address: String,
-    options: CreateDMOptions,
+    options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
+    let options = options.unwrap_or(CreateDMOptions {
+      message_disappearing_settings: None,
+    });
+
     let convo = self
       .inner_client
       .find_or_create_dm(account_address, options.into_dm_metadata_options())
