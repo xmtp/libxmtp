@@ -165,6 +165,7 @@ pub mod tests {
 
     use super::*;
     use futures::StreamExt;
+    use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::{
         api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription},
         xmtp::message_api::v1::{
@@ -198,13 +199,16 @@ pub mod tests {
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
-            .await
+        let mut client = Client::builder();
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        client.set_tls(true);
+        client
+            .set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())
             .unwrap();
-
         client
             .set_app_version("test/0.1.0".to_string())
             .expect("failed to set app version");
+        let client = client.build().await.unwrap();
 
         let result = client
             .query(QueryRequest {
@@ -456,13 +460,14 @@ pub mod tests {
 
     #[tokio::test]
     async fn metadata_test() {
-        let mut client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
+        let mut client = Client::builder();
+        client.set_host(DEV_ADDRESS.to_string());
+        client.set_tls(true);
         let app_version = "test/1.0.0".to_string();
         let libxmtp_version = "0.0.1".to_string();
-
         client.set_app_version(app_version.clone()).unwrap();
         client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
-
+        let client = client.build().await.unwrap();
         let request = client.build_request(PublishRequest { envelopes: vec![] });
 
         assert_eq!(
