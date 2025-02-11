@@ -62,6 +62,10 @@ pub enum GenericError {
     IoError(#[from] tokio::io::Error),
     #[error(transparent)]
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
+    #[error(transparent)]
+    ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
+    #[error(transparent)]
+    Grpc(#[from] xmtp_api_grpc::GrpcError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

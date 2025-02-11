@@ -7695,6 +7695,7 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uuid 1.12.0",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",

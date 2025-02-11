@@ -195,7 +195,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         self,
     ) -> Result<ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>, ClientBuilderError>
     where
-        ApiClient: XmtpApi + Clone,
+        ApiClient: Clone,
     {
         let api = self
             .api_client

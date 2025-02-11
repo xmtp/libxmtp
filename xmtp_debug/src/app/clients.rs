@@ -71,13 +71,14 @@ async fn new_client_inner(
         dir.join(db_name)
     };
 
-    let client = crate::DbgClient::builder(IdentityStrategy::new(
+    let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_address(),
         nonce,
         None,
     ))
     .api_client(api)
+    .with_remote_verifier()?
     .store(
         EncryptedMessageStore::new(
             StorageOption::Persistent(
@@ -137,8 +138,9 @@ async fn existing_client_inner(
     if let Err(e) = &store {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }
-    let client = crate::DbgClient::builder(IdentityStrategy::CachedOnly)
+    let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
         .api_client(api)
+        .with_remote_verifier()?
         .store(store?)
         .build()
         .await?;
