@@ -20,7 +20,7 @@ use xmtp_id::{
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     AsIdRef, InboxIdRef,
 };
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     client::ClientError,
@@ -543,7 +543,7 @@ pub async fn is_member_of_association_state<Client>(
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
-    Client: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Clone + Send + Sync,
+    Client: XmtpMlsClient + XmtpIdentityClient + Clone + Send + Sync,
 {
     let filters = vec![GetIdentityUpdatesV2Filter {
         inbox_id: inbox_id.to_string(),

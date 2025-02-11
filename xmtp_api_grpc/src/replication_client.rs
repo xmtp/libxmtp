@@ -14,14 +14,14 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
+use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient, XmtpMlsStreams};
 
-use crate::GrpcError;
 use crate::{
     grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription},
     Error,
 };
 use crate::{GroupMessageStream, WelcomeMessageStream};
+use crate::{GrpcBuilderError, GrpcError};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic,
     build_key_package_topic, build_welcome_message_topic, extract_client_envelope,
@@ -80,7 +80,7 @@ impl ClientV4 {
         grpc_url: String,
         payer_url: String,
         is_secure: bool,
-    ) -> Result<Self, GrpcError> {
+    ) -> Result<Self, GrpcBuilderError> {
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))?;
         let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))?;
 
@@ -117,17 +117,82 @@ impl ClientV4 {
     }
 }
 
-impl ClientWithMetadata for ClientV4 {
-    type Error = crate::Error;
+pub struct ClientBuilder {
+    /// libxmtp backend host url
+    host: Option<String>,
+    /// payer url
+    payer: Option<String>,
+    /// version of the app
+    app_version: Option<MetadataValue<tonic::metadata::Ascii>>,
+    /// Version of the libxmtp core library
+    libxmtp_version: Option<MetadataValue<tonic::metadata::Ascii>>,
+    /// Whether or not the channel should use TLS
+    tls_channel: bool,
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self {
+            host: None,
+            payer: None,
+            app_version: None,
+            libxmtp_version: None,
+            tls_channel: false,
+        }
+    }
+}
+
+impl ApiBuilder for ClientBuilder {
+    type Output = ClientV4;
+    type Error = crate::GrpcBuilderError;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version).map_err(GrpcError::from)?;
+        self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.app_version = MetadataValue::try_from(&version).map_err(GrpcError::from)?;
+        self.app_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
+    }
+
+    fn set_tls(&mut self, tls: bool) {
+        self.tls_channel = tls;
+    }
+
+    fn set_host(&mut self, host: String) {
+        self.host = Some(host);
+    }
+
+    fn set_payer(&mut self, payer: String) {
+        self.payer = Some(payer);
+    }
+
+    async fn build(self) -> Result<Self::Output, Self::Error> {
+        let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
+        let payer = self.payer.ok_or(GrpcBuilderError::MissingPayerUrl)?;
+        let grpc_channel = match self.tls_channel {
+            true => create_tls_channel(host).await?,
+            false => Channel::from_shared(host)?.connect().await?,
+        };
+
+        let payer_channel = match self.tls_channel {
+            true => create_tls_channel(payer).await?,
+            false => Channel::from_shared(payer)?.connect().await?,
+        };
+        let client = ReplicationApiClient::new(grpc_channel.clone());
+        let payer_client = PayerApiClient::new(payer_channel.clone());
+
+        Ok(ClientV4 {
+            client,
+            payer_client,
+            app_version: self
+                .app_version
+                .ok_or(crate::GrpcBuilderError::MissingAppVersion)?,
+            libxmtp_version: self
+                .libxmtp_version
+                .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+        })
     }
 }
 

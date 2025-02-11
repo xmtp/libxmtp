@@ -2,7 +2,7 @@
 
 use mockall::mock;
 use xmtp_proto::{
-    api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -98,12 +98,6 @@ mod not_wasm {
         impl Clone for ApiClient {
             fn clone(&self) -> Self;
         }
-        #[async_trait::async_trait]
-        impl ClientWithMetadata for ApiClient {
-            type Error = MockError;
-            fn set_libxmtp_version(&mut self, version: String) -> Result<(), MockError>;
-            fn set_app_version(&mut self, version: String) -> Result<(), MockError>;
-        }
 
         #[async_trait::async_trait]
         impl XmtpMlsClient for ApiClient {
@@ -162,13 +156,6 @@ mod wasm {
     struct ApiClient;
 
     mock! {
-        #[async_trait::async_trait(?Send)]
-        impl ClientWithMetadata for ApiClient {
-            type Error = MockError;
-            fn set_libxmtp_version(&mut self, version: String) -> Result<(), MockError>;
-            fn set_app_version(&mut self, version: String) -> Result<(), MockError>;
-        }
-
         #[async_trait::async_trait(?Send)]
         impl XmtpMlsClient for ApiClient {
             type Error = MockError;

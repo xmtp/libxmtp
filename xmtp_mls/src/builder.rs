@@ -4,7 +4,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use xmtp_cryptography::signature::AddressValidationError;
-use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
     client::Client,
@@ -49,13 +49,12 @@ pub enum ClientBuilderError {
     DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
 }
 
-pub struct ClientBuilder<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
+pub struct ClientBuilder<ApiClient, V> {
     api_client: Option<ApiClient>,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
-    app_version: Option<String>,
     scw_verifier: Option<V>,
 }
 
@@ -75,14 +74,82 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store: None,
             identity_strategy: strategy,
             history_sync_url: None,
-            app_version: None,
             scw_verifier: None,
         }
     }
 
-    pub fn api_client(mut self, api_client: ApiClient) -> Self {
-        self.api_client = Some(api_client);
-        self
+    pub async fn build(self) -> Result<Client<ApiClient, V>, ClientBuilderError>
+    where
+        ApiClient: XmtpApi + 'static + Send + Sync,
+        V: SmartContractSignatureVerifier + 'static + Send + Sync,
+    {
+        let ClientBuilder {
+            mut api_client,
+            identity,
+            mut store,
+            identity_strategy,
+            history_sync_url,
+            mut scw_verifier,
+            ..
+        } = self;
+
+        let api_client = api_client
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "api_client",
+            })?;
+
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(3))
+            .multiplier(3)
+            .max_jitter(std::time::Duration::from_millis(100))
+            .total_wait_max(std::time::Duration::from_secs(120))
+            .build();
+
+        let api_retry = Retry::builder().with_cooldown(cooldown).build();
+        let api = ApiClientWrapper::new(Arc::new(api_client), api_retry);
+
+        let scw_verifier = scw_verifier
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "scw_verifier",
+            })?;
+
+        let store = store
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
+
+        let conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let identity = if let Some(identity) = identity {
+            identity
+        } else {
+            identity_strategy
+                .initialize_identity(&api, &provider, &scw_verifier)
+                .await?
+        };
+
+        debug!(
+            inbox_id = identity.inbox_id(),
+            installation_id = hex::encode(identity.installation_keys.public_bytes()),
+            "Initialized identity"
+        );
+        // get sequence_id from identity updates and loaded into the DB
+        load_identity_updates(
+            &api,
+            provider.conn_ref(),
+            vec![identity.inbox_id.as_str()].as_slice(),
+        )
+        .await?;
+
+        let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
+
+        if history_sync_url.is_some() {
+            client.start_sync_worker();
+        }
+
+        client.start_disappearing_messages_cleaner_worker();
+        Ok(client)
     }
 
     pub fn identity(mut self, identity: Identity) -> Self {
@@ -100,143 +167,27 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         self
     }
 
-    pub fn app_version(mut self, version: String) -> Self {
-        self.app_version = Some(version);
-        self
-    }
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub fn scw_signature_verifier(mut self, verifier: V) -> Self {
-        self.scw_verifier = Some(verifier);
-        self
-    }
-}
-
-impl<ApiClient, V> ClientBuilder<ApiClient, V>
-where
-    ApiClient: XmtpApi + 'static + Send + Sync,
-    V: SmartContractSignatureVerifier + 'static + Send + Sync,
-{
-    /// Build with a custom smart contract wallet verifier
-    pub async fn build_with_verifier(self) -> Result<Client<ApiClient, V>, ClientBuilderError> {
-        let (builder, api_client) = inner_build_api_client(self)?;
-        inner_build(builder, api_client).await
-    }
-}
-
-impl<ApiClient> ClientBuilder<ApiClient, RemoteSignatureVerifier<ApiClient>>
-where
-    ApiClient: XmtpApi + 'static + Send + Sync + Clone,
-{
-    /// Build with the default [`RemoteSignatureVerifier`]
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn build(self) -> Result<Client<ApiClient>, ClientBuilderError> {
-        let (mut builder, api_client) = inner_build_api_client(self)?;
-        builder = builder.scw_signature_verifier(RemoteSignatureVerifier::new(api_client.clone()));
-        inner_build::<ApiClient, RemoteSignatureVerifier<ApiClient>>(builder, api_client).await
-    }
-}
-
-fn inner_build_api_client<ApiClient, V>(
-    mut builder: ClientBuilder<ApiClient, V>,
-) -> Result<(ClientBuilder<ApiClient, V>, ApiClientWrapper<ApiClient>), ClientBuilderError>
-where
-    ApiClient: XmtpApi,
-{
-    let ClientBuilder {
-        ref mut api_client,
-        ref app_version,
-        ..
-    } = builder;
-
-    let mut api_client = api_client
-        .take()
-        .ok_or(ClientBuilderError::MissingParameter {
-            parameter: "api_client",
-        })?;
-
-    api_client
-        .set_libxmtp_version(env!("CARGO_PKG_VERSION").to_string())
-        .map_err(xmtp_proto::ApiError::from)?;
-    if let Some(app_version) = app_version {
-        api_client
-            .set_app_version(app_version.to_string())
-            .map_err(xmtp_proto::ApiError::from)?;
+    pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, V> {
+        ClientBuilder {
+            api_client: Some(api_client),
+            identity: self.identity,
+            store: self.store,
+            identity_strategy: self.identity_strategy,
+            history_sync_url: self.history_sync_url,
+            scw_verifier: self.scw_verifier,
+        }
     }
 
-    let cooldown = xmtp_common::ExponentialBackoff::builder()
-        .duration(std::time::Duration::from_secs(3))
-        .multiplier(3)
-        .max_jitter(std::time::Duration::from_millis(100))
-        .total_wait_max(std::time::Duration::from_secs(120))
-        .build();
-
-    let api_retry = Retry::builder().with_cooldown(cooldown).build();
-    let api = ApiClientWrapper::new(Arc::new(api_client), api_retry);
-    Ok((builder, api))
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-async fn inner_build<C, V>(
-    client: ClientBuilder<C, V>,
-    api_client: ApiClientWrapper<C>,
-) -> Result<Client<C, V>, ClientBuilderError>
-where
-    C: XmtpApi + 'static + Send + Sync,
-    V: SmartContractSignatureVerifier + 'static + Send + Sync,
-{
-    let ClientBuilder {
-        mut store,
-        identity_strategy,
-        history_sync_url,
-        mut scw_verifier,
-        ..
-    } = client;
-
-    debug!("Building client");
-
-    let scw_verifier = scw_verifier
-        .take()
-        .ok_or(ClientBuilderError::MissingParameter {
-            parameter: "scw_verifier",
-        })?;
-
-    let store = store
-        .take()
-        .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-    let conn = store.conn()?;
-    let provider = XmtpOpenMlsProvider::new(conn);
-    let identity = identity_strategy
-        .initialize_identity(&api_client, &provider, &scw_verifier)
-        .await?;
-
-    debug!(
-        inbox_id = identity.inbox_id(),
-        installation_id = hex::encode(identity.installation_keys.public_bytes()),
-        "Initialized identity"
-    );
-    // get sequence_id from identity updates and loaded into the DB
-    load_identity_updates(
-        &api_client,
-        provider.conn_ref(),
-        vec![identity.inbox_id.as_str()].as_slice(),
-    )
-    .await?;
-
-    let client = Client::new(
-        api_client,
-        identity,
-        store,
-        scw_verifier,
-        history_sync_url.clone(),
-    );
-
-    if history_sync_url.is_some() {
-        client.start_sync_worker();
+    pub fn with_scw_verifier<V2>(self, verifier: V2) -> ClientBuilder<ApiClient, V2> {
+        ClientBuilder {
+            scw_verifier: Some(verifier),
+            api_client: self.api_client,
+            identity: self.identity,
+            store: self.store,
+            identity_strategy: self.identity_strategy,
+            history_sync_url: self.history_sync_url,
+        }
     }
-
-    client.start_disappearing_messages_cleaner_worker();
-
-    Ok(client)
 }
 
 #[cfg(test)]

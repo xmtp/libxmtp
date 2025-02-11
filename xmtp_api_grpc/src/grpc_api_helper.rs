@@ -10,8 +10,8 @@ use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use tracing::Instrument;
 
-use crate::GrpcError;
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpMlsStreams};
+use crate::{GrpcBuilderError, GrpcError};
+use xmtp_proto::api_client::{ApiBuilder, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
@@ -31,7 +31,7 @@ use xmtp_proto::{
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_tls_channel(address: String) -> Result<Channel, GrpcError> {
+pub async fn create_tls_channel(address: String) -> Result<Channel, GrpcBuilderError> {
     let span = tracing::debug_span!("grpc_connect", address);
     let channel = Channel::from_shared(address)?
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
@@ -77,7 +77,7 @@ pub struct Client {
 
 impl Client {
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcError> {
+    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcBuilderError> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))?;
         let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))?;
@@ -113,28 +113,77 @@ impl Client {
     pub fn identity_client(&self) -> &ProtoIdentityApiClient<Channel> {
         &self.identity_client
     }
+
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::default()
+    }
 }
 
 pub struct ClientBuilder {
-    host: String,
+    host: Option<String>,
     /// version of the app
-    app_version: Option<MetadataValue>,
+    app_version: Option<MetadataValue<tonic::metadata::Ascii>>,
     /// Version of the libxmtp core library
-    libxmtp_version: Option<MetadataValue>,
+    libxmtp_version: Option<MetadataValue<tonic::metadata::Ascii>>,
     /// Whether or not the channel should use TLS
     tls_channel: bool,
 }
 
-impl ClientWithMetadata for Client {
-    type Error = crate::Error;
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self {
+            host: None,
+            app_version: None,
+            libxmtp_version: None,
+            tls_channel: false,
+        }
+    }
+}
+
+impl ApiBuilder for ClientBuilder {
+    type Output = Client;
+    type Error = crate::GrpcBuilderError;
+
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version).map_err(crate::GrpcError::from)?;
+        self.libxmtp_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.app_version = MetadataValue::try_from(&version).map_err(crate::GrpcError::from)?;
+        self.app_version = Some(MetadataValue::try_from(&version)?);
         Ok(())
+    }
+
+    fn set_tls(&mut self, tls: bool) {
+        self.tls_channel = tls;
+    }
+
+    fn set_host(&mut self, host: String) {
+        self.host = Some(host);
+    }
+
+    async fn build(self) -> Result<Self::Output, Self::Error> {
+        let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
+        let channel = match self.tls_channel {
+            true => create_tls_channel(host).await?,
+            false => Channel::from_shared(host)?.connect().await?,
+        };
+
+        let client = MessageApiClient::new(channel.clone());
+        let mls_client = ProtoMlsApiClient::new(channel.clone());
+        let identity_client = ProtoIdentityApiClient::new(channel);
+
+        Ok(Client {
+            client,
+            mls_client,
+            identity_client,
+            app_version: self
+                .app_version
+                .ok_or(crate::GrpcBuilderError::MissingAppVersion)?,
+            libxmtp_version: self
+                .libxmtp_version
+                .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+        })
     }
 }
 

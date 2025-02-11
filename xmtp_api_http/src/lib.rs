@@ -9,7 +9,7 @@ use futures::stream;
 use http_stream::create_grpc_stream;
 use reqwest::header;
 use util::handle_error;
-use xmtp_proto::api_client::{ApiBuilder, ClientWithMetadata, XmtpIdentityClient};
+use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -116,6 +116,9 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         self.host_url = host;
     }
 
+    // no op for http so far
+    fn set_tls(&mut self, _tls: bool) {}
+
     fn build(self) -> Result<Self::Output, Self::Error> {
         let http_client = self.reqwest.default_headers(self.headers).build()?;
 
@@ -125,57 +128,6 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
             app_version: self.app_version,
             libxmtp_version: self.libxmtp_version,
         })
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl ClientWithMetadata for XmtpHttpApiClient {
-    type Error = Error;
-
-    fn set_app_version(&mut self, version: String) -> Result<(), Error> {
-        self.app_version = Some(version);
-
-        let mut headers = header::HeaderMap::new();
-        if let Some(app_version) = &self.app_version {
-            headers.insert(
-                "x-app-version",
-                app_version.parse().map_err(HttpClientError::from)?,
-            );
-        }
-        if let Some(libxmtp_version) = &self.libxmtp_version {
-            headers.insert(
-                "x-libxmtp-version",
-                libxmtp_version.parse().map_err(HttpClientError::from)?,
-            );
-        }
-        self.http_client = reqwest_builder()
-            .default_headers(headers)
-            .build()
-            .map_err(HttpClientError::from)?;
-        Ok(())
-    }
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Error> {
-        self.libxmtp_version = Some(version);
-
-        let mut headers = header::HeaderMap::new();
-        if let Some(app_version) = &self.app_version {
-            headers.insert(
-                "x-app-version",
-                app_version.parse().map_err(HttpClientError::from)?,
-            );
-        }
-        if let Some(libxmtp_version) = &self.libxmtp_version {
-            headers.insert(
-                "x-libxmtp-version",
-                libxmtp_version.parse().map_err(HttpClientError::from)?,
-            );
-        }
-        self.http_client = reqwest_builder()
-            .default_headers(headers)
-            .build()
-            .map_err(HttpClientError::from)?;
-        Ok(())
     }
 }
 

@@ -45,6 +45,24 @@ impl From<GrpcError> for Error {
 }
 
 #[derive(Debug, Error)]
+pub enum GrpcBuilderError {
+    #[error("app version required to create client")]
+    MissingAppVersion,
+    #[error("libxmtp core library version required to create client")]
+    MissingLibxmtpVersion,
+    #[error("host url required to create client")]
+    MissingHostUrl,
+    #[error("payer url required to create client")]
+    MissingPayerUrl,
+    #[error(transparent)]
+    Metadata(#[from] tonic::metadata::errors::InvalidMetadataValue),
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
+    #[error("Invalid URI during channel creation")]
+    InvalidUri(#[from] http::uri::InvalidUri),
+}
+
+#[derive(Debug, Error)]
 pub enum GrpcError {
     #[error("Invalid URI during channel creation")]
     InvalidUri(#[from] http::uri::InvalidUri),
@@ -147,7 +165,6 @@ pub mod tests {
 
     use super::*;
     use futures::StreamExt;
-    use xmtp_proto::api_client::ClientWithMetadata;
     use xmtp_proto::{
         api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription},
         xmtp::message_api::v1::{

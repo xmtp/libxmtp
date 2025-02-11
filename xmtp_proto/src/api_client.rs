@@ -40,82 +40,67 @@ pub mod trait_impls {
     // native, release
     #[cfg(all(not(feature = "test-utils"), not(target_arch = "wasm32")))]
     mod inner {
-        use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
         pub trait BoxableXmtpApi<Err>
         where
-            Self: XmtpMlsClient<Error = Err>
-                + XmtpIdentityClient<Error = Err>
-                + ClientWithMetadata<Error = Err>
-                + Send
-                + Sync,
+            Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync,
         {
         }
 
         impl<T, Err> BoxableXmtpApi<Err> for T where
-            T: XmtpMlsClient<Error = Err>
-                + XmtpIdentityClient<Error = Err>
-                + ClientWithMetadata<Error = Err>
-                + Send
-                + Sync
-                + ?Sized
+            T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync + ?Sized
         {
         }
 
         pub trait XmtpApi
         where
-            Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
+            Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
         {
         }
 
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync {}
+        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync {}
     }
 
     // wasm32, release
     #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
     mod inner {
 
-        use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
         pub trait XmtpApi
         where
-            Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
+            Self: XmtpMlsClient + XmtpIdentityClient,
         {
         }
 
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + ?Sized {}
+        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
     }
 
     // test, native
     #[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
     mod inner {
-        use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
         pub trait XmtpApi
         where
-            Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
+            Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
         {
         }
-        impl<T> XmtpApi for T where
-            T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync + ?Sized
-        {
-        }
+        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync + ?Sized {}
     }
 
     // test, wasm32
     #[cfg(all(feature = "test-utils", target_arch = "wasm32"))]
     mod inner {
-        use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
         pub trait XmtpApi
         where
-            Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata,
+            Self: XmtpMlsClient + XmtpIdentityClient,
         {
         }
 
-        impl<T> XmtpApi for T where
-            T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync + ?Sized
-        {
-        }
+        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync + ?Sized {}
     }
 }
 
@@ -131,27 +116,6 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Self::Error>> +
     type Error;
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Self::Error>;
     fn close(&self);
-}
-
-pub trait ClientWithMetadata {
-    type Error: crate::XmtpApiError + 'static;
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
-}
-
-impl<T> ClientWithMetadata for Box<T>
-where
-    T: ClientWithMetadata + ?Sized,
-{
-    type Error = <T as ClientWithMetadata>::Error;
-
-    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        (**self).set_libxmtp_version(version)
-    }
-
-    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        (**self).set_app_version(version)
-    }
 }
 
 // Wasm futures don't have `Send` or `Sync` bounds.
@@ -576,11 +540,22 @@ pub trait ApiBuilder {
     type Output;
     type Error;
 
+    /// set the libxmtp version (required)
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
 
+    /// set the sdk app version (required)
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
 
+    /// Set the libxmtp host (required)
     fn set_host(&mut self, host: String);
 
-    fn build(self) -> Result<Self::Output, Self::Error>;
+    /// Set the payer URL (optional)
+    fn set_payer(&mut self, _host: String) {}
+
+    /// indicate tls (default: false)
+    fn set_tls(&mut self, tls: bool);
+
+    #[allow(async_fn_in_trait)]
+    /// Build the api client
+    async fn build(self) -> Result<Self::Output, Self::Error>;
 }
