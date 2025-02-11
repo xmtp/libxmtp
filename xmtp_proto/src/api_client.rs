@@ -15,6 +15,7 @@ use crate::xmtp::mls::api::v1::{
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 use futures::Stream;
+use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-utils"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -23,6 +24,10 @@ pub trait XmtpTestClient {
     async fn create_local() -> Self;
     async fn create_dev() -> Self;
 }
+
+pub type GenericXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
+
+pub use trait_impls::*;
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
@@ -37,15 +42,33 @@ pub mod trait_impls {
     mod inner {
         use crate::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
 
+        pub trait BoxableXmtpApi<Err>
+        where
+            Self: XmtpMlsClient<Error = Err>
+                + XmtpIdentityClient<Error = Err>
+                + ClientWithMetadata<Error = Err>
+                + Send
+                + Sync,
+        {
+        }
+
+        impl<T, Err> BoxableXmtpApi<Err> for T where
+            T: XmtpMlsClient<Error = Err>
+                + XmtpIdentityClient<Error = Err>
+                + ClientWithMetadata<Error = Err>
+                + Send
+                + Sync
+                + ?Sized
+        {
+        }
+
         pub trait XmtpApi
         where
             Self: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
         {
         }
-        impl<T> XmtpApi for T where
-            T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync + ?Sized
-        {
-        }
+
+        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync {}
     }
 
     // wasm32, release
@@ -286,6 +309,56 @@ where
     }
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> XmtpMlsClient for Arc<T>
+where
+    T: XmtpMlsClient + Sync + ?Sized + Send,
+{
+    type Error = <T as XmtpMlsClient>::Error;
+
+    async fn upload_key_package(
+        &self,
+        request: UploadKeyPackageRequest,
+    ) -> Result<(), Self::Error> {
+        (**self).upload_key_package(request).await
+    }
+
+    async fn fetch_key_packages(
+        &self,
+        request: FetchKeyPackagesRequest,
+    ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        (**self).fetch_key_packages(request).await
+    }
+
+    async fn send_group_messages(
+        &self,
+        request: SendGroupMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        (**self).send_group_messages(request).await
+    }
+
+    async fn send_welcome_messages(
+        &self,
+        request: SendWelcomeMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        (**self).send_welcome_messages(request).await
+    }
+
+    async fn query_group_messages(
+        &self,
+        request: QueryGroupMessagesRequest,
+    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        (**self).query_group_messages(request).await
+    }
+
+    async fn query_welcome_messages(
+        &self,
+        request: QueryWelcomeMessagesRequest,
+    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        (**self).query_welcome_messages(request).await
+    }
+}
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait XmtpMlsStreams {
@@ -365,6 +438,39 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> XmtpMlsStreams for Arc<T>
+where
+    T: XmtpMlsStreams + Sync + ?Sized + Send,
+{
+    type Error = <T as XmtpMlsStreams>::Error;
+
+    type GroupMessageStream<'a>
+        = <T as XmtpMlsStreams>::GroupMessageStream<'a>
+    where
+        Self: 'a;
+
+    type WelcomeMessageStream<'a>
+        = <T as XmtpMlsStreams>::WelcomeMessageStream<'a>
+    where
+        Self: 'a;
+
+    async fn subscribe_group_messages(
+        &self,
+        request: SubscribeGroupMessagesRequest,
+    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+        (**self).subscribe_group_messages(request).await
+    }
+
+    async fn subscribe_welcome_messages(
+        &self,
+        request: SubscribeWelcomeMessagesRequest,
+    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+        (**self).subscribe_welcome_messages(request).await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpIdentityClient {
     type Error: crate::XmtpApiError + 'static;
     async fn publish_identity_update(
@@ -391,6 +497,45 @@ pub trait XmtpIdentityClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T> XmtpIdentityClient for Box<T>
+where
+    T: XmtpIdentityClient + Send + Sync + ?Sized,
+{
+    type Error = <T as XmtpIdentityClient>::Error;
+
+    async fn publish_identity_update(
+        &self,
+        request: PublishIdentityUpdateRequest,
+    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        (**self).publish_identity_update(request).await
+    }
+
+    async fn get_identity_updates_v2(
+        &self,
+        request: GetIdentityUpdatesV2Request,
+    ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        (**self).get_identity_updates_v2(request).await
+    }
+
+    async fn get_inbox_ids(
+        &self,
+        request: GetInboxIdsRequest,
+    ) -> Result<GetInboxIdsResponse, Self::Error> {
+        (**self).get_inbox_ids(request).await
+    }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        (**self)
+            .verify_smart_contract_wallet_signatures(request)
+            .await
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<T> XmtpIdentityClient for Arc<T>
 where
     T: XmtpIdentityClient + Send + Sync + ?Sized,
 {

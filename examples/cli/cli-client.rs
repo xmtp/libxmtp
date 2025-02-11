@@ -19,6 +19,7 @@ use futures::future::join_all;
 use owo_colors::OwoColorize;
 use prost::Message;
 use serializable::maybe_get_text;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::Dispatch;
 use tracing_subscriber::field::MakeExt;
@@ -30,8 +31,8 @@ use tracing_subscriber::{
     Registry,
 };
 use valuable::Valuable;
-use xmtp_api_grpc::grpc_api_helper::Client as ClientV3;
 use xmtp_api_grpc::replication_client::ClientV4;
+use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, Error as GrpcError};
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::{
@@ -57,12 +58,14 @@ use xmtp_mls::{
     },
     InboxOwner,
 };
+use xmtp_proto::api_client::BoxableXmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 #[macro_use]
 extern crate tracing;
 
-type Client = xmtp_mls::client::Client<Box<dyn XmtpApi>>;
+type Client = xmtp_mls::client::Client<XmtpApiClient>;
+type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<GrpcError>>;
 type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
@@ -234,8 +237,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
     }
     info!("Starting CLI Client....");
 
-    let grpc: Box<dyn XmtpApi> = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => Box::new(
+    let grpc: XmtpApiClient = match (cli.testnet, &cli.env) {
+        (true, Env::Local) => Arc::new(
             ClientV4::create(
                 "http://localhost:5050".into(),
                 "http://localhost:5050".into(),
@@ -243,7 +246,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             )
             .await?,
         ),
-        (true, Env::Dev) => Box::new(
+        (true, Env::Dev) => Arc::new(
             ClientV4::create(
                 "https://grpc.testnet.xmtp.network:443".into(),
                 "https://payer.testnet.xmtp.network:443".into(),
@@ -251,12 +254,12 @@ async fn main() -> color_eyre::eyre::Result<()> {
             )
             .await?,
         ),
-        (false, Env::Local) => Box::new(ClientV3::create("http://localhost:5556", false).await?),
+        (false, Env::Local) => Arc::new(ClientV3::create("http://localhost:5556", false).await?),
         (false, Env::Dev) => {
-            Box::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
+            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
         }
         (false, Env::Production) => {
-            Box::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
+            Arc::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
         }
         (true, Env::Production) => todo!("not supported"),
     };
@@ -500,7 +503,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
     Ok(())
 }
 
-async fn create_client<C: XmtpApi + 'static>(
+async fn create_client<C: XmtpApi + Clone + 'static>(
     cli: &Cli,
     account: IdentityStrategy,
     grpc: C,
@@ -527,7 +530,7 @@ async fn register<C>(
     client: C,
 ) -> Result<(), CliError>
 where
-    C: XmtpApi + 'static,
+    C: Clone + XmtpApi + 'static,
 {
     let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(

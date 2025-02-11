@@ -794,7 +794,7 @@ pub(crate) mod tests {
 
         // invalid
         let text = "eip/155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcd";
-        let result: Result<AccountId, DeserializationError> = text.try_into();
+        let result: Result<AccountId, ConversionError> = text.try_into();
         assert!(matches!(
             result,
             Err(DeserializationError::InvalidAccountId)

@@ -35,7 +35,7 @@ wasm-bindgen-test.workspace = true
 
 [features]
 convert = ["openmls_rust_crypto", "proto_full"]
-default = []
+default = ["proto_full"]
 test-utils = ["xmtp_common/test-utils"]
 
 # @@protoc_deletion_point(features)

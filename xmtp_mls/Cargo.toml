@@ -68,7 +68,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
-tokio-stream = { version = "0.1", default-features = false, features = [
+tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
 tracing.workspace = true

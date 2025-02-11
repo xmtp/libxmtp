@@ -16,8 +16,11 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsStreams};
 
-use crate::grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription};
 use crate::GrpcError;
+use crate::{
+    grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription},
+    Error,
+};
 use crate::{GroupMessageStream, WelcomeMessageStream};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_identity_update_topic,
@@ -61,7 +64,7 @@ use xmtp_proto::{
     xmtp::xmtpv4::message_api::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
-    ApiEndpoint, Error, ErrorKind, InternalError,
+    ApiEndpoint, InternalError,
 };
 
 #[derive(Debug, Clone)]
@@ -115,15 +118,15 @@ impl ClientV4 {
 }
 
 impl ClientWithMetadata for ClientV4 {
-    type Error = crate::GrpcError;
+    type Error = crate::Error;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.libxmtp_version = MetadataValue::try_from(&version)?;
+        self.libxmtp_version = MetadataValue::try_from(&version).map_err(GrpcError::from)?;
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
-        self.app_version = MetadataValue::try_from(&version)?;
+        self.app_version = MetadataValue::try_from(&version).map_err(GrpcError::from)?;
         Ok(())
     }
 }
@@ -167,11 +170,13 @@ impl XmtpApiClient for ClientV4 {
 
 #[async_trait::async_trait]
 impl XmtpMlsClient for ClientV4 {
-    type Error = crate::GrpcError;
+    type Error = crate::Error;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
-        self.publish_envelopes_to_payer(std::iter::once(req)).await
+        self.publish_envelopes_to_payer(std::iter::once(req))
+            .await
+            .map_err(Error::from)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -217,7 +222,10 @@ impl XmtpMlsClient for ClientV4 {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
-        self.publish_envelopes_to_payer(req.messages).await
+        self.publish_envelopes_to_payer(req.messages)
+            .await
+            .map_err(GrpcError::from)
+            .map_err(Error::from)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -225,7 +233,10 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        self.publish_envelopes_to_payer(req.messages).await
+        self.publish_envelopes_to_payer(req.messages)
+            .await
+            .map_err(GrpcError::from)
+            .map_err(Error::from)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -243,7 +254,8 @@ impl XmtpMlsClient for ClientV4 {
                 }),
                 limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
-            .await?;
+            .await
+            .map_err(GrpcError::from)?;
 
         let envelopes = res.into_inner().envelopes;
         let response = QueryGroupMessagesResponse {
@@ -295,7 +307,8 @@ impl XmtpMlsClient for ClientV4 {
                 }),
                 limit: req.paging_info.map_or(0, |paging| paging.limit),
             })
-            .await?;
+            .await
+            .map_err(GrpcError::from)?;
 
         let envelopes = res.into_inner().envelopes;
         let response = QueryWelcomeMessagesResponse {
@@ -355,7 +368,7 @@ impl XmtpMlsStreams for ClientV4 {
 
 #[async_trait::async_trait]
 impl XmtpIdentityClient for ClientV4 {
-    type Error = crate::GrpcError;
+    type Error = crate::Error;
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(
         &self,
@@ -393,6 +406,7 @@ impl XmtpIdentityClient for ClientV4 {
                     .collect(),
             })
             .map_err(GrpcError::from)
+            .map_err(Error::from)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

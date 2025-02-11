@@ -67,15 +67,14 @@ impl StoredAssociationState {
 
         let result = stored_state
             .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
-            .transpose()?;
-
-        if let Some(_) = result {
-            tracing::debug!(
-                "Loaded association state from cache: {} {}",
-                inbox_id,
-                sequence_id
-            );
-        }
+            .transpose()?
+            .inspect(|_| {
+                tracing::debug!(
+                    "Loaded association state from cache: {} {}",
+                    inbox_id,
+                    sequence_id
+                )
+            });
 
         Ok(result)
     }

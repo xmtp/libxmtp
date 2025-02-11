@@ -201,7 +201,7 @@ impl Default for ExponentialBackoff {
         Self {
             // total wait time == two minutes
             multiplier: 3,
-            duration: Duration::from_millis(25),
+            duration: Duration::from_millis(50),
             total_wait_max: Duration::from_secs(120),
             individual_wait_max: Duration::from_secs(30),
             max_jitter: Duration::from_millis(25),
@@ -260,7 +260,7 @@ impl Strategy for ExponentialBackoff {
                 duration = self.individual_wait_max;
             }
         }
-        let distr = rand::distributions::Uniform::new_inclusive(Duration::ZERO, &self.max_jitter);
+        let distr = rand::distributions::Uniform::new_inclusive(Duration::ZERO, self.max_jitter);
         let jitter = rand::thread_rng().sample(distr);
         let wait = duration + jitter;
         Some(wait)
@@ -402,7 +402,7 @@ macro_rules! retry_async {
         #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
-        let mut time_spent = $crate::time::Instant::now();
+        let time_spent = $crate::time::Instant::now();
         let span = tracing::trace_span!("retry");
         loop {
             let span = span.clone();
@@ -594,9 +594,9 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn backoff_retry() {
         let backoff_retry = Retry::default();
-
-        assert!(backoff_retry.duration(1).as_millis() - 50 <= 25);
-        assert!(backoff_retry.duration(2).as_millis() - 150 <= 25);
-        assert!(backoff_retry.duration(3).as_millis() - 450 <= 25);
+        let time_spent = crate::time::Instant::now();
+        assert!(backoff_retry.backoff(1, time_spent).unwrap().as_millis() - 50 <= 25);
+        assert!(backoff_retry.backoff(2, time_spent).unwrap().as_millis() - 150 <= 25);
+        assert!(backoff_retry.backoff(3, time_spent).unwrap().as_millis() - 450 <= 25);
     }
 }

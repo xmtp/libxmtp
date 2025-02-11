@@ -202,10 +202,10 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::query_group_messages(e))?
+            .map_err(Error::query_group_messages)?
             .bytes()
             .await
-            .map_err(|e| Error::query_group_messages(e))?;
+            .map_err(Error::query_group_messages)?;
 
         tracing::debug!("query_group_messages");
         handle_error(&*res).map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
@@ -221,10 +221,10 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| Error::query_welcome_messages(e))?
+            .map_err(Error::query_welcome_messages)?
             .bytes()
             .await
-            .map_err(|e| Error::query_welcome_messages(e))?;
+            .map_err(Error::query_welcome_messages)?;
 
         tracing::debug!("query_welcome_messages");
         handle_error(&*res).map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))

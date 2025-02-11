@@ -39,3 +39,5 @@ test-utils = [
   "xmtp_id/test-utils",
   "dep:mockall",
 ]
+http-api = []
+grpc-api = []

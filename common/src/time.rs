@@ -1,8 +1,6 @@
 //! Time primitives for native and WebAssembly
 
 use std::fmt;
-#[cfg(not(target_arch = "wasm32"))]
-use tokio::time;
 
 #[derive(Debug)]
 pub struct Expired;
@@ -99,40 +97,17 @@ pub async fn sleep(duration: Duration) {
     tokio::time::sleep(duration).await
 }
 
-pub struct Interval {
-    #[cfg(target_arch = "wasm32")]
-    duration: Duration,
-
-    #[cfg(not(target_arch = "wasm32"))]
-    inner: time::Interval,
+#[cfg(not(target_arch = "wasm32"))]
+pub fn interval_stream(
+    period: crate::time::Duration,
+) -> impl futures::Stream<Item = crate::time::Instant> {
+    use futures::StreamExt;
+    tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(period)).map(|t| t.into_std())
 }
 
-impl Interval {
-    /// Creates a new interval that ticks every `duration`
-    pub fn new(duration: Duration) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        {
-            Self { duration }
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Self {
-                inner: time::interval(duration),
-            }
-        }
-    }
-
-    /// Waits for the next tick of the interval
-    pub async fn tick(&mut self) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            sleep(self.duration).await;
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.inner.tick().await;
-        }
-    }
+#[cfg(target_arch = "wasm32")]
+pub fn interval_stream(
+    period: crate::time::Duration,
+) -> impl futures::Stream<Item = crate::time::Instant> {
+    gloo_timers::IntervalStream::new(period.as_millis()).map(|_| crate::time::Instant::now())
 }

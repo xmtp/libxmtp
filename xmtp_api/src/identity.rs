@@ -35,9 +35,6 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
     }
 }
 
-/// A mapping of `inbox_id` -> Vec<InboxUpdate>
-// type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
-
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
 type AddressToInboxIdMap = HashMap<String, String>;
 

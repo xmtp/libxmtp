@@ -119,7 +119,7 @@ pub enum GroupError {
     #[error("api error: {0}")]
     Api(#[from] xmtp_proto::Error),
     #[error("api error: {0}")]
-    WrappedApi(#[from] WrappedApiError),
+    WrappedApi(#[from] xmtp_api::Error),
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
