@@ -122,7 +122,7 @@ impl AssociationState {
             .into_iter()
             .filter_map(|member| match member.identifier {
                 MemberIdentifier::Address(address) => Some(address),
-                MemberIdentifier::Installation(_) => None,
+                _ => None,
             })
             .collect()
     }
@@ -131,8 +131,8 @@ impl AssociationState {
         self.members_by_kind(MemberKind::Installation)
             .into_iter()
             .filter_map(|member| match member.identifier {
-                MemberIdentifier::Address(_) => None,
                 MemberIdentifier::Installation(installation_id) => Some(installation_id),
+                _ => None,
             })
             .collect()
     }
@@ -141,11 +141,11 @@ impl AssociationState {
         self.members()
             .into_iter()
             .filter_map(|member| match member.identifier {
-                MemberIdentifier::Address(_) => None,
                 MemberIdentifier::Installation(id) => Some(Installation {
                     id,
                     client_timestamp_ns: member.client_timestamp_ns,
                 }),
+                _ => None,
             })
             .collect()
     }

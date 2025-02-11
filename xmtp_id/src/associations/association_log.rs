@@ -434,14 +434,16 @@ fn allowed_signature_for_kind(
         MemberKind::Address => match signature_kind {
             SignatureKind::Erc191 => true,
             SignatureKind::Erc1271 => true,
-            SignatureKind::InstallationKey => false,
             SignatureKind::LegacyDelegated => true,
+            _ => false,
         },
         MemberKind::Installation => match signature_kind {
-            SignatureKind::Erc191 => false,
-            SignatureKind::Erc1271 => false,
             SignatureKind::InstallationKey => true,
-            SignatureKind::LegacyDelegated => false,
+            _ => false,
+        },
+        MemberKind::Passkey => match signature_kind {
+            SignatureKind::P256 => true,
+            _ => false,
         },
     };
 

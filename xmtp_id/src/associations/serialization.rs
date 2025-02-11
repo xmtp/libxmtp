@@ -1,5 +1,5 @@
 use super::{
-    member::Member,
+    member::{Member, Passkey},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -34,7 +34,7 @@ use xmtp_proto::xmtp::{
             IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
             LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
             RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
@@ -332,6 +332,7 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
         match proto {
             MemberIdentifierKindProto::Address(address) => address.into(),
             MemberIdentifierKindProto::InstallationPublicKey(public_key) => public_key.into(),
+            MemberIdentifierKindProto::Passkey(passkey) => passkey.into(),
         }
     }
 }
@@ -372,6 +373,12 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
             MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
                 kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
             },
+            MemberIdentifier::Passkey(passkey) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                    public_key: passkey.public_key,
+                    relying_party: passkey.relying_party,
+                })),
+            },
         }
     }
 }
@@ -387,7 +394,19 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => {
                 Ok(MemberIdentifier::Installation(public_key))
             }
+            Some(MemberIdentifierKindProto::Passkey(passkey)) => {
+                Ok(MemberIdentifier::Passkey(passkey.into()))
+            }
             None => Err(DeserializationError::MissingMemberIdentifier),
+        }
+    }
+}
+
+impl From<PasskeyProto> for Passkey {
+    fn from(value: PasskeyProto) -> Self {
+        Self {
+            public_key: value.public_key,
+            relying_party: value.relying_party,
         }
     }
 }
