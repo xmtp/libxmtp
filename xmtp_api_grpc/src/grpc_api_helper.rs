@@ -115,6 +115,16 @@ impl Client {
     }
 }
 
+pub struct ClientBuilder {
+    host: String,
+    /// version of the app
+    app_version: Option<MetadataValue>,
+    /// Version of the libxmtp core library
+    libxmtp_version: Option<MetadataValue>,
+    /// Whether or not the channel should use TLS
+    tls_channel: bool,
+}
+
 impl ClientWithMetadata for Client {
     type Error = crate::Error;
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {

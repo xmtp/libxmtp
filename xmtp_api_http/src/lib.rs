@@ -9,7 +9,7 @@ use futures::stream;
 use http_stream::create_grpc_stream;
 use reqwest::header;
 use util::handle_error;
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient};
+use xmtp_proto::api_client::{ApiBuilder, ClientWithMetadata, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -61,8 +61,70 @@ impl XmtpHttpApiClient {
         })
     }
 
+    fn builder() -> XmtpHttpApiClientBuilder {
+        Default::default()
+    }
+
     fn endpoint(&self, endpoint: &str) -> String {
         format!("{}{}", self.host_url, endpoint)
+    }
+}
+
+pub struct XmtpHttpApiClientBuilder {
+    host_url: String,
+    app_version: Option<String>,
+    headers: header::HeaderMap,
+    libxmtp_version: Option<String>,
+    reqwest: reqwest::ClientBuilder,
+}
+
+impl Default for XmtpHttpApiClientBuilder {
+    fn default() -> Self {
+        Self {
+            host_url: "".into(),
+            app_version: None,
+            libxmtp_version: None,
+            headers: header::HeaderMap::new(),
+            reqwest: reqwest_builder(),
+        }
+    }
+}
+
+impl ApiBuilder for XmtpHttpApiClientBuilder {
+    type Output = XmtpHttpApiClient;
+    type Error = HttpClientError;
+
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
+        self.libxmtp_version = Some(version.clone());
+        self.headers.insert(
+            "x-libxmtp-version",
+            version.parse().map_err(HttpClientError::from)?,
+        );
+        Ok(())
+    }
+
+    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
+        self.app_version = Some(version.clone());
+        self.headers.insert(
+            "x-app-version",
+            version.parse().map_err(HttpClientError::from)?,
+        );
+        Ok(())
+    }
+
+    fn set_host(&mut self, host: String) {
+        self.host_url = host;
+    }
+
+    fn build(self) -> Result<Self::Output, Self::Error> {
+        let http_client = self.reqwest.default_headers(self.headers).build()?;
+
+        Ok(XmtpHttpApiClient {
+            http_client,
+            host_url: self.host_url,
+            app_version: self.app_version,
+            libxmtp_version: self.libxmtp_version,
+        })
     }
 }
 

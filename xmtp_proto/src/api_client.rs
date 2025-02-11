@@ -571,3 +571,16 @@ where
             .await
     }
 }
+
+pub trait ApiBuilder {
+    type Output;
+    type Error;
+
+    fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error>;
+
+    fn set_app_version(&mut self, version: String) -> Result<(), Self::Error>;
+
+    fn set_host(&mut self, host: String);
+
+    fn build(self) -> Result<Self::Output, Self::Error>;
+}
