@@ -6256,7 +6256,7 @@ mod tests {
 
         bo_dm.send("Hello in DM".as_bytes().to_vec()).await.unwrap();
 
-        // Verify that client_a and client_b received the dm message to wallet a address
+        // Verify that client_a and client_b received the dm message to wallet an address
         client_a
             .conversations()
             .sync_all_conversations(None)
