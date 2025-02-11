@@ -153,9 +153,15 @@ mod not_wasm {
 mod wasm {
     use super::*;
     #[derive(Clone)]
-    struct ApiClient;
+    pub struct ApiClient;
 
     mock! {
+        pub ApiClient {}
+
+        impl Clone for ApiClient {
+            fn clone(&self) -> Self;
+        }
+
         #[async_trait::async_trait(?Send)]
         impl XmtpMlsClient for ApiClient {
             type Error = MockError;

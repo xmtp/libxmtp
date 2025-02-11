@@ -28,8 +28,6 @@ pub enum GenericError {
     ClientBuilder(#[from] xmtp_mls::builder::ClientBuilderError),
     #[error("Storage error: {0}")]
     Storage(#[from] xmtp_mls::storage::StorageError),
-    #[error("API error: {0}")]
-    ApiError(#[from] xmtp_proto::Error),
     #[error("Group error: {0}")]
     GroupError(#[from] xmtp_mls::groups::GroupError),
     #[error("Signature: {0}")]

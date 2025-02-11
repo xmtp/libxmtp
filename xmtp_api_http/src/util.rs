@@ -32,6 +32,7 @@ where
 #[cfg(feature = "test-utils")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[allow(clippy::unwrap_used)]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     async fn create_local() -> Self {
         use xmtp_proto::api_client::ApiBuilder;

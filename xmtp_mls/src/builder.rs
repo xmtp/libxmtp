@@ -42,8 +42,6 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     GroupError(#[from] crate::groups::GroupError),
     #[error(transparent)]
-    ApiError(#[from] xmtp_proto::Error),
-    #[error(transparent)]
     Api(#[from] xmtp_proto::ApiError),
     #[error(transparent)]
     DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),

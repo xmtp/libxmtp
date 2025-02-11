@@ -80,7 +80,7 @@ impl Client {
     pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcBuilderError> {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0"))?;
-        let libxmtp_version = MetadataValue::try_from(&String::from("0.0.0"))?;
+        let libxmtp_version = MetadataValue::try_from(env!("CARGO_PKG_VERSION").to_string())?;
 
         let channel = match is_secure {
             true => create_tls_channel(host).await?,
@@ -119,6 +119,7 @@ impl Client {
     }
 }
 
+#[derive(Default)]
 pub struct ClientBuilder {
     host: Option<String>,
     /// version of the app
@@ -127,17 +128,6 @@ pub struct ClientBuilder {
     libxmtp_version: Option<MetadataValue<tonic::metadata::Ascii>>,
     /// Whether or not the channel should use TLS
     tls_channel: bool,
-}
-
-impl Default for ClientBuilder {
-    fn default() -> Self {
-        Self {
-            host: None,
-            app_version: None,
-            libxmtp_version: None,
-            tls_channel: false,
-        }
-    }
 }
 
 impl ApiBuilder for ClientBuilder {
@@ -179,7 +169,7 @@ impl ApiBuilder for ClientBuilder {
             identity_client,
             app_version: self
                 .app_version
-                .ok_or(crate::GrpcBuilderError::MissingAppVersion)?,
+                .unwrap_or(MetadataValue::try_from("0.0.0")?),
             libxmtp_version: self
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,

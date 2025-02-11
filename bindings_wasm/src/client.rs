@@ -9,7 +9,6 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -128,7 +127,7 @@ pub async fn create_client(
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   xmtp_mls::storage::init_sqlite().await;
-  let api_client = XmtpHttpApiClient::new(host.clone())?;
+  let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into())?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -159,15 +158,17 @@ pub async fn create_client(
   );
 
   let xmtp_client = match history_sync_url {
-    Some(url) => ClientBuilder::new(identity_strategy)
+    Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()?
       .store(store)
       .history_sync_url(&url)
       .build()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-    None => ClientBuilder::new(identity_strategy)
+    None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()?
       .store(store)
       .build()
       .await

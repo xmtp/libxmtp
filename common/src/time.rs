@@ -109,5 +109,7 @@ pub fn interval_stream(
 pub fn interval_stream(
     period: crate::time::Duration,
 ) -> impl futures::Stream<Item = crate::time::Instant> {
-    gloo_timers::IntervalStream::new(period.as_millis()).map(|_| crate::time::Instant::now())
+    use futures::StreamExt;
+    use gloo_timers::future::IntervalStream;
+    IntervalStream::new(period.as_millis() as u32).map(|_| crate::time::Instant::now())
 }

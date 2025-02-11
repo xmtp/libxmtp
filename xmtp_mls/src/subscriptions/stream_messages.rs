@@ -336,7 +336,6 @@ impl<C, S> StreamGroupMessages<'_, C, S> {
 impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
 where
     C: ScopedGroupClient + 'a,
-    // Subscription: Stream<Item = std::result::Result<GroupMessage, xmtp_proto::Error>> + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
     fn set_cursor(mut self: Pin<&mut Self>, group_id: &[u8], new_cursor: u64) {

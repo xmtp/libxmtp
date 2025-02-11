@@ -117,8 +117,6 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::Error),
-    #[error("api error: {0}")]
     WrappedApi(#[from] xmtp_api::Error),
     #[error("invalid group membership")]
     InvalidGroupMembership,
@@ -224,7 +222,6 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(api_error) => api_error.is_retryable(),
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Diesel(diesel) => diesel.is_retryable(),

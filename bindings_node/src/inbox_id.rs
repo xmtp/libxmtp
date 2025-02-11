@@ -3,11 +3,26 @@ use napi::bindgen_prelude::Result;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::sync::Arc;
+use xmtp_api::ApiClientWrapper;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::retry::Retry;
+use xmtp_common::ExponentialBackoff;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_mls::api::ApiClientWrapper;
+use xmtp_proto::api_client::ApiBuilder;
+
+fn retry_strategy() -> Retry<ExponentialBackoff, ExponentialBackoff> {
+  let cooldown = ExponentialBackoff::builder()
+    .duration(std::time::Duration::from_secs(3))
+    .multiplier(3)
+    .max_jitter(std::time::Duration::from_millis(100))
+    .total_wait_max(std::time::Duration::from_secs(120))
+    .build();
+
+  xmtp_common::Retry::builder()
+    .with_cooldown(cooldown)
+    .build()
+}
 
 #[napi]
 pub async fn get_inbox_id_for_address(
@@ -15,15 +30,17 @@ pub async fn get_inbox_id_for_address(
   is_secure: bool,
   account_address: String,
 ) -> Result<Option<String>> {
-  let account_address = account_address.to_lowercase();
-  let api_client = ApiClientWrapper::new(
-    TonicApiClient::create(host, is_secure)
-      .await
-      .map_err(ErrorWrapper::from)?
-      .into(),
-    Retry::default(),
-  );
+  let mut client = TonicApiClient::builder();
+  client.set_host(host);
+  client.set_tls(is_secure);
+  client
+    .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+    .map_err(ErrorWrapper::from)?;
+  let client = client.build().await.map_err(ErrorWrapper::from)?;
+  // api rate limit cooldown period
+  let api_client = ApiClientWrapper::new(client.into(), retry_strategy());
 
+  let account_address = account_address.to_lowercase();
   let results = api_client
     .get_inbox_ids(vec![account_address.clone()])
     .await
@@ -77,7 +94,7 @@ async fn is_member_of_association_state(
   let api_client = TonicApiClient::create(host, true)
     .await
     .map_err(ErrorWrapper::from)?;
-  let api_client = ApiClientWrapper::new(Arc::new(api_client), Retry::default());
+  let api_client = ApiClientWrapper::new(Arc::new(api_client), retry_strategy());
 
   let is_member = xmtp_mls::identity_updates::is_member_of_association_state(
     &api_client,

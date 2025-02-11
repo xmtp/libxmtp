@@ -50,18 +50,18 @@ pub struct XmtpHttpApiClient {
 }
 
 impl XmtpHttpApiClient {
-    pub fn new(
-        host_url: String,
-        libxmtp_version: String,
-        app_version: String,
-    ) -> Result<Self, HttpClientError> {
-        let client = reqwest_builder().build()?;
+    pub fn new(host_url: String, app_version: String) -> Result<Self, HttpClientError> {
+        let client = reqwest_builder();
+        let libxmtp_version = env!("CARGO_PKG_VERSION").to_string();
+        let mut headers = header::HeaderMap::new();
+        headers.insert("x-libxmtp-version", libxmtp_version.parse()?);
+        let client = client.default_headers(headers).build()?;
 
         Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
-            app_version: libxmtp_version,
-            libxmtp_version: app_version,
+            app_version,
+            libxmtp_version,
         })
     }
 

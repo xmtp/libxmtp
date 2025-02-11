@@ -64,7 +64,7 @@ use xmtp_proto::{
     xmtp::xmtpv4::message_api::{
         get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
     },
-    ApiEndpoint, InternalError,
+    ApiEndpoint,
 };
 
 #[derive(Debug, Clone)]
@@ -117,6 +117,7 @@ impl ClientV4 {
     }
 }
 
+#[derive(Default)]
 pub struct ClientBuilder {
     /// libxmtp backend host url
     host: Option<String>,
@@ -128,18 +129,6 @@ pub struct ClientBuilder {
     libxmtp_version: Option<MetadataValue<tonic::metadata::Ascii>>,
     /// Whether or not the channel should use TLS
     tls_channel: bool,
-}
-
-impl Default for ClientBuilder {
-    fn default() -> Self {
-        Self {
-            host: None,
-            payer: None,
-            app_version: None,
-            libxmtp_version: None,
-            tls_channel: false,
-        }
-    }
 }
 
 impl ApiBuilder for ClientBuilder {
@@ -188,7 +177,7 @@ impl ApiBuilder for ClientBuilder {
             payer_client,
             app_version: self
                 .app_version
-                .ok_or(crate::GrpcBuilderError::MissingAppVersion)?,
+                .unwrap_or(MetadataValue::try_from("0.0.0")?),
             libxmtp_version: self
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,

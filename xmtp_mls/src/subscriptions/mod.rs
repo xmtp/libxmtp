@@ -185,8 +185,6 @@ pub enum SubscribeError {
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     Storage(#[from] StorageError),
-    // #[error(transparent)]
-    // Api(#[from] xmtp_proto::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]

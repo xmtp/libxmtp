@@ -72,8 +72,6 @@ pub enum ClientError {
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("Query failed: {0}")]
-    QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
     Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]

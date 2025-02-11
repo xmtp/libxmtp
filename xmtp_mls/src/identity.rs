@@ -171,8 +171,6 @@ pub enum IdentityError {
     CredentialSerialization(#[from] prost::EncodeError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
-    #[error(transparent)]
-    Api(#[from] xmtp_proto::Error),
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
@@ -224,7 +222,6 @@ pub enum IdentityError {
 impl RetryableError for IdentityError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(_) => true,
             Self::ApiClient(err) => retryable!(err),
             Self::StorageError(err) => retryable!(err),
             Self::OpenMlsStorageError(err) => retryable!(err),
