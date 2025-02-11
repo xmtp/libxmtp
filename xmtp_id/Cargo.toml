@@ -52,5 +52,8 @@ xmtp_v2 = { path = "../xmtp_v2" }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor.workspace = true
+
 [features]
 test-utils = ["xmtp_common/test-utils"]

@@ -700,7 +700,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_accound_id() {
+    fn test_account_id() {
         // valid evm chain
         let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
         let account_id: AccountId = text.clone().try_into().unwrap();
@@ -795,11 +795,13 @@ pub(crate) mod tests {
         // invalid
         let text = "eip/155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcd";
         let result: Result<AccountId, ConversionError> = text.try_into();
+        tracing::info!("{:?}", result);
         assert!(matches!(
             result,
-            Err(ConversionError::Missing {
-                item: "account_id",
-                r#type: "test"
+            Err(ConversionError::InvalidValue {
+                item: "eth account_id",
+                expected: "well-formed chain_id & address",
+                got: "chain_id/address did not pass validation"
             })
         ));
     }
