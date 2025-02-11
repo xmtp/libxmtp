@@ -724,6 +724,7 @@ impl From<AssociationState> for FfiInboxState {
                 .into_iter()
                 .filter_map(|m| match m.identifier {
                     MemberIdentifier::Address(_) => None,
+                    MemberIdentifier::Passkey(_) => None,
                     MemberIdentifier::Installation(inst) => Some(FfiInstallation {
                         id: inst,
                         client_timestamp_ns: m.client_timestamp_ns,
