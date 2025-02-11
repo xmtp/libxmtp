@@ -12,6 +12,7 @@ use super::{
     SignatureError,
 };
 use futures::future::try_join_all;
+use p256::ecdsa;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -244,6 +245,7 @@ pub enum UnverifiedSignature {
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
     SmartContractWallet(UnverifiedSmartContractWalletSignature),
     LegacyDelegated(UnverifiedLegacyDelegatedSignature),
+    Passkey(UnverifiedP256Signature),
 }
 
 impl UnverifiedSignature {
@@ -258,6 +260,7 @@ impl UnverifiedSignature {
                 &sig.signature_bytes,
                 *sig.verifying_key(),
             ),
+            UnverifiedSignature::Passkey(passkey) => VerifiedSignature::from_passkey(),
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig.signature_bytes)
             }
@@ -338,6 +341,21 @@ impl UnverifiedInstallationKeySignature {
 
     pub fn verifying_key_bytes(&self) -> Vec<u8> {
         self.verifying_key.as_ref().as_ref().to_vec()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnverifiedP256Signature {
+    pub(crate) signature_bytes: Vec<u8>,
+    pub(crate) verifying_key: ecdsa::VerifyingKey,
+}
+
+impl UnverifiedP256Signature {
+    pub fn new(signature_bytes: Vec<u8>, verifying_key: ecdsa::VerifyingKey) -> Self {
+        Self {
+            signature_bytes,
+            verifying_key,
+        }
     }
 }
 

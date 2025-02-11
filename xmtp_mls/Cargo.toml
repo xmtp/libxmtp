@@ -57,6 +57,7 @@ hex.workspace = true
 hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
+p256.workspace = true
 parking_lot.workspace = true
 pin-project-lite.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
