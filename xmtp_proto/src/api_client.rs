@@ -25,7 +25,7 @@ pub trait XmtpTestClient {
     async fn create_dev() -> Self;
 }
 
-// pub type GenericXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
+pub type GenericXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
 
 pub use trait_impls::*;
 
@@ -38,7 +38,7 @@ pub mod trait_impls {
     pub use inner::*;
 
     // native, release
-    #[cfg(all(not(feature = "test-utils"), not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     mod inner {
         use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
@@ -63,8 +63,19 @@ pub mod trait_impls {
     }
 
     // wasm32, release
-    #[cfg(all(not(feature = "test-utils"), target_arch = "wasm32"))]
+    #[cfg(target_arch = "wasm32")]
     mod inner {
+
+        pub trait BoxableXmtpApi<Err>
+        where
+            Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err>,
+        {
+        }
+
+        impl<T, Err> BoxableXmtpApi<Err> for T where
+            T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + ?Sized
+        {
+        }
 
         use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
         pub trait XmtpApi
@@ -74,33 +85,6 @@ pub mod trait_impls {
         }
 
         impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
-    }
-
-    // test, native
-    #[cfg(all(feature = "test-utils", not(target_arch = "wasm32")))]
-    mod inner {
-        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
-
-        pub trait XmtpApi
-        where
-            Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
-        {
-        }
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync + ?Sized {}
-    }
-
-    // test, wasm32
-    #[cfg(all(feature = "test-utils", target_arch = "wasm32"))]
-    mod inner {
-        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
-
-        pub trait XmtpApi
-        where
-            Self: XmtpMlsClient + XmtpIdentityClient,
-        {
-        }
-
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync + ?Sized {}
     }
 }
 

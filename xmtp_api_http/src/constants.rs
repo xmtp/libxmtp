@@ -2,7 +2,7 @@ pub struct ApiUrls;
 
 impl ApiUrls {
     pub const LOCAL_ADDRESS: &'static str = "http://localhost:5555";
-    pub const DEV_ADDRESS: &'static str = "https://dev.xmtp.network";
+    pub const DEV_ADDRESS: &'static str = "https://dev.xmtp.network:443";
     pub const PRODUCTION_ADDRESS: &'static str = "https://production.xmtp.network";
 }
 

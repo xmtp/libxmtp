@@ -509,9 +509,8 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
     grpc: C,
 ) -> Result<xmtp_mls::client::Client<C>, CliError> {
     let msg_store = get_encrypted_store(&cli.db).await?;
-    let mut builder = xmtp_mls::builder::ClientBuilder::<C>::new(account).store(msg_store);
-
-    builder = builder.api_client(grpc);
+    let builder = xmtp_mls::Client::builder(account).store(msg_store);
+    let mut builder = builder.api_client(grpc);
 
     builder = match (cli.testnet, &cli.env) {
         (false, Env::Local) => builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
@@ -519,7 +518,11 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
         _ => builder,
     };
 
-    let client = builder.build().await.map_err(CliError::ClientBuilder)?;
+    let client = builder
+        .with_remote_verifier()?
+        .build()
+        .await
+        .map_err(CliError::ClientBuilder)?;
 
     Ok(client)
 }

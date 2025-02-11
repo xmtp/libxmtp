@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageBodyIn, MlsMessageIn, OpenMlsProvider};
+use std::collections::HashMap;
 use xmtp_api::GetIdentityUpdatesV2Filter;
 use xmtp_id::associations::unverified::UnverifiedAction;
+use xmtp_id::InboxUpdate;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
-use xmtp_mls::{Client, XmtpApi};
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version as GroupMessageVersion;
 use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version as WelcomeMessageVersion;
 
@@ -131,7 +132,11 @@ pub async fn debug_identity_updates(
         inbox_id: hex::encode(inbox_id),
     }];
 
-    let key_package_results = api_client.get_identity_updates_v2(filters).await.unwrap();
+    let key_package_results: HashMap<_, Vec<InboxUpdate>> = api_client
+        .get_identity_updates_v2(filters)
+        .await
+        .unwrap()
+        .collect();
 
     for (inbox_id, updates) in key_package_results {
         for update in updates {
