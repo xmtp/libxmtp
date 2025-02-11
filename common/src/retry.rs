@@ -1,4 +1,4 @@
-//! A retry strategy that works with rusts native [`std::error::Error`] type.
+//! A retry strategy that works with rust's native [`std::error::Error`] type.
 //!
 //! TODO: Could make the impl of `RetryableError` trait into a proc-macro to auto-derive Retryable
 //! on annotated enum variants.
@@ -21,7 +21,7 @@ use rand::Rng;
 pub struct NotSpecialized;
 
 /// Specifies which errors are retryable.
-/// All Errors are not retryable by-default.
+/// All Errors are not retryable by default.
 pub trait RetryableError<SP = NotSpecialized>: std::error::Error {
     fn is_retryable(&self) -> bool;
 }
