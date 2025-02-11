@@ -54,10 +54,7 @@ pub struct ApiClientWrapper<ApiClient> {
     pub(crate) inbox_id: Option<String>,
 }
 
-impl<ApiClient> ApiClientWrapper<ApiClient>
-where
-    ApiClient: XmtpApi,
-{
+impl<ApiClient> ApiClientWrapper<ApiClient> {
     pub fn new(
         api_client: Arc<ApiClient>,
         retry_strategy: Retry<ExponentialBackoff, ExponentialBackoff>,

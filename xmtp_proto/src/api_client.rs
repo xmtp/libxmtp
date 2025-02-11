@@ -25,7 +25,7 @@ pub trait XmtpTestClient {
     async fn create_dev() -> Self;
 }
 
-pub type GenericXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
+// pub type GenericXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
 
 pub use trait_impls::*;
 

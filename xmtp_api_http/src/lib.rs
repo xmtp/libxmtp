@@ -45,19 +45,23 @@ fn reqwest_builder() -> reqwest::ClientBuilder {
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
-    app_version: Option<String>,
-    libxmtp_version: Option<String>,
+    app_version: String,
+    libxmtp_version: String,
 }
 
 impl XmtpHttpApiClient {
-    pub fn new(host_url: String) -> Result<Self, HttpClientError> {
+    pub fn new(
+        host_url: String,
+        libxmtp_version: String,
+        app_version: String,
+    ) -> Result<Self, HttpClientError> {
         let client = reqwest_builder().build()?;
 
         Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
-            app_version: None,
-            libxmtp_version: None,
+            app_version: libxmtp_version,
+            libxmtp_version: app_version,
         })
     }
 
@@ -67,6 +71,14 @@ impl XmtpHttpApiClient {
 
     fn endpoint(&self, endpoint: &str) -> String {
         format!("{}{}", self.host_url, endpoint)
+    }
+
+    pub fn app_version(&self) -> &str {
+        &self.app_version
+    }
+
+    pub fn libxmtp_version(&self) -> &str {
+        &self.libxmtp_version
     }
 }
 
@@ -90,25 +102,31 @@ impl Default for XmtpHttpApiClientBuilder {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum HttpClientBuilderError {
+    #[error("missing core libxmtp version")]
+    MissingLibxmtpVersion,
+    #[error("missing app version")]
+    MissingAppVersion,
+    #[error(transparent)]
+    ReqwestErrror(#[from] reqwest::Error),
+    #[error(transparent)]
+    InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+}
+
 impl ApiBuilder for XmtpHttpApiClientBuilder {
     type Output = XmtpHttpApiClient;
-    type Error = HttpClientError;
+    type Error = HttpClientBuilderError;
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = Some(version.clone());
-        self.headers.insert(
-            "x-libxmtp-version",
-            version.parse().map_err(HttpClientError::from)?,
-        );
+        self.headers.insert("x-libxmtp-version", version.parse()?);
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.app_version = Some(version.clone());
-        self.headers.insert(
-            "x-app-version",
-            version.parse().map_err(HttpClientError::from)?,
-        );
+        self.headers.insert("x-app-version", version.parse()?);
         Ok(())
     }
 
@@ -119,14 +137,19 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
     // no op for http so far
     fn set_tls(&mut self, _tls: bool) {}
 
-    fn build(self) -> Result<Self::Output, Self::Error> {
+    async fn build(self) -> Result<Self::Output, Self::Error> {
         let http_client = self.reqwest.default_headers(self.headers).build()?;
-
+        let libxmtp_version = self
+            .libxmtp_version
+            .ok_or(HttpClientBuilderError::MissingLibxmtpVersion)?;
+        let app_version = self
+            .app_version
+            .ok_or(HttpClientBuilderError::MissingAppVersion)?;
         Ok(XmtpHttpApiClient {
             http_client,
             host_url: self.host_url,
-            app_version: self.app_version,
-            libxmtp_version: self.libxmtp_version,
+            app_version,
+            libxmtp_version,
         })
     }
 }
@@ -388,7 +411,13 @@ pub mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {
-        let client = XmtpHttpApiClient::new(ApiUrls::LOCAL_ADDRESS.to_string()).unwrap();
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_host(ApiUrls::LOCAL_ADDRESS.to_string());
+        client.set_app_version("".into()).unwrap();
+        client
+            .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        let client = client.build().await.unwrap();
         let result = client
             .upload_key_package(UploadKeyPackageRequest {
                 is_inbox_id_credential: false,
