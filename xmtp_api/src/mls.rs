@@ -714,13 +714,14 @@ pub mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn retries_apply_to_concurrent_fns() {
+    async fn cooldowns_apply_to_concurrent_fns() {
+        xmtp_common::logger();
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3];
 
         let time_failure = Arc::new(Mutex::new(None));
         let time_success = Arc::new(Mutex::new(Vec::new()));
-
+        tracing::error!("here");
         // first task gets rate limited
         let f = time_failure.clone();
         mock_api
@@ -744,6 +745,7 @@ pub mod tests {
                 })
             }
         });
+
         let strategy = xmtp_common::ExponentialBackoff::builder()
             .duration(std::time::Duration::from_millis(10))
             .build();
@@ -766,6 +768,7 @@ pub mod tests {
         let g = group_id.clone();
         let rate_limits = xmtp_common::spawn(None, async move {
             c.wait().await;
+            tracing::info!("Waited query_msg 1");
             let _ = api.query_group_messages(g.clone(), None).await.unwrap();
         })
         .join();
@@ -775,6 +778,7 @@ pub mod tests {
         let api = wrapper.clone();
         let h1 = xmtp_common::spawn(None, async move {
             c.wait().await;
+            tracing::info!("Waited query_msg 2 sleeping 5ms");
             // ensure 5ms to fire after rate limit
             xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
             let _ = api.query_group_messages(g, None).await;
@@ -786,6 +790,7 @@ pub mod tests {
         let api = wrapper.clone();
         let h2 = xmtp_common::spawn(None, async move {
             c.wait().await;
+            tracing::info!("Waited query_msg 3 sleeping 5ms");
             // ensure 5ms to fire after rate limit
             xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
             let _ = api.query_group_messages(g, None).await;
@@ -797,6 +802,7 @@ pub mod tests {
         let api = wrapper.clone();
         let h3 = xmtp_common::spawn(None, async move {
             c.wait().await;
+            tracing::info!("Waited query_msg 3 sleeping 1000ms");
             // Firing this 1s later, should still start within duration of backoff
             xmtp_common::time::sleep(std::time::Duration::from_millis(1_000)).await;
             let _ = api.query_group_messages(g, None).await;
@@ -805,6 +811,7 @@ pub mod tests {
         // assert_eq!(result.len(), 50);
 
         futures::future::join_all(vec![rate_limits, h1, h2, h3]).await;
+        tracing::info!("Futures finished");
         let fail = time_failure.lock().unwrap().unwrap();
         let success = time_success.lock().unwrap();
         let min_expected_cooldown = std::time::Duration::from_secs(2);
