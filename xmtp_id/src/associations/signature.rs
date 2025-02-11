@@ -123,6 +123,7 @@ pub enum SignatureKind {
     Erc1271,
     InstallationKey,
     LegacyDelegated,
+    P256,
 }
 
 impl std::fmt::Display for SignatureKind {
@@ -132,6 +133,7 @@ impl std::fmt::Display for SignatureKind {
             SignatureKind::Erc1271 => write!(f, "erc-1271"),
             SignatureKind::InstallationKey => write!(f, "installation-key"),
             SignatureKind::LegacyDelegated => write!(f, "legacy-delegated"),
+            SignatureKind::P256 => write!(f, "p256"),
         }
     }
 }

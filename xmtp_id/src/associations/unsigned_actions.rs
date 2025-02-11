@@ -35,6 +35,7 @@ impl SignatureTextCreator for UnsignedAddAssociation {
         let prefix = match member_kind {
             MemberKind::Installation => "Grant messaging access to app",
             MemberKind::Address => "Link address to inbox",
+            MemberKind::Passkey => "Link passkey to inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
     }
@@ -52,6 +53,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
         let prefix = match self.revoked_member.kind() {
             MemberKind::Installation => "Revoke messaging access from app",
             MemberKind::Address => "Unlink address from inbox",
+            MemberKind::Passkey => "Unlink passkey from inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.revoked_member)
     }
@@ -129,6 +131,7 @@ fn get_identifier_text(kind: &MemberKind) -> String {
     match kind {
         MemberKind::Address => "Address".to_string(),
         MemberKind::Installation => "ID".to_string(),
+        MemberKind::Passkey => "Passkey".to_string(),
     }
 }
 

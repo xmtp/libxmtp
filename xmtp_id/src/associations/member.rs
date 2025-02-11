@@ -1,10 +1,12 @@
 use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
     Installation,
     Address,
+    Passkey,
 }
 
 impl std::fmt::Display for MemberKind {
@@ -12,6 +14,7 @@ impl std::fmt::Display for MemberKind {
         match self {
             MemberKind::Installation => write!(f, "installation"),
             MemberKind::Address => write!(f, "address"),
+            MemberKind::Passkey => write!(f, "passkey"),
         }
     }
 }
@@ -21,6 +24,13 @@ impl std::fmt::Display for MemberKind {
 pub enum MemberIdentifier {
     Address(String),
     Installation(Vec<u8>),
+    Passkey(Passkey),
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct Passkey {
+    pub public_key: Vec<u8>,
+    pub relying_party: String,
 }
 
 impl std::fmt::Debug for MemberIdentifier {
@@ -31,6 +41,11 @@ impl std::fmt::Debug for MemberIdentifier {
                 .debug_tuple("Installation")
                 .field(&hex::encode(i))
                 .finish(),
+            Self::Passkey(pk) => f
+                .debug_tuple("Passkey")
+                .field(&hex::encode(&pk.public_key))
+                .field(&pk.relying_party)
+                .finish(),
         }
     }
 }
@@ -40,6 +55,7 @@ impl MemberIdentifier {
         match self {
             MemberIdentifier::Address(_) => MemberKind::Address,
             MemberIdentifier::Installation(_) => MemberKind::Installation,
+            MemberIdentifier::Passkey(_) => MemberKind::Passkey,
         }
     }
 
@@ -89,6 +105,11 @@ impl std::fmt::Display for MemberIdentifier {
         let as_string = match self {
             MemberIdentifier::Address(address) => address.to_string(),
             MemberIdentifier::Installation(installation) => hex::encode(installation),
+            MemberIdentifier::Passkey(passkey) => format!(
+                "Passkey: {}, {}",
+                hex::encode(&passkey.public_key),
+                &passkey.relying_party
+            ),
         };
 
         write!(f, "{}", as_string)
@@ -104,6 +125,12 @@ impl From<String> for MemberIdentifier {
 impl From<Vec<u8>> for MemberIdentifier {
     fn from(installation: Vec<u8>) -> Self {
         MemberIdentifier::Installation(installation)
+    }
+}
+
+impl From<PasskeyProto> for MemberIdentifier {
+    fn from(passkey: PasskeyProto) -> Self {
+        MemberIdentifier::Passkey(passkey.into())
     }
 }
 

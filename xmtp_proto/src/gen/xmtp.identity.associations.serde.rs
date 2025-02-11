@@ -1178,6 +1178,9 @@ impl serde::Serialize for MemberIdentifier {
                     #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
+                member_identifier::Kind::Passkey(v) => {
+                    struct_ser.serialize_field("passkey", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -1193,12 +1196,14 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
             "address",
             "installation_public_key",
             "installationPublicKey",
+            "passkey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Address,
             InstallationPublicKey,
+            Passkey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1222,6 +1227,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                         match value {
                             "address" => Ok(GeneratedField::Address),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
+                            "passkey" => Ok(GeneratedField::Passkey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1255,6 +1261,13 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                                 return Err(serde::de::Error::duplicate_field("installationPublicKey"));
                             }
                             kind__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| member_identifier::Kind::InstallationPublicKey(x.0));
+                        }
+                        GeneratedField::Passkey => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("passkey"));
+                            }
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(member_identifier::Kind::Passkey)
+;
                         }
                     }
                 }
@@ -1372,6 +1385,120 @@ impl<'de> serde::Deserialize<'de> for MemberMap {
             }
         }
         deserializer.deserialize_struct("xmtp.identity.associations.MemberMap", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Passkey {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.public_key.is_empty() {
+            len += 1;
+        }
+        if !self.relying_party.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Passkey", len)?;
+        if !self.public_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
+        }
+        if !self.relying_party.is_empty() {
+            struct_ser.serialize_field("relyingParty", &self.relying_party)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Passkey {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "public_key",
+            "publicKey",
+            "relying_party",
+            "relyingParty",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            PublicKey,
+            RelyingParty,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "publicKey" | "public_key" => Ok(GeneratedField::PublicKey),
+                            "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Passkey;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.identity.associations.Passkey")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Passkey, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut public_key__ = None;
+                let mut relying_party__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::PublicKey => {
+                            if public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publicKey"));
+                            }
+                            public_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RelyingParty => {
+                            if relying_party__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relyingParty"));
+                            }
+                            relying_party__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(Passkey {
+                    public_key: public_key__.unwrap_or_default(),
+                    relying_party: relying_party__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.identity.associations.Passkey", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {
