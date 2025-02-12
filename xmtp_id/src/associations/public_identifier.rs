@@ -4,14 +4,20 @@ use std::fmt::{Debug, Display};
 
 #[derive(Clone, PartialEq)]
 pub enum PublicIdentifier {
+    Installation(Vec<u8>),
+    External(ExternalIdentifier),
+}
+
+#[derive(Clone, PartialEq)]
+pub enum ExternalIdentifier {
     Ethereum(String),
     Passkey([u8; Passkey::KEY_SIZE]),
-    Installation(Vec<u8>),
 }
+
 impl PublicIdentifier {
     pub fn to_lowercase(self) -> Self {
         match self {
-            Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
+            Self::External(ext) => Self::External(ext.to_lowercase()),
             ident => ident,
         }
     }
@@ -29,7 +35,32 @@ impl PublicIdentifier {
     /// and contains only valid hex digits.
     fn is_valid_address(&self) -> bool {
         match self {
-            PublicIdentifier::Ethereum(addr) => {
+            Self::External(ext) => ext.is_valid_address(),
+            _ => true,
+        }
+    }
+
+    pub fn kind(&self) -> MemberKind {
+        match self {
+            Self::Installation(_) => MemberKind::Installation,
+            Self::External(ext) => ext.kind(),
+        }
+    }
+}
+
+impl ExternalIdentifier {
+    pub fn to_lowercase(self) -> Self {
+        match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
+            ident => ident,
+        }
+    }
+
+    /// Validates that the account address is exactly 42 characters, starts with "0x",
+    /// and contains only valid hex digits.
+    fn is_valid_address(&self) -> bool {
+        match self {
+            Self::Ethereum(addr) => {
                 addr.len() == 42
                     && addr.starts_with("0x")
                     && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
@@ -41,13 +72,20 @@ impl PublicIdentifier {
     pub fn kind(&self) -> MemberKind {
         match self {
             Self::Ethereum(_) => MemberKind::Ethereum,
-            Self::Installation(_) => MemberKind::Installation,
             Self::Passkey(_) => MemberKind::Passkey,
         }
     }
 }
 
 impl Display for PublicIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Installation(key) => write!(f, "{}", hex::encode(key)),
+            Self::External(ext) => write!(f, "{ext}"),
+        }
+    }
+}
+impl Display for ExternalIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let addr;
         let output = match self {
@@ -56,21 +94,21 @@ impl Display for PublicIdentifier {
                 addr = hex::encode(key);
                 &addr
             }
-            Self::Installation(key) => {
-                addr = hex::encode(key);
-                &addr
-            }
         };
         write!(f, "{output}")
     }
 }
+
 impl Debug for PublicIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = match self {
-            Self::Ethereum(_) => "Ethereum",
-            Self::Passkey(_) => "Passkey",
-            Self::Installation(_) => "Installation",
-        };
+        let kind = self.kind();
+        write!(f, "{kind}: {self}")
+    }
+}
+
+impl Debug for ExternalIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = self.kind();
         write!(f, "{kind}: {self}")
     }
 }
@@ -78,9 +116,11 @@ impl Debug for PublicIdentifier {
 impl From<MemberIdentifier> for PublicIdentifier {
     fn from(ident: MemberIdentifier) -> Self {
         match ident {
-            MemberIdentifier::Ethereum(addr) => Self::Ethereum(addr),
             MemberIdentifier::Installation(key) => Self::Installation(key),
-            MemberIdentifier::Passkey(Passkey { public_key, .. }) => Self::Passkey(public_key),
+            MemberIdentifier::Ethereum(addr) => Self::External(ExternalIdentifier::Ethereum(addr)),
+            MemberIdentifier::Passkey(Passkey { public_key, .. }) => {
+                Self::External(ExternalIdentifier::Passkey(public_key))
+            }
         }
     }
 }
@@ -88,20 +128,22 @@ impl From<MemberIdentifier> for PublicIdentifier {
 impl PartialEq<MemberIdentifier> for PublicIdentifier {
     fn eq(&self, other: &MemberIdentifier) -> bool {
         match self {
-            Self::Ethereum(addr) => match other {
-                MemberIdentifier::Ethereum(other_addr) => addr == other_addr,
-                _ => false,
-            },
-            Self::Passkey(key) => match other {
-                MemberIdentifier::Passkey(Passkey {
-                    public_key: other_key,
-                    ..
-                }) => key == other_key,
-                _ => false,
-            },
             Self::Installation(key) => match other {
                 MemberIdentifier::Installation(other_key) => key == other_key,
                 _ => false,
+            },
+            Self::External(ext) => match ext {
+                ExternalIdentifier::Ethereum(addr) => match other {
+                    MemberIdentifier::Ethereum(other_addr) => addr == other_addr,
+                    _ => false,
+                },
+                ExternalIdentifier::Passkey(key) => match other {
+                    MemberIdentifier::Passkey(Passkey {
+                        public_key: other_key,
+                        ..
+                    }) => key == other_key,
+                    _ => false,
+                },
             },
         }
     }

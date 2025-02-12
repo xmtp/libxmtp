@@ -63,7 +63,7 @@ impl SignatureRequestBuilder {
     pub fn create_inbox(mut self, signer_identity: MemberIdentifier, nonce: u64) -> Self {
         let pending_action = PendingIdentityAction {
             unsigned_action: UnsignedAction::CreateInbox(UnsignedCreateInbox {
-                account_address: signer_identity.to_string(),
+                account_identifier: signer_identity.into(),
                 nonce,
             }),
             pending_signatures: HashMap::from([(

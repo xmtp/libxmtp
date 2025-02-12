@@ -62,7 +62,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_identifier: MemberIdentifier,
+    pub new_recovery_identifier: PublicIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
