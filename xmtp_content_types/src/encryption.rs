@@ -1,37 +1,33 @@
+use libsecp256k1::{PublicKey, SecretKey};
 use xmtp_cryptography::hash::sha256_bytes;
-use xmtp_proto::xmtp::{
-    message_contents::{
-        ciphertext::{Aes256gcmHkdfsha256, Union},
-        Ciphertext,
-    },
-    mls::message_contents::EncodedContent,
+use xmtp_proto::xmtp::message_contents::{
+    ciphertext::{Aes256gcmHkdfsha256, Union},
+    Ciphertext,
 };
 use xmtp_v2::encryption::{decrypt, encrypt, hkdf};
 
-use crate::{bytes_to_encoded_content, encoded_content_to_bytes};
+use crate::CodecError;
 
 pub const ENCODED_CONTENT_ENCRYPTION_KEY_SALT: &[u8] = b"XMTP_ENCODED_CONTENT_ENCRYPTION";
 
-pub struct EncryptedEncodedContent {
-    pub content_digest: String,
+pub struct EncryptAttachmentResult {
     pub secret: Vec<u8>,
-    pub salt: Vec<u8>,
+    pub content_digest: String,
     pub nonce: Vec<u8>,
     pub payload: Vec<u8>,
-    pub content_length: Option<u32>,
+    pub salt: Vec<u8>,
+    pub content_length_kb: Option<u32>,
     pub filename: Option<String>,
 }
 
-pub fn encrypt_encoded_content(
-    private_key: &[u8],
-    public_key: &[u8],
-    encoded_content: EncodedContent,
-) -> Result<EncryptedEncodedContent, String> {
-    let ciphertext: Ciphertext = encrypt_to_ciphertext(
-        private_key,
-        &encoded_content_to_bytes(encoded_content),
-        public_key,
-    )?;
+pub fn encrypt_bytes_for_remote_attachment(
+    bytes: Vec<u8>,
+    filename: Option<String>,
+) -> Result<EncryptAttachmentResult, String> {
+    let private_key = SecretKey::random(&mut rand::thread_rng());
+    let public_key = PublicKey::from_secret_key(&private_key);
+    let ciphertext: Ciphertext =
+        encrypt_to_ciphertext(&private_key.serialize(), &bytes, &public_key.serialize())?;
 
     // Get the payload from the ciphertext
     let payload = match &ciphertext.union {
@@ -53,34 +49,43 @@ pub fn encrypt_encoded_content(
     let digest = sha256_bytes(payload);
     let content_digest = hex::encode(digest);
 
-    Ok(EncryptedEncodedContent {
+    Ok(EncryptAttachmentResult {
         content_digest,
-        secret: private_key.to_vec(),
+        secret: private_key.serialize().to_vec(),
         salt: salt.clone(),
         nonce: nonce.clone(),
         payload: payload.clone(),
-        content_length: None,
-        filename: None,
+        content_length_kb: Some(bytes_to_kb(payload.len())),
+        filename,
     })
 }
 
-pub fn decrypt_encoded_content(
-    private_key: &[u8],
-    public_key: &[u8],
-    encrypted_encoded_content: EncryptedEncodedContent,
-) -> Result<EncodedContent, String> {
+pub fn decrypt_remote_attachment_to_bytes(
+    encrypted_attachment: EncryptAttachmentResult,
+) -> Result<Vec<u8>, CodecError> {
+    // Reconstruct keys from the stored secret
+    let secret_key_bytes: [u8; 32] = encrypted_attachment
+        .secret
+        .try_into()
+        .map_err(|_| CodecError::Decode("Secret key must be exactly 32 bytes".to_string()))?;
+
+    let secret_key = SecretKey::parse(&secret_key_bytes)
+        .map_err(|e| CodecError::Decode(format!("Failed to parse secret key: {}", e)))?;
+    let public_key = PublicKey::from_secret_key(&secret_key);
 
     let ciphertext = Ciphertext {
         union: Some(Union::Aes256GcmHkdfSha256(Aes256gcmHkdfsha256 {
-            hkdf_salt: encrypted_encoded_content.salt,
-            gcm_nonce: encrypted_encoded_content.nonce,
-            payload: encrypted_encoded_content.payload,
+            hkdf_salt: encrypted_attachment.salt,
+            gcm_nonce: encrypted_attachment.nonce,
+            payload: encrypted_attachment.payload,
         })),
     };
 
-    let decrypted = decrypt_ciphertext(private_key, ciphertext, public_key)?;
+    let decrypted =
+        decrypt_ciphertext(&secret_key.serialize(), ciphertext, &public_key.serialize())
+            .map_err(|e| CodecError::Decode(format!("Failed to decrypt ciphertext: {}", e)))?;
 
-    Ok(bytes_to_encoded_content(decrypted))
+    Ok(decrypted)
 }
 
 fn derive_encryption_key(private_key: &[u8]) -> Result<[u8; 32], String> {
@@ -129,4 +134,8 @@ fn unwrap_ciphertext(ciphertext: Ciphertext) -> Result<Aes256gcmHkdfsha256, Stri
         Some(Union::Aes256GcmHkdfSha256(data)) => Ok(data),
         _ => Err("unrecognized format".to_string()),
     }
+}
+
+fn bytes_to_kb(bytes: usize) -> u32 {
+    (bytes / 1000) as u32
 }
