@@ -15,6 +15,18 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		Topic.groupMessage(id).description
 	}
 
+	public var disappearingMessageSettings: DisappearingMessageSettings? {
+		return try? {
+			guard try isDisappearingMessagesEnabled() else { return nil }
+			return try ffiConversation.conversationMessageDisappearingSettings()
+				.map { DisappearingMessageSettings.createFromFfi($0) }
+		}()
+	}
+
+	public func isDisappearingMessagesEnabled() throws -> Bool {
+		return try ffiConversation.isConversationMessageDisappearingEnabled()
+	}
+
 	func metadata() async throws -> FfiConversationMetadata {
 		return try await ffiConversation.groupMetadata()
 	}
@@ -68,6 +80,26 @@ public struct Dm: Identifiable, Equatable, Hashable {
 
 	public func consentState() throws -> ConsentState {
 		return try ffiConversation.consentState().fromFFI
+	}
+
+	public func updateDisappearingMessageSettings(
+		_ disappearingMessageSettings: DisappearingMessageSettings?
+	) async throws {
+		if let settings = disappearingMessageSettings {
+			let ffiSettings = FfiMessageDisappearingSettings(
+				fromNs: settings.disappearStartingAtNs,
+				inNs: settings.retentionDurationInNs
+			)
+			try await ffiConversation
+				.updateConversationMessageDisappearingSettings(
+					settings: ffiSettings)
+		} else {
+			try await clearDisappearingMessageSettings()
+		}
+	}
+
+	public func clearDisappearingMessageSettings() async throws {
+		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
 
 	public func processMessage(messageBytes: Data) async throws -> Message? {
@@ -251,64 +283,66 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			return Message.create(ffiMessage: ffiMessage)
 		}
 	}
-    
-    public func messagesWithReactions(
-        beforeNs: Int64? = nil,
-        afterNs: Int64? = nil,
-        limit: Int? = nil,
-        direction: SortDirection? = .descending,
-        deliveryStatus: MessageDeliveryStatus = .all
-    ) async throws -> [Message] {
-        var options = FfiListMessagesOptions(
-            sentBeforeNs: nil,
-            sentAfterNs: nil,
-            limit: nil,
-            deliveryStatus: nil,
-            direction: nil,
-            contentTypes: nil
-        )
-        
-        if let beforeNs {
-            options.sentBeforeNs = beforeNs
-        }
-        
-        if let afterNs {
-            options.sentAfterNs = afterNs
-        }
-        
-        if let limit {
-            options.limit = Int64(limit)
-        }
-        
-        let status: FfiDeliveryStatus? = {
-            switch deliveryStatus {
-            case .published:
-                return FfiDeliveryStatus.published
-            case .unpublished:
-                return FfiDeliveryStatus.unpublished
-            case .failed:
-                return FfiDeliveryStatus.failed
-            default:
-                return nil
-            }
-        }()
-        
-        options.deliveryStatus = status
-        
-        let direction: FfiDirection? = {
-            switch direction {
-            case .ascending:
-                return FfiDirection.ascending
-            default:
-                return FfiDirection.descending
-            }
-        }()
-        
-        options.direction = direction
-        
-        return try await ffiConversation.findMessagesWithReactions(opts: options).compactMap {
-            ffiMessageWithReactions in
-            return Message.create(ffiMessage: ffiMessageWithReactions)
-        }
-    }
+
+	public func messagesWithReactions(
+		beforeNs: Int64? = nil,
+		afterNs: Int64? = nil,
+		limit: Int? = nil,
+		direction: SortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus = .all
+	) async throws -> [Message] {
+		var options = FfiListMessagesOptions(
+			sentBeforeNs: nil,
+			sentAfterNs: nil,
+			limit: nil,
+			deliveryStatus: nil,
+			direction: nil,
+			contentTypes: nil
+		)
+
+		if let beforeNs {
+			options.sentBeforeNs = beforeNs
+		}
+
+		if let afterNs {
+			options.sentAfterNs = afterNs
+		}
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+
+		let status: FfiDeliveryStatus? = {
+			switch deliveryStatus {
+			case .published:
+				return FfiDeliveryStatus.published
+			case .unpublished:
+				return FfiDeliveryStatus.unpublished
+			case .failed:
+				return FfiDeliveryStatus.failed
+			default:
+				return nil
+			}
+		}()
+
+		options.deliveryStatus = status
+
+		let direction: FfiDirection? = {
+			switch direction {
+			case .ascending:
+				return FfiDirection.ascending
+			default:
+				return FfiDirection.descending
+			}
+		}()
+
+		options.direction = direction
+
+		return try await ffiConversation.findMessagesWithReactions(
+			opts: options
+		).compactMap {
+			ffiMessageWithReactions in
+			return Message.create(ffiMessage: ffiMessageWithReactions)
+		}
+	}
 }

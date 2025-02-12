@@ -54,33 +54,35 @@ public struct ClientOptions {
 	public var dbDirectory: String?
 	public var historySyncUrl: String?
 
-    public init(
-        api: Api = Api(),
-        codecs: [any ContentCodec] = [],
-        preAuthenticateToInboxCallback: PreEventCallback? = nil,
-        dbEncryptionKey: Data,
-        dbDirectory: String? = nil,
-        historySyncUrl: String? = nil,
-        useDefaultHistorySyncUrl: Bool = true
-    ) {
-        self.api = api
-        self.codecs = codecs
-        self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
-        self.dbEncryptionKey = dbEncryptionKey
-        self.dbDirectory = dbDirectory
-        if useDefaultHistorySyncUrl && historySyncUrl == nil {
-            switch api.env {
-            case .production:
-                self.historySyncUrl = "https://message-history.production.ephemera.network/"
-            case .local:
-                self.historySyncUrl = "http://localhost:5558"
-            default:
-                self.historySyncUrl = "https://message-history.dev.ephemera.network/"
-            }
-        } else {
-            self.historySyncUrl = historySyncUrl
-        }
-    }
+	public init(
+		api: Api = Api(),
+		codecs: [any ContentCodec] = [],
+		preAuthenticateToInboxCallback: PreEventCallback? = nil,
+		dbEncryptionKey: Data,
+		dbDirectory: String? = nil,
+		historySyncUrl: String? = nil,
+		useDefaultHistorySyncUrl: Bool = true
+	) {
+		self.api = api
+		self.codecs = codecs
+		self.preAuthenticateToInboxCallback = preAuthenticateToInboxCallback
+		self.dbEncryptionKey = dbEncryptionKey
+		self.dbDirectory = dbDirectory
+		if useDefaultHistorySyncUrl && historySyncUrl == nil {
+			switch api.env {
+			case .production:
+				self.historySyncUrl =
+					"https://message-history.production.ephemera.network/"
+			case .local:
+				self.historySyncUrl = "http://localhost:5558"
+			default:
+				self.historySyncUrl =
+					"https://message-history.dev.ephemera.network/"
+			}
+		} else {
+			self.historySyncUrl = historySyncUrl
+		}
+	}
 }
 
 actor ApiClientCache {
@@ -361,19 +363,37 @@ public final class Client {
 		self.environment = environment
 	}
 
-	public func addAccount(newAccount: SigningKey)
+	@available(
+		*, deprecated,
+		message:
+			"This function is delicate and should be used with caution. Adding a wallet already associated with an inboxId will cause the wallet to loose access to that inbox. See: inboxIdFromAddress(address)"
+	)
+	public func addAccount(
+		newAccount: SigningKey, allowReassignInboxId: Bool = false
+	)
 		async throws
 	{
-		let signatureRequest = try await ffiClient.addWallet(
-			newWalletAddress: newAccount.address.lowercased())
-		do {
-			try await Client.handleSignature(
-				for: signatureRequest, signingKey: newAccount)
-			try await ffiClient.applySignatureRequest(
-				signatureRequest: signatureRequest)
-		} catch {
+		let inboxId: String? =
+			allowReassignInboxId
+			? nil : try await inboxIdFromAddress(address: newAccount.address)
+
+		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
+			let signatureRequest = try await ffiClient.addWallet(
+				newWalletAddress: newAccount.address.lowercased())
+
+			do {
+				try await Client.handleSignature(
+					for: signatureRequest, signingKey: newAccount)
+				try await ffiClient.applySignatureRequest(
+					signatureRequest: signatureRequest)
+			} catch {
+				throw ClientError.creationError(
+					"Failed to sign the message: \(error.localizedDescription)")
+			}
+		} else {
 			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)")
+				"This wallet is already associated with inbox \(inboxId ?? "Unknown")"
+			)
 		}
 	}
 

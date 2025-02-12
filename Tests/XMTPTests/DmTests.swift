@@ -283,4 +283,124 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(isAllowed, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
 	}
+	
+	func testDmDisappearingMessages() async throws {
+		let fixtures = try await fixtures()
+
+		let initialSettings = DisappearingMessageSettings(
+			disappearStartingAtNs: 1_000_000_000,
+			retentionDurationInNs: 1_000_000_000  // 1s duration
+		)
+
+		// Create group with disappearing messages enabled
+		let boDm = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.alix.walletAddress,
+			disappearingMessageSettings: initialSettings
+		)
+		_ = try await boDm.send(content: "howdy")
+		_ = try await fixtures.alixClient.conversations.syncAllConversations()
+		
+		let alixDm = try fixtures.alixClient.findDmByInboxId(inboxId: fixtures.boClient.inboxID)
+
+		let boGroupMessagesCount = try await boDm.messages().count
+		let alixGroupMessagesCount = try await alixDm?.messages().count
+		let boGroupSettings = boDm.disappearingMessageSettings
+
+		// Validate messages exist and settings are applied
+		XCTAssertEqual(boGroupMessagesCount, 1)  // howdy
+		XCTAssertEqual(alixGroupMessagesCount, 1)  // howdy
+		XCTAssertNotNil(boGroupSettings)
+
+		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
+
+		let boGroupMessagesAfterSleep = try await boDm.messages().count
+		let alixGroupMessagesAfterSleep = try await alixDm?.messages().count
+
+		// Validate messages are deleted
+		XCTAssertEqual(boGroupMessagesAfterSleep, 0)
+		XCTAssertEqual(alixGroupMessagesAfterSleep, 0)
+
+		// Set message disappearing settings to nil
+		try await boDm.updateDisappearingMessageSettings(nil)
+		try await boDm.sync()
+		try await alixDm?.sync()
+
+		let boGroupSettingsAfterNil = boDm.disappearingMessageSettings
+		let alixGroupSettingsAfterNil = alixDm?.disappearingMessageSettings
+
+		XCTAssertNil(boGroupSettingsAfterNil)
+		XCTAssertNil(alixGroupSettingsAfterNil)
+		XCTAssertFalse(try boDm.isDisappearingMessagesEnabled())
+		XCTAssertFalse(try alixDm!.isDisappearingMessagesEnabled())
+
+		// Send messages after disabling disappearing settings
+		_ = try await boDm.send(
+			content: "message after disabling disappearing")
+		_ = try await alixDm?.send(
+			content: "another message after disabling")
+		try await boDm.sync()
+
+		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
+
+		let boGroupMessagesPersist = try await boDm.messages().count
+		let alixGroupMessagesPersist = try await alixDm?.messages().count
+
+		// Ensure messages persist
+		XCTAssertEqual(boGroupMessagesPersist, 2)  // settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 2)  // settings 1, settings 2, boMessage, alixMessage
+
+		// Re-enable disappearing messages
+		let updatedSettings = await DisappearingMessageSettings(
+			disappearStartingAtNs: try boDm.messages().first!.sentAtNs
+				+ 1_000_000_000,  // 1s from now
+			retentionDurationInNs: 1_000_000_000  // 2s duration
+		)
+		try await boDm.updateDisappearingMessageSettings(updatedSettings)
+		try await boDm.sync()
+		try await alixDm?.sync()
+		try await Task.sleep(nanoseconds: 1_000_000_000)  // Sleep for 1 second
+
+		let boGroupUpdatedSettings = boDm.disappearingMessageSettings
+		let alixGroupUpdatedSettings = alixDm?.disappearingMessageSettings
+
+		XCTAssertEqual(
+			boGroupUpdatedSettings!.retentionDurationInNs,
+			updatedSettings.retentionDurationInNs)
+		XCTAssertEqual(
+			alixGroupUpdatedSettings!.retentionDurationInNs,
+			updatedSettings.retentionDurationInNs)
+
+		// Send new messages
+		_ = try await boDm.send(content: "this will disappear soon")
+		_ = try await alixDm?.send(content: "so will this")
+		try await boDm.sync()
+
+		let boGroupMessagesAfterNewSend = try await boDm.messages().count
+		let alixGroupMessagesAfterNewSend = try await alixDm?.messages()
+			.count
+
+		XCTAssertEqual(boGroupMessagesAfterNewSend, 4)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 4)
+
+		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
+
+		let boGroupMessagesFinal = try await boDm.messages().count
+		let alixGroupMessagesFinal = try await alixDm?.messages().count
+
+		// Validate messages were deleted
+		XCTAssertEqual(boGroupMessagesFinal, 2)
+		XCTAssertEqual(alixGroupMessagesFinal, 2)
+
+		let boGroupFinalSettings = boDm.disappearingMessageSettings
+		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings
+
+		XCTAssertEqual(
+			boGroupFinalSettings!.retentionDurationInNs,
+			updatedSettings.retentionDurationInNs)
+		XCTAssertEqual(
+			alixGroupFinalSettings!.retentionDurationInNs,
+			updatedSettings.retentionDurationInNs)
+		XCTAssert(try boDm.isDisappearingMessagesEnabled())
+		XCTAssert(try alixDm!.isDisappearingMessagesEnabled())
+	}
 }

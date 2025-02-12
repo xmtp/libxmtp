@@ -56,7 +56,7 @@ class ClientTests: XCTestCase {
 				"Failed for address: \(address)")
 		}
 	}
-	
+
 	func testStaticInboxState() async throws {
 		let fixtures = try await fixtures()
 
@@ -321,7 +321,7 @@ class ClientTests: XCTestCase {
 
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
 	}
-	
+
 	func testRevokeInstallations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
@@ -355,7 +355,8 @@ class ClientTests: XCTestCase {
 		let state = try await alixClient3.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 3)
 
-		try await alixClient3.revokeInstallations(signingKey: alix, installationIds: [alixClient2.installationID])
+		try await alixClient3.revokeInstallations(
+			signingKey: alix, installationIds: [alixClient2.installationID])
 
 		let newState = try await alixClient3.inboxState(
 			refreshFromNetwork: true)
@@ -440,6 +441,25 @@ class ClientTests: XCTestCase {
 				fixtures.alixClient.address.lowercased(),
 			].sorted()
 		)
+	}
+
+	func testAddAccountsWithExistingInboxIds() async throws {
+		let fixtures = try await fixtures()
+
+		await assertThrowsAsyncError(
+			try await fixtures.alixClient.addAccount(newAccount: fixtures.bo))
+
+		XCTAssert(fixtures.boClient.inboxID != fixtures.alixClient.inboxID)
+		try await fixtures.alixClient.addAccount(
+			newAccount: fixtures.bo, allowReassignInboxId: true)
+
+		let state = try await fixtures.alixClient.inboxState(
+			refreshFromNetwork: true)
+		XCTAssertEqual(state.addresses.count, 2)
+
+		let inboxId = try await fixtures.alixClient.inboxIdFromAddress(
+			address: fixtures.boClient.address)
+		XCTAssertEqual(inboxId, fixtures.alixClient.inboxID)
 	}
 
 	func testRemovingAccounts() async throws {

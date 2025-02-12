@@ -26,6 +26,24 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	public var disappearingMessageSettings: DisappearingMessageSettings? {
+		switch self {
+		case let .group(group):
+			return group.disappearingMessageSettings
+		case let .dm(dm):
+			return dm.disappearingMessageSettings
+		}
+	}
+
+	public func isDisappearingMessagesEnabled() throws -> Bool {
+		switch self {
+		case let .group(group):
+			return try group.isDisappearingMessagesEnabled()
+		case let .dm(dm):
+			return try dm.isDisappearingMessagesEnabled()
+		}
+	}
+
 	public func lastMessage() async throws -> Message? {
 		switch self {
 		case let .group(group):
@@ -68,6 +86,28 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			try await group.updateConsentState(state: state)
 		case let .dm(dm):
 			try await dm.updateConsentState(state: state)
+		}
+	}
+
+	public func updateDisappearingMessageSettings(
+		_ disappearingMessageSettings: DisappearingMessageSettings?
+	) async throws {
+		switch self {
+		case let .group(group):
+			try await group.updateDisappearingMessageSettings(
+				disappearingMessageSettings)
+		case let .dm(dm):
+			try await dm.updateDisappearingMessageSettings(
+				disappearingMessageSettings)
+		}
+	}
+
+	public func clearDisappearingMessageSettings() async throws {
+		switch self {
+		case let .group(group):
+			try await group.clearDisappearingMessageSettings()
+		case let .dm(dm):
+			try await dm.clearDisappearingMessageSettings()
 		}
 	}
 
@@ -213,7 +253,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		}
 	}
-	
+
 	public var client: Client {
 		switch self {
 		case let .group(group):
@@ -222,25 +262,25 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			return dm.client
 		}
 	}
-    
-    public func messagesWithReactions(
-        limit: Int? = nil,
-        beforeNs: Int64? = nil,
-        afterNs: Int64? = nil,
-        direction: SortDirection? = .descending,
-        deliveryStatus: MessageDeliveryStatus = .all
-    ) async throws -> [Message] {
-        switch self {
-        case let .group(group):
-            return try await group.messagesWithReactions(
-                beforeNs: beforeNs, afterNs: afterNs, limit: limit,
-                direction: direction, deliveryStatus: deliveryStatus
-            )
-        case let .dm(dm):
-            return try await dm.messagesWithReactions(
-                beforeNs: beforeNs, afterNs: afterNs, limit: limit,
-                direction: direction, deliveryStatus: deliveryStatus
-            )
-        }
-    }
+
+	public func messagesWithReactions(
+		limit: Int? = nil,
+		beforeNs: Int64? = nil,
+		afterNs: Int64? = nil,
+		direction: SortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus = .all
+	) async throws -> [Message] {
+		switch self {
+		case let .group(group):
+			return try await group.messagesWithReactions(
+				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
+				direction: direction, deliveryStatus: deliveryStatus
+			)
+		case let .dm(dm):
+			return try await dm.messagesWithReactions(
+				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
+				direction: direction, deliveryStatus: deliveryStatus
+			)
+		}
+	}
 }
