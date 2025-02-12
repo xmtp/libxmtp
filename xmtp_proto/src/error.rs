@@ -190,7 +190,7 @@ impl std::fmt::Display for ApiEndpoint {
             SubscribeGroupMessages => write!(f, "subscribe_group_messages"),
             SubscribeWelcomes => write!(f, "subscribe_welcomes"),
             UploadKeyPackage => write!(f, "upload_key_package"),
-            FetchKeyPackages => write!(f, "fetch_key_package"),
+            FetchKeyPackages => write!(f, "fetch_key_packages"),
             SendGroupMessages => write!(f, "send_group_messages"),
             SendWelcomeMessages => write!(f, "send_welcome_messages"),
             QueryGroupMessages => write!(f, "query_group_messages"),
