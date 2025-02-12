@@ -221,6 +221,7 @@ pub enum ConversionError {
     InvalidLength {
         item: &'static str,
         expected: usize,
+        /// the length of the received item
         got: usize,
     },
     #[error("type {} invalid. expected {}, got {}", .item, .expected, .got)]
