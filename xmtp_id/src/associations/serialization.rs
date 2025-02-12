@@ -140,7 +140,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                         .existing_recovery_address_signature
                         .try_into()?,
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_address: action_proto.new_recovery_address,
+                        new_recovery_identifier: action_proto.new_recovery_address,
                     },
                 })
             }
@@ -247,7 +247,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
                 IdentityActionKindProto::ChangeRecoveryAddress(ChangeRecoveryAddressProto {
-                    new_recovery_address: action.unsigned_action.new_recovery_address,
+                    new_recovery_address: action.unsigned_action.new_recovery_identifier,
                     existing_recovery_address_signature: Some(
                         action.recovery_address_signature.into(),
                     ),
@@ -643,7 +643,7 @@ pub(crate) mod tests {
                         7, 8, 9,
                     ]),
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_address: rand_hexstring(),
+                        new_recovery_identifier: rand_hexstring(),
                     },
                 }),
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {

@@ -738,8 +738,8 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
-            let wallet_address = wallet.get_address();
-            let wallet_2_address = wallet_2.get_address();
+            let wallet_address = wallet.get_public_identifier();
+            let wallet_2_address = wallet_2.get_public_identifier();
             let client = ClientBuilder::new_test_client(&wallet).await;
             let inbox_id = client.inbox_id();
 
@@ -938,7 +938,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_address()])
+            .get_inbox_ids(vec![second_wallet.get_public_identifier()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 1);
@@ -946,7 +946,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_wallets(vec![second_wallet.get_address()])
+            .revoke_wallets(vec![second_wallet.get_public_identifier()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
@@ -964,7 +964,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_address()])
+            .get_inbox_ids(vec![second_wallet.get_public_identifier()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 0);

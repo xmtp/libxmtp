@@ -186,9 +186,9 @@ enum Wallet {
 }
 
 impl InboxOwner for Wallet {
-    fn get_address(&self) -> String {
+    fn get_public_identifier(&self) -> String {
         match self {
-            Wallet::LocalWallet(w) => w.get_address(),
+            Wallet::LocalWallet(w) => w.get_public_identifier(),
         }
     }
 
@@ -541,10 +541,10 @@ where
     };
 
     let nonce = 0;
-    let inbox_id = generate_inbox_id(&w.get_address(), &nonce)?;
+    let inbox_id = generate_inbox_id(&w.get_public_identifier(), &nonce)?;
     let client = create_client(
         cli,
-        IdentityStrategy::new(inbox_id, w.get_address(), nonce, None),
+        IdentityStrategy::new(inbox_id, w.get_public_identifier(), nonce, None),
         client,
     )
     .await?;

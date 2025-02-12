@@ -1182,7 +1182,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_address())
+                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_public_identifier())
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())

@@ -19,7 +19,7 @@ extern "C" {
 #[wasm_bindgen_test]
 pub async fn test_create_client() {
   let wallet = LocalWallet::new(&mut rng());
-  let account_address = wallet.get_address();
+  let account_address = wallet.get_public_identifier();
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
   let inbox_id = generate_inbox_id(&account_address, &1);
   let client = create_client(

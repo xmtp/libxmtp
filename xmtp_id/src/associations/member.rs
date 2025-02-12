@@ -43,12 +43,13 @@ impl MemberIdentifier {
     }
 }
 
-pub const PASSKEY_SIZE: usize = 33;
-
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Passkey {
-    pub public_key: [u8; PASSKEY_SIZE],
+    pub public_key: [u8; Self::KEY_SIZE],
     pub relying_party: String,
+}
+impl Passkey {
+    pub const KEY_SIZE: usize = 33;
 }
 
 impl std::fmt::Debug for MemberIdentifier {
@@ -120,17 +121,24 @@ impl MemberIdentifier {
 
 impl std::fmt::Display for MemberIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let as_string = match self {
-            MemberIdentifier::Ethereum(address) => address.to_string(),
-            MemberIdentifier::Installation(installation) => hex::encode(installation),
-            MemberIdentifier::Passkey(passkey) => format!(
-                "Passkey: {}, {}",
-                hex::encode(&passkey.public_key),
-                &passkey.relying_party
-            ),
+        let addr;
+        let output = match self {
+            MemberIdentifier::Ethereum(addr) => addr,
+            MemberIdentifier::Installation(installation) => {
+                addr = hex::encode(installation);
+                &addr
+            }
+            MemberIdentifier::Passkey(passkey) => {
+                addr = format!(
+                    "Passkey: {}, {}",
+                    hex::encode(&passkey.public_key),
+                    &passkey.relying_party
+                );
+                &addr
+            }
         };
 
-        write!(f, "{}", as_string)
+        write!(f, "{}", output)
     }
 }
 

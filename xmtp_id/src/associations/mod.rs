@@ -1,7 +1,7 @@
 mod association_log;
 pub mod builder;
-mod hashes;
 pub(super) mod member;
+pub mod public_identifier;
 pub(super) mod serialization;
 pub mod signature;
 pub(super) mod state;
@@ -12,8 +12,8 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
-pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
+pub use self::public_identifier::PublicIdentifier;
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
@@ -88,7 +88,7 @@ pub mod test_defaults {
             let signer = rand_hexstring();
             Self {
                 nonce: rand_u64(),
-                account_address: signer.clone(),
+                account_identifier: signer.clone(),
                 initial_address_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
@@ -128,7 +128,7 @@ pub(crate) mod tests {
     pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id =
-            generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
+            generate_inbox_id(&create_request.account_identifier, &create_request.nonce).unwrap();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id);
 
@@ -162,8 +162,8 @@ pub(crate) mod tests {
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id =
-            generate_inbox_id(&create_request.account_address, &create_request.nonce).unwrap();
-        let account_address = create_request.account_address.clone();
+            generate_inbox_id(&create_request.account_identifier, &create_request.nonce).unwrap();
+        let account_address = create_request.account_identifier.clone();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
         let state = get_state(vec![identity_update]).unwrap();
@@ -210,7 +210,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn create_and_add_together() {
         let create_action = CreateInbox::default();
-        let account_address = create_action.account_address.clone();
+        let account_address = create_action.account_identifier.clone();
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce).unwrap();
         let new_member_identifier: MemberIdentifier = rand_vec::<32>().into();
         let add_action = AddAssociation {
@@ -249,7 +249,7 @@ pub(crate) mod tests {
         let member_identifier: MemberIdentifier = rand_hexstring().into();
         let create_action = CreateInbox {
             nonce: 0,
-            account_address: member_identifier.to_string(),
+            account_identifier: member_identifier.to_string(),
             initial_address_signature: VerifiedSignature::new(
                 member_identifier.clone(),
                 SignatureKind::LegacyDelegated,
@@ -397,7 +397,7 @@ pub(crate) mod tests {
     fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id =
-            generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
+            generate_inbox_id(&create_inbox.account_identifier, &create_inbox.nonce).unwrap();
         let create_request = Action::CreateInbox(create_inbox);
         // The default here will create an AddAssociation from a random wallet
         let update = Action::AddAssociation(AddAssociation {
@@ -664,7 +664,7 @@ pub(crate) mod tests {
         let action = CreateInbox {
             initial_address_signature,
             nonce: 0,
-            account_address: signer.clone(),
+            account_identifier: signer.clone(),
         };
 
         let initial_state = get_state(vec![IdentityUpdate::new_test(

@@ -30,7 +30,7 @@ impl RustInboxOwner {
 }
 
 impl xmtp_mls::InboxOwner for RustInboxOwner {
-    fn get_address(&self) -> String {
+    fn get_public_identifier(&self) -> String {
         self.ffi_inbox_owner.get_address().to_lowercase()
     }
 

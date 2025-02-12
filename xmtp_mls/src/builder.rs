@@ -291,7 +291,7 @@ pub(crate) mod tests {
     /// Generate a random legacy key proto bytes and corresponding account address.
     async fn generate_random_legacy_key() -> (Vec<u8>, String) {
         let wallet = generate_local_wallet();
-        let address = wallet.get_address();
+        let address = wallet.get_public_identifier();
         let created_ns = rand_u64();
         let secret_key = ethers::core::k256::ecdsa::SigningKey::random(&mut rng());
         let public_key = ethers::core::k256::ecdsa::VerifyingKey::from(&secret_key);
@@ -389,7 +389,7 @@ pub(crate) mod tests {
             // non-legacy cases
             IdentityStrategyTestCase {
                 strategy: {
-                    let account_address = generate_local_wallet().get_address();
+                    let account_address = generate_local_wallet().get_public_identifier();
                     IdentityStrategy::new(
                         generate_inbox_id(&account_address, &1).unwrap(),
                         account_address.clone(),
@@ -402,7 +402,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let nonce = 1;
-                    let account_address = generate_local_wallet().get_address();
+                    let account_address = generate_local_wallet().get_public_identifier();
                     IdentityStrategy::new(
                         generate_inbox_id(&account_address, &nonce).unwrap(),
                         account_address.clone(),
@@ -415,7 +415,7 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let nonce = 0;
-                    let account_address = generate_local_wallet().get_address();
+                    let account_address = generate_local_wallet().get_public_identifier();
                     IdentityStrategy::new(
                         generate_inbox_id(&account_address, &nonce).unwrap(),
                         account_address.clone(),

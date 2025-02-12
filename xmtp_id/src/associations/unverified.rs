@@ -123,7 +123,7 @@ impl UnverifiedAction {
         let action = match self {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
                 nonce: action.unsigned_action.nonce,
-                account_address: action.unsigned_action.account_address.clone(),
+                account_identifier: action.unsigned_action.account_address.clone(),
                 initial_address_signature: action
                     .initial_address_signature
                     .to_verified(signature_text.as_ref(), &scw_verifier)
@@ -155,7 +155,7 @@ impl UnverifiedAction {
                         .recovery_address_signature
                         .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
-                    new_recovery_address: action.unsigned_action.new_recovery_address.clone(),
+                    new_recovery_address: action.unsigned_action.new_recovery_identifier.clone(),
                 })
             }
         };

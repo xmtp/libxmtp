@@ -125,7 +125,7 @@ impl SignatureRequestBuilder {
                 recovery_address_identifier,
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
-                new_recovery_address,
+                new_recovery_identifier: new_recovery_address,
             }),
         });
 

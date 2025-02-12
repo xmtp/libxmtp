@@ -146,11 +146,11 @@ where
     A: XmtpApi + 'static + Send + Sync,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
+    let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
 
     let client = Client::<A>::builder(IdentityStrategy::new(
         inbox_id,
-        owner.get_address(),
+        owner.get_public_identifier(),
         nonce,
         None,
     ));
@@ -180,11 +180,11 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
+    let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
 
     let mut builder = Client::<A, V>::builder(IdentityStrategy::new(
         inbox_id,
-        owner.get_address(),
+        owner.get_public_identifier(),
         nonce,
         None,
     ))

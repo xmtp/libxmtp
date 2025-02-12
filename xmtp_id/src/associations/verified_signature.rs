@@ -201,7 +201,7 @@ mod tests {
         let verified_sig = VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig_bytes)
             .expect("should succeed");
 
-        assert_eq!(verified_sig.signer.address().unwrap(), wallet.get_address());
+        assert_eq!(verified_sig.signer.address().unwrap(), wallet.get_public_identifier());
         assert_eq!(verified_sig.kind, SignatureKind::Erc191);
         assert_eq!(verified_sig.raw_bytes, sig_bytes);
     }
@@ -216,7 +216,7 @@ mod tests {
 
         let verified_sig =
             VerifiedSignature::from_recoverable_ecdsa("wrong text again", &sig_bytes).unwrap();
-        assert_ne!(verified_sig.signer, wallet.get_address().into());
+        assert_ne!(verified_sig.signer, wallet.get_public_identifier().into());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

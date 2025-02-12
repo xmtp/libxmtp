@@ -5,12 +5,13 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Display,
+    fmt::{Debug, Display},
 };
 
 use super::{
     hashes::generate_inbox_id,
     member::{Member, Passkey, PASSKEY_SIZE},
+    public_identifier::PublicIdentifier,
     AssociationError, MemberIdentifier, MemberKind,
 };
 use crate::InboxIdRef;
@@ -55,34 +56,6 @@ pub struct AssociationState {
     pub(crate) members: HashMap<MemberIdentifier, Member>,
     pub(crate) recovery_identifier: PublicIdentifier,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
-pub enum PublicIdentifier {
-    Ethereum(String),
-    Passkey([u8; PASSKEY_SIZE]),
-}
-impl PublicIdentifier {
-    pub fn to_lowercase(self) -> Self {
-        match self {
-            Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
-            ident => ident,
-        }
-    }
-}
-
-impl Display for PublicIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let addr;
-        let output = match self {
-            Self::Ethereum(addr) => addr,
-            Self::Passkey(key) => {
-                addr = hex::encode(key);
-                &addr
-            }
-        };
-        write!(f, "{output}")
-    }
 }
 
 impl TryFrom<MemberIdentifier> for PublicIdentifier {

@@ -1,8 +1,6 @@
-use chrono::DateTime;
-
+use super::{state::PublicIdentifier, MemberIdentifier};
 use crate::associations::MemberKind;
-
-use super::MemberIdentifier;
+use chrono::DateTime;
 
 const HEADER: &str = "XMTP : Authenticate to inbox";
 const FOOTER: &str = "For more info: https://xmtp.org/signatures";
@@ -14,12 +12,12 @@ pub trait SignatureTextCreator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
-    pub account_address: String,
+    pub account_identifier: PublicIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedCreateInbox {
     fn signature_text(&self) -> String {
-        format!("- Create inbox\n  (Owner: {})", self.account_address)
+        format!("- Create inbox\n  (Owner: {:?})", self.account_identifier)
     }
 }
 
@@ -37,7 +35,10 @@ impl SignatureTextCreator for UnsignedAddAssociation {
             MemberKind::Ethereum => "Link address to inbox",
             MemberKind::Passkey => "Link passkey to inbox",
         };
-        format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
+        format!(
+            "- {prefix}\n  ({id_kind}: {:?})",
+            self.new_member_identifier
+        )
     }
 }
 
@@ -61,15 +62,14 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_address: String,
+    pub new_recovery_identifier: MemberIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
     fn signature_text(&self) -> String {
         format!(
-            // TODO: Finalize text
-            "- Change inbox recovery address\n  (Address: {})",
-            self.new_recovery_address
+            "- Change inbox recovery address\n  ({:?})",
+            self.new_recovery_identifier
         )
     }
 }
@@ -181,7 +181,7 @@ pub(crate) mod tests {
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {
-            new_recovery_address: new_recovery_address.clone(),
+            new_recovery_identifier: new_recovery_address.clone(),
         };
 
         let identity_update = UnsignedIdentityUpdate {

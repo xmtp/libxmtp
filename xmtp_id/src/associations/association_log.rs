@@ -65,7 +65,7 @@ pub trait IdentityAction: Send {
 #[derive(Debug, Clone)]
 pub struct CreateInbox {
     pub nonce: u64,
-    pub account_address: String,
+    pub account_identifier: MemberIdentifier,
     pub initial_address_signature: VerifiedSignature,
 }
 
@@ -79,11 +79,9 @@ impl IdentityAction for CreateInbox {
             return Err(AssociationError::MultipleCreate);
         }
 
-        let account_address = self.account_address.clone();
+        let account_address = self.account_identifier.clone();
         let recovered_signer = self.initial_address_signature.signer.clone();
-        if recovered_signer.ne(&MemberIdentifier::Ethereum(
-            account_address.clone().to_lowercase(),
-        )) {
+        if recovered_signer != account_address {
             return Err(AssociationError::MissingExistingMember);
         }
 

@@ -57,7 +57,7 @@ pub(crate) mod tests {
         let consent_record = StoredConsentRecord::new(
             ConsentType::Address,
             ConsentState::Allowed,
-            alix_wallet.get_address(),
+            alix_wallet.get_public_identifier(),
         );
 
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
@@ -125,7 +125,7 @@ pub(crate) mod tests {
 
         // Ensure bo is not consented with amal_b
         let mut bo_consent_with_amal_b = amal_b_conn
-            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .get_consent_record(bo_wallet.get_public_identifier(), ConsentType::Address)
             .unwrap();
         assert!(bo_consent_with_amal_b.is_none());
 
@@ -134,12 +134,12 @@ pub(crate) mod tests {
             .set_consent_states(&[StoredConsentRecord::new(
                 ConsentType::Address,
                 ConsentState::Allowed,
-                bo_wallet.get_address(),
+                bo_wallet.get_public_identifier(),
             )])
             .await
             .unwrap();
         assert!(amal_a_conn
-            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+            .get_consent_record(bo_wallet.get_public_identifier(), ConsentType::Address)
             .unwrap()
             .is_some());
         let amal_a_subscription = amal_a.local_events().subscribe();
@@ -149,7 +149,7 @@ pub(crate) mod tests {
         while bo_consent_with_amal_b.is_none() {
             assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
             bo_consent_with_amal_b = amal_b_conn
-                .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+                .get_consent_record(bo_wallet.get_public_identifier(), ConsentType::Address)
                 .unwrap();
 
             if start.elapsed() > Duration::from_secs(1) {
