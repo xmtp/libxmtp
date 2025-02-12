@@ -45,8 +45,8 @@ cat <<EOF > _site/index.html
     <h1>Select a Version</h1>
     <p>Choose which version of the site you want to visit:</p>
 
-    <a href="main/xmtp_mls/index.html" class="button main">Main Version</a>
-    <a href="setup-develop/xmtp_mls/index.html" class="button develop">Develop Version</a>
+    <a href="main/xmtp_mls/index.html" class="button main">Main</a>
+    <a href="develop/xmtp_mls/index.html" class="button develop">Develop</a>
 
 </body>
 </html>
