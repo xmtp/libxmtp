@@ -109,7 +109,9 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
                 self.cooldown_attempts.load(Ordering::SeqCst),
                 **self.cooling_since.load(),
             ) {
-                crate::time::sleep(c.saturating_sub(self.cooling_since.load().elapsed())).await;
+                let sleep_for = c.saturating_sub(self.cooling_since.load().elapsed());
+                tracing::debug!("cooling for {:?}", sleep_for);
+                crate::time::sleep(sleep_for).await;
                 self.cooldown_off();
             }
         }

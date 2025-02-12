@@ -72,23 +72,7 @@ where
 #[cfg(target_arch = "wasm32")]
 #[doc(hidden)]
 pub async fn sleep(duration: Duration) {
-    use js_sys::wasm_bindgen::JsCast;
-    use js_sys::wasm_bindgen::UnwrapThrowExt;
-    use web_sys::WorkerGlobalScope;
-
-    let mut cb = |resolve: js_sys::Function, _reject: js_sys::Function| {
-        let worker = js_sys::global()
-            .dyn_into::<WorkerGlobalScope>()
-            .expect("xmtp_mls should always act in worker in browser");
-        worker
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                &resolve,
-                duration.as_millis() as i32,
-            )
-            .expect("Failed to call set_timeout");
-    };
-    let p = js_sys::Promise::new(&mut cb);
-    wasm_bindgen_futures::JsFuture::from(p).await.unwrap_throw();
+    gloo_timers::future::sleep(duration).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
