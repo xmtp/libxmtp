@@ -215,6 +215,7 @@ pub enum ConversionError {
     Missing {
         /// the item being converted
         item: &'static str,
+        /// type of the item being converted
         r#type: &'static str,
     },
     #[error("type {} has invalid length. expected {} got {}", .item, .expected, .got)]
