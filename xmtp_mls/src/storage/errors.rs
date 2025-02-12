@@ -48,7 +48,7 @@ pub enum StorageError {
     IntentionalRollback,
     #[error("failed to deserialize from db")]
     DbDeserialize,
-    #[error("failed to serialize from db")]
+    #[error("failed to serialize for db")]
     DbSerialize,
 }
 
