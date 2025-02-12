@@ -3,9 +3,9 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
   workflow_dispatch:
-
 jobs:
   cargo-deny:
     runs-on: warp-ubuntu-latest-x64-16x
@@ -16,12 +16,11 @@ jobs:
           - bans
           - licenses
           - sources
-
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
-
     # Prevent sudden announcement of a new advisory from failing CI
     continue-on-error: ${{ matrix.checks == 'advisories' }}
+

@@ -1,10 +1,9 @@
 name: Test Node Bindings
-
 on:
   push:
     branches:
       - main
-
+      - develop
   pull_request:
     # only run tests when related changes are made
     paths:
@@ -22,7 +21,6 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain"
-
 jobs:
   test:
     name: Test
@@ -30,20 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Update rust toolchains
         run: rustup update
-
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             bindings_node
-
       - name: Start Docker containers
         run: dev/up
-
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -52,20 +46,16 @@ jobs:
           cache: "yarn"
         env:
           SKIP_YARN_COREPACK_CHECK: "1"
-
       - name: Enable corepack
         run: corepack enable
-
       - name: Install dependencies
         working-directory: bindings_node
         run: |
           yarn
-
       - name: Build release
         working-directory: bindings_node
         run: |
           yarn build
-
       - name: Run tests
         working-directory: bindings_node
         run: |

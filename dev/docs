@@ -1,10 +1,57 @@
 #!/usr/bin/env bash
 set -eou pipefail
 
-rm -rf ./_site
-cargo doc --workspace --no-deps
+branch_name=$(git symbolic-ref -q HEAD)
+branch_name=${branch_name##refs/heads/}
+branch_name=${branch_name:-HEAD}
+
+rm -rf ./_site/${branch_name}
+cargo doc --workspace --no-deps --all-features --locked
 rm -f target/doc/.lock
-cp -r target/doc _site
+cp -r target/doc/* _site/${branch_name}/
 echo "generating site index"
-echo "<meta http-equiv=\"refresh\" content=\"0; url=xmtp_mls/index.html\">" > _site/index.html
+
+cat <<EOF > _site/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Version</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+        .button {
+            display: inline-block;
+            padding: 15px 30px;
+            font-size: 20px;
+            margin: 20px;
+            text-decoration: none;
+            color: white;
+            border-radius: 5px;
+            transition: 0.3s;
+        }
+        .main { background-color: #007bff; }
+        .develop { background-color: #28a745; }
+        .button:hover { opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+    <h1>Select a Version</h1>
+    <p>Choose which version of the site you want to visit:</p>
+
+    <a href="main/index.html" class="button main">Main Version</a>
+    <a href="develop/index.html" class="button develop">Develop Version</a>
+
+</body>
+</html>
+EOF
+
 chmod -R +rX _site
+
+
+
