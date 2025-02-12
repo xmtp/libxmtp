@@ -1,6 +1,5 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
 //! `wasm_bindgen_futures::spawn` for web.
-use futures::FutureExt;
 
 #[cfg(target_arch = "wasm32")]
 pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
@@ -94,10 +93,13 @@ mod wasm {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
-            mut self: std::pin::Pin<&mut Self>,
+            self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            FutureExt::poll_unpin(&mut self.result, cx).map(|r| match r {
+            // safe because we consider `result` to be structurally pinned
+            // pinning: https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
+            let result = unsafe { self.map_unchecked_mut(|r| &mut r.result) };
+            result.poll(cx).map(|r| match r {
                 Ok(r) => r,
                 Err(_) => Err(StreamHandleError::ChannelClosed),
             })
@@ -223,10 +225,13 @@ mod native {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
-            mut self: std::pin::Pin<&mut Self>,
+            self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            self.inner.poll_unpin(cx).map_err(StreamHandleError::from)
+            // safe because we consider `inner` to be structurally pinned
+            // https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
+            let inner = unsafe { self.map_unchecked_mut(|v| &mut v.inner) };
+            inner.poll(cx).map_err(StreamHandleError::from)
         }
     }
 

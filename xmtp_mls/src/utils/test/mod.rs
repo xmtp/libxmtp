@@ -15,7 +15,7 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::XmtpTestClient;
 
@@ -119,7 +119,17 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     }
 }
 
-impl ClientBuilder<TestClient> {
+impl<ApiClient, V> ClientBuilder<ApiClient, V> {
+    pub async fn local_client(self) -> ClientBuilder<TestClient, V> {
+        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+    }
+
+    pub async fn dev_client(self) -> ClientBuilder<TestClient, V> {
+        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+    }
+}
+
+impl ClientBuilder<TestClient, RemoteSignatureVerifier<TestClient>> {
     /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_local().await;
@@ -130,25 +140,16 @@ impl ClientBuilder<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_dev().await;
         inner_build(owner, api_client).await
     }
-
-    /// Add the local client to this builder
-    pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-    }
-
-    pub async fn dev_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
-    }
 }
 
 async fn inner_build<A>(owner: impl InboxOwner, api_client: A) -> Client<A>
 where
-    A: XmtpApi + 'static + Send + Sync,
+    A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let client = Client::<A>::builder(IdentityStrategy::new(
+    let client = Client::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_address(),
         nonce,
@@ -159,6 +160,8 @@ where
         .temp_store()
         .await
         .api_client(api_client)
+        .with_remote_verifier()
+        .unwrap()
         .build()
         .await
         .unwrap();
@@ -182,7 +185,7 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
 
-    let mut builder = Client::<A, V>::builder(IdentityStrategy::new(
+    let mut builder = Client::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_address(),
         nonce,
@@ -191,13 +194,13 @@ where
     .temp_store()
     .await
     .api_client(api_client)
-    .scw_signature_verifier(scw_verifier);
+    .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
         builder = builder.history_sync_url(history_sync_url);
     }
 
-    let client = builder.build_with_verifier().await.unwrap();
+    let client = builder.build().await.unwrap();
     let conn = client.store().conn().unwrap();
     conn.register_triggers();
     register_client(&client, owner).await;

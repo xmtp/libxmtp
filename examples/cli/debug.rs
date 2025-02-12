@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageBodyIn, MlsMessageIn, OpenMlsProvider};
+use std::collections::HashMap;
+use xmtp_api::GetIdentityUpdatesV2Filter;
 use xmtp_id::associations::unverified::UnverifiedAction;
-use xmtp_mls::api::GetIdentityUpdatesV2Filter;
+use xmtp_id::InboxUpdate;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
-use xmtp_mls::{Client, XmtpApi};
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version as GroupMessageVersion;
 use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version as WelcomeMessageVersion;
 
@@ -34,10 +35,7 @@ fn format_timestamp(timestamp_ns: u64) -> String {
     datetime.format("%Y-%m-%d %H:%M:%S%.3f UTC").to_string()
 }
 
-pub async fn debug_group_messages(
-    client: &Client<Box<dyn XmtpApi>>,
-    group_id: Vec<u8>,
-) -> Result<(), String> {
+pub async fn debug_group_messages(client: &crate::Client, group_id: Vec<u8>) -> Result<(), String> {
     let api_client = client.api();
     let envelopes = api_client
         .query_group_messages(group_id, None)
@@ -66,7 +64,7 @@ pub async fn debug_group_messages(
 }
 
 pub async fn debug_welcome_messages(
-    client: &Client<Box<dyn XmtpApi>>,
+    client: &crate::Client,
     installation_id: Vec<u8>,
 ) -> Result<(), String> {
     let api_client = client.api();
@@ -97,7 +95,7 @@ pub async fn debug_welcome_messages(
 }
 
 pub async fn debug_key_packages(
-    client: &Client<Box<dyn XmtpApi>>,
+    client: &crate::Client,
     installation_id: Vec<u8>,
 ) -> Result<(), String> {
     let api_client = client.api();
@@ -124,7 +122,7 @@ pub async fn debug_key_packages(
 }
 
 pub async fn debug_identity_updates(
-    client: &Client<Box<dyn XmtpApi>>,
+    client: &crate::Client,
     inbox_id: Vec<u8>,
 ) -> Result<(), String> {
     let api_client = client.api();
@@ -134,7 +132,11 @@ pub async fn debug_identity_updates(
         inbox_id: hex::encode(inbox_id),
     }];
 
-    let key_package_results = api_client.get_identity_updates_v2(filters).await.unwrap();
+    let key_package_results: HashMap<_, Vec<InboxUpdate>> = api_client
+        .get_identity_updates_v2(filters)
+        .await
+        .unwrap()
+        .collect();
 
     for (inbox_id, updates) in key_package_results {
         for update in updates {
@@ -165,10 +167,7 @@ pub async fn debug_identity_updates(
     Ok(())
 }
 
-pub async fn handle_debug(
-    client: &Client<Box<dyn XmtpApi>>,
-    command: &DebugCommands,
-) -> Result<(), String> {
+pub async fn handle_debug(client: &crate::Client, command: &DebugCommands) -> Result<(), String> {
     match command {
         DebugCommands::GroupMessages { group_id } => {
             info!("Querying group messages for group id: {}", group_id);

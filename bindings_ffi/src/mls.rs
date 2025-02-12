@@ -4,7 +4,9 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
+use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
@@ -28,8 +30,6 @@ use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_mls::{
-    api::ApiClientWrapper,
-    builder::ClientBuilder,
     client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
@@ -51,8 +51,8 @@ use xmtp_mls::{
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     subscriptions::SubscribeError,
-    AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
@@ -74,7 +74,11 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(host, is_secure).await?;
+    let mut api_client = TonicApiClient::builder();
+    api_client.set_host(host);
+    api_client.set_tls(true);
+    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
+    let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -140,8 +144,9 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let mut builder = ClientBuilder::new(identity_strategy)
+    let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
+        .with_remote_verifier()?
         .store(store);
 
     if let Some(url) = &history_sync_url {
@@ -166,7 +171,8 @@ pub async fn get_inbox_id_for_address(
     api: Arc<XmtpApiClient>,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), Default::default());
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let results = api
         .get_inbox_ids(vec![account_address.clone()])
         .await
@@ -2297,7 +2303,7 @@ impl FfiStreamCloser {
 
     /// End the stream and asynchronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-        use xmtp_mls::StreamHandleError::*;
+        use xmtp_common::StreamHandleError::*;
         use GenericError::Generic;
 
         if self.abort_handle.is_finished() {

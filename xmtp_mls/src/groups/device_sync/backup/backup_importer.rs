@@ -3,7 +3,7 @@ use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection, StorageError,
+        DbConnection,
     },
     Store, XmtpOpenMlsProvider,
 };
@@ -77,9 +77,7 @@ impl BackupImporter {
                     .decrypt(&self.nonce, &self.decoded[..element_len])?;
                 let element = BackupElement::decode(&*decrypted);
                 self.decoded.drain(..element_len);
-                return Ok(Some(
-                    element.map_err(|e| StorageError::Deserialization(e.to_string()))?,
-                ));
+                return Ok(Some(element.map_err(DeviceSyncError::from)?));
             }
 
             if amount == 0 && self.decoded.is_empty() {
