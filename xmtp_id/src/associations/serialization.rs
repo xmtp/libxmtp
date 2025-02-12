@@ -66,6 +66,8 @@ pub enum DeserializationError {
     Decode(#[from] DecodeError),
     #[error("Invalid account id")]
     InvalidAccountId,
+    #[error("Invalid passkey")]
+    InvalidPasskey,
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
     #[error("A required field is unspecified: {0}")]
@@ -367,7 +369,7 @@ impl TryFrom<MemberProto> for Member {
 impl From<MemberIdentifier> for MemberIdentifierProto {
     fn from(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
         match member_identifier {
-            MemberIdentifier::Address(address) => MemberIdentifierProto {
+            MemberIdentifier::Ethereum(address) => MemberIdentifierProto {
                 kind: Some(MemberIdentifierKindProto::Address(address)),
             },
             MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
@@ -375,7 +377,7 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
             },
             MemberIdentifier::Passkey(passkey) => MemberIdentifierProto {
                 kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
-                    public_key: passkey.public_key,
+                    public_key: passkey.public_key.to_vec(),
                     relying_party: passkey.relying_party,
                 })),
             },
@@ -383,31 +385,35 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
     }
 }
 
-impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
+// impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
+// type Error = DeserializationError;
+//
+// fn try_from(proto: MemberIdentifierProto) -> Result<Self, Self::Error> {
+// match proto.kind {
+// Some(MemberIdentifierKindProto::Address(address)) => {
+// Ok(MemberIdentifier::Address(address))
+// }
+// Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => {
+// Ok(MemberIdentifier::Installation(public_key))
+// }
+// Some(MemberIdentifierKindProto::Passkey(passkey)) => {
+// Ok(MemberIdentifier::Passkey(passkey.into()))
+// }
+// None => Err(DeserializationError::MissingMemberIdentifier),
+// }
+// }
+// }
+
+impl TryFrom<PasskeyProto> for Passkey {
     type Error = DeserializationError;
-
-    fn try_from(proto: MemberIdentifierProto) -> Result<Self, Self::Error> {
-        match proto.kind {
-            Some(MemberIdentifierKindProto::Address(address)) => {
-                Ok(MemberIdentifier::Address(address))
-            }
-            Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => {
-                Ok(MemberIdentifier::Installation(public_key))
-            }
-            Some(MemberIdentifierKindProto::Passkey(passkey)) => {
-                Ok(MemberIdentifier::Passkey(passkey.into()))
-            }
-            None => Err(DeserializationError::MissingMemberIdentifier),
-        }
-    }
-}
-
-impl From<PasskeyProto> for Passkey {
-    fn from(value: PasskeyProto) -> Self {
-        Self {
-            public_key: value.public_key,
+    fn try_from(value: PasskeyProto) -> Result<Self, Self::Error> {
+        Ok(Self {
+            public_key: value
+                .public_key
+                .try_into()
+                .map_err(|_| DeserializationError::InvalidPasskey)?,
             relying_party: value.relying_party,
-        }
+        })
     }
 }
 
@@ -425,7 +431,7 @@ impl From<AssociationState> for AssociationStateProto {
         AssociationStateProto {
             inbox_id: state.inbox_id,
             members,
-            recovery_address: state.recovery_address,
+            recovery_address: state.recovery_identifier,
             seen_signatures: state.seen_signatures.into_iter().collect(),
         }
     }
@@ -438,13 +444,11 @@ impl TryFrom<AssociationStateProto> for AssociationState {
         let members = proto
             .members
             .into_iter()
-            .map(|kv| {
-                let key = kv
-                    .key
-                    .ok_or(DeserializationError::MissingMemberIdentifier)?
-                    .try_into()?;
-                let value = kv
-                    .value
+            // Ignore unknown MemberIdentifiers from proto
+            .filter_map(|kv| Some((kv.key?, kv.value)))
+            .map(|(key, value)| {
+                let key = key.try_into()?;
+                let value = value
                     .ok_or(DeserializationError::MissingMember)?
                     .try_into()?;
                 Ok((key, value))

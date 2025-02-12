@@ -49,7 +49,7 @@ impl VerifiedSignature {
         let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
 
         Ok(Self::new(
-            MemberIdentifier::Address(address),
+            MemberIdentifier::Ethereum(address),
             SignatureKind::Erc191,
             normalized_signature_bytes.to_vec(),
             None,
@@ -114,12 +114,12 @@ impl VerifiedSignature {
         let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
         let address = h160addr_to_string(public_key_to_address(&public_key));
 
-        if MemberIdentifier::Address(address) != verified_legacy_signature.signer {
+        if MemberIdentifier::Ethereum(address) != verified_legacy_signature.signer {
             return Err(SignatureError::Invalid);
         }
 
         Ok(Self::new(
-            MemberIdentifier::Address(signed_public_key.account_address.to_lowercase()),
+            MemberIdentifier::Ethereum(signed_public_key.account_address.to_lowercase()),
             SignatureKind::LegacyDelegated,
             // Must use the wallet signature bytes, since those are the ones we care about making unique.
             // This protects against using the legacy key more than once in the Identity Update Log
@@ -150,7 +150,7 @@ impl VerifiedSignature {
             *block_number = response.block_number;
 
             Ok(Self::new(
-                MemberIdentifier::Address(
+                MemberIdentifier::Ethereum(
                     account_id.get_account_address().to_string().to_lowercase(),
                 ),
                 SignatureKind::Erc1271,
@@ -313,7 +313,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let expected = MemberIdentifier::Address(account_address.clone());
+        let expected = MemberIdentifier::Ethereum(account_address.clone());
         let verified_sig = VerifiedSignature::from_legacy_delegated(
             signature_text,
             &legacy_signature.legacy_key_signature.signature_bytes,
@@ -384,7 +384,7 @@ mod tests {
         .expect("should validate");
         assert_eq!(
             verified_sig.signer,
-            MemberIdentifier::Address(account_address)
+            MemberIdentifier::Ethereum(account_address)
         );
         assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
         assert_eq!(verified_sig.raw_bytes, signature_bytes);

@@ -663,7 +663,7 @@ fn pretty_association_state(state: &AssociationState) -> (String, Vec<String>, V
         .collect::<Vec<String>>();
 
     let addresses = state
-        .members_by_kind(MemberKind::Address)
+        .members_by_kind(MemberKind::Ethereum)
         .into_iter()
         .map(|m| m.identifier.to_address().unwrap())
         .collect::<Vec<String>>();

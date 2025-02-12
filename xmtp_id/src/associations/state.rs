@@ -3,10 +3,15 @@
 //! or[`MemberKind::Installation`]. A diff between two states can be calculated to determine
 //! a change of membership between two periods of time. [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use super::{
-    hashes::generate_inbox_id, member::Member, AssociationError, MemberIdentifier, MemberKind,
+    hashes::generate_inbox_id,
+    member::{Member, Passkey, PASSKEY_SIZE},
+    AssociationError, MemberIdentifier, MemberKind,
 };
 use crate::InboxIdRef;
 
@@ -48,8 +53,52 @@ impl AssociationStateDiff {
 pub struct AssociationState {
     pub(crate) inbox_id: String,
     pub(crate) members: HashMap<MemberIdentifier, Member>,
-    pub(crate) recovery_address: String,
+    pub(crate) recovery_identifier: PublicIdentifier,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PublicIdentifier {
+    Ethereum(String),
+    Passkey([u8; PASSKEY_SIZE]),
+}
+impl PublicIdentifier {
+    pub fn to_lowercase(self) -> Self {
+        match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
+            ident => ident,
+        }
+    }
+}
+
+impl Display for PublicIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let addr;
+        let output = match self {
+            Self::Ethereum(addr) => addr,
+            Self::Passkey(key) => {
+                addr = hex::encode(key);
+                &addr
+            }
+        };
+        write!(f, "{output}")
+    }
+}
+
+impl TryFrom<MemberIdentifier> for PublicIdentifier {
+    type Error = AssociationError;
+    fn try_from(ident: MemberIdentifier) -> Result<Self, Self::Error> {
+        let public_ident = match ident {
+            MemberIdentifier::Ethereum(addr) => Self::Ethereum(addr),
+            MemberIdentifier::Passkey(Passkey { public_key, .. }) => Self::Passkey(public_key),
+            MemberIdentifier::Installation(_) => {
+                return Err(AssociationError::NotPublicIdentifier(
+                    "Installation Keys".to_string(),
+                ))
+            }
+        };
+        Ok(public_ident)
+    }
 }
 
 impl AssociationState {
@@ -67,9 +116,9 @@ impl AssociationState {
         new_state
     }
 
-    pub fn set_recovery_address(&self, recovery_address: String) -> Self {
+    pub fn set_recovery_address(&self, recovery_identifier: PublicIdentifier) -> Self {
         let mut new_state = self.clone();
-        new_state.recovery_address = recovery_address.to_lowercase();
+        new_state.recovery_identifier = recovery_identifier.to_lowercase();
 
         new_state
     }
@@ -97,8 +146,8 @@ impl AssociationState {
         &self.inbox_id
     }
 
-    pub fn recovery_address(&self) -> &String {
-        &self.recovery_address
+    pub fn recovery_identifier(&self) -> &PublicIdentifier {
+        &self.recovery_identifier
     }
 
     pub fn members_by_parent(&self, parent_id: &MemberIdentifier) -> Vec<Member> {
@@ -118,10 +167,10 @@ impl AssociationState {
     }
 
     pub fn account_addresses(&self) -> Vec<String> {
-        self.members_by_kind(MemberKind::Address)
+        self.members_by_kind(MemberKind::Ethereum)
             .into_iter()
             .filter_map(|member| match member.identifier {
-                MemberIdentifier::Address(address) => Some(address),
+                MemberIdentifier::Ethereum(address) => Some(address),
                 _ => None,
             })
             .collect()
@@ -183,17 +232,20 @@ impl AssociationState {
     }
 
     pub fn new(
-        account_address: String,
+        // Needs to also be a public identifier
+        account_identifier: MemberIdentifier,
         nonce: u64,
         chain_id: Option<u64>,
     ) -> Result<Self, AssociationError> {
-        let inbox_id = generate_inbox_id(&account_address, &nonce)?;
-        let identifier = MemberIdentifier::Address(account_address.clone());
-        let new_member = Member::new(identifier.clone(), None, None, chain_id);
+        let public_identifier: PublicIdentifier = account_identifier.clone().try_into()?;
+        let public_identifier = public_identifier.to_lowercase();
+
+        let inbox_id = generate_inbox_id(&public_identifier, &nonce)?;
+        let new_member = Member::new(account_identifier.clone(), None, None, chain_id);
         Ok(Self {
-            members: HashMap::from_iter([(identifier, new_member)]),
+            members: HashMap::from_iter([(account_identifier, new_member)]),
             seen_signatures: HashSet::new(),
-            recovery_address: account_address.to_lowercase(),
+            recovery_identifier: public_identifier,
             inbox_id,
         })
     }
@@ -204,14 +256,13 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use xmtp_common::rand_hexstring;
-
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
-        let starting_state = AssociationState::new(rand_hexstring(), 0, None).unwrap();
+        let starting_state =
+            AssociationState::new(MemberIdentifier::rand_ethereum(), 0, None).unwrap();
         let new_entity = Member::default();
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
@@ -221,7 +272,8 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
-        let starting_state = AssociationState::new(rand_hexstring(), 0, None).unwrap();
+        let starting_state =
+            AssociationState::new(MemberIdentifier::rand_ethereum(), 0, None).unwrap();
         let entity_1 = Member::default();
         let entity_2 = Member::default();
         let entity_3 = Member::default();

@@ -34,7 +34,7 @@ impl SignatureTextCreator for UnsignedAddAssociation {
         let id_kind = get_identifier_text(&member_kind);
         let prefix = match member_kind {
             MemberKind::Installation => "Grant messaging access to app",
-            MemberKind::Address => "Link address to inbox",
+            MemberKind::Ethereum => "Link address to inbox",
             MemberKind::Passkey => "Link passkey to inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
@@ -52,7 +52,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
         let id_kind = get_identifier_text(&member_kind);
         let prefix = match self.revoked_member.kind() {
             MemberKind::Installation => "Revoke messaging access from app",
-            MemberKind::Address => "Unlink address from inbox",
+            MemberKind::Ethereum => "Unlink address from inbox",
             MemberKind::Passkey => "Unlink passkey from inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.revoked_member)
@@ -129,7 +129,7 @@ impl SignatureTextCreator for UnsignedIdentityUpdate {
 
 fn get_identifier_text(kind: &MemberKind) -> String {
     match kind {
-        MemberKind::Address => "Address".to_string(),
+        MemberKind::Ethereum => "Address".to_string(),
         MemberKind::Installation => "ID".to_string(),
         MemberKind::Passkey => "Passkey".to_string(),
     }
@@ -165,7 +165,7 @@ pub(crate) mod tests {
             generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Address(new_member_address.clone()),
+            new_member_identifier: MemberIdentifier::Ethereum(new_member_address.clone()),
         };
 
         let add_installation = UnsignedAddAssociation {
@@ -173,7 +173,7 @@ pub(crate) mod tests {
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Address(new_member_address.clone()),
+            revoked_member: MemberIdentifier::Ethereum(new_member_address.clone()),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {

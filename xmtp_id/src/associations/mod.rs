@@ -491,7 +491,7 @@ pub(crate) mod tests {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
         let wallet_address = initial_state
-            .members_by_kind(MemberKind::Address)
+            .members_by_kind(MemberKind::Ethereum)
             .first()
             .cloned()
             .unwrap()
@@ -537,7 +537,7 @@ pub(crate) mod tests {
     fn revoke_and_re_add() {
         let initial_state = new_test_inbox();
         let wallet_address = initial_state
-            .members_by_kind(MemberKind::Address)
+            .members_by_kind(MemberKind::Ethereum)
             .first()
             .cloned()
             .unwrap()

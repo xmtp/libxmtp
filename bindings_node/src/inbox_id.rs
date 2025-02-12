@@ -64,7 +64,7 @@ pub async fn is_address_authorized(
   is_member_of_association_state(
     &host,
     &inbox_id,
-    &MemberIdentifier::Address(address.to_lowercase()),
+    &MemberIdentifier::Ethereum(address.to_lowercase()),
   )
   .await
 }

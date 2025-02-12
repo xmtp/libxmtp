@@ -38,6 +38,8 @@ pub enum AssociationError {
     ChainIdMismatch(u64, u64),
     #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
     InvalidAccountAddress,
+    #[error("{0} are not a public identifier")]
+    NotPublicIdentifier(String),
 }
 
 pub trait IdentityAction: Send {
@@ -79,13 +81,13 @@ impl IdentityAction for CreateInbox {
 
         let account_address = self.account_address.clone();
         let recovered_signer = self.initial_address_signature.signer.clone();
-        if recovered_signer.ne(&MemberIdentifier::Address(
+        if recovered_signer.ne(&MemberIdentifier::Ethereum(
             account_address.clone().to_lowercase(),
         )) {
             return Err(AssociationError::MissingExistingMember);
         }
 
-        allowed_signature_for_kind(&MemberKind::Address, &self.initial_address_signature.kind)?;
+        allowed_signature_for_kind(&MemberKind::Ethereum, &self.initial_address_signature.kind)?;
 
         if self.initial_address_signature.kind == SignatureKind::LegacyDelegated && self.nonce != 0
         {
@@ -233,7 +235,7 @@ impl IdentityAction for RevokeAssociation {
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Address.to_string(),
+                MemberKind::Ethereum.to_string(),
                 SignatureKind::LegacyDelegated.to_string(),
             ));
         }
@@ -243,7 +245,7 @@ impl IdentityAction for RevokeAssociation {
         let state_recovery_address = existing_state.recovery_address();
 
         // Ensure this message is signed by the recovery address
-        if recovery_signer.ne(&MemberIdentifier::Address(
+        if recovery_signer.ne(&MemberIdentifier::Ethereum(
             state_recovery_address.clone().to_lowercase(),
         )) {
             return Err(AssociationError::MissingExistingMember);
@@ -294,7 +296,7 @@ impl IdentityAction for ChangeRecoveryAddress {
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Address.to_string(),
+                MemberKind::Ethereum.to_string(),
                 SignatureKind::LegacyDelegated.to_string(),
             ));
         }
@@ -431,7 +433,7 @@ fn allowed_signature_for_kind(
     signature_kind: &SignatureKind,
 ) -> Result<(), AssociationError> {
     let is_ok = match role {
-        MemberKind::Address => match signature_kind {
+        MemberKind::Ethereum => match signature_kind {
             SignatureKind::Erc191 => true,
             SignatureKind::Erc1271 => true,
             SignatureKind::LegacyDelegated => true,

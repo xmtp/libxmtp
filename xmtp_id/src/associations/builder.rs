@@ -206,7 +206,7 @@ impl SignatureRequest {
     pub fn missing_address_signatures(&self) -> Vec<&MemberIdentifier> {
         self.missing_signatures()
             .into_iter()
-            .filter(|member| member.kind() == MemberKind::Address)
+            .filter(|member| member.kind() == MemberKind::Ethereum)
             .collect()
     }
 

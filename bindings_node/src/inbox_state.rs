@@ -14,9 +14,16 @@ pub struct Installation {
 #[napi(object)]
 pub struct InboxState {
   pub inbox_id: String,
-  pub recovery_address: String,
+  pub recovery_identifier: Identifier,
   pub installations: Vec<Installation>,
-  pub account_addresses: Vec<String>,
+  pub identifiers: Vec<Identifier>,
+}
+
+/// A public facing, slimmer version of [`MemberIdentifier`]
+#[napi(object)]
+pub enum Identifier {
+  Ethereum(String),
+  Passkey(Vec<u8>),
 }
 
 impl From<AssociationState> for InboxState {
@@ -28,7 +35,7 @@ impl From<AssociationState> for InboxState {
         .members()
         .into_iter()
         .filter_map(|m| match m.identifier {
-          MemberIdentifier::Address(_) => None,
+          MemberIdentifier::Ethereum(_) => None,
           MemberIdentifier::Passkey(_) => None,
           MemberIdentifier::Installation(inst) => Some(Installation {
             bytes: Uint8Array::from(inst.as_slice()),
@@ -37,7 +44,7 @@ impl From<AssociationState> for InboxState {
           }),
         })
         .collect(),
-      account_addresses: state.account_addresses(),
+      identifiers: state.identifiers(),
     }
   }
 }

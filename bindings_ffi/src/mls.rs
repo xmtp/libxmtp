@@ -723,7 +723,7 @@ impl From<AssociationState> for FfiInboxState {
                 .members()
                 .into_iter()
                 .filter_map(|m| match m.identifier {
-                    MemberIdentifier::Address(_) => None,
+                    MemberIdentifier::Ethereum(_) => None,
                     MemberIdentifier::Passkey(_) => None,
                     MemberIdentifier::Installation(inst) => Some(FfiInstallation {
                         id: inst,

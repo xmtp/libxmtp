@@ -63,7 +63,7 @@ impl From<AssociationState> for InboxState {
         .members()
         .into_iter()
         .filter_map(|m| match m.identifier {
-          MemberIdentifier::Address(_) => None,
+          MemberIdentifier::Ethereum(_) => None,
           MemberIdentifier::Installation(inst) => Some(Installation {
             bytes: Uint8Array::from(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns,

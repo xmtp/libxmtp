@@ -141,7 +141,7 @@ impl serde::Serialize for AssociationState {
         if !self.members.is_empty() {
             len += 1;
         }
-        if !self.recovery_address.is_empty() {
+        if self.recovery_identifier.is_some() {
             len += 1;
         }
         if !self.seen_signatures.is_empty() {
@@ -154,8 +154,8 @@ impl serde::Serialize for AssociationState {
         if !self.members.is_empty() {
             struct_ser.serialize_field("members", &self.members)?;
         }
-        if !self.recovery_address.is_empty() {
-            struct_ser.serialize_field("recoveryAddress", &self.recovery_address)?;
+        if let Some(v) = self.recovery_identifier.as_ref() {
+            struct_ser.serialize_field("recoveryIdentifier", v)?;
         }
         if !self.seen_signatures.is_empty() {
             struct_ser.serialize_field("seenSignatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
@@ -173,8 +173,8 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
             "inbox_id",
             "inboxId",
             "members",
-            "recovery_address",
-            "recoveryAddress",
+            "recovery_identifier",
+            "recoveryIdentifier",
             "seen_signatures",
             "seenSignatures",
         ];
@@ -183,7 +183,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
         enum GeneratedField {
             InboxId,
             Members,
-            RecoveryAddress,
+            RecoveryIdentifier,
             SeenSignatures,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -208,7 +208,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "members" => Ok(GeneratedField::Members),
-                            "recoveryAddress" | "recovery_address" => Ok(GeneratedField::RecoveryAddress),
+                            "recoveryIdentifier" | "recovery_identifier" => Ok(GeneratedField::RecoveryIdentifier),
                             "seenSignatures" | "seen_signatures" => Ok(GeneratedField::SeenSignatures),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -231,7 +231,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
             {
                 let mut inbox_id__ = None;
                 let mut members__ = None;
-                let mut recovery_address__ = None;
+                let mut recovery_identifier__ = None;
                 let mut seen_signatures__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -247,11 +247,11 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                             }
                             members__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::RecoveryAddress => {
-                            if recovery_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("recoveryAddress"));
+                        GeneratedField::RecoveryIdentifier => {
+                            if recovery_identifier__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("recoveryIdentifier"));
                             }
-                            recovery_address__ = Some(map_.next_value()?);
+                            recovery_identifier__ = map_.next_value()?;
                         }
                         GeneratedField::SeenSignatures => {
                             if seen_signatures__.is_some() {
@@ -267,7 +267,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                 Ok(AssociationState {
                     inbox_id: inbox_id__.unwrap_or_default(),
                     members: members__.unwrap_or_default(),
-                    recovery_address: recovery_address__.unwrap_or_default(),
+                    recovery_identifier: recovery_identifier__,
                     seen_signatures: seen_signatures__.unwrap_or_default(),
                 })
             }
@@ -1170,8 +1170,8 @@ impl serde::Serialize for MemberIdentifier {
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.MemberIdentifier", len)?;
         if let Some(v) = self.kind.as_ref() {
             match v {
-                member_identifier::Kind::Address(v) => {
-                    struct_ser.serialize_field("address", v)?;
+                member_identifier::Kind::EthereumAddress(v) => {
+                    struct_ser.serialize_field("ethereumAddress", v)?;
                 }
                 member_identifier::Kind::InstallationPublicKey(v) => {
                     #[allow(clippy::needless_borrow)]
@@ -1193,7 +1193,8 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "address",
+            "ethereum_address",
+            "ethereumAddress",
             "installation_public_key",
             "installationPublicKey",
             "passkey",
@@ -1201,7 +1202,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Address,
+            EthereumAddress,
             InstallationPublicKey,
             Passkey,
         }
@@ -1225,7 +1226,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                         E: serde::de::Error,
                     {
                         match value {
-                            "address" => Ok(GeneratedField::Address),
+                            "ethereumAddress" | "ethereum_address" => Ok(GeneratedField::EthereumAddress),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
                             "passkey" => Ok(GeneratedField::Passkey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1250,11 +1251,11 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                 let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Address => {
+                        GeneratedField::EthereumAddress => {
                             if kind__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("address"));
+                                return Err(serde::de::Error::duplicate_field("ethereumAddress"));
                             }
-                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(member_identifier::Kind::Address);
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(member_identifier::Kind::EthereumAddress);
                         }
                         GeneratedField::InstallationPublicKey => {
                             if kind__.is_some() {
@@ -1499,6 +1500,115 @@ impl<'de> serde::Deserialize<'de> for Passkey {
             }
         }
         deserializer.deserialize_struct("xmtp.identity.associations.Passkey", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PublicIdentifier {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.kind.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.PublicIdentifier", len)?;
+        if let Some(v) = self.kind.as_ref() {
+            match v {
+                public_identifier::Kind::Ethereum(v) => {
+                    struct_ser.serialize_field("ethereum", v)?;
+                }
+                public_identifier::Kind::Passkey(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    struct_ser.serialize_field("passkey", pbjson::private::base64::encode(&v).as_str())?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PublicIdentifier {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ethereum",
+            "passkey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Ethereum,
+            Passkey,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "ethereum" => Ok(GeneratedField::Ethereum),
+                            "passkey" => Ok(GeneratedField::Passkey),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PublicIdentifier;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.identity.associations.PublicIdentifier")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PublicIdentifier, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut kind__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Ethereum => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ethereum"));
+                            }
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(public_identifier::Kind::Ethereum);
+                        }
+                        GeneratedField::Passkey => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("passkey"));
+                            }
+                            kind__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| public_identifier::Kind::Passkey(x.0));
+                        }
+                    }
+                }
+                Ok(PublicIdentifier {
+                    kind: kind__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.identity.associations.PublicIdentifier", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {

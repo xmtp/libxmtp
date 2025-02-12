@@ -283,7 +283,7 @@ where
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let new_member_identifier = MemberIdentifier::Address(new_wallet_address);
+        let new_member_identifier = MemberIdentifier::Ethereum(new_wallet_address);
 
         let mut signature_request = builder
             .add_association(new_member_identifier, installation_public_key.into())
@@ -660,7 +660,7 @@ pub(crate) mod tests {
         let is_member = is_member_of_association_state(
             api_client,
             client.inbox_id(),
-            &MemberIdentifier::Address(wallet2.get_address()),
+            &MemberIdentifier::Ethereum(wallet2.get_address()),
             None,
         )
         .await
@@ -719,8 +719,8 @@ pub(crate) mod tests {
 
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
-        let members =
-            association_state.members_by_parent(&MemberIdentifier::Address(wallet_address.clone()));
+        let members = association_state
+            .members_by_parent(&MemberIdentifier::Ethereum(wallet_address.clone()));
         // Those members should have timestamps
         for member in members {
             assert!(member.client_timestamp_ns.is_some());

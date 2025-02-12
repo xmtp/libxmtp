@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
@@ -5,7 +7,7 @@ use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
     Installation,
-    Address,
+    Ethereum,
     Passkey,
 }
 
@@ -13,7 +15,7 @@ impl std::fmt::Display for MemberKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             MemberKind::Installation => write!(f, "installation"),
-            MemberKind::Address => write!(f, "address"),
+            MemberKind::Ethereum => write!(f, "address"),
             MemberKind::Passkey => write!(f, "passkey"),
         }
     }
@@ -22,21 +24,37 @@ impl std::fmt::Display for MemberKind {
 /// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum MemberIdentifier {
-    Address(String),
+    Ethereum(String),
     Installation(Vec<u8>),
     Passkey(Passkey),
 }
 
+impl MemberIdentifier {
+    pub fn to_lowercase(self) -> Self {
+        match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
+            ident => ident,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn rand_ethereum() -> Self {
+        Self::Ethereum(xmtp_common::rand_hexstring())
+    }
+}
+
+pub const PASSKEY_SIZE: usize = 33;
+
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Passkey {
-    pub public_key: Vec<u8>,
+    pub public_key: [u8; PASSKEY_SIZE],
     pub relying_party: String,
 }
 
 impl std::fmt::Debug for MemberIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Address(addr) => f.debug_tuple("Address").field(addr).finish(),
+            Self::Ethereum(addr) => f.debug_tuple("Address").field(addr).finish(),
             Self::Installation(i) => f
                 .debug_tuple("Installation")
                 .field(&hex::encode(i))
@@ -53,7 +71,7 @@ impl std::fmt::Debug for MemberIdentifier {
 impl MemberIdentifier {
     pub fn kind(&self) -> MemberKind {
         match self {
-            MemberIdentifier::Address(_) => MemberKind::Address,
+            MemberIdentifier::Ethereum(_) => MemberKind::Ethereum,
             MemberIdentifier::Installation(_) => MemberKind::Installation,
             MemberIdentifier::Passkey(_) => MemberKind::Passkey,
         }
@@ -72,7 +90,7 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Address`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn address(&self) -> Option<&str> {
-        if let Self::Address(ref address) = self {
+        if let Self::Ethereum(ref address) = self {
             Some(address)
         } else {
             None
@@ -82,7 +100,7 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
     /// in the process
     pub fn to_address(self) -> Option<String> {
-        if let Self::Address(address) = self {
+        if let Self::Ethereum(address) = self {
             Some(address)
         } else {
             None
@@ -103,7 +121,7 @@ impl MemberIdentifier {
 impl std::fmt::Display for MemberIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let as_string = match self {
-            MemberIdentifier::Address(address) => address.to_string(),
+            MemberIdentifier::Ethereum(address) => address.to_string(),
             MemberIdentifier::Installation(installation) => hex::encode(installation),
             MemberIdentifier::Passkey(passkey) => format!(
                 "Passkey: {}, {}",
@@ -118,7 +136,7 @@ impl std::fmt::Display for MemberIdentifier {
 
 impl From<String> for MemberIdentifier {
     fn from(address: String) -> Self {
-        MemberIdentifier::Address(address.to_lowercase())
+        MemberIdentifier::Ethereum(address.to_lowercase())
     }
 }
 
@@ -197,7 +215,7 @@ pub(crate) mod tests {
 
     impl Default for MemberIdentifier {
         fn default() -> Self {
-            MemberIdentifier::Address(rand_hexstring())
+            MemberIdentifier::Ethereum(rand_hexstring())
         }
     }
 
@@ -216,9 +234,9 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_identifier_comparisons() {
-        let address_1 = MemberIdentifier::Address("0x123".to_string());
-        let address_2 = MemberIdentifier::Address("0x456".to_string());
-        let address_1_copy = MemberIdentifier::Address("0x123".to_string());
+        let address_1 = MemberIdentifier::Ethereum("0x123".to_string());
+        let address_2 = MemberIdentifier::Ethereum("0x456".to_string());
+        let address_1_copy = MemberIdentifier::Ethereum("0x123".to_string());
 
         assert!(address_1 != address_2);
         assert!(address_1.ne(&address_2));
