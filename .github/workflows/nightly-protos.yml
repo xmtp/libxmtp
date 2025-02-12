@@ -1,7 +1,7 @@
 name: Nightly Automation
 on:
   schedule:
-    - cron:  '0 10 * * 1'
+    - cron: '0 10 * * 1'
   workflow_dispatch:
 jobs:
   nightly-protos:
@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: develop
       - uses: bufbuild/buf-setup-action@v1.50.0
       - name: Update rust toolchains
         run: rustup update
@@ -18,7 +20,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-           .
+            .
       - name: Generate Protos
         run: dev/gen_protos.sh
       - name: Create Pull Request
@@ -33,3 +35,4 @@ jobs:
 
             [1]: https://github.com/peter-evans/create-pull-request
           branch: nightly-proto
+
