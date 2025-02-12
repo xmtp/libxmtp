@@ -1,6 +1,6 @@
-use ethers::types::Bytes;
 use crate::associations::AccountId;
 use crate::scw_verifier::BlockNumber;
+use ethers::types::Bytes;
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct CacheKey {
@@ -18,8 +18,7 @@ impl CacheKey {
         signature: &Bytes,
         block_number: Option<BlockNumber>,
     ) -> Self {
-        let block_number_u64 = block_number
-            .and_then(|bn| bn.as_number().map(|n| n.as_u64()));
+        let block_number_u64 = block_number.and_then(|bn| bn.as_number().map(|n| n.as_u64()));
         Self {
             chain_id: account_id.chain_id.clone(),
             account: account_id.account_address.to_string(),

@@ -1,20 +1,20 @@
+mod cache_key;
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
-mod cache_key;
 use crate::associations::AccountId;
+use cache_key::CacheKey;
+pub use chain_rpc_verifier::*;
 use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes},
 };
+use lru::LruCache;
+pub use remote_signature_verifier::*;
 use std::{collections::HashMap, fs, num::NonZeroUsize, path::Path, sync::Arc};
 use thiserror::Error;
+use tokio::sync::Mutex;
 use tracing::info;
 use url::Url;
-use lru::LruCache;
-use tokio::sync::Mutex;
-use cache_key::CacheKey;
-pub use chain_rpc_verifier::*;
-pub use remote_signature_verifier::*;
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -150,12 +150,12 @@ impl MultiSmartContractSignatureVerifier {
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
 
-        let cache_size = NonZeroUsize::new(cache_size)
-            .ok_or(VerifierError::InvalidCacheSize(cache_size))?;
+        let cache_size =
+            NonZeroUsize::new(cache_size).ok_or(VerifierError::InvalidCacheSize(cache_size))?;
 
-        Ok(Self { 
-            verifiers, 
-            cache: Mutex::new(LruCache::new(cache_size))
+        Ok(Self {
+            verifiers,
+            cache: Mutex::new(LruCache::new(cache_size)),
         })
     }
 
@@ -244,7 +244,8 @@ mod tests {
 
     #[test]
     fn test_cache_eviction() {
-        let mut cache: LruCache<CacheKey, ValidationResponse> = LruCache::new(NonZeroUsize::new(1).unwrap());
+        let mut cache: LruCache<CacheKey, ValidationResponse> =
+            LruCache::new(NonZeroUsize::new(1).unwrap());
 
         let account_id1 = AccountId::new(String::from("chain1"), String::from("account1"));
         let account_id2 = AccountId::new(String::from("chain1"), String::from("account2"));
@@ -256,8 +257,16 @@ mod tests {
         let key2 = CacheKey::new(&account_id2, hash, &bytes, block_number);
         assert_ne!(key1, key2);
 
-        let val1: ValidationResponse = ValidationResponse { is_valid: true, block_number: Some(1), error: None };
-        let val2: ValidationResponse = ValidationResponse { is_valid: true, block_number: Some(2), error: None };
+        let val1: ValidationResponse = ValidationResponse {
+            is_valid: true,
+            block_number: Some(1),
+            error: None,
+        };
+        let val2: ValidationResponse = ValidationResponse {
+            is_valid: true,
+            block_number: Some(2),
+            error: None,
+        };
 
         cache.put(key1.clone(), val1.clone());
         let response = cache.get(&key1).unwrap();
