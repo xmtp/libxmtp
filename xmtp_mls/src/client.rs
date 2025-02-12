@@ -1071,12 +1071,9 @@ pub(crate) mod tests {
     async fn test_group_member_recovery() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
-        tracing::info!("amal = {}", amal.inbox_id());
         // Add two separate installations for Bola
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
-        tracing::info!("BolaA = {}", bola_a.inbox_id());
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
-        tracing::info!("BolaB = {}", bola_b.inbox_id());
 
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
@@ -1100,7 +1097,6 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
-        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
@@ -1440,7 +1436,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
-        tracing::info!("Syncing bolas welcomes");
 
         // See if Bola can see that they were added to the group
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -1449,7 +1444,6 @@ pub(crate) mod tests {
         let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        tracing::info!("Syncing bolas messages");
         bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
