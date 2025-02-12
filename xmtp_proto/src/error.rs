@@ -213,6 +213,7 @@ impl std::fmt::Display for ApiEndpoint {
 pub enum ConversionError {
     #[error("missing field {} of type {} during conversion from protobuf", .item, .r#type)]
     Missing {
+        /// the item being converted
         item: &'static str,
         r#type: &'static str,
     },
