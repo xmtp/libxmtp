@@ -16,6 +16,22 @@ pub use mls::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub mod strategies {
+    use super::*;
+    pub fn exponential_cooldown() -> Retry<ExponentialBackoff, ExponentialBackoff> {
+        let cooldown = ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(3))
+            .multiplier(3)
+            .max_jitter(std::time::Duration::from_millis(100))
+            .total_wait_max(std::time::Duration::from_secs(120))
+            .build();
+
+        xmtp_common::Retry::builder()
+            .with_cooldown(cooldown)
+            .build()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("API client error: {0}")]

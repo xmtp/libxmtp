@@ -4,7 +4,7 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::ApiClientWrapper;
+use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::reaction::ReactionCodec;
@@ -171,16 +171,8 @@ pub async fn get_inbox_id_for_address(
     api: Arc<XmtpApiClient>,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    let cooldown = xmtp_common::ExponentialBackoff::builder()
-        .duration(std::time::Duration::from_secs(3))
-        .multiplier(3)
-        .max_jitter(std::time::Duration::from_millis(100))
-        .total_wait_max(std::time::Duration::from_secs(120))
-        .build();
-    let retry = xmtp_common::Retry::builder()
-        .with_cooldown(cooldown)
-        .build();
-    let mut api = ApiClientWrapper::new(Arc::new(api.0.clone()), retry);
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let results = api
         .get_inbox_ids(vec![account_address.clone()])
         .await
