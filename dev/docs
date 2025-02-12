@@ -8,6 +8,7 @@ branch_name=${branch_name:-HEAD}
 rm -rf ./_site/${branch_name}
 cargo doc --workspace --no-deps --all-features --locked
 rm -f target/doc/.lock
+mkdir -p _site/${branch_name}
 cp -r target/doc/* _site/${branch_name}/
 echo "generating site index"
 
