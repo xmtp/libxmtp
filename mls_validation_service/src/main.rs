@@ -39,12 +39,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("0.0.0.0:{}", args.port).parse()?;
     info!("Starting validation service on port {:?}", args.port);
     info!("Starting health check on port {:?}", args.health_check_port);
+    info!("Cache size: {:?}", args.cache_size);
 
     let health_server = health_check_server(args.health_check_port as u16);
 
     let scw_verifier = match args.chain_urls {
-        Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path)?,
-        None => MultiSmartContractSignatureVerifier::new_from_env()?,
+        Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path, args.cache_size)?,
+        None => MultiSmartContractSignatureVerifier::new_from_env(args.cache_size)?,
     };
 
     let grpc_server = Server::builder()
