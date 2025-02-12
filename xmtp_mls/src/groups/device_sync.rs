@@ -206,7 +206,7 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::error!("Outgoing preference update {preference_updates:?}");
+                    tracing::info!("Outgoing preference update {preference_updates:?}");
                     retry_async!(
                         self.retry,
                         (async {
