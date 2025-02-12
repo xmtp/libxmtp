@@ -89,7 +89,7 @@ mod wasm {
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
     }
 
-    impl<T: std::fmt::Debug> Future for WasmStreamHandle<Result<T, StreamHandleError>> {
+    impl<T> Future for WasmStreamHandle<Result<T, StreamHandleError>> {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
@@ -107,7 +107,7 @@ mod wasm {
     }
 
     #[async_trait::async_trait(?Send)]
-    impl<T: std::fmt::Debug> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
+    impl<T> StreamHandle for WasmStreamHandle<Result<T, StreamHandleError>> {
         type StreamOutput = T;
 
         async fn wait_for_ready(&mut self) {
@@ -155,7 +155,7 @@ mod wasm {
     ) -> impl StreamHandle<StreamOutput = F::Output>
     where
         F: Future + 'static,
-        F::Output: 'static + std::fmt::Debug,
+        F::Output: 'static,
     {
         let (res_tx, res_rx) = tokio::sync::oneshot::channel();
         let (closer_tx, closer_rx) = tokio::sync::mpsc::channel::<()>(1);
