@@ -7,11 +7,14 @@ use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
-use xmtp_mls::groups::{GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies};
+use xmtp_mls::groups::{
+  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+};
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -120,8 +123,8 @@ pub struct CreateGroupOptions {
   pub group_name: Option<String>,
   pub group_image_url_square: Option<String>,
   pub group_description: Option<String>,
-  pub group_pinned_frame_url: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl CreateGroupOptions {
@@ -130,7 +133,25 @@ impl CreateGroupOptions {
       name: self.group_name,
       image_url_square: self.group_image_url_square,
       description: self.group_description,
-      pinned_frame_url: self.group_pinned_frame_url,
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
+    }
+  }
+}
+
+#[napi(object)]
+#[derive(Clone, Default)]
+pub struct CreateDMOptions {
+  pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+}
+
+impl CreateDMOptions {
+  pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
+    DMMetadataOptions {
+      message_disappearing_settings: self
+        .message_disappearing_settings
+        .map(|settings| settings.into()),
     }
   }
 }
@@ -152,17 +173,14 @@ impl Conversations {
     account_addresses: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let options = match options {
-      Some(options) => options,
-      None => CreateGroupOptions {
-        permissions: None,
-        group_name: None,
-        group_image_url_square: None,
-        group_description: None,
-        group_pinned_frame_url: None,
-        custom_permission_policy_set: None,
-      },
-    };
+    let options = options.unwrap_or(CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      custom_permission_policy_set: None,
+      message_disappearing_settings: None,
+    });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
       if options.custom_permission_policy_set.is_none() {
@@ -177,8 +195,8 @@ impl Conversations {
     let metadata_options = options.clone().into_group_metadata_options();
 
     let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::AllMembers) => {
-        Some(PreconfiguredPolicies::AllMembers.to_policy_set())
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
       }
       Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
@@ -198,10 +216,15 @@ impl Conversations {
     };
 
     let convo = if account_addresses.is_empty() {
-      self
+      let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
     } else {
       self
         .inner_client
@@ -213,11 +236,18 @@ impl Conversations {
     Ok(convo.into())
   }
 
-  #[napi]
-  pub async fn create_dm(&self, account_address: String) -> Result<Conversation> {
+  #[napi(js_name = "createDm")]
+  pub async fn find_or_create_dm(
+    &self,
+    account_address: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .create_dm(account_address)
+      .find_or_create_dm(
+        account_address,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
       .await
       .map_err(ErrorWrapper::from)?;
 

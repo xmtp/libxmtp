@@ -48,7 +48,7 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| -> diesel::QueryResult<_> {
+        Ok(self.raw_query_read(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -57,12 +57,34 @@ impl DbConnection {
         })?)
     }
 
-    /// Insert consent_records, and replace existing entries
+    /// Insert consent_records, and replace existing entries, returns records that are new or changed
     pub fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
-    ) -> Result<(), StorageError> {
-        self.raw_query(|conn| -> diesel::QueryResult<_> {
+    ) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        let mut query = consent_records::table
+            .into_boxed()
+            .filter(false.into_sql::<diesel::sql_types::Bool>());
+        let primary_keys: Vec<_> = records
+            .iter()
+            .map(|r| (&r.entity, &r.entity_type))
+            .collect();
+        for (entity, entity_type) in primary_keys {
+            query = query.or_filter(
+                consent_records::entity_type
+                    .eq(entity_type)
+                    .and(consent_records::entity.eq(entity)),
+            );
+        }
+
+        let changed = self.raw_query_write(|conn| -> diesel::QueryResult<_> {
+            let existing: Vec<StoredConsentRecord> = query.load(conn)?;
+            let changed: Vec<_> = records
+                .iter()
+                .filter(|r| !existing.contains(r))
+                .cloned()
+                .collect();
+
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 for record in records.iter() {
                     diesel::insert_into(dsl::consent_records)
@@ -73,17 +95,19 @@ impl DbConnection {
                         .execute(conn)?;
                 }
                 Ok(())
-            })
+            })?;
+
+            Ok(changed)
         })?;
 
-        Ok(())
+        Ok(changed)
     }
 
     pub fn maybe_insert_consent_record_return_existing(
         &self,
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
                 diesel::insert_into(dsl::consent_records)
                     .values(record)
@@ -205,13 +229,34 @@ mod tests {
             let inbox_id = "inbox_1";
             let consent_record = generate_consent_record(
                 ConsentType::InboxId,
-                ConsentState::Denied,
+                ConsentState::Allowed,
                 inbox_id.to_string(),
             );
             let consent_record_entity = consent_record.entity.clone();
 
-            conn.insert_or_replace_consent_records(&[consent_record])
+            // Insert the record
+            let result = conn
+                .insert_or_replace_consent_records(&[consent_record.clone()])
                 .expect("should store without error");
+            // One record was inserted
+            assert_eq!(result.len(), 1);
+
+            // Insert it again
+            let result = conn
+                .insert_or_replace_consent_records(&[consent_record.clone()])
+                .expect("should store without error");
+            // Nothing should change
+            assert_eq!(result.len(), 0);
+
+            // Insert it again, this time with a Denied state
+            let result = conn
+                .insert_or_replace_consent_records(&[StoredConsentRecord {
+                    state: ConsentState::Denied,
+                    ..consent_record
+                }])
+                .expect("should store without error");
+            // Should change
+            assert_eq!(result.len(), 1);
 
             let consent_record = conn
                 .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)

@@ -1,14 +1,11 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use crate::storage::ProviderTransactions;
 use crate::{
-    api::{ApiClientWrapper, WrappedApiError},
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::StorageError,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
     Fetch, Store, XmtpApi,
 };
 use openmls::prelude::hash_ref::HashReference;
@@ -25,9 +22,11 @@ use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -172,10 +171,6 @@ pub enum IdentityError {
     CredentialSerialization(#[from] prost::EncodeError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
-    #[error(transparent)]
-    WrappedApi(#[from] WrappedApiError),
-    #[error(transparent)]
-    Api(#[from] xmtp_proto::Error),
     #[error("installation not found: {0}")]
     InstallationIdNotFound(String),
     #[error(transparent)]
@@ -220,13 +215,14 @@ pub enum IdentityError {
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
+    #[error(transparent)]
+    ApiClient(#[from] xmtp_api::Error),
 }
 
 impl RetryableError for IdentityError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(_) => true,
-            Self::WrappedApi(err) => retryable!(err),
+            Self::ApiClient(err) => retryable!(err),
             Self::StorageError(err) => retryable!(err),
             Self::OpenMlsStorageError(err) => retryable!(err),
             Self::DieselResult(err) => retryable!(err),
@@ -534,34 +530,49 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_key_package(provider, api_client).await?;
+        self.rotate_and_upload_key_package(provider, api_client)
+            .await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
-    /// Upload a new key package to the network, which will replace any existing key packages for the installation.
-    pub(crate) async fn rotate_key_package<ApiClient: XmtpApi>(
+    pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
+        let conn = provider.conn_ref();
+
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        let conn = provider.conn_ref();
         let hash_ref = serialize_key_package_hash_ref(&kp, provider)?;
-        let history_id = conn.store_key_package_history_entry(hash_ref)?.id;
-        let old_id = history_id - 1;
+        let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
 
-        // Find all key packages that are not the current or previous KPs
-        // We can delete before uploading because this is either run inside a transaction or is being applied to a brand
-        // new identity
-        let old_key_packages = conn.find_key_package_history_entries_before_id(old_id)?;
-        for kp in old_key_packages {
-            self.delete_key_package(provider, kp.key_package_hash_ref)?;
+        match api_client.upload_key_package(kp_bytes, true).await {
+            Ok(()) => {
+                // Successfully uploaded. Delete previous KPs
+                let old_id = history_id - 1;
+                provider.transaction(|provider| {
+                    let old_key_packages = provider
+                        .conn_ref()
+                        .find_key_package_history_entries_before_id(old_id)?;
+                    for kp in old_key_packages {
+                        self.delete_key_package(provider, kp.key_package_hash_ref)?;
+                    }
+                    conn.delete_key_package_history_entries_before_id(old_id)?;
+
+                    Ok::<_, IdentityError>(())
+                })?;
+
+                Ok(())
+            }
+            Err(err) => {
+                // Did not upload. Delete the newly created KP.
+                self.delete_key_package(provider, hash_ref)?;
+                conn.delete_key_package_entry_with_id(history_id)?;
+
+                Err(IdentityError::ApiClient(err))
+            }
         }
-        conn.delete_key_package_history_entries_before_id(old_id)?;
-
-        api_client.upload_key_package(kp_bytes, true).await?;
-        Ok(())
     }
 
     /// Delete a key package from the local database.

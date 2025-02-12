@@ -1,5 +1,19 @@
 # @xmtp/wasm-bindings
 
+## 0.0.14
+
+- Removed group pinned frame URL
+- Refactored streaming
+- Fixed DB locking issues
+
+## 0.0.13
+
+- Fixed DM group validation across installations
+
+## 0.0.12
+
+- Added `getHmacKeys` to `Conversations`
+
 ## 0.0.11
 
 - Added installation ID `bytes` to return value of `inboxState`

@@ -9,39 +9,46 @@ license.workspace = true
 vergen-git2 = { workspace = true, features = ["build"] }
 
 [dependencies]
+chrono.workspace = true
 clap = { version = "4.5.20", features = ["derive"] }
 clap-verbosity-flag = "3.0"
-tracing = { workspace = true, features = ["valuable"] }
-tracing-subscriber = { workspace = true, features = ["time", "json", "chrono", "env-filter", "valuable", "ansi"] }
-xmtp_mls.workspace = true
-xmtp_id.workspace = true
-xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
-xmtp_api_grpc.workspace = true
-xmtp_proto.workspace = true
-openmls.workspace = true
-indicatif = "0.17"
 color-eyre = "0.6"
-tracing-logfmt = "0.3"
-owo-colors = "4.1"
-url.workspace = true
-redb = "2.4"
-directories = "5.0"
 const_format.workspace = true
-speedy = "0.8"
-hex.workspace = true
-prost.workspace = true
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
-tokio = "1.41"
+directories = "6.0"
 ecdsa = "0.16"
+ethers.workspace = true
+fdlimit.workspace = true
+fs_extra = "1.3"
+hex.workspace = true
+indicatif = "0.17"
 k256 = "0.13"
+lipsum = "0.9"
+miniserde = "0.1"
+openmls.workspace = true
+owo-colors = "4.1"
+prost.workspace = true
+rand.workspace = true
+redb = "2.4"
+speedy = "0.8"
 tempfile = "3.15"
 thiserror.workspace = true
+tokio = "1.43"
+tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
-chrono.workspace = true
+tracing-logfmt.workspace = true
+tracing-subscriber = { workspace = true, features = [
+  "time",
+  "json",
+  "chrono",
+  "env-filter",
+  "valuable",
+  "ansi",
+] }
+url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
-rand.workspace = true
-fs_extra = "1.3"
-ethers.workspace = true
-miniserde = "0.1"
-fdlimit.workspace = true
-lipsum = "0.9"
+xmtp_api_grpc.workspace = true
+xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
+xmtp_id.workspace = true
+xmtp_mls.workspace = true
+xmtp_proto.workspace = true
+xxhash-rust = { version = "0.8", features = ["xxh3"] }

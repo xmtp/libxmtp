@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::types::*;
+use color_eyre::eyre;
 
 pub async fn new_registered_client(
     network: args::BackendOpts,
@@ -60,7 +61,7 @@ async fn new_client_inner(
     let api = network.connect().await?;
 
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
+    let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce)?;
 
     let dir = if let Some(p) = db_path {
         p
@@ -70,16 +71,21 @@ async fn new_client_inner(
         dir.join(db_name)
     };
 
-    let client = crate::DbgClient::builder(IdentityStrategy::new(
+    let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_address(),
         nonce,
         None,
     ))
     .api_client(api)
+    .with_remote_verifier()?
     .store(
         EncryptedMessageStore::new(
-            StorageOption::Persistent(dir.into_os_string().into_string().unwrap()),
+            StorageOption::Persistent(
+                dir.into_os_string()
+                    .into_string()
+                    .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
+            ),
             [0u8; 32],
         )
         .await?,
@@ -132,8 +138,9 @@ async fn existing_client_inner(
     if let Err(e) = &store {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }
-    let client = crate::DbgClient::builder(IdentityStrategy::CachedOnly)
+    let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
         .api_client(api)
+        .with_remote_verifier()?
         .store(store?)
         .build()
         .await?;

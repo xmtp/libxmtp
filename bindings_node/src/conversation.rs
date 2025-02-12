@@ -28,14 +28,41 @@ use crate::{
   streams::StreamCloser,
   ErrorWrapper,
 };
-
 use prost::Message as ProstMessage;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
 
 use napi_derive::napi;
 
 #[napi]
 pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
+}
+
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
+#[napi(object)]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  pub from_ns: i64,
+  pub in_ns: i64,
+}
+
+#[napi]
+impl MessageDisappearingSettings {
+  #[napi]
+  pub fn new(from_ns: i64, in_ns: i64) -> Self {
+    Self { from_ns, in_ns }
+  }
+}
+
+impl From<MessageDisappearingSettings> for XmtpConversationMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    XmtpConversationMessageDisappearingSettings::new(value.from_ns, value.in_ns)
+  }
 }
 
 #[napi]
@@ -202,9 +229,8 @@ impl Conversation {
       self.created_at_ns,
     );
     let envelope_bytes: Vec<u8> = envelope_bytes.deref().to_vec();
-    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let message = group
-      .process_streamed_group_message(&provider, envelope_bytes)
+      .process_streamed_group_message(envelope_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -522,37 +548,6 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi]
-  pub async fn update_group_pinned_frame_url(&self, pinned_frame_url: String) -> Result<()> {
-    let group = MlsGroup::new(
-      self.inner_client.clone(),
-      self.group_id.clone(),
-      self.created_at_ns,
-    );
-
-    group
-      .update_group_pinned_frame_url(pinned_frame_url)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  #[napi]
-  pub fn group_pinned_frame_url(&self) -> Result<String> {
-    let group = MlsGroup::new(
-      self.inner_client.clone(),
-      self.group_id.clone(),
-      self.created_at_ns,
-    );
-
-    let group_pinned_frame_url = group
-      .group_pinned_frame_url(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(group_pinned_frame_url)
-  }
-
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
   pub fn stream(&self, callback: JsFunction) -> Result<StreamCloser> {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
@@ -560,7 +555,6 @@ impl Conversation {
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_client.clone(),
       self.group_id.clone(),
-      self.created_at_ns,
       move |message| {
         tsfn.call(
           message

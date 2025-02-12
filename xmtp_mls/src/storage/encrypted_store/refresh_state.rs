@@ -74,7 +74,7 @@ impl DbConnection {
         entity_kind: EntityKind,
     ) -> Result<Option<RefreshState>, StorageError> {
         use super::schema::refresh_state::dsl;
-        let res = self.raw_query(|conn| {
+        let res = self.raw_query_read(|conn| {
             dsl::refresh_state
                 .find((entity_id.as_ref(), entity_kind))
                 .first(conn)
@@ -84,9 +84,9 @@ impl DbConnection {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<IdType: AsRef<[u8]>>(
+    pub fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
-        id: IdType,
+        id: Id,
         entity_kind: EntityKind,
     ) -> Result<i64, StorageError> {
         let state: Option<RefreshState> = self.get_refresh_state(&id, entity_kind)?;
@@ -115,7 +115,7 @@ impl DbConnection {
             NotFound::RefreshStateByIdAndKind(entity_id.as_ref().to_vec(), entity_kind),
         )?;
 
-        let num_updated = self.raw_query(|conn| {
+        let num_updated = self.raw_query_write(|conn| {
             diesel::update(&state)
                 .filter(dsl::cursor.lt(cursor))
                 .set(dsl::cursor.eq(cursor))

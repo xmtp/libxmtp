@@ -2,9 +2,9 @@
 
 mod macros;
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 mod test;
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 pub use test::*;
 
 #[cfg(feature = "bench")]
@@ -13,11 +13,11 @@ pub mod bench;
 pub mod retry;
 pub use retry::*;
 
-/// Global Marker trait for WebAssembly
-#[cfg(target_arch = "wasm32")]
-pub trait Wasm {}
-#[cfg(target_arch = "wasm32")]
-impl<T> Wasm for T {}
+pub mod wasm;
+pub use wasm::*;
+
+pub mod stream_handles;
+pub use stream_handles::*;
 
 pub mod time;
 
@@ -37,14 +37,12 @@ pub fn rand_array<const N: usize>() -> [u8; N] {
     buffer
 }
 
-/// Yield back control to the async runtime
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn yield_() {
-    tokio::task::yield_now().await
-}
-
-/// Yield back control to the async runtime
-#[cfg(target_arch = "wasm32")]
-pub async fn yield_() {
-    time::sleep(crate::time::Duration::from_millis(1)).await;
+#[cfg(test)]
+pub(crate) mod tests {
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        crate::test::logger();
+    }
 }

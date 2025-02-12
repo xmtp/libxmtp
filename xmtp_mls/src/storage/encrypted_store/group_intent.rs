@@ -119,8 +119,9 @@ impl_fetch!(StoredGroupIntent, group_intents, ID);
 impl Delete<StoredGroupIntent> for DbConnection {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
-        Ok(self
-            .raw_query(|raw_conn| diesel::delete(dsl::group_intents.find(key)).execute(raw_conn))?)
+        Ok(self.raw_query_write(|raw_conn| {
+            diesel::delete(dsl::group_intents.find(key)).execute(raw_conn)
+        })?)
     }
 }
 
@@ -155,7 +156,7 @@ impl DbConnection {
         &self,
         to_save: NewGroupIntent,
     ) -> Result<StoredGroupIntent, StorageError> {
-        Ok(self.raw_query(|conn| {
+        Ok(self.raw_query_write(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
                 .get_result(conn)
@@ -184,7 +185,7 @@ impl DbConnection {
 
         query = query.order(dsl::id.asc());
 
-        Ok(self.raw_query(|conn| query.load::<StoredGroupIntent>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load::<StoredGroupIntent>(conn))?)
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
@@ -197,7 +198,7 @@ impl DbConnection {
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
     ) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
@@ -214,7 +215,7 @@ impl DbConnection {
         })?;
 
         if rows_changed == 0 {
-            let already_published = self.raw_query(|conn| {
+            let already_published = self.raw_query_read(|conn| {
                 dsl::group_intents
                     .filter(dsl::id.eq(intent_id))
                     .first::<StoredGroupIntent>(conn)
@@ -231,7 +232,7 @@ impl DbConnection {
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from
@@ -252,7 +253,7 @@ impl DbConnection {
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     pub fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to ToPublish is from
@@ -278,7 +279,7 @@ impl DbConnection {
     /// Set the intent with the given ID to `Error`
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 .set(dsl::state.eq(IntentState::Error))
@@ -298,7 +299,7 @@ impl DbConnection {
         &self,
         payload_hash: Vec<u8>,
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
-        let result = self.raw_query(|conn| {
+        let result = self.raw_query_read(|conn| {
             dsl::group_intents
                 .filter(dsl::payload_hash.eq(payload_hash))
                 .first::<StoredGroupIntent>(conn)
@@ -312,7 +313,7 @@ impl DbConnection {
         &self,
         intent_id: ID,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 .set(dsl::publish_attempts.eq(dsl::publish_attempts + 1))
@@ -408,6 +409,7 @@ pub(crate) mod tests {
             GroupMembershipState::Allowed,
             "placeholder_address".to_string(),
             None,
+            None,
         );
         group.store(conn).unwrap();
     }
@@ -431,7 +433,7 @@ pub(crate) mod tests {
     }
 
     fn find_first_intent(conn: &DbConnection, group_id: group::ID) -> StoredGroupIntent {
-        conn.raw_query(|raw_conn| {
+        conn.raw_query_read(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))
                 .first(raw_conn)

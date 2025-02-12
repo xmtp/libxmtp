@@ -2,7 +2,6 @@ use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
@@ -10,7 +9,6 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -25,7 +23,7 @@ pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 pub struct Client {
   account_address: String,
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
+  pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
 
 impl Client {
@@ -33,7 +31,7 @@ impl Client {
     &self.inner_client
   }
 
-  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
+  pub fn signature_requests(&self) -> &HashMap<SignatureRequestType, SignatureRequest> {
     &self.signature_requests
   }
 }
@@ -129,7 +127,7 @@ pub async fn create_client(
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   xmtp_mls::storage::init_sqlite().await;
-  let api_client = XmtpHttpApiClient::new(host.clone()).unwrap();
+  let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into())?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -160,15 +158,17 @@ pub async fn create_client(
   );
 
   let xmtp_client = match history_sync_url {
-    Some(url) => ClientBuilder::new(identity_strategy)
+    Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()?
       .store(store)
       .history_sync_url(&url)
       .build()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-    None => ClientBuilder::new(identity_strategy)
+    None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()?
       .store(store)
       .build()
       .await
@@ -178,7 +178,7 @@ pub async fn create_client(
   Ok(Client {
     account_address,
     inner_client: Arc::new(xmtp_client),
-    signature_requests: Arc::new(Mutex::new(HashMap::new())),
+    signature_requests: HashMap::new(),
   })
 }
 
@@ -217,30 +217,31 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    Ok(serde_wasm_bindgen::to_value(&results)?)
+    Ok(crate::to_value(&results)?)
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
-  pub async fn register_identity(&self) -> Result<(), JsError> {
+  pub async fn register_identity(&mut self) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
         "An identity is already registered with this client",
       ));
     }
 
-    let mut signature_requests = self.signature_requests.lock().await;
-
-    let signature_request = signature_requests
+    let signature_request = self
+      .signature_requests
       .get(&SignatureRequestType::CreateInbox)
-      .ok_or(JsError::new("No signature request found"))?;
-
+      .ok_or(JsError::new("No signature request found"))?
+      .clone();
     self
       .inner_client
-      .register_identity(signature_request.clone())
+      .register_identity(signature_request)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    signature_requests.remove(&SignatureRequestType::CreateInbox);
+    self
+      .signature_requests
+      .remove(&SignatureRequestType::CreateInbox);
 
     Ok(())
   }

@@ -49,7 +49,7 @@ where
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, diesel::result::Error> {
-        self.conn_ref().raw_query(|conn| {
+        self.conn_ref().raw_query_read(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -62,7 +62,7 @@ where
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, diesel::result::Error> {
-        self.conn_ref().raw_query(|conn| {
+        self.conn_ref().raw_query_write(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -76,7 +76,7 @@ where
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, diesel::result::Error> {
-        self.conn_ref().raw_query(|conn| {
+        self.conn_ref().raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -91,7 +91,7 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::debug!("write {}", String::from_utf8_lossy(label));
+        tracing::trace!("write {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
@@ -106,7 +106,7 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::debug!("append {}", String::from_utf8_lossy(label));
+        tracing::trace!("append {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let data = self.select_query::<VERSION>(&storage_key)?;
@@ -138,7 +138,7 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::debug!("remove_item {}", String::from_utf8_lossy(label));
+        tracing::trace!("remove_item {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let data: Vec<StorageData> = self.select_query::<VERSION>(&storage_key)?;
@@ -171,7 +171,7 @@ where
         label: &[u8],
         key: &[u8],
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::debug!("read {}", String::from_utf8_lossy(label));
+        tracing::trace!("read {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
@@ -192,7 +192,7 @@ where
         label: &[u8],
         key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::debug!("read_list {}", String::from_utf8_lossy(label));
+        tracing::trace!("read_list {}", String::from_utf8_lossy(label));
 
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let results = self.select_query::<VERSION>(&storage_key)?;
@@ -224,7 +224,7 @@ where
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.conn_ref().raw_query(|conn| {
+        let _ = self.conn_ref().raw_query_write(|conn| {
             sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -786,7 +786,7 @@ where
     ) -> Result<(), Self::Error> {
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let value = bincode::serialize(key_pairs)?;
-        tracing::debug!("Writing encryption epoch key pairs");
+        tracing::trace!("Writing encryption epoch key pairs");
 
         self.write::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, &key, &value)
     }
@@ -801,15 +801,15 @@ where
         epoch: &EpochKey,
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
-        tracing::debug!("Reading encryption epoch key pairs");
+        tracing::trace!("Reading encryption epoch key pairs");
 
         let key = epoch_key_pairs_id(group_id, epoch, leaf_index)?;
         let storage_key = build_key_from_vec::<CURRENT_VERSION>(EPOCH_KEY_PAIRS_LABEL, key);
-        tracing::debug!("  key: {}", hex::encode(&storage_key));
+        tracing::trace!("  key: {}", hex::encode(&storage_key));
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.conn_ref().raw_query(|conn| {
+        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
@@ -896,7 +896,7 @@ where
         &self,
         group_id: &GroupId,
     ) -> Result<Vec<LeafNode>, Self::Error> {
-        tracing::debug!("own_leaf_nodes");
+        tracing::trace!("own_leaf_nodes");
         let key = build_key::<CURRENT_VERSION, &GroupId>(OWN_LEAF_NODES_LABEL, group_id)?;
 
         self.read_list(OWN_LEAF_NODES_LABEL, &key)
@@ -1040,8 +1040,10 @@ pub(crate) mod tests {
     use super::SqlKeyStore;
     use crate::{
         configuration::CIPHERSUITE,
-        storage::{sql_key_store::SqlKeyStoreError, EncryptedMessageStore, StorageOption},
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        storage::{
+            sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
+            EncryptedMessageStore, StorageOption,
+        },
     };
     use xmtp_common::tmp_path;
 
@@ -1125,7 +1127,7 @@ pub(crate) mod tests {
                 .expect("Failed to queue proposal");
         }
 
-        tracing::debug!("Finished with queued proposals");
+        tracing::trace!("Finished with queued proposals");
         // Read proposal refs
         let proposal_refs_read: Vec<ProposalRef> = provider
             .storage()

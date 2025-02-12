@@ -25,23 +25,23 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    storage::{
-        db_connection::DbConnection,
-        group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    },
-    types::Address,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    XmtpOpenMlsProvider,
-};
-
 use super::{
     group_membership::GroupMembership,
     group_mutable_metadata::MetadataField,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     scoped_client::ScopedGroupClient,
     GroupError, MlsGroup,
+};
+use crate::{
+    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    storage::{
+        db_connection::DbConnection,
+        group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+        ProviderTransactions,
+    },
+    types::Address,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    XmtpOpenMlsProvider,
 };
 
 #[derive(Debug, Error)]
@@ -63,10 +63,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
     ) -> Result<StoredGroupIntent, GroupError> {
-        self.context().store().transaction(provider, |provider| {
+        let res = provider.transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data)
-        })
+        });
+
+        res
     }
 
     fn queue_intent_with_conn(
@@ -234,10 +236,16 @@ impl UpdateMetadataIntentData {
         }
     }
 
-    pub fn new_update_group_pinned_frame_url(pinned_frame_url: String) -> Self {
+    pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
         Self {
-            field_name: MetadataField::GroupPinnedFrameUrl.to_string(),
-            field_value: pinned_frame_url,
+            field_name: MetadataField::MessageDisappearFromNS.to_string(),
+            field_value: from_ns.to_string(),
+        }
+    }
+    pub fn new_update_conversation_message_disappear_in_ns(in_ns: i64) -> Self {
+        Self {
+            field_name: MetadataField::MessageDisappearInNS.to_string(),
+            field_value: in_ns.to_string(),
         }
     }
 }

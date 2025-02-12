@@ -1,10 +1,8 @@
 use diesel::prelude::*;
 use prost::Message;
-use xmtp_id::{
-    associations::{AssociationState, DeserializationError},
-    InboxId,
-};
+use xmtp_id::{associations::AssociationState, InboxId};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
+use xmtp_proto::ConversionError;
 
 use super::{
     schema::association_state::{self, dsl},
@@ -25,7 +23,7 @@ impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
 impl TryFrom<StoredAssociationState> for AssociationState {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
         AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
@@ -60,33 +58,25 @@ impl StoredAssociationState {
 
     pub fn read_from_cache(
         conn: &DbConnection,
-        inbox_id: String,
+        inbox_id: impl AsRef<str>,
         sequence_id: i64,
     ) -> Result<Option<AssociationState>, StorageError> {
+        let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| {
-                stored_state
-                    .try_into()
-                    .map_err(|err: DeserializationError| {
-                        StorageError::Deserialization(format!(
-                            "Failed to deserialize stored association state: {err:?}"
-                        ))
-                    })
-            })
-            .transpose();
+            .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
+            .transpose()?
+            .inspect(|_| {
+                tracing::debug!(
+                    "Loaded association state from cache: {} {}",
+                    inbox_id,
+                    sequence_id
+                )
+            });
 
-        if let Ok(Some(_)) = result {
-            tracing::debug!(
-                "Loaded association state from cache: {} {}",
-                inbox_id,
-                sequence_id
-            );
-        }
-
-        result
+        Ok(result)
     }
 
     pub fn batch_read_from_cache(
@@ -108,13 +98,13 @@ impl StoredAssociationState {
             );
 
         let association_states =
-            conn.raw_query(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+            conn.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
         association_states
             .into_iter()
             .map(|stored_association_state| stored_association_state.try_into())
-            .collect::<Result<Vec<AssociationState>, DeserializationError>>()
-            .map_err(|err| StorageError::Deserialization(err.to_string()))
+            .collect::<Result<Vec<AssociationState>, ConversionError>>()
+            .map_err(Into::into)
     }
 }
 

@@ -24,7 +24,7 @@ use xmtp_proto::xmtp::{
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::db_connection::DbConnection,
+    storage::{db_connection::DbConnection, StorageError},
 };
 use xmtp_common::{retry::RetryableError, retryable};
 
@@ -33,11 +33,13 @@ use super::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
+        MetadataField,
     },
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    ScopedGroupClient,
+    ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -83,6 +85,10 @@ pub enum CommitValidationError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not support")]
     NoPSKSupport,
+    #[error(transparent)]
+    StorageError(#[from] StorageError),
+    #[error("Exceeded max characters for this field. Must be under: {length}")]
+    TooManyCharacters { length: usize },
 }
 
 impl RetryableError for CommitValidationError {
@@ -94,13 +100,32 @@ impl RetryableError for CommitValidationError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Hash)]
 pub struct CommitParticipant {
     pub inbox_id: String,
     pub installation_id: Vec<u8>,
     pub is_creator: bool,
     pub is_admin: bool,
     pub is_super_admin: bool,
+}
+
+impl std::fmt::Debug for CommitParticipant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            ref inbox_id,
+            ref installation_id,
+            ref is_creator,
+            ref is_admin,
+            ref is_super_admin,
+        } = self;
+        write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
+            inbox_id,
+            hex::encode(installation_id),
+            is_creator,
+            is_admin,
+            is_super_admin,
+        )
+    }
 }
 
 impl CommitParticipant {
@@ -202,6 +227,7 @@ impl MetadataFieldChange {
  * 5. All proposals in a commit must come from the same installation
  * 6. No PSK proposals will be allowed
  * 7. New installations may be missing from the commit but still be present in the expected diff.
+ * 8. Confirms metadata character limit is not exceeded
  */
 #[derive(Debug, Clone)]
 pub struct ValidatedCommit {
@@ -237,6 +263,36 @@ impl ValidatedCommit {
             new_group_extensions,
         )?;
 
+        // Enforce character limits for specific metadata fields
+        for field_change in &metadata_changes.metadata_field_changes {
+            if let Some(new_value) = &field_change.new_value {
+                match field_change.field_name.as_str() {
+                    val if val == MetadataField::Description.as_str()
+                        && new_value.len() > MAX_GROUP_DESCRIPTION_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_DESCRIPTION_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::GroupName.as_str()
+                        && new_value.len() > MAX_GROUP_NAME_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_NAME_LENGTH,
+                        });
+                    }
+                    val if val == MetadataField::GroupImageUrlSquare.as_str()
+                        && new_value.len() > MAX_GROUP_IMAGE_URL_LENGTH =>
+                    {
+                        return Err(CommitValidationError::TooManyCharacters {
+                            length: MAX_GROUP_IMAGE_URL_LENGTH,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let permissions_changed =
             extract_permissions_changed(&group_permissions, new_group_extensions)?;
         // Get the actor who created the commit.
@@ -268,20 +324,14 @@ impl ValidatedCommit {
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
+        let expected_diff =
+            ExpectedDiff::from_staged_commit(&client, conn, staged_commit, openmls_group).await?;
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
-        } = extract_expected_diff(
-            conn,
-            &client,
-            staged_commit,
-            existing_group_extensions,
-            &immutable_metadata,
-            &mutable_metadata,
-        )
-        .await?;
+        } = expected_diff;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
@@ -452,55 +502,86 @@ struct ExpectedDiff {
     removed_inboxes: Vec<Inbox>,
 }
 
-/// Generates an expected diff of installations added and removed based on the difference between the current
-/// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
-/// This requires loading the Inbox state from the network.
-/// Satisfies Rule 2
-async fn extract_expected_diff<'diff>(
-    conn: &DbConnection,
-    client: impl ScopedGroupClient,
-    staged_commit: &StagedCommit,
-    existing_group_extensions: &Extensions,
-    immutable_metadata: &GroupMetadata,
-    mutable_metadata: &GroupMutableMetadata,
-) -> Result<ExpectedDiff, CommitValidationError> {
-    let old_group_membership = extract_group_membership(existing_group_extensions)?;
-    let new_group_membership = get_latest_group_membership(staged_commit)?;
-    let membership_diff = old_group_membership.diff(&new_group_membership);
+impl ExpectedDiff {
+    pub(super) async fn from_staged_commit(
+        client: impl ScopedGroupClient,
+        conn: &DbConnection,
+        staged_commit: &StagedCommit,
+        openmls_group: &OpenMlsGroup,
+    ) -> Result<Self, CommitValidationError> {
+        // Get the immutable and mutable metadata
+        let extensions = openmls_group.extensions();
+        let immutable_metadata: GroupMetadata = extensions.try_into()?;
+        let mutable_metadata: GroupMutableMetadata = extensions.try_into()?;
 
-    validate_membership_diff(
-        &old_group_membership,
-        &new_group_membership,
-        &membership_diff,
-    )?;
+        // Block any psk proposals
+        if staged_commit.psk_proposals().any(|_| true) {
+            return Err(CommitValidationError::NoPSKSupport);
+        }
 
-    let added_inboxes = membership_diff
-        .added_inboxes
-        .iter()
-        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
-        .collect::<Vec<Inbox>>();
-
-    let removed_inboxes = membership_diff
-        .removed_inboxes
-        .iter()
-        .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
-        .collect::<Vec<Inbox>>();
-
-    let expected_installation_diff = client
-        .get_installation_diff(
+        let expected_diff = Self::extract_expected_diff(
             conn,
-            &old_group_membership,
-            &new_group_membership,
-            &membership_diff,
+            &client,
+            staged_commit,
+            extensions,
+            &immutable_metadata,
+            &mutable_metadata,
         )
         .await?;
 
-    Ok(ExpectedDiff {
-        new_group_membership,
-        expected_installation_diff,
-        added_inboxes,
-        removed_inboxes,
-    })
+        Ok(expected_diff)
+    }
+
+    /// Generates an expected diff of installations added and removed based on the difference between the current
+    /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
+    /// This requires loading the Inbox state from the network.
+    /// Satisfies Rule 2
+    async fn extract_expected_diff(
+        conn: &DbConnection,
+        client: impl ScopedGroupClient,
+        staged_commit: &StagedCommit,
+        existing_group_extensions: &Extensions,
+        immutable_metadata: &GroupMetadata,
+        mutable_metadata: &GroupMutableMetadata,
+    ) -> Result<ExpectedDiff, CommitValidationError> {
+        let old_group_membership = extract_group_membership(existing_group_extensions)?;
+        let new_group_membership = get_latest_group_membership(staged_commit)?;
+        let membership_diff = old_group_membership.diff(&new_group_membership);
+
+        validate_membership_diff(
+            &old_group_membership,
+            &new_group_membership,
+            &membership_diff,
+        )?;
+
+        let added_inboxes = membership_diff
+            .added_inboxes
+            .iter()
+            .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
+            .collect::<Vec<Inbox>>();
+
+        let removed_inboxes = membership_diff
+            .removed_inboxes
+            .iter()
+            .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
+            .collect::<Vec<Inbox>>();
+
+        let expected_installation_diff = client
+            .get_installation_diff(
+                conn,
+                &old_group_membership,
+                &new_group_membership,
+                &membership_diff,
+            )
+            .await?;
+
+        Ok(ExpectedDiff {
+            new_group_membership,
+            expected_installation_diff,
+            added_inboxes,
+            removed_inboxes,
+        })
+    }
 }
 
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes

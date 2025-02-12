@@ -1,7 +1,6 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
-pub mod api;
 pub mod builder;
 pub mod client;
 pub mod configuration;
@@ -12,19 +11,16 @@ pub mod identity_updates;
 mod intents;
 mod mutex_registry;
 pub mod storage;
-mod stream_handles;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package_v2;
-mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
-use storage::{DuplicateItem, StorageError};
+use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-pub use xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
@@ -153,16 +149,18 @@ pub trait Delete<Model> {
 }
 
 use crate::groups::GroupError;
+/*
 pub use stream_handles::{
     spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
 };
-
+*/
 #[cfg(test)]
 pub(crate) mod tests {
     // Execute once before any tests are run
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]
     fn _setup() {
-        xmtp_common::logger()
+        xmtp_common::logger();
+        let _ = fdlimit::raise_fd_limit();
     }
 }

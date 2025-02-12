@@ -11,9 +11,6 @@ use crate::v4_utils::{
     build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
     get_key_package_topic,
 };
-use crate::Error;
-use crate::ErrorKind::InternalError;
-use crate::InternalError::MissingPayloadError;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -34,9 +31,9 @@ mod inbox_id {
 }
 
 impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
-    type Error = Error;
+    type Error = crate::ProtoError;
 
-    fn try_from(req: UploadKeyPackageRequest) -> Result<Self, Error> {
+    fn try_from(req: UploadKeyPackageRequest) -> Result<Self, Self::Error> {
         if let Some(key_package) = req.key_package.as_ref() {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
@@ -45,15 +42,15 @@ impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
                 payload: Some(Payload::UploadKeyPackage(req)),
             })
         } else {
-            Err(Error::new(InternalError(MissingPayloadError)))
+            Err(crate::ProtoError::NotFound("payload keypackage".into()))
         }
     }
 }
 
 impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
-    type Error = Error;
+    type Error = crate::ProtoError;
 
-    fn try_from(req: PublishIdentityUpdateRequest) -> Result<Self, Error> {
+    fn try_from(req: PublishIdentityUpdateRequest) -> Result<Self, Self::Error> {
         if let Some(identity_update) = req.identity_update {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(
@@ -62,15 +59,17 @@ impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
                 payload: Some(Payload::IdentityUpdate(identity_update)),
             })
         } else {
-            Err(Error::new(InternalError(MissingPayloadError)))
+            Err(crate::ProtoError::NotFound(
+                "payload identity update".into(),
+            ))
         }
     }
 }
 
 impl TryFrom<GroupMessageInput> for ClientEnvelope {
-    type Error = crate::Error;
+    type Error = crate::ProtoError;
 
-    fn try_from(req: GroupMessageInput) -> Result<Self, Error> {
+    fn try_from(req: GroupMessageInput) -> Result<Self, Self::Error> {
         if let Some(GroupMessageInputVersion::V1(ref version)) = req.version {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
@@ -79,13 +78,13 @@ impl TryFrom<GroupMessageInput> for ClientEnvelope {
                 payload: Some(Payload::GroupMessage(req)),
             })
         } else {
-            Err(Error::new(InternalError(MissingPayloadError)))
+            Err(crate::ProtoError::NotFound("payload group message".into()))
         }
     }
 }
 
 impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
-    type Error = crate::Error;
+    type Error = crate::ProtoError;
 
     fn try_from(req: WelcomeMessageInput) -> Result<Self, Self::Error> {
         if let Some(WelcomeMessageVersion::V1(ref version)) = req.version {
@@ -96,18 +95,22 @@ impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
                 payload: Some(Payload::WelcomeMessage(req)),
             })
         } else {
-            Err(Error::new(InternalError(MissingPayloadError)))
+            Err(crate::ProtoError::NotFound(
+                "payload welcome message".into(),
+            ))
         }
     }
 }
 
 impl AuthenticatedData {
+    #[allow(deprecated)]
     pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
             //TODO(mkysel) originator is hardcoded for now, but will have to become configurable
-            target_originator: 100,
+            target_originator: Some(100),
             target_topic: topic,
-            last_seen: None,
+            depends_on: None,
+            is_commit: false,
         }
     }
 }

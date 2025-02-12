@@ -6,17 +6,15 @@ use openmls::{
 };
 use prost::Message;
 use thiserror::Error;
-
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
+use super::{DMMetadataOptions, GroupMetadataOptions};
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
-    DEFAULT_GROUP_PINNED_FRAME_URL, MUTABLE_METADATA_EXTENSION_ID,
+    MUTABLE_METADATA_EXTENSION_ID,
 };
-
-use super::GroupMetadataOptions;
 
 /// Errors that can occur when working with GroupMutableMetadata.
 #[derive(Debug, Error)]
@@ -46,7 +44,8 @@ pub enum MetadataField {
     GroupName,
     Description,
     GroupImageUrlSquare,
-    GroupPinnedFrameUrl,
+    MessageDisappearFromNS,
+    MessageDisappearInNS,
 }
 
 impl MetadataField {
@@ -56,7 +55,8 @@ impl MetadataField {
             MetadataField::GroupName => "group_name",
             MetadataField::Description => "description",
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
-            MetadataField::GroupPinnedFrameUrl => "group_pinned_frame_url",
+            MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
+            MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
         }
     }
 }
@@ -64,6 +64,24 @@ impl MetadataField {
 impl fmt::Display for MetadataField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct MessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
+}
+
+impl MessageDisappearingSettings {
+    pub fn new(from_ns: i64, in_ns: i64) -> Self {
+        Self { from_ns, in_ns }
     }
 }
 
@@ -116,11 +134,18 @@ impl GroupMutableMetadata {
             opts.image_url_square
                 .unwrap_or_else(|| DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string()),
         );
-        attributes.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            opts.pinned_frame_url
-                .unwrap_or_else(|| DEFAULT_GROUP_PINNED_FRAME_URL.to_string()),
-        );
+
+        if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
+            attributes.insert(
+                MetadataField::MessageDisappearFromNS.to_string(),
+                message_disappearing_settings.from_ns.to_string(),
+            );
+            attributes.insert(
+                MetadataField::MessageDisappearInNS.to_string(),
+                message_disappearing_settings.in_ns.to_string(),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -131,7 +156,11 @@ impl GroupMutableMetadata {
     }
 
     // Admin / super admin is not needed for a DM
-    pub fn new_dm_default(_creator_inbox_id: String, _dm_target_inbox_id: &str) -> Self {
+    pub fn new_dm_default(
+        _creator_inbox_id: String,
+        _dm_target_inbox_id: &str,
+        opts: DMMetadataOptions,
+    ) -> Self {
         let mut attributes = HashMap::new();
         // TODO: would it be helpful to incorporate the dm inbox ids in the name or description?
         attributes.insert(
@@ -146,10 +175,17 @@ impl GroupMutableMetadata {
             MetadataField::GroupImageUrlSquare.to_string(),
             DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string(),
         );
-        attributes.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            DEFAULT_GROUP_PINNED_FRAME_URL.to_string(),
-        );
+        if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
+            attributes.insert(
+                MetadataField::MessageDisappearFromNS.to_string(),
+                message_disappearing_settings.from_ns.to_string(),
+            );
+            attributes.insert(
+                MetadataField::MessageDisappearInNS.to_string(),
+                message_disappearing_settings.in_ns.to_string(),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {
@@ -167,7 +203,8 @@ impl GroupMutableMetadata {
             MetadataField::GroupName,
             MetadataField::Description,
             MetadataField::GroupImageUrlSquare,
-            MetadataField::GroupPinnedFrameUrl,
+            MetadataField::MessageDisappearFromNS,
+            MetadataField::MessageDisappearInNS,
         ]
     }
 
@@ -271,4 +308,12 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u
         }
         None
     })
+}
+
+pub fn extract_group_mutable_metadata(
+    group: &OpenMlsGroup,
+) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
+    find_mutable_metadata_extension(group.extensions())
+        .ok_or(GroupMutableMetadataError::MissingExtension)?
+        .try_into()
 }

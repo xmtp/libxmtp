@@ -1,6 +1,5 @@
 //! Consistent Stream behavior between WebAssembly and Native utilizing `tokio::task::spawn` in native and
 //! `wasm_bindgen_futures::spawn` for web.
-use futures::FutureExt;
 
 #[cfg(target_arch = "wasm32")]
 pub type GenericStreamHandle<O> = dyn StreamHandle<StreamOutput = O>;
@@ -31,7 +30,7 @@ pub trait StreamHandle {
     /// The Output type for the stream
     type StreamOutput;
 
-    /// Asyncronously waits for the stream to be fully spawned
+    /// Asynchronously waits for the stream to be fully spawned
     async fn wait_for_ready(&mut self);
     /// Signal the stream to end
     /// Does not wait for the stream to end, so will not receive the result of stream.
@@ -47,7 +46,7 @@ pub trait StreamHandle {
     /// Join the task back to the current thread, waiting until it ends.
     async fn join(self) -> Result<Self::StreamOutput, StreamHandleError>;
 
-    /// End the stream and asyncronously wait for it to shutdown, getting the result of its
+    /// End the stream and asynchronously wait for it to shutdown, getting the result of its
     /// execution.
     async fn end_and_wait(&mut self) -> Result<Self::StreamOutput, StreamHandleError>;
     /// Get an Abort Handle to the stream.
@@ -94,10 +93,13 @@ mod wasm {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
-            mut self: std::pin::Pin<&mut Self>,
+            self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            FutureExt::poll_unpin(&mut self.result, cx).map(|r| match r {
+            // safe because we consider `result` to be structurally pinned
+            // pinning: https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
+            let result = unsafe { self.map_unchecked_mut(|r| &mut r.result) };
+            result.poll(cx).map(|r| match r {
                 Ok(r) => r,
                 Err(_) => Err(StreamHandleError::ChannelClosed),
             })
@@ -146,7 +148,7 @@ mod wasm {
 
     /// Spawn a future on the `wasm-bindgen` local current-thread executer
     ///  future does not require `Send`.
-    ///  optionally pass in `ready` to signal whne stream will be ready.
+    ///  optionally pass in `ready` to signal when stream will be ready.
     pub fn spawn<F>(
         ready: Option<tokio::sync::oneshot::Receiver<()>>,
         future: F,
@@ -223,10 +225,13 @@ mod native {
         type Output = Result<T, StreamHandleError>;
 
         fn poll(
-            mut self: std::pin::Pin<&mut Self>,
+            self: std::pin::Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> std::task::Poll<Self::Output> {
-            self.inner.poll_unpin(cx).map_err(StreamHandleError::from)
+            // safe because we consider `inner` to be structurally pinned
+            // https://doc.rust-lang.org/std/pin/#choosing-pinning-to-be-structural-for-field
+            let inner = unsafe { self.map_unchecked_mut(|v| &mut v.inner) };
+            inner.poll(cx).map_err(StreamHandleError::from)
         }
     }
 

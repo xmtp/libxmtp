@@ -160,6 +160,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1fd03a028ef38ba2276dce7e33fcd6369c158a1bca17946c4b1b701891c1ff7"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -242,6 +248,20 @@ dependencies = [
  "once_cell",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df895a515f70646414f4b45c0b79082783b80552b373a68283012928df56f522"
+dependencies = [
+ "futures-core",
+ "futures-io",
+ "memchr",
+ "pin-project-lite",
+ "zstd 0.13.2",
+ "zstd-safe 7.2.1",
 ]
 
 [[package]]
@@ -333,7 +353,7 @@ dependencies = [
  "rustversion",
  "serde",
  "sync_wrapper 1.0.2",
- "tower 0.5.1",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
 ]
@@ -466,6 +486,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_cryptography",
@@ -479,18 +500,19 @@ name = "bindings_wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "futures",
  "hex",
  "js-sys",
  "prost",
  "serde",
  "serde-wasm-bindgen",
- "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-web",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "xmtp_api",
  "xmtp_api_http",
  "xmtp_common",
  "xmtp_cryptography",
@@ -1401,11 +1423,11 @@ dependencies = [
 
 [[package]]
 name = "directories"
-version = "5.0.1"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
+checksum = "16f5094c54661b38d03bd7e50df373292118db60b585c08a411c6d840017fe7d"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -1414,7 +1436,7 @@ version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.4.1",
 ]
 
 [[package]]
@@ -1435,8 +1457,20 @@ checksum = "520f05a5cbd335fae5a99ff7a6ab8627577660ee5cfd6a94a6a929b52ff0321c"
 dependencies = [
  "libc",
  "option-ext",
- "redox_users",
+ "redox_users 0.4.6",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users 0.5.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1446,7 +1480,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
 dependencies = [
  "libc",
- "redox_users",
+ "redox_users 0.4.6",
  "winapi",
 ]
 
@@ -3139,9 +3173,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.76"
+version = "0.3.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6717b6b5b077764fb5966237269cb3c64edddde4b14ce42647430a78ced9e7b7"
+checksum = "1cfaf33c695fc6e08064efbc1f72ec937429614f25eef83af942d0e227c3a28f"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
@@ -3885,7 +3919,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "fluvio-wasm-timer",
  "getrandom",
@@ -3900,7 +3934,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3913,7 +3947,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "log",
  "openmls_traits",
@@ -3925,7 +3959,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3949,7 +3983,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=043b347cb18d528647df36f500725ab57c41c7db#043b347cb18d528647df36f500725ab57c41c7db"
+source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
 dependencies = [
  "serde",
  "tls_codec",
@@ -3957,9 +3991,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.68"
+version = "0.10.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5"
+checksum = "61cfb4e166a8bb8c9b55c500bc2308550148ece889be90f609377e58140f42c6"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -3998,9 +4032,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.104"
+version = "0.9.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45abf306cbf99debc8195b66b7346498d7b10c210de50418b5ccd7ceba08c741"
+checksum = "8b22d5b84be05a8d6947c7cb71f7c849aa0f112acd4bf51c2a7c1c988ac0a9dc"
 dependencies = [
  "cc",
  "libc",
@@ -4731,6 +4765,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd6f9d3d47bdd2ad6945c5015a226ec6155d0bcdfd8f7cd29f86b71f8de99d2b"
+dependencies = [
+ "getrandom",
+ "libredox",
+ "thiserror 2.0.6",
+]
+
+[[package]]
 name = "regex"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4820,9 +4865,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.9"
+version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a77c62af46e79de0a562e1a9849205ffcb7fc1238876e9bd743357570e04046f"
+checksum = "43e734407157c3c2034e0258f5e4473ddb361b1e85f95a66690d67264d7cd1da"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4854,6 +4899,7 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-util",
+ "tower 0.5.2",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -5554,7 +5600,7 @@ dependencies = [
 [[package]]
 name = "sqlite-web"
 version = "0.0.1"
-source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#0aa53058cbf3a1044e79cb6dd68a91c857308059"
+source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#dbbc9657eb79a1f8e2fc3fed818f5bcf8c6cf281"
 dependencies = [
  "diesel",
  "diesel_derives",
@@ -5954,9 +6000,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.42.0"
+version = "1.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cec9b21b0450273377fc97bd4c33a8acffc8c996c987a7c5b319a0083707551"
+checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
 dependencies = [
  "backtrace",
  "bytes",
@@ -5973,9 +6019,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.4.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
+checksum = "6e06d43f1345a3bcd39f6a56dbb7dcab2ba47e68e8ac134855e7e2bdbaf8cab8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6061,6 +6107,7 @@ checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -6165,14 +6212,15 @@ dependencies = [
 
 [[package]]
 name = "tower"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2873938d487c3cfb9aed7546dc9f2711d867c9f90c46b889989a2cb84eba6b4f"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
 dependencies = [
  "futures-core",
  "futures-util",
  "pin-project-lite",
- "sync_wrapper 0.1.2",
+ "sync_wrapper 1.0.2",
+ "tokio",
  "tower-layer",
  "tower-service",
 ]
@@ -6256,6 +6304,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-forest"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee40835db14ddd1e3ba414292272eddde9dad04d3d4b65509656414d1c42592f"
+dependencies = [
+ "chrono",
+ "smallvec",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tracing-futures"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6263,6 +6324,17 @@ checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
 dependencies = [
  "pin-project",
  "tracing",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
 ]
 
 [[package]]
@@ -6323,6 +6395,7 @@ dependencies = [
  "time",
  "tracing",
  "tracing-core",
+ "tracing-log",
  "tracing-serde",
  "valuable",
  "valuable-serde",
@@ -6669,9 +6742,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
+checksum = "744018581f9a3454a9e15beb8a33b017183f1e7c0cd170232a2d1453b23a51c4"
 dependencies = [
  "getrandom",
  "rand",
@@ -6814,20 +6887,21 @@ checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a474f6281d1d70c17ae7aa6a613c87fce69a127e2624002df63dcb39d6cf6396"
+checksum = "1edc8929d7499fc4e8f0be2262a241556cfc54a0bea223790e71446f2aab1ef5"
 dependencies = [
  "cfg-if",
  "once_cell",
+ "rustversion",
  "wasm-bindgen-macro",
 ]
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f89bb38646b4f81674e8f5c3fb81b562be1fd936d84320f3264486418519c79"
+checksum = "2f0a0651a5c2bc21487bde11ee802ccaf4c51935d0d3d42a6101f98161700bc6"
 dependencies = [
  "bumpalo",
  "log",
@@ -6839,9 +6913,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.49"
+version = "0.4.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38176d9b44ea84e9184eff0bc34cc167ed044f816accfe5922e54d84cf48eca2"
+checksum = "555d470ec0bc3bb57890405e5d4322cc9ea83cebb085523ced7be4144dac1e61"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -6852,9 +6926,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cc6181fd9a7492eef6fef1f33961e3695e4579b9872a6f7c83aee556666d4fe"
+checksum = "7fe63fc6d09ed3792bd0897b314f53de8e16568c2b3f7982f468c0bf9bd0b407"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -6862,9 +6936,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d7a95b763d3c45903ed6c81f156801839e5ee968bb07e534c44df0fcd330c2"
+checksum = "8ae87ea40c9f689fc23f209965b6fb8a99ad69aeeb0231408be24920604395de"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6875,19 +6949,21 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "943aab3fdaaa029a6e0271b35ea10b72b943135afe9bffca82384098ad0e06a6"
+checksum = "1a05d73b933a847d6cccdda8f838a22ff101ad9bf93e33684f39c1f5f0eece3d"
+dependencies = [
+ "unicode-ident",
+]
 
 [[package]]
 name = "wasm-bindgen-test"
-version = "0.3.49"
+version = "0.3.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c61d44563646eb934577f2772656c7ad5e9c90fac78aa8013d776fcdaf24625d"
+checksum = "66c8d5e33ca3b6d9fa3b4676d774c5778031d27a578c2b007f905acf816152c3"
 dependencies = [
  "js-sys",
  "minicov",
- "scoped-tls",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test-macro",
@@ -6895,9 +6971,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-test-macro"
-version = "0.3.49"
+version = "0.3.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54171416ce73aa0b9c377b51cc3cb542becee1cd678204812e8392e5b0e4a031"
+checksum = "17d5042cc5fa009658f9a7333ef24291b1291a25b6382dd68862a7f3b969f69b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6919,9 +6995,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.76"
+version = "0.3.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04dd7223427d52553d3702c004d3b2fe07c148165faa56313cb00211e31c12bc"
+checksum = "33b6dd2ef9186f1f2072e409e99cd22a975331a6b3591b12c764e0e55c60d5d2"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -7309,6 +7385,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "672423d4fea7ffa2f6c25ba60031ea13dc6258070556f125cc4d790007d4a155"
 
 [[package]]
+name = "xmtp_api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ctor",
+ "futures",
+ "hex",
+ "mockall",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp_common",
+ "xmtp_id",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_api_grpc"
 version = "0.1.0"
 dependencies = [
@@ -7317,11 +7411,14 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
+ "http 1.2.0",
  "prost",
+ "thiserror 2.0.6",
  "tokio",
  "tonic",
  "tracing",
- "uuid 1.11.0",
+ "uuid 1.12.0",
+ "xmtp_common",
  "xmtp_proto",
  "xmtp_v2",
  "zeroize",
@@ -7331,16 +7428,18 @@ dependencies = [
 name = "xmtp_api_http"
 version = "0.1.0"
 dependencies = [
- "async-stream",
  "async-trait",
+ "bytes",
  "futures",
- "reqwest 0.12.9",
+ "pin-project-lite",
+ "reqwest 0.12.12",
  "serde",
  "serde_json",
  "thiserror 2.0.6",
  "tokio",
  "tracing",
  "wasm-bindgen-test",
+ "xmtp_common",
  "xmtp_proto",
 ]
 
@@ -7366,6 +7465,7 @@ dependencies = [
  "tracing-subscriber",
  "valuable",
  "valuable-serde",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
@@ -7379,7 +7479,10 @@ dependencies = [
 name = "xmtp_common"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
+ "async-trait",
  "console_error_panic_hook",
+ "ctor",
  "futures",
  "getrandom",
  "gloo-timers 0.3.0",
@@ -7389,10 +7492,13 @@ dependencies = [
  "rand",
  "thiserror 2.0.6",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-flame",
+ "tracing-forest",
  "tracing-subscriber",
  "tracing-wasm",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
@@ -7406,8 +7512,11 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "rand",
+ "serde",
+ "serde_json",
  "thiserror 2.0.6",
  "tonic",
+ "tracing",
  "xmtp_common",
  "xmtp_proto",
 ]
@@ -7446,6 +7555,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "ctor",
  "ed25519-dalek",
  "ethers",
  "futures",
@@ -7468,6 +7578,7 @@ dependencies = [
  "url",
  "wasm-bindgen-test",
  "web-time",
+ "xmtp_api",
  "xmtp_common",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -7480,9 +7591,11 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "async-compression",
  "async-stream",
  "async-trait",
  "bincode",
+ "bytes",
  "chrono",
  "console_error_panic_hook",
  "const_format",
@@ -7494,6 +7607,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
+ "futures-util",
  "getrandom",
  "gloo-timers 0.3.0",
  "hex",
@@ -7510,9 +7624,10 @@ dependencies = [
  "openssl",
  "openssl-sys",
  "parking_lot 0.12.3",
+ "pin-project-lite",
  "prost",
  "rand",
- "reqwest 0.12.9",
+ "reqwest 0.12.12",
  "serde",
  "serde_json",
  "sha2 0.10.8",
@@ -7522,6 +7637,7 @@ dependencies = [
  "tls_codec",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
@@ -7530,6 +7646,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
@@ -7545,6 +7662,7 @@ name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "ed25519-dalek",
  "futures",
  "hex",
  "openmls",
@@ -7553,6 +7671,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "serde",
+ "thiserror 2.0.6",
  "tonic",
  "tracing",
  "wasm-bindgen-test",
@@ -7605,7 +7724,8 @@ dependencies = [
  "tracing-oslog",
  "tracing-subscriber",
  "uniffi",
- "uuid 1.11.0",
+ "uuid 1.12.0",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
@@ -7779,7 +7899,7 @@ dependencies = [
  "pbkdf2 0.11.0",
  "sha1",
  "time",
- "zstd",
+ "zstd 0.11.2+zstd.1.5.2",
 ]
 
 [[package]]
@@ -7788,7 +7908,16 @@ version = "0.11.2+zstd.1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20cc960326ece64f010d2d2107537f26dc589a6573a316bd5b1dba685fa5fde4"
 dependencies = [
- "zstd-safe",
+ "zstd-safe 5.0.2+zstd.1.5.2",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcf2b778a664581e31e389454a7072dab1647606d44f7feea22cd5abb9c9f3f9"
+dependencies = [
+ "zstd-safe 7.2.1",
 ]
 
 [[package]]
@@ -7798,6 +7927,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d2a5585e04f9eea4b2a3d1eca508c4dee9592a89ef6f450c11719da0726f4db"
 dependencies = [
  "libc",
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
+dependencies = [
  "zstd-sys",
 ]
 

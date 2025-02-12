@@ -41,7 +41,7 @@ describe('Conversations', () => {
     expect(group.isActive()).toBe(true)
     expect(group.groupName()).toBe('')
     expect(group.groupPermissions().policyType()).toBe(
-      GroupPermissionsOptions.AllMembers
+      GroupPermissionsOptions.Default
     )
     expect(group.groupPermissions().policySet()).toEqual({
       addMemberPolicy: 0,
@@ -51,7 +51,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageDisappearingPolicy: 2,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(1)
@@ -102,7 +102,7 @@ describe('Conversations', () => {
           updateGroupNamePolicy: 2,
           updateGroupDescriptionPolicy: 1,
           updateGroupImageUrlSquarePolicy: 0,
-          updateGroupPinnedFrameUrlPolicy: 3,
+          updateMessageDisappearingPolicy: 2,
         },
       })
     expect(group).toBeDefined()
@@ -117,7 +117,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 1,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 3,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -138,7 +138,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -154,7 +154,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 0,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageDisappearingPolicy: 2,
     })
 
     await group.updatePermissionPolicy(
@@ -171,7 +171,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 1,
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageDisappearingPolicy: 2,
     })
   })
 
@@ -197,7 +197,7 @@ describe('Conversations', () => {
       updateGroupDescriptionPolicy: 0,
       updateGroupImageUrlSquarePolicy: 0,
       updateGroupNamePolicy: 0,
-      updateGroupPinnedFrameUrlPolicy: 0,
+      updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
     expect((await group.findMessages()).length).toBe(0)
@@ -334,7 +334,7 @@ describe('Conversations', () => {
       updateGroupNamePolicy: 2,
       updateGroupDescriptionPolicy: 2,
       updateGroupImageUrlSquarePolicy: 2,
-      updateGroupPinnedFrameUrlPolicy: 2,
+      updateMessageDisappearingPolicy: 2,
     })
 
     const groupWithDescription = await client1
@@ -346,19 +346,6 @@ describe('Conversations', () => {
     expect(groupWithDescription.groupName()).toBe('')
     expect(groupWithDescription.groupImageUrlSquare()).toBe('')
     expect(groupWithDescription.groupDescription()).toBe('foo')
-
-    const groupWithPinnedFrameUrl = await client1
-      .conversations()
-      .createGroup([user2.account.address], {
-        groupPinnedFrameUrl: 'https://frameurl.xyz',
-      })
-    expect(groupWithPinnedFrameUrl).toBeDefined()
-    expect(groupWithPinnedFrameUrl.groupName()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupImageUrlSquare()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupDescription()).toBe('')
-    expect(groupWithPinnedFrameUrl.groupPinnedFrameUrl()).toBe(
-      'https://frameurl.xyz'
-    )
   })
 
   it('should update group metadata', async () => {
@@ -378,9 +365,6 @@ describe('Conversations', () => {
 
     await group.updateGroupDescription('bar')
     expect(group.groupDescription()).toBe('bar')
-
-    await group.updateGroupPinnedFrameUrl('https://frameurl.xyz')
-    expect(group.groupPinnedFrameUrl()).toBe('https://frameurl.xyz')
   })
 
   it('should stream all groups', async () => {
@@ -480,10 +464,31 @@ describe('Conversations', () => {
     await client1.conversations().createGroup([user3.account.address])
     await client1.conversations().createDm(user4.account.address)
 
-    let messages: Message[] = []
+    const messages: Message[] = []
     const stream = client1.conversations().streamAllMessages((err, message) => {
       messages.push(message!)
     })
+
+    const messages2: Message[] = []
+    const stream2 = client2
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages2.push(message!)
+      })
+
+    const messages3: Message[] = []
+    const stream3 = client3
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages3.push(message!)
+      })
+
+    const messages4: Message[] = []
+    const stream4 = client4
+      .conversations()
+      .streamAllMessages((err, message) => {
+        messages4.push(message!)
+      })
 
     const groups2 = client2.conversations()
     await groups2.sync()
@@ -504,8 +509,17 @@ describe('Conversations', () => {
     await sleep()
 
     stream.end()
+    stream2.end()
+    stream3.end()
+    stream4.end()
     expect(messages.length).toBe(3)
     expect(messages.map((m) => m.id)).toEqual([message1, message2, message3])
+    expect(messages2.length).toBe(1)
+    expect(messages2.map((m) => m.id)).toEqual([message1])
+    expect(messages3.length).toBe(1)
+    expect(messages3.map((m) => m.id)).toEqual([message2])
+    expect(messages4.length).toBe(1)
+    expect(messages4.map((m) => m.id)).toEqual([message3])
   })
 
   it('should only stream group chat messages', async () => {
@@ -610,5 +624,38 @@ describe('Conversations', () => {
     expect(group2.consentState()).toBe(ConsentState.Unknown)
     await group2.send(encodeTextMessage('gm!'))
     expect(group2.consentState()).toBe(ConsentState.Allowed)
+  })
+
+  it('should update group metadata in empty group', async () => {
+    const user1 = createUser()
+    const client1 = await createRegisteredClient(user1)
+
+    // Create empty group with admin-only permissions
+    const group = await client1.conversations().createGroup([], {
+      permissions: GroupPermissionsOptions.AdminOnly,
+    })
+    expect(group).toBeDefined()
+
+    // Update group name without syncing first
+    await group.updateGroupName('New Group Name 1')
+    expect(group.groupName()).toBe('New Group Name 1')
+
+    // Verify name persists after sync
+    await group.sync()
+    expect(group.groupName()).toBe('New Group Name 1')
+
+    // Create another empty group
+    const soloGroup = await client1.conversations().createGroup([], {
+      permissions: GroupPermissionsOptions.AdminOnly,
+    })
+    expect(soloGroup).toBeDefined()
+
+    // Update and verify name
+    await soloGroup.updateGroupName('New Group Name 2')
+    expect(soloGroup.groupName()).toBe('New Group Name 2')
+
+    // Verify name persists after sync
+    await soloGroup.sync()
+    expect(soloGroup.groupName()).toBe('New Group Name 2')
   })
 })

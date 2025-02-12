@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "0.0.11",
+  "version": "0.0.14",
   "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
@@ -56,7 +56,7 @@
   },
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "^3.47.0-build1",
-    "binaryen": "^121.0.0",
+    "binaryen": "^122.0.0",
     "wasm-pack": "^0.13.1"
   },
   "packageManager": "yarn@4.5.1"

@@ -1,10 +1,15 @@
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
+use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
+use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::verify_signed_with_public_context;
+use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::reaction::ReactionCodec;
+use xmtp_content_types::ContentCodec;
+use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -15,16 +20,17 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::HmacKey;
+use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
 use xmtp_mls::storage::group::ConversationType;
-use xmtp_mls::storage::group_message::SortDirection;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
+use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_mls::{
-    api::ApiClientWrapper,
-    builder::ClientBuilder,
-    client::{Client as MlsClient, ClientError},
+    client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
@@ -44,9 +50,12 @@ use xmtp_mls::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
-    AbortHandle, GenericStreamHandle, StreamHandle,
+    subscriptions::SubscribeError,
 };
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::xmtp::device_sync::BackupElementSelection;
+use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 #[derive(uniffi::Object, Clone)]
@@ -65,7 +74,11 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(host, is_secure).await?;
+    let mut api_client = TonicApiClient::builder();
+    api_client.set_host(host);
+    api_client.set_tls(true);
+    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
+    let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -131,8 +144,9 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let mut builder = ClientBuilder::new(identity_strategy)
+    let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
+        .with_remote_verifier()?
         .store(store);
 
     if let Some(url) = &history_sync_url {
@@ -157,7 +171,8 @@ pub async fn get_inbox_id_for_address(
     api: Arc<XmtpApiClient>,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), Default::default());
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let results = api
         .get_inbox_ids(vec![account_address.clone()])
         .await
@@ -373,11 +388,13 @@ impl FfiXmtpClient {
         Ok(result.into())
     }
 
+    /// A utility function to sign a piece of text with this installation's private key.
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
         Ok(inner.context().sign_with_public_context(text)?)
     }
 
+    /// A utility function to easily verify that a piece of text was signed by this installation.
     pub fn verify_signed_with_installation_key(
         &self,
         signature_text: &str,
@@ -389,6 +406,8 @@ impl FfiXmtpClient {
         self.verify_signed_with_public_key(signature_text, signature_bytes, public_key)
     }
 
+    /// A utility function to easily verify that a string has been signed by another libXmtp installation.
+    /// Only works for verifying libXmtp public context signatures.
     pub fn verify_signed_with_public_key(
         &self,
         signature_text: &str,
@@ -433,7 +452,7 @@ impl FfiXmtpClient {
             .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier: scw_verifier.clone(),
+                    scw_verifier: Arc::unwrap_or_clone(scw_verifier),
                 })
             })
     }
@@ -450,6 +469,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
+    /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         self.inner_client
@@ -468,10 +488,10 @@ impl FfiXmtpClient {
             .inner_client
             .associate_wallet(new_wallet_address.into())
             .await?;
-        let scw_verifier = self.inner_client.scw_verifier().clone();
+        let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: scw_verifier.clone(),
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -489,7 +509,7 @@ impl FfiXmtpClient {
         Ok(())
     }
 
-    /// Revokes or removes an identity - really a wallet address - from the existing client
+    /// Revokes or removes an identity from the existing client
     pub async fn revoke_wallet(
         &self,
         wallet_address: &str,
@@ -501,10 +521,10 @@ impl FfiXmtpClient {
         let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
             .await?;
-        let scw_verifier = inner_client.clone().scw_verifier().clone();
+        let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier,
+            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
         });
 
         Ok(request)
@@ -531,7 +551,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
     }
 
@@ -549,8 +569,125 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: self.inner_client.scw_verifier().clone().clone(),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
         }))
+    }
+
+    /// Backup your application to file for later restoration.
+    pub async fn backup_to_file(
+        &self,
+        path: String,
+        opts: FfiBackupOptions,
+        key: Vec<u8>,
+    ) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        let opts: BackupOptions = opts.into();
+        opts.export_to_file(provider, path, &check_key(key)?)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Import a previous backup
+    pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        importer.insert(&provider).await?;
+        Ok(())
+    }
+
+    /// Load the metadata for a backup to see what it contains.
+    /// Reads only the metadata without loading the entire file, so this function is quick.
+    pub async fn backup_metadata(
+        &self,
+        path: String,
+        key: Vec<u8>,
+    ) -> Result<FfiBackupMetadata, GenericError> {
+        let importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        Ok(importer.metadata.into())
+    }
+}
+
+fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+    if key.len() < 32 {
+        return Err(GenericError::Generic {
+            err: format!(
+                "The encryption key must be at least {} bytes long.",
+                ENC_KEY_SIZE
+            ),
+        });
+    }
+    key.truncate(ENC_KEY_SIZE);
+    Ok(key)
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiBackupMetadata {
+    backup_version: u16,
+    elements: Vec<FfiBackupElementSelection>,
+    exported_at_ns: i64,
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+}
+impl From<BackupMetadata> for FfiBackupMetadata {
+    fn from(value: BackupMetadata) -> Self {
+        Self {
+            backup_version: value.backup_version,
+            elements: value
+                .elements
+                .into_iter()
+                .filter_map(|selection| selection.try_into().ok())
+                .collect(),
+            start_ns: value.start_ns,
+            end_ns: value.end_ns,
+            exported_at_ns: value.exported_at_ns,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiBackupOptions {
+    start_ns: Option<i64>,
+    end_ns: Option<i64>,
+    elements: Vec<FfiBackupElementSelection>,
+}
+impl From<FfiBackupOptions> for BackupOptions {
+    fn from(value: FfiBackupOptions) -> Self {
+        Self {
+            start_ns: value.start_ns,
+            end_ns: value.start_ns,
+            elements: value.elements.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiBackupElementSelection {
+    Messages,
+    Consent,
+}
+impl From<FfiBackupElementSelection> for BackupElementSelection {
+    fn from(value: FfiBackupElementSelection) -> Self {
+        match value {
+            FfiBackupElementSelection::Consent => Self::Consent,
+            FfiBackupElementSelection::Messages => Self::Messages,
+        }
+    }
+}
+
+impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
+    type Error = DeserializationError;
+    fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
+        let v = match value {
+            BackupElementSelection::Unspecified => {
+                return Err(DeserializationError::Unspecified(
+                    "Backup Element Selection",
+                ))
+            }
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+        };
+        Ok(v)
     }
 }
 
@@ -609,7 +746,7 @@ pub struct FfiListConversationsOptions {
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
-    pub consent_state: Option<FfiConsentState>,
+    pub consent_states: Option<Vec<FfiConsentState>>,
     pub include_duplicate_dms: bool,
 }
 
@@ -619,7 +756,9 @@ impl From<FfiListConversationsOptions> for GroupQueryArgs {
             created_before_ns: opts.created_before_ns,
             created_after_ns: opts.created_after_ns,
             limit: opts.limit,
-            consent_state: opts.consent_state.map(Into::into),
+            consent_states: opts
+                .consent_states
+                .map(|vec| vec.into_iter().map(Into::into).collect()),
             include_duplicate_dms: opts.include_duplicate_dms,
             ..Default::default()
         }
@@ -633,7 +772,7 @@ pub struct FfiConversations {
 
 #[derive(uniffi::Enum, Clone, Debug)]
 pub enum FfiGroupPermissionsOptions {
-    AllMembers,
+    Default,
     AdminOnly,
     CustomPolicy,
 }
@@ -782,13 +921,13 @@ pub struct FfiPermissionPolicySet {
     pub update_group_name_policy: FfiPermissionPolicy,
     pub update_group_description_policy: FfiPermissionPolicy,
     pub update_group_image_url_square_policy: FfiPermissionPolicy,
-    pub update_group_pinned_frame_url_policy: FfiPermissionPolicy,
+    pub update_message_disappearing_policy: FfiPermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for FfiGroupPermissionsOptions {
     fn from(policy: PreconfiguredPolicies) -> Self {
         match policy {
-            PreconfiguredPolicies::AllMembers => FfiGroupPermissionsOptions::AllMembers,
+            PreconfiguredPolicies::Default => FfiGroupPermissionsOptions::Default,
             PreconfiguredPolicies::AdminsOnly => FfiGroupPermissionsOptions::AdminOnly,
         }
     }
@@ -810,9 +949,18 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
             MetadataField::GroupImageUrlSquare.to_string(),
             policy_set.update_group_image_url_square_policy.try_into()?,
         );
+
+        // MessageDisappearFromNS follows the same policy as MessageDisappearInNS
         metadata_permissions_map.insert(
-            MetadataField::GroupPinnedFrameUrl.to_string(),
-            policy_set.update_group_pinned_frame_url_policy.try_into()?,
+            MetadataField::MessageDisappearFromNS.to_string(),
+            policy_set
+                .update_message_disappearing_policy
+                .clone()
+                .try_into()?,
+        );
+        metadata_permissions_map.insert(
+            MetadataField::MessageDisappearInNS.to_string(),
+            policy_set.update_message_disappearing_policy.try_into()?,
         );
 
         Ok(PolicySet {
@@ -831,7 +979,6 @@ pub enum FfiMetadataField {
     GroupName,
     Description,
     ImageUrlSquare,
-    PinnedFrameUrl,
 }
 
 impl From<&FfiMetadataField> for MetadataField {
@@ -840,7 +987,6 @@ impl From<&FfiMetadataField> for MetadataField {
             FfiMetadataField::GroupName => MetadataField::GroupName,
             FfiMetadataField::Description => MetadataField::Description,
             FfiMetadataField::ImageUrlSquare => MetadataField::GroupImageUrlSquare,
-            FfiMetadataField::PinnedFrameUrl => MetadataField::GroupPinnedFrameUrl,
         }
     }
 }
@@ -872,8 +1018,8 @@ impl FfiConversations {
         let metadata_options = opts.clone().into_group_metadata_options();
 
         let group_permissions = match opts.permissions {
-            Some(FfiGroupPermissionsOptions::AllMembers) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::AllMembers.to_policy_set())
+            Some(FfiGroupPermissionsOptions::Default) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
             }
             Some(FfiGroupPermissionsOptions::AdminOnly) => {
                 Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
@@ -889,8 +1035,11 @@ impl FfiConversations {
         };
 
         let convo = if account_addresses.is_empty() {
-            self.inner_client
-                .create_group(group_permissions, metadata_options)?
+            let group = self
+                .inner_client
+                .create_group(group_permissions, metadata_options)?;
+            group.sync().await?;
+            group
         } else {
             self.inner_client
                 .create_group_with_members(&account_addresses, group_permissions, metadata_options)
@@ -900,13 +1049,83 @@ impl FfiConversations {
         Ok(Arc::new(convo.into()))
     }
 
-    pub async fn create_dm(
+    pub async fn create_group_with_inbox_ids(
+        &self,
+        inbox_ids: Vec<String>,
+        opts: FfiCreateGroupOptions,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!(
+            "creating group with account inbox ids: {}",
+            inbox_ids.join(", ")
+        );
+
+        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
+            if opts.custom_permission_policy_set.is_none() {
+                return Err(GenericError::Generic {
+                    err: "CustomPolicy must include policy set".to_string(),
+                });
+            }
+        } else if opts.custom_permission_policy_set.is_some() {
+            return Err(GenericError::Generic {
+                err: "Only CustomPolicy may specify a policy set".to_string(),
+            });
+        }
+
+        let metadata_options = opts.clone().into_group_metadata_options();
+
+        let group_permissions = match opts.permissions {
+            Some(FfiGroupPermissionsOptions::Default) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::AdminOnly) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
+            }
+            Some(FfiGroupPermissionsOptions::CustomPolicy) => {
+                if let Some(policy_set) = opts.custom_permission_policy_set {
+                    Some(policy_set.try_into()?)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let convo = if inbox_ids.is_empty() {
+            let group = self
+                .inner_client
+                .create_group(group_permissions, metadata_options)?;
+            group.sync().await?;
+            group
+        } else {
+            self.inner_client
+                .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+                .await?
+        };
+
+        Ok(Arc::new(convo.into()))
+    }
+
+    pub async fn find_or_create_dm(
         &self,
         account_address: String,
+        opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
-            .create_dm(account_address)
+            .find_or_create_dm(account_address, opts.into_dm_metadata_options())
+            .await
+            .map(|g| Arc::new(g.into()))
+            .map_err(Into::into)
+    }
+
+    pub async fn find_or_create_dm_by_inbox_id(
+        &self,
+        inbox_id: String,
+        opts: FfiCreateDMOptions,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!("creating dm with target inbox_id: {}", inbox_id);
+        self.inner_client
+            .find_or_create_dm_by_inbox_id(inbox_id, opts.into_dm_metadata_options())
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -939,13 +1158,14 @@ impl FfiConversations {
 
     pub async fn sync_all_conversations(
         &self,
-        consent_state: Option<FfiConsentState>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let consent: Option<ConsentState> = consent_state.map(|state| state.into());
+        let consents: Option<Vec<ConsentState>> =
+            consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let num_groups_synced: usize = inner
-            .sync_all_welcomes_and_groups(&provider, consent)
+            .sync_all_welcomes_and_groups(&provider, consents)
             .await?;
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
@@ -1206,6 +1426,30 @@ impl FfiConversationListItem {
     }
 }
 
+/// Settings for disappearing messages in a conversation.
+///
+/// # Fields
+///
+/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
+/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiMessageDisappearingSettings {
+    pub from_ns: i64,
+    pub in_ns: i64,
+}
+
+impl FfiMessageDisappearingSettings {
+    fn new(from_ns: i64, in_ns: i64) -> Self {
+        Self { from_ns, in_ns }
+    }
+}
+
+impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
+    fn from(value: MessageDisappearingSettings) -> Self {
+        FfiMessageDisappearingSettings::new(value.from_ns, value.in_ns)
+    }
+}
+
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
     fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -1316,6 +1560,12 @@ impl From<FfiDirection> for SortDirection {
     }
 }
 
+impl From<FfiMessageDisappearingSettings> for MessageDisappearingSettings {
+    fn from(settings: FfiMessageDisappearingSettings) -> Self {
+        MessageDisappearingSettings::new(settings.from_ns, settings.in_ns)
+    }
+}
+
 #[derive(uniffi::Record, Clone, Default)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
@@ -1363,8 +1613,8 @@ pub struct FfiCreateGroupOptions {
     pub group_name: Option<String>,
     pub group_image_url_square: Option<String>,
     pub group_description: Option<String>,
-    pub group_pinned_frame_url: Option<String>,
     pub custom_permission_policy_set: Option<FfiPermissionPolicySet>,
+    pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
 }
 
 impl FfiCreateGroupOptions {
@@ -1373,7 +1623,29 @@ impl FfiCreateGroupOptions {
             name: self.group_name,
             image_url_square: self.group_image_url_square,
             description: self.group_description,
-            pinned_frame_url: self.group_pinned_frame_url,
+            message_disappearing_settings: self
+                .message_disappearing_settings
+                .map(|settings| settings.into()),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiCreateDMOptions {
+    pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
+}
+
+impl FfiCreateDMOptions {
+    pub fn new(disappearing_settings: FfiMessageDisappearingSettings) -> Self {
+        FfiCreateDMOptions {
+            message_disappearing_settings: Some(disappearing_settings),
+        }
+    }
+    pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
+        DMMetadataOptions {
+            message_disappearing_settings: self
+                .message_disappearing_settings
+                .map(|settings| settings.into()),
         }
     }
 }
@@ -1438,14 +1710,44 @@ impl FfiConversation {
         Ok(messages)
     }
 
+    pub async fn find_messages_with_reactions(
+        &self,
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
+        let delivery_status = opts.delivery_status.map(|status| status.into());
+        let direction = opts.direction.map(|dir| dir.into());
+        let kind = match self.conversation_type().await? {
+            FfiConversationType::Group => None,
+            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Sync => None,
+        };
+
+        let messages: Vec<FfiMessageWithReactions> = self
+            .inner
+            .find_messages_with_reactions(&MsgQueryArgs {
+                sent_before_ns: opts.sent_before_ns,
+                sent_after_ns: opts.sent_after_ns,
+                kind,
+                delivery_status,
+                limit: opts.limit,
+                direction,
+                content_types: opts
+                    .content_types
+                    .map(|types| types.into_iter().map(Into::into).collect()),
+            })?
+            .into_iter()
+            .map(|msg| msg.into())
+            .collect();
+        Ok(messages)
+    }
+
     pub async fn process_streamed_conversation_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<FfiMessage, FfiSubscribeError> {
-        let provider = self.inner.mls_provider()?;
         let message = self
             .inner
-            .process_streamed_group_message(&provider, envelope_bytes)
+            .process_streamed_group_message(envelope_bytes)
             .await?;
         let ffi_message = message.into();
 
@@ -1555,22 +1857,47 @@ impl FfiConversation {
         Ok(self.inner.group_description(&provider)?)
     }
 
-    pub async fn update_group_pinned_frame_url(
+    pub async fn update_conversation_message_disappearing_settings(
         &self,
-        pinned_frame_url: String,
+        settings: FfiMessageDisappearingSettings,
     ) -> Result<(), GenericError> {
         self.inner
-            .update_group_pinned_frame_url(pinned_frame_url)
+            .update_conversation_message_disappearing_settings(MessageDisappearingSettings::from(
+                settings,
+            ))
             .await?;
 
         Ok(())
     }
 
-    pub fn group_pinned_frame_url(&self) -> Result<String, GenericError> {
-        let provider = self.inner.mls_provider()?;
+    pub async fn remove_conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<(), GenericError> {
         self.inner
-            .group_pinned_frame_url(&provider)
-            .map_err(Into::into)
+            .remove_conversation_message_disappearing_settings()
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn conversation_message_disappearing_settings(
+        &self,
+    ) -> Result<Option<FfiMessageDisappearingSettings>, GenericError> {
+        let settings = self.inner.client.group_disappearing_settings(self.id())?;
+
+        match settings {
+            Some(s) => Ok(Some(FfiMessageDisappearingSettings::from(s))),
+            None => Ok(None),
+        }
+    }
+
+    pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
+        self.conversation_message_disappearing_settings()
+            .map(|settings| {
+                settings
+                    .as_ref()
+                    .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+            })
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -1645,15 +1972,13 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle = MlsGroup::stream_with_callback(
-            self.inner.client.clone(),
-            self.id(),
-            self.inner.created_at_ns,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-        );
+        let handle =
+            MlsGroup::stream_with_callback(self.inner.client.clone(), self.id(), move |message| {
+                match message {
+                    Ok(m) => message_callback.on_message(m.into()),
+                    Err(e) => message_callback.on_error(e.into()),
+                }
+            });
 
         FfiStreamCloser::new(handle)
     }
@@ -1700,6 +2025,11 @@ impl FfiConversation {
         let provider = self.inner.mls_provider()?;
         let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
+    }
+
+    pub async fn epoch(&self) -> Result<u64, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        Ok(self.inner.epoch(&provider).await?)
     }
 }
 
@@ -1769,6 +2099,135 @@ impl From<FfiDeliveryStatus> for DeliveryStatus {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiMessageWithReactions {
+    pub message: FfiMessage,
+    pub reactions: Vec<FfiMessage>,
+}
+
+impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
+    fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
+        Self {
+            message: msg_with_reactions.message.into(),
+            reactions: msg_with_reactions
+                .reactions
+                .into_iter()
+                .map(|reaction| reaction.into())
+                .collect(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiReaction {
+    pub reference: String,
+    pub reference_inbox_id: String,
+    pub action: FfiReactionAction,
+    pub content: String,
+    pub schema: FfiReactionSchema,
+}
+
+impl From<FfiReaction> for ReactionV2 {
+    fn from(reaction: FfiReaction) -> Self {
+        ReactionV2 {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: reaction.action.into(),
+            content: reaction.content,
+            schema: reaction.schema.into(),
+        }
+    }
+}
+
+impl From<ReactionV2> for FfiReaction {
+    fn from(reaction: ReactionV2) -> Self {
+        FfiReaction {
+            reference: reaction.reference,
+            reference_inbox_id: reaction.reference_inbox_id,
+            action: match reaction.action {
+                1 => FfiReactionAction::Added,
+                2 => FfiReactionAction::Removed,
+                _ => FfiReactionAction::Unknown,
+            },
+            content: reaction.content,
+            schema: match reaction.schema {
+                1 => FfiReactionSchema::Unicode,
+                2 => FfiReactionSchema::Shortcode,
+                3 => FfiReactionSchema::Custom,
+                _ => FfiReactionSchema::Unknown,
+            },
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_reaction(reaction: FfiReaction) -> Result<Vec<u8>, GenericError> {
+    // Convert FfiReaction to Reaction
+    let reaction: ReactionV2 = reaction.into();
+
+    // Use ReactionCodec to encode the reaction
+    let encoded = ReactionCodec::encode(reaction)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Encode the EncodedContent to bytes
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_reaction(bytes: Vec<u8>) -> Result<FfiReaction, GenericError> {
+    // Decode bytes into EncodedContent
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    // Use ReactionCodec to decode into Reaction and convert to FfiReaction
+    ReactionCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionAction {
+    Unknown,
+    #[default]
+    Added,
+    Removed,
+}
+
+impl From<FfiReactionAction> for i32 {
+    fn from(action: FfiReactionAction) -> Self {
+        match action {
+            FfiReactionAction::Unknown => 0,
+            FfiReactionAction::Added => 1,
+            FfiReactionAction::Removed => 2,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Clone, Default, PartialEq, Debug)]
+pub enum FfiReactionSchema {
+    Unknown,
+    #[default]
+    Unicode,
+    Shortcode,
+    Custom,
+}
+
+impl From<FfiReactionSchema> for i32 {
+    fn from(schema: FfiReactionSchema) -> Self {
+        match schema {
+            FfiReactionSchema::Unknown => 0,
+            FfiReactionSchema::Unicode => 1,
+            FfiReactionSchema::Shortcode => 2,
+            FfiReactionSchema::Custom => 3,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -1811,7 +2270,7 @@ impl From<FfiConsent> for StoredConsentRecord {
     }
 }
 
-type FfiHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type FfiHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct FfiStreamCloser {
@@ -1822,7 +2281,10 @@ pub struct FfiStreamCloser {
 
 impl FfiStreamCloser {
     pub fn new(
-        stream_handle: impl StreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+        stream_handle: impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
@@ -1839,9 +2301,9 @@ impl FfiStreamCloser {
         self.abort_handle.end();
     }
 
-    /// End the stream and asyncronously wait for it to shutdown
+    /// End the stream and asynchronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-        use xmtp_mls::StreamHandleError::*;
+        use xmtp_common::StreamHandleError::*;
         use GenericError::Generic;
 
         if self.abort_handle.is_finished() {
@@ -1960,8 +2422,8 @@ impl FfiGroupPermissions {
             update_group_image_url_square_policy: get_policy(
                 MetadataField::GroupImageUrlSquare.as_str(),
             ),
-            update_group_pinned_frame_url_policy: get_policy(
-                MetadataField::GroupPinnedFrameUrl.as_str(),
+            update_message_disappearing_policy: get_policy(
+                MetadataField::MessageDisappearInNS.as_str(),
             ),
         })
     }
@@ -1974,12 +2436,14 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, get_inbox_id_for_address, inbox_owner::SigningError, FfiConsent,
-        FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
-        FfiConversationCallback, FfiConversationMessageKind, FfiCreateGroupOptions, FfiDirection,
-        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMetadataField, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiSubscribeError,
+        connect_to_backend, decode_reaction, encode_reaction, get_inbox_id_for_address,
+        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
+        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
+        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
+        FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -1991,9 +2455,16 @@ mod tests {
         },
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use xmtp_common::time::now_ns;
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
-    use xmtp_content_types::{read_receipt, text::TextCodec, ContentCodec};
+    use xmtp_content_types::{
+        attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
+        group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
+        reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
+        remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
+        transaction_reference::TransactionReferenceCodec, ContentCodec,
+    };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
         generate_inbox_id,
@@ -2004,7 +2475,10 @@ mod tests {
         storage::EncryptionKey,
         InboxOwner,
     };
-    use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
+    use xmtp_proto::xmtp::mls::message_contents::{
+        content_types::{ReactionAction, ReactionSchema, ReactionV2},
+        ContentTypeId, EncodedContent,
+    };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
@@ -2668,6 +3142,9 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
+        let conversation_message_disappearing_settings =
+            FfiMessageDisappearingSettings::new(10, 100);
+
         let group = amal
             .conversations()
             .create_group(
@@ -2677,8 +3154,10 @@ mod tests {
                     group_name: Some("Group Name".to_string()),
                     group_image_url_square: Some("url".to_string()),
                     group_description: Some("group description".to_string()),
-                    group_pinned_frame_url: Some("pinned frame".to_string()),
                     custom_permission_policy_set: None,
+                    message_disappearing_settings: Some(
+                        conversation_message_disappearing_settings.clone(),
+                    ),
                 },
             )
             .await
@@ -2689,7 +3168,196 @@ mod tests {
         assert_eq!(group.group_name().unwrap(), "Group Name");
         assert_eq!(group.group_image_url_square().unwrap(), "url");
         assert_eq!(group.group_description().unwrap(), "group description");
-        assert_eq!(group.group_pinned_frame_url().unwrap(), "pinned frame");
+        assert_eq!(
+            group
+                .conversation_message_disappearing_settings()
+                .unwrap()
+                .unwrap()
+                .from_ns,
+            conversation_message_disappearing_settings.clone().from_ns
+        );
+        assert_eq!(
+            group
+                .conversation_message_disappearing_settings()
+                .unwrap()
+                .unwrap()
+                .in_ns,
+            conversation_message_disappearing_settings.in_ns
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_installation_for_two_users_and_group_modification() {
+        // Step 1: Create two installations
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let bola_client_1 = new_test_client_with_wallet(bola_wallet.clone()).await;
+
+        // Ensure both clients are properly initialized
+        let alix_client_1_state = alix_client_1.inbox_state(true).await.unwrap();
+        let alix_client_2_state = alix_client_2.inbox_state(true).await.unwrap();
+        let bola_client_1_state = bola_client_1.inbox_state(true).await.unwrap();
+        assert_eq!(alix_client_1_state.installations.len(), 2);
+        assert_eq!(alix_client_2_state.installations.len(), 2);
+        assert_eq!(bola_client_1_state.installations.len(), 1);
+
+        // Step 2: Create a group
+        let group = alix_client_1
+            .conversations()
+            .create_group(
+                vec![bola_client_1.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // No ordering guarantee on members list
+        let group_members = group.list_members().await.unwrap();
+        assert_eq!(group_members.len(), 2);
+
+        // identify which member is alix
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 2);
+
+        // Step 3: Revoke one installation
+        let revoke_request = alix_client_1
+            .revoke_installations(vec![alix_client_2.installation_id()])
+            .await
+            .unwrap();
+        revoke_request.add_wallet_signature(&alix_wallet).await;
+        alix_client_1
+            .apply_signature_request(revoke_request)
+            .await
+            .unwrap();
+
+        // Validate revocation
+        let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+
+        let alix_conversation_1 = alix_client_1.conversations();
+        alix_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let alix_conversation_2 = alix_client_2.conversations();
+        alix_conversation_2
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bola_conversation_1 = bola_client_1.conversations();
+        bola_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+
+        // Re-fetch group members
+        let group_members = group.list_members().await.unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 1);
+
+        let alix_2_groups = alix_conversation_2
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_revoke_installation_for_one_user_and_group_modification() {
+        // Step 1: Create two installations
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
+        let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
+
+        // Ensure both clients are properly initialized
+        let alix_client_1_state = alix_client_1.inbox_state(true).await.unwrap();
+        let alix_client_2_state = alix_client_2.inbox_state(true).await.unwrap();
+        assert_eq!(alix_client_1_state.installations.len(), 2);
+        assert_eq!(alix_client_2_state.installations.len(), 2);
+
+        // Step 2: Create a group
+        let group = alix_client_1
+            .conversations()
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // No ordering guarantee on members list
+        let group_members = group.list_members().await.unwrap();
+        assert_eq!(group_members.len(), 1);
+
+        // identify which member is alix
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 2);
+
+        // Step 3: Revoke one installation
+        let revoke_request = alix_client_1
+            .revoke_installations(vec![alix_client_2.installation_id()])
+            .await
+            .unwrap();
+        revoke_request.add_wallet_signature(&alix_wallet).await;
+        alix_client_1
+            .apply_signature_request(revoke_request)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Validate revocation
+        let client_1_state_after_revoke = alix_client_1.inbox_state(true).await.unwrap();
+        let _client_2_state_after_revoke = alix_client_2.inbox_state(true).await.unwrap();
+
+        let alix_conversation_1 = alix_client_1.conversations();
+        alix_conversation_1
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_conversation_2 = alix_client_2.conversations();
+        alix_conversation_2
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        assert_eq!(client_1_state_after_revoke.installations.len(), 1);
+
+        // Re-fetch group members
+        let group_members = group.list_members().await.unwrap();
+        let alix_member = group_members
+            .iter()
+            .find(|m| m.inbox_id == alix_client_1.inbox_id())
+            .unwrap();
+        assert_eq!(alix_member.installation_ids.len(), 1);
+
+        let alix_2_groups = alix_conversation_2
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+
+        assert!(alix_2_groups
+            .first()
+            .unwrap()
+            .conversation
+            .update_group_name("test 2".to_string())
+            .await
+            .is_err());
     }
 
     // Looks like this test might be a separate issue
@@ -2749,7 +3417,7 @@ mod tests {
 
         let dm = bo
             .conversations()
-            .create_dm(alix.account_address.clone())
+            .find_or_create_dm(alix.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
@@ -2763,10 +3431,9 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
 
@@ -2792,12 +3459,14 @@ mod tests {
             .unwrap();
 
         // Add messages to the group
+        let text_message_1 = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
         group
-            .send("First message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_1))
             .await
             .unwrap();
+        let text_message_2 = TextCodec::encode("Text message for Group 2".to_string()).unwrap();
         group
-            .send("Second message".as_bytes().to_vec())
+            .send(encoded_content_to_bytes(text_message_2))
             .await
             .unwrap();
 
@@ -2817,8 +3486,8 @@ mod tests {
 
         let last_message = conversations[0].last_message.as_ref().unwrap();
         assert_eq!(
-            last_message.content,
-            "Second message".as_bytes().to_vec(),
+            TextCodec::decode(bytes_to_encoded_content(last_message.content.clone())).unwrap(),
+            "Text message for Group 2".to_string(),
             "Last message content should be the most recent"
         );
     }
@@ -2862,85 +3531,270 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_conversation_list_ordering() {
+    async fn test_conversation_list_filters_readable_messages() {
         // Step 1: Setup test client
         let client = new_test_client().await;
         let conversations_api = client.conversations();
 
-        // Step 2: Create Group A
-        let group_a = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // Step 2: Create 9 groups
+        let mut groups = Vec::with_capacity(9);
+        for _ in 0..9 {
+            let group = conversations_api
+                .create_group(vec![], FfiCreateGroupOptions::default())
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        // Step 3: Each group gets a message sent in it by type following the pattern:
+        //   group[0] -> TextCodec                    (readable)
+        //   group[1] -> ReactionCodec                (readable)
+        //   group[2] -> AttachmentCodec              (readable)
+        //   group[3] -> RemoteAttachmentCodec        (readable)
+        //   group[4] -> ReplyCodec                   (readable)
+        //   group[5] -> TransactionReferenceCodec    (readable)
+        //   group[6] -> GroupUpdatedCodec            (not readable)
+        //   group[7] -> GroupMembershipUpdatedCodec  (not readable)
+        //   group[8] -> ReadReceiptCodec             (not readable)
+
+        // group[0] sends TextCodec message
+        let text_message = TextCodec::encode("Text message for Group 1".to_string()).unwrap();
+        groups[0]
+            .send(encoded_content_to_bytes(text_message))
             .await
             .unwrap();
 
-        // Step 3: Create Group B
-        let group_b = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // group[1] sends ReactionCodec message
+        let reaction_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReactionCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reaction_encoded_content = EncodedContent {
+            r#type: Some(reaction_content_type_id),
+            content: "reaction content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[1]
+            .send(encoded_content_to_bytes(reaction_encoded_content))
             .await
             .unwrap();
 
-        // Step 4: Send a message to Group A
-        group_a
-            .send("Message to Group A".as_bytes().to_vec())
+        // group[2] sends AttachmentCodec message
+        let attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: AttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let attachment_encoded_content = EncodedContent {
+            r#type: Some(attachment_content_type_id),
+            content: "attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[2]
+            .send(encoded_content_to_bytes(attachment_encoded_content))
             .await
             .unwrap();
 
-        // Step 5: Create Group C
-        let group_c = conversations_api
-            .create_group(vec![], FfiCreateGroupOptions::default())
+        // group[3] sends RemoteAttachmentCodec message
+        let remote_attachment_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: RemoteAttachmentCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let remote_attachment_encoded_content = EncodedContent {
+            r#type: Some(remote_attachment_content_type_id),
+            content: "remote attachment content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[3]
+            .send(encoded_content_to_bytes(remote_attachment_encoded_content))
             .await
             .unwrap();
 
-        // Step 6: Synchronize conversations
+        // group[4] sends ReplyCodec message
+        let reply_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReplyCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let reply_encoded_content = EncodedContent {
+            r#type: Some(reply_content_type_id),
+            content: "reply content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[4]
+            .send(encoded_content_to_bytes(reply_encoded_content))
+            .await
+            .unwrap();
+
+        // group[5] sends TransactionReferenceCodec message
+        let transaction_reference_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: TransactionReferenceCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let transaction_reference_encoded_content = EncodedContent {
+            r#type: Some(transaction_reference_content_type_id),
+            content: "transaction reference".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[5]
+            .send(encoded_content_to_bytes(
+                transaction_reference_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[6] sends GroupUpdatedCodec message
+        let group_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupUpdatedCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_updated_encoded_content = EncodedContent {
+            r#type: Some(group_updated_content_type_id),
+            content: "group updated content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[6]
+            .send(encoded_content_to_bytes(group_updated_encoded_content))
+            .await
+            .unwrap();
+
+        // group[7] sends GroupMembershipUpdatedCodec message
+        let group_membership_updated_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: GroupMembershipChangeCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let group_membership_updated_encoded_content = EncodedContent {
+            r#type: Some(group_membership_updated_content_type_id),
+            content: "group membership updated".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[7]
+            .send(encoded_content_to_bytes(
+                group_membership_updated_encoded_content,
+            ))
+            .await
+            .unwrap();
+
+        // group[8] sends ReadReceiptCodec message
+        let read_receipt_content_type_id = ContentTypeId {
+            authority_id: "".to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
+            version_major: 0,
+            version_minor: 0,
+        };
+        let read_receipt_encoded_content = EncodedContent {
+            r#type: Some(read_receipt_content_type_id),
+            content: "read receipt content".as_bytes().to_vec(),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+        };
+        groups[8]
+            .send(encoded_content_to_bytes(read_receipt_encoded_content))
+            .await
+            .unwrap();
+
+        // Step 4: Synchronize all conversations
         conversations_api
             .sync_all_conversations(None)
             .await
             .unwrap();
 
-        // Step 7: Fetch the conversation list
+        // Step 5: Fetch the list of conversations
         let conversations = conversations_api
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        // Step 8: Assert the correct order of conversations
+        // Step 6: Verify the order of conversations by last readable message sent (or recently created if no readable message)
+        // The order should be: 5, 4, 3, 2, 1, 0, 8, 7, 6
         assert_eq!(
             conversations.len(),
-            3,
-            "There should be exactly 3 conversations"
+            9,
+            "There should be exactly 9 conversations"
         );
 
-        // Verify the order: Group C, Group A, Group B
         assert_eq!(
-            conversations[0].conversation.inner.group_id, group_c.inner.group_id,
-            "Group C should be the first conversation"
+            conversations[0].conversation.inner.group_id, groups[5].inner.group_id,
+            "Group 6 should be the first conversation"
         );
         assert_eq!(
-            conversations[1].conversation.inner.group_id, group_a.inner.group_id,
-            "Group A should be the second conversation"
+            conversations[1].conversation.inner.group_id, groups[4].inner.group_id,
+            "Group 5 should be the second conversation"
         );
         assert_eq!(
-            conversations[2].conversation.inner.group_id, group_b.inner.group_id,
-            "Group B should be the third conversation"
+            conversations[2].conversation.inner.group_id, groups[3].inner.group_id,
+            "Group 4 should be the third conversation"
+        );
+        assert_eq!(
+            conversations[3].conversation.inner.group_id, groups[2].inner.group_id,
+            "Group 3 should be the fourth conversation"
+        );
+        assert_eq!(
+            conversations[4].conversation.inner.group_id, groups[1].inner.group_id,
+            "Group 2 should be the fifth conversation"
+        );
+        assert_eq!(
+            conversations[5].conversation.inner.group_id, groups[0].inner.group_id,
+            "Group 1 should be the sixth conversation"
+        );
+        assert_eq!(
+            conversations[6].conversation.inner.group_id, groups[8].inner.group_id,
+            "Group 9 should be the seventh conversation"
+        );
+        assert_eq!(
+            conversations[7].conversation.inner.group_id, groups[7].inner.group_id,
+            "Group 8 should be the eighth conversation"
+        );
+        assert_eq!(
+            conversations[8].conversation.inner.group_id, groups[6].inner.group_id,
+            "Group 7 should be the ninth conversation"
         );
 
-        // Verify the last_message field for Group A and None for others
-        assert!(
-            conversations[0].last_message.is_none(),
-            "Group C should have no messages"
-        );
-        assert!(
-            conversations[1].last_message.is_some(),
-            "Group A should have a last message"
-        );
-        assert_eq!(
-            conversations[1].last_message.as_ref().unwrap().content,
-            "Message to Group A".as_bytes().to_vec(),
-            "Group A's last message content should match"
-        );
-        assert!(
-            conversations[2].last_message.is_none(),
-            "Group B should have no messages"
-        );
+        // Step 7: Verify that for conversations 0 through 5, last_message is Some
+        // Index of group[0] in conversations -> 5
+        for i in 0..=5 {
+            assert!(
+                conversations[5 - i].last_message.is_some(),
+                "Group {} should have a last message",
+                i + 1
+            );
+        }
+
+        // Step 8: Verify that for conversations 6, 7, 8, last_message is None
+        #[allow(clippy::needless_range_loop)]
+        for i in 6..=8 {
+            assert!(
+                conversations[i].last_message.is_none(),
+                "Group {} should have no last message",
+                i + 1
+            );
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -3203,6 +4057,93 @@ mod tests {
         let client2_group = client2.conversation(group.id()).unwrap();
         let client2_members = client2_group.list_members().await.unwrap();
         assert_eq!(client2_members.len(), 2);
+    }
+
+    // ... existing code ...
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_create_new_installation_can_see_dm() {
+        // Create two wallets
+        let wallet1_key = &mut rng();
+        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
+        let wallet2_key = &mut rng();
+        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+
+        // Create initial clients
+        let client1 = new_test_client_with_wallet(wallet1.clone()).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Create DM from client1 to client2
+        let dm_group = client1
+            .conversations()
+            .find_or_create_dm(
+                client2.account_address.clone(),
+                FfiCreateDMOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Verify both clients can see the DM
+        let client1_groups = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        let client2_groups = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(client1_groups.len(), 1, "Client1 should see 1 conversation");
+        assert_eq!(client2_groups.len(), 1, "Client2 should see 1 conversation");
+
+        // Create a second client1 with same wallet
+        let client1_second = new_test_client_with_wallet(wallet1).await;
+
+        // Verify client1_second starts with no conversations
+        let initial_conversations = client1_second
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            initial_conversations.len(),
+            0,
+            "New client should start with no conversations"
+        );
+
+        // Send message from client1 to client2
+        dm_group
+            .send("Hello from client1".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Sync all clients
+        client1.conversations().sync().await.unwrap();
+        // client2.conversations().sync().await.unwrap();
+
+        tracing::info!(
+            "ABOUT TO SYNC CLIENT 1 SECOND: {}",
+            client1_second.inbox_id().to_string()
+        );
+        client1_second.conversations().sync().await.unwrap();
+
+        // Verify second client1 can see the DM
+        let client1_second_groups = client1_second
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(
+            client1_second_groups.len(),
+            1,
+            "Second client1 should see 1 conversation"
+        );
+        assert_eq!(
+            client1_second_groups[0].conversation.id(),
+            dm_group.id(),
+            "Second client1's conversation should match original DM"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -3525,8 +4466,6 @@ mod tests {
         assert_eq!(alix_members.len(), 1);
     }
 
-    // test is also showing intermittent failures with database locked msg
-    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_and_update_name_without_forking_group() {
         let alix = new_test_client().await;
@@ -3889,7 +4828,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_permissions_show_expected_values() {
+    async fn test_group_permissions_show_expected_values() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
         // Create admin_only group
@@ -3917,13 +4856,13 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
 
         // Create all_members group
         let all_members_options = FfiCreateGroupOptions {
-            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            permissions: Some(FfiGroupPermissionsOptions::Default),
             ..Default::default()
         };
         let alix_group_all_members = alix
@@ -3946,7 +4885,66 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Allow,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Allow,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_dm_permissions_show_expected_values() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group_admin_only = alix
+            .conversations()
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_admin_only
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Deny,
+            remove_member_policy: FfiPermissionPolicy::Deny,
+            add_admin_policy: FfiPermissionPolicy::Deny,
+            remove_admin_policy: FfiPermissionPolicy::Deny,
+            update_group_name_policy: FfiPermissionPolicy::Allow,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_message_disappearing_policy: FfiPermissionPolicy::Allow,
+        };
+        assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
+
+        // Create all_members group
+        let all_members_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::Default),
+            ..Default::default()
+        };
+        let alix_group_all_members = alix
+            .conversations()
+            .create_group(vec![bo.account_address.clone()], all_members_options)
+            .await
+            .unwrap();
+
+        // Verify we can read the expected permissions
+        let alix_permission_policy_set = alix_group_all_members
+            .group_permissions()
+            .unwrap()
+            .policy_set()
+            .unwrap();
+        let expected_permission_policy_set = FfiPermissionPolicySet {
+            add_member_policy: FfiPermissionPolicy::Allow,
+            remove_member_policy: FfiPermissionPolicy::Admin,
+            add_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            remove_admin_policy: FfiPermissionPolicy::SuperAdmin,
+            update_group_name_policy: FfiPermissionPolicy::Allow,
+            update_group_description_policy: FfiPermissionPolicy::Allow,
+            update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_permission_policy_set, expected_permission_policy_set);
     }
@@ -3979,7 +4977,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, expected_permission_policy_set);
 
@@ -4006,7 +5004,7 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Admin,
             update_group_image_url_square_policy: FfiPermissionPolicy::Allow,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
         assert_eq!(alix_group_permissions, new_expected_permission_policy_set);
 
@@ -4047,6 +5045,261 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_disappearing_messages_deletion() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let bola_provider = bola.inner_client.mls_provider().unwrap();
+
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let mut alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 2);
+
+        // Step 4: Set disappearing settings to 5ns after the latest message
+        let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
+        let disappearing_settings =
+            FfiMessageDisappearingSettings::new(latest_message_sent_at_ns, 5);
+        alix_group
+            .update_conversation_message_disappearing_settings(disappearing_settings.clone())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify the settings were applied
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        bola.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let bola_group_from_db = bola_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            bola_group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            bola_group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        // Step 5: Send additional messages
+        for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
+            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+        }
+        alix_group.sync().await.unwrap();
+
+        // Step 6: Verify total message count before cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let msg_counts_before_cleanup = alix_messages.len();
+
+        // Wait for cleanup to complete
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Step 8: Disable disappearing messages
+        alix_group
+            .remove_conversation_message_disappearing_settings()
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Verify disappearing settings are disabled
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            0
+        );
+        assert!(!alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
+        assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
+
+        // Step 9: Send another message
+        alix_group
+            .send("Msg 5 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Step 10: Verify messages after cleanup
+        alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(msg_counts_before_cleanup, alix_messages.len());
+        // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_disappearing_messages_when_creating_group() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                    group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string()),
+                    custom_permission_policy_set: None,
+                    message_disappearing_settings: Some(disappearing_settings.clone()),
+                },
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 2);
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 1);
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_disappearing_messages_when_creating_dm() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .find_or_create_dm(
+                bola.account_address.clone(),
+                FfiCreateDMOptions::new(disappearing_settings.clone()),
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(alix_messages.len(), 1);
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_group_creation_custom_permissions() {
         let alix = new_test_client().await;
         let bola = new_test_client().await;
@@ -4057,9 +5310,9 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options = FfiCreateGroupOptions {
@@ -4067,8 +5320,8 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions),
+            message_disappearing_settings: None,
         };
 
         let alix_group = alix
@@ -4103,8 +5356,9 @@ mod tests {
             group_permissions_policy_set.update_group_image_url_square_policy,
             FfiPermissionPolicy::Admin
         );
+
         assert_eq!(
-            group_permissions_policy_set.update_group_pinned_frame_url_policy,
+            group_permissions_policy_set.update_message_disappearing_policy,
             FfiPermissionPolicy::Admin
         );
         assert_eq!(
@@ -4167,9 +5421,9 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let custom_permissions_valid = FfiPermissionPolicySet {
@@ -4178,9 +5432,9 @@ mod tests {
             update_group_name_policy: FfiPermissionPolicy::Admin,
             update_group_description_policy: FfiPermissionPolicy::Allow,
             update_group_image_url_square_policy: FfiPermissionPolicy::Admin,
-            update_group_pinned_frame_url_policy: FfiPermissionPolicy::Admin,
             add_member_policy: FfiPermissionPolicy::Allow,
             remove_member_policy: FfiPermissionPolicy::Deny,
+            update_message_disappearing_policy: FfiPermissionPolicy::Admin,
         };
 
         let create_group_options_invalid_1 = FfiCreateGroupOptions {
@@ -4188,8 +5442,8 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_invalid_1),
+            message_disappearing_settings: None,
         };
 
         let results_1 = alix
@@ -4203,12 +5457,12 @@ mod tests {
         assert!(results_1.is_err());
 
         let create_group_options_invalid_2 = FfiCreateGroupOptions {
-            permissions: Some(FfiGroupPermissionsOptions::AllMembers),
+            permissions: Some(FfiGroupPermissionsOptions::Default),
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+            message_disappearing_settings: None,
         };
 
         let results_2 = alix
@@ -4226,8 +5480,8 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid.clone()),
+            message_disappearing_settings: None,
         };
 
         let results_3 = alix
@@ -4245,8 +5499,8 @@ mod tests {
             group_name: Some("Test Group".to_string()),
             group_image_url_square: Some("https://example.com/image.png".to_string()),
             group_description: Some("A test group".to_string()),
-            group_pinned_frame_url: Some("https://example.com/frame.png".to_string()),
             custom_permission_policy_set: Some(custom_permissions_valid),
+            message_disappearing_settings: None,
         };
 
         let results_4 = alix
@@ -4374,7 +5628,7 @@ mod tests {
         let bola_conversations = bola.conversations();
 
         let _alix_dm = alix_conversations
-            .create_dm(bola.account_address.clone())
+            .find_or_create_dm(bola.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let alix_num_sync = alix_conversations
@@ -4424,6 +5678,7 @@ mod tests {
     async fn test_dm_streaming() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
+        let caro = new_test_client().await;
 
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -4441,7 +5696,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -4470,7 +5725,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -4484,8 +5739,8 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
-        alix.conversations()
-            .create_dm(bo.account_address.clone())
+        caro.conversations()
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -4513,7 +5768,7 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -4755,7 +6010,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -4791,7 +6046,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -4853,7 +6108,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -4998,7 +6253,10 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .create_dm(wallet_a.get_address().clone())
+            .find_or_create_dm(
+                wallet_a.get_address().clone(),
+                FfiCreateDMOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -5197,7 +6455,7 @@ mod tests {
         // Bo sends read receipt
         let read_receipt_content_id = ContentTypeId {
             authority_id: "xmtp.org".to_string(),
-            type_id: read_receipt::ReadReceiptCodec::TYPE_ID.to_string(),
+            type_id: ReadReceiptCodec::TYPE_ID.to_string(),
             version_major: 1,
             version_minor: 0,
         };
@@ -5253,5 +6511,350 @@ mod tests {
                 .unwrap();
         let text_message = TextCodec::decode(latest_message_encoded_content).unwrap();
         assert_eq!(text_message, "hey alix");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_and_receive_reaction() {
+        // Create two test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Create a conversation between them
+        let alix_conversation = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        // Send initial message to react to
+        let mut buf = Vec::new();
+        TextCodec::encode("Hello world".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
+        alix_conversation.send(buf).await.unwrap();
+
+        // Have Bo sync to get the conversation and message
+        bo.conversations().sync().await.unwrap();
+        let bo_conversation = bo.conversation(alix_conversation.id()).unwrap();
+        bo_conversation.sync().await.unwrap();
+
+        // Get the message to react to
+        let messages = bo_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let message_to_react_to = &messages[0];
+
+        // Create and send reaction
+        let ffi_reaction = FfiReaction {
+            reference: hex::encode(message_to_react_to.id.clone()),
+            reference_inbox_id: alix.inbox_id(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+        let bytes_to_send = encode_reaction(ffi_reaction).unwrap();
+        bo_conversation.send(bytes_to_send).await.unwrap();
+
+        // Have Alix sync to get the reaction
+        alix_conversation.sync().await.unwrap();
+
+        // Get reactions for the original message
+        let messages = alix_conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        // Verify reaction details
+        assert_eq!(messages.len(), 3);
+        let received_reaction = &messages[2];
+        let message_content = received_reaction.content.clone();
+        let reaction = decode_reaction(message_content).unwrap();
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, FfiReactionAction::Added);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
+        assert_eq!(reaction.schema, FfiReactionSchema::Unicode);
+
+        // Test find_messages_with_reactions query
+        let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
+            .find_messages_with_reactions(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages_with_reactions.len(), 2);
+        let message_with_reactions = &messages_with_reactions[1];
+        assert_eq!(message_with_reactions.reactions.len(), 1);
+        let message_content = message_with_reactions.reactions[0].content.clone();
+        let slice: &[u8] = message_content.as_slice();
+        let encoded_content = EncodedContent::decode(slice).unwrap();
+        let reaction = ReactionV2::decode(encoded_content.content.as_slice()).unwrap();
+        assert_eq!(reaction.content, "👍");
+        assert_eq!(reaction.action, ReactionAction::Added as i32);
+        assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
+        assert_eq!(
+            reaction.reference,
+            hex::encode(message_to_react_to.id.clone())
+        );
+        assert_eq!(reaction.schema, ReactionSchema::Unicode as i32);
+    }
+
+    #[tokio::test]
+    async fn test_reaction_encode_decode() {
+        // Create a test reaction
+        let original_reaction = FfiReaction {
+            reference: "123abc".to_string(),
+            reference_inbox_id: "test_inbox_id".to_string(),
+            action: FfiReactionAction::Added,
+            content: "👍".to_string(),
+            schema: FfiReactionSchema::Unicode,
+        };
+
+        // Encode the reaction
+        let encoded_bytes = encode_reaction(original_reaction.clone())
+            .expect("Should encode reaction successfully");
+
+        // Decode the reaction
+        let decoded_reaction =
+            decode_reaction(encoded_bytes).expect("Should decode reaction successfully");
+
+        // Verify the decoded reaction matches the original
+        assert_eq!(decoded_reaction.reference, original_reaction.reference);
+        assert_eq!(
+            decoded_reaction.reference_inbox_id,
+            original_reaction.reference_inbox_id
+        );
+        assert!(matches!(decoded_reaction.action, FfiReactionAction::Added));
+        assert_eq!(decoded_reaction.content, original_reaction.content);
+        assert!(matches!(
+            decoded_reaction.schema,
+            FfiReactionSchema::Unicode
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_update_policies_empty_group() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+
+        // Create a group with amal and bola with admin-only permissions
+        let admin_only_options = FfiCreateGroupOptions {
+            permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+            ..Default::default()
+        };
+        let amal_group = amal
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                admin_only_options.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Verify we can update the group name without syncing first
+        amal_group
+            .update_group_name("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_group.sync().await.unwrap();
+        assert_eq!(amal_group.group_name().unwrap(), "New Group Name 1");
+
+        // Create a group with just amal
+        let amal_solo_group = amal
+            .conversations()
+            .create_group(vec![], admin_only_options)
+            .await
+            .unwrap();
+
+        // Verify we can update the group name
+        amal_solo_group
+            .update_group_name("New Group Name 2".to_string())
+            .await
+            .unwrap();
+
+        // Verify the name is updated
+        amal_solo_group.sync().await.unwrap();
+        assert_eq!(amal_solo_group.group_name().unwrap(), "New Group Name 2");
+    }
+
+    #[tokio::test]
+    async fn test_find_or_create_dm() {
+        // Create two test users
+        let wallet1 = generate_local_wallet();
+        let wallet2 = generate_local_wallet();
+
+        let client1 = new_test_client_with_wallet(wallet1).await;
+        let client2 = new_test_client_with_wallet(wallet2).await;
+
+        // Test find_or_create_dm_by_inbox_id
+        let inbox_id2 = client2.inbox_id();
+        let dm_by_inbox = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(inbox_id2, FfiCreateDMOptions::default())
+            .await
+            .expect("Should create DM with inbox ID");
+
+        // Verify conversation appears in DM list
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should have one DM conversation");
+        assert_eq!(
+            dms[0].conversation.id(),
+            dm_by_inbox.id(),
+            "Listed DM should match created DM"
+        );
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // First client tries to create another DM with the same inbox id
+        let dm_by_inbox2 = client1
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client2.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox2.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client1
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
+
+        // Second client tries to create a DM with the client 1 inbox id
+        let dm_by_inbox3 = client2
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client1.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        // Sync both clients
+        client1.conversations().sync().await.unwrap();
+        client2.conversations().sync().await.unwrap();
+
+        // Id should be the same as the existing DM and the num of dms should still be 1
+        assert_eq!(
+            dm_by_inbox3.id(),
+            dm_by_inbox.id(),
+            "New DM should match existing DM"
+        );
+        let dms = client2
+            .conversations()
+            .list_dms(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(dms.len(), 1, "Should still have one DM conversation");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_stream_and_receive_metadata_update() {
+        // Create test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // If we comment out this stream, the test passes
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream = bo
+            .conversations()
+            .stream_all_messages(stream_callback.clone())
+            .await;
+        stream.wait_for_ready().await;
+
+        // Create group and perform actions
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Send first message
+        let mut buf = Vec::new();
+        TextCodec::encode("hello1".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
+        alix_group.send(buf).await.unwrap();
+
+        // Update group name
+        alix_group
+            .update_group_name("hello".to_string())
+            .await
+            .unwrap();
+
+        // Send second message
+        let mut buf = Vec::new();
+        TextCodec::encode("hello2".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
+        alix_group.send(buf).await.unwrap();
+
+        // Sync Bo's client
+        bo.conversations().sync().await.unwrap();
+
+        // Get Bo's groups and verify count
+        let bo_groups = bo
+            .conversations()
+            .list_groups(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(bo_groups.len(), 1);
+        let bo_group = bo_groups[0].conversation.clone();
+
+        // Sync both groups
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Get Bo's messages and verify content types
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bo_messages.len(), 3);
+
+        // Verify message content types
+        let message_types: Vec<String> = bo_messages
+            .iter()
+            .map(|msg| {
+                let encoded_content = EncodedContent::decode(msg.content.as_slice()).unwrap();
+                encoded_content.r#type.unwrap().type_id
+            })
+            .collect();
+
+        assert_eq!(message_types[0], "text");
+        assert_eq!(message_types[1], "group_updated");
+        assert_eq!(message_types[2], "text");
+
+        // this assertion is failing even though bo_group has the group_updated msg in the DB (returned from find_messages() call)
+        assert_eq!(
+            alix_group.epoch().await.unwrap(),
+            bo_group.epoch().await.unwrap()
+        );
+        assert_eq!(alix_group.group_name().unwrap(), "hello");
+        // this assertion will also fail
+        assert_eq!(bo_group.group_name().unwrap(), "hello");
+
+        // Clean up stream
+        stream.end_and_wait().await.unwrap();
     }
 }

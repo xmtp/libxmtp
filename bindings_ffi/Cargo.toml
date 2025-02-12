@@ -9,26 +9,32 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 futures.workspace = true
-tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["registry", "env-filter", "fmt", "json"] }
 parking_lot.workspace = true
 prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = [
+  "registry",
+  "env-filter",
+  "fmt",
+  "json",
+] }
 uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc" }
-xmtp_content_types = { path = "../xmtp_content_types" }
-xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls" }
+xmtp_api.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_common.workspace = true
+xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_id.workspace = true
+xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
-xmtp_common.workspace = true
 
 # Bench
 criterion = { workspace = true, optional = true }
-fdlimit = { version = "0.3", optional = true}
+fdlimit = { version = "0.3", optional = true }
 
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -51,9 +57,10 @@ rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc", features = ["test-utils"] }
-xmtp_mls = { path = "../xmtp_mls", features = ["test-utils"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
@@ -62,4 +69,3 @@ bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]
 harness = false
 name = "create_client"
 required-features = ["bench"]
-

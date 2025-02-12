@@ -1,5 +1,22 @@
 # @xmtp/node-bindings
 
+## 0.0.37
+
+- Removed group pinned frame URL
+- Fixed DB locking issues
+
+## 0.0.36
+
+- Fixed DM group metadata validation
+
+## 0.0.35
+
+- Updated `createDm` to return an existing DM group, if it exists
+
+## 0.0.34
+
+- Fixed DM group validation across installations
+
 ## 0.0.33
 
 - Added installation ID `bytes` to return value of `inboxState`

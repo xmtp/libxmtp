@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
@@ -8,10 +9,10 @@ use crate::{
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
         DbConnection, NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
 use aes_gcm::aead::generic_array::GenericArray;
@@ -19,6 +20,8 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use backup::BackupError;
 use futures::{Stream, StreamExt};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
@@ -27,10 +30,13 @@ use std::pin::Pin;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
-use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
+use xmtp_common::{
+    time::{now_ns, Duration},
+    ExponentialBackoff,
+};
 use xmtp_cryptography::utils as crypto_utils;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
@@ -41,7 +47,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-
+#[cfg(not(target_arch = "wasm32"))]
+pub mod backup;
 pub mod consent_sync;
 pub mod message_sync;
 pub mod preference_sync;
@@ -105,6 +112,13 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error(transparent)]
+    Backup(#[from] BackupError),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
 }
 
 impl RetryableError for DeviceSyncError {
@@ -138,15 +152,26 @@ where
         self.set_sync_worker_handle(worker.handle.clone());
         worker.spawn_worker();
     }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::trace!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaner worker"
+        );
+
+        let worker = DisappearingMessagesCleanerWorker::new(client);
+        worker.spawn_worker();
+    }
 }
 
 pub struct SyncWorker<ApiClient, V> {
     client: Client<ApiClient, V>,
     /// The sync events stream
     #[allow(clippy::type_complexity)]
-    stream: Pin<
-        Box<dyn Stream<Item = Result<LocalEvents<Client<ApiClient, V>>, SubscribeError>> + Send>,
-    >,
+    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send>>,
     init: OnceCell<()>,
     retry: Retry,
 
@@ -181,12 +206,20 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::error!("Outgoing preference update {preference_updates:?}");
-                    UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
-                        .await?;
+                    tracing::info!("Outgoing preference update {preference_updates:?}");
+                    retry_async!(
+                        self.retry,
+                        (async {
+                            UserPreferenceUpdate::sync_across_devices(
+                                preference_updates.clone(),
+                                &self.client,
+                            )
+                            .await
+                        })
+                    )?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::error!("Incoming preference update");
+                    tracing::info!("Incoming preference update");
                 }
                 _ => {}
             }
@@ -306,10 +339,10 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     fn new(client: Client<ApiClient, V>) -> Self {
-        let retry = Retry::builder()
-            .retries(5)
+        let strategy = ExponentialBackoff::builder()
             .duration(Duration::from_millis(20))
             .build();
+        let retry = Retry::builder().retries(5).with_strategy(strategy).build();
 
         let receiver = client.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
@@ -326,7 +359,7 @@ where
     }
 
     fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
@@ -580,7 +613,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group_with_conn(provider.conn_ref(), id)?;
+            let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
         }
@@ -597,7 +630,7 @@ where
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
         for group in groups {
-            let group = self.group_with_conn(conn, group.id)?;
+            let group = self.group_with_conn(conn, &group.id)?;
             Box::pin(
                 group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
             )
@@ -719,9 +752,9 @@ where
     pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group_id = conn
             .latest_sync_group()?
-            .ok_or(GroupError::GroupNotFound)?
+            .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
             .id;
-        let sync_group = self.group_with_conn(conn, sync_group_id.clone())?;
+        let sync_group = self.group_with_conn(conn, &sync_group_id)?;
 
         Ok(sync_group)
     }

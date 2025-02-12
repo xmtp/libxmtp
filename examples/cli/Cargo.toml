@@ -29,18 +29,19 @@ timeago = "0.4.1"
 tokio.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-subscriber = { workspace = true, features = [
-    "json",
-    "valuable",
-    "env-filter",
-    "ansi",
-    "chrono",
+  "json",
+  "valuable",
+  "env-filter",
+  "ansi",
+  "chrono",
 ] }
 valuable = { version = "0.1", features = ["derive"] }
 valuable-serde = "0.1"
+xmtp_api = { path = "../../xmtp_api" }
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
-xmtp_cryptography = { path = "../../xmtp_cryptography" }
+xmtp_common.workspace = true
 xmtp_content_types = { path = "../../xmtp_content_types" }
+xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
-xmtp_common.workspace = true

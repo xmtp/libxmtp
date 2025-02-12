@@ -22,7 +22,7 @@ pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
 #[cfg(not(target_arch = "wasm32"))]
-mod native;
+pub(super) mod native;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
@@ -31,7 +31,7 @@ mod sqlcipher_connection;
 pub mod user_preferences;
 pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
-mod wasm;
+pub(super) mod wasm;
 
 pub use self::db_connection::DbConnection;
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,8 +46,8 @@ pub use self::wasm::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
 pub use sqlite_web::{connection::WasmSqliteConnection as RawDbConnection, WasmSqlite as Sqlite};
 
-use super::StorageError;
-use crate::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, Store};
+use super::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, StorageError};
+use crate::Store;
 use db_connection::DbConnectionPrivate;
 use diesel::{
     connection::{LoadConnection, TransactionManager},
@@ -57,7 +57,6 @@ use diesel::{
     sql_query,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use std::sync::Arc;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -159,6 +158,8 @@ impl EncryptedMessageStore {
 
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
 pub mod private {
+    use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
+
     use super::*;
     use diesel::connection::SimpleConnection;
     use diesel_migrations::MigrationHarness;
@@ -177,7 +178,7 @@ pub mod private {
         #[tracing::instrument(level = "trace", skip_all)]
         pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
             self.db.validate(&self.opts)?;
-            self.db.conn()?.raw_query(|conn| {
+            self.db.conn()?.raw_query_write(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
                 tracing::info!("Running DB migrations");
                 conn.run_pending_migrations(MIGRATIONS)?;
@@ -195,9 +196,9 @@ pub mod private {
 
         pub fn mls_provider(
             &self,
-        ) -> Result<XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+        ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
             let conn = self.conn()?;
-            Ok(crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate::new(conn))
+            Ok(XmtpOpenMlsProviderPrivate::new(conn))
         }
 
         /// Pulls a new connection from the store
@@ -205,129 +206,6 @@ pub mod private {
             &self,
         ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
             self.db.conn()
-        }
-
-        /// Start a new database transaction with the OpenMLS Provider from XMTP
-        /// with the provided connection
-        /// # Arguments
-        /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-        ///
-        /// # Examples
-        ///
-        /// ```ignore
-        /// store.transaction(|provider| {
-        ///     // do some operations requiring provider
-        ///     // access the connection with .conn()
-        ///     provider.conn().db_operation()?;
-        /// })
-        /// ```
-        pub fn transaction<T, F, E>(
-            &self,
-            provider: &XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: FnOnce(&XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Result<T, E>,
-            E: From<diesel::result::Error> + From<StorageError>,
-        {
-            tracing::debug!("Transaction beginning");
-            {
-                let connection = provider.conn_ref();
-                let mut connection = connection.inner_mut_ref();
-                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-            }
-
-            let conn = provider.conn_ref();
-
-            match fun(provider) {
-                Ok(value) => {
-                    conn.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                    })?;
-                    tracing::debug!("Transaction being committed");
-                    Ok(value)
-                }
-                Err(err) => {
-                    tracing::debug!("Transaction being rolled back");
-                    match conn.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                    }) {
-                        Ok(()) => Err(err),
-                        Err(Error::BrokenTransactionManager) => Err(err),
-                        Err(rollback) => Err(rollback.into()),
-                    }
-                }
-            }
-        }
-
-        /// Start a new database transaction with the OpenMLS Provider from XMTP
-        /// # Arguments
-        /// `fun`: Scoped closure providing an [`XmtpOpenMLSProvider`] to carry out the transaction in
-        /// async context.
-        ///
-        /// # Examples
-        ///
-        /// ```ignore
-        /// store.transaction_async(|provider| async move {
-        ///     // do some operations requiring provider
-        ///     // access the connection with .conn()
-        ///     provider.conn().db_operation()?;
-        /// }).await
-        /// ```
-        pub async fn transaction_async<'a, T, F, E, Fut>(
-            &self,
-            provider: &'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>,
-            fun: F,
-        ) -> Result<T, E>
-        where
-            F: FnOnce(&'a XmtpOpenMlsProviderPrivate<<Db as XmtpDb>::Connection>) -> Fut,
-            Fut: futures::Future<Output = Result<T, E>>,
-            E: From<diesel::result::Error> + From<StorageError>,
-        {
-            tracing::debug!("Transaction async beginning");
-            {
-                let connection = provider.conn_ref();
-                let mut connection = connection.inner_mut_ref();
-                <Db as XmtpDb>::TransactionManager::begin_transaction(&mut *connection)?;
-            }
-
-            // ensuring we have only one strong reference
-            let result = fun(provider).await;
-            let local_connection = provider.conn_ref().inner_ref();
-            if Arc::strong_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 strong connection references still exist during async transaction"
-                );
-            }
-
-            if Arc::weak_count(&local_connection) > 1 {
-                tracing::warn!(
-                    "More than 1 weak connection references still exist during transaction"
-                );
-            }
-
-            // after the closure finishes, `local_provider` should have the only reference ('strong')
-            // to `XmtpOpenMlsProvider` inner `DbConnection`..
-            let local_connection = DbConnectionPrivate::from_arc_mutex(local_connection);
-            match result {
-                Ok(value) => {
-                    local_connection.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                    })?;
-                    tracing::debug!("Transaction async being committed");
-                    Ok(value)
-                }
-                Err(err) => {
-                    tracing::debug!("Transaction async being rolled back");
-                    match local_connection.raw_query(|conn| {
-                        <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                    }) {
-                        Ok(()) => Err(err),
-                        Err(Error::BrokenTransactionManager) => Err(err),
-                        Err(rollback) => Err(rollback.into()),
-                    }
-                }
-            }
         }
 
         /// Release connection to the database, closing it
@@ -363,7 +241,7 @@ macro_rules! impl_fetch {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.first(conn).optional())?)
+                Ok(self.raw_query_read(|conn| $table.first(conn).optional())?)
             }
         }
     };
@@ -375,7 +253,7 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.find(key.clone()).first(conn).optional())?)
+                Ok(self.raw_query_read(|conn| $table.find(key.clone()).first(conn).optional())?)
             }
         }
     };
@@ -389,7 +267,7 @@ macro_rules! impl_fetch_list {
         {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query(|conn| $table.load::<$model>(conn))?)
+                Ok(self.raw_query_read(|conn| $table.load::<$model>(conn))?)
             }
         }
     };
@@ -407,8 +285,9 @@ macro_rules! impl_fetch_list_with_key {
                 keys: &[Self::Key],
             ) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::{$column, *};
-                Ok(self
-                    .raw_query(|conn| $table.filter($column.eq_any(keys)).load::<$model>(conn))?)
+                Ok(self.raw_query_read(|conn| {
+                    $table.filter($column.eq_any(keys)).load::<$model>(conn)
+                })?)
             }
         }
     };
@@ -425,7 +304,7 @@ macro_rules! impl_store {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query(|conn| {
+                into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -447,7 +326,7 @@ macro_rules! impl_store_or_ignore {
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
-                into.raw_query(|conn| {
+                into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
                         .execute(conn)
@@ -471,6 +350,66 @@ where
     }
 }
 
+pub trait ProviderTransactions<Db>
+where
+    Db: XmtpDb,
+{
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError> + std::error::Error;
+}
+
+impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
+where
+    Db: XmtpDb,
+{
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// with the provided connection
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction(|provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// })
+    /// ```
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError> + std::error::Error,
+    {
+        tracing::debug!("Transaction beginning");
+
+        let conn = self.conn_ref();
+        let _guard = conn.start_transaction::<Db>()?;
+
+        match fun(self) {
+            Ok(value) => {
+                conn.raw_query_write(|conn| {
+                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
+                })?;
+                tracing::debug!("Transaction being committed");
+                Ok(value)
+            }
+            Err(err) => {
+                tracing::debug!("Transaction being rolled back");
+                match conn.raw_query_write(|conn| {
+                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
+                }) {
+                    Ok(()) => Err(err),
+                    Err(Error::BrokenTransactionManager) => Err(err),
+                    Err(rollback) => Err(rollback.into()),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
@@ -486,7 +425,7 @@ pub(crate) mod tests {
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        Fetch, Store, StreamHandle as _, XmtpOpenMlsProvider,
+        Fetch, Store,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 
@@ -609,7 +548,7 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query(|conn| {
+            .raw_query_write(|conn| {
                 for _ in 0..15 {
                     conn.run_next_migration(MIGRATIONS)?;
                 }
@@ -655,14 +594,14 @@ pub(crate) mod tests {
             .db
             .conn()
             .unwrap()
-            .raw_query(|conn| {
+            .raw_query_write(|conn| {
                 conn.run_pending_migrations(MIGRATIONS)?;
                 Ok::<_, StorageError>(())
             })
             .unwrap();
 
         let groups = conn
-            .raw_query(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
@@ -724,127 +663,5 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::remove_db_files(db_path)
-    }
-
-    // get two connections
-    // start a transaction
-    // try to write with second connection
-    // write should fail & rollback
-    // first thread succeeds
-    // wasm does not have threads
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn test_transaction_rollback() {
-        use std::sync::Barrier;
-
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-
-        let barrier = Arc::new(Barrier::new(2));
-        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
-        let store_pointer = store.clone();
-        let barrier_pointer = barrier.clone();
-        let handle = std::thread::spawn(move || {
-            store_pointer.transaction(&provider, |provider| {
-                let conn1 = provider.conn_ref();
-                StoredIdentity::new("correct".to_string(), rand_vec::<24>(), rand_vec::<24>())
-                    .store(conn1)
-                    .unwrap();
-                // wait for second transaction to start
-                barrier_pointer.wait();
-                // wait for second transaction to finish
-                barrier_pointer.wait();
-                Ok::<_, StorageError>(())
-            })
-        });
-
-        let store_pointer = store.clone();
-        let provider = XmtpOpenMlsProvider::new(store.conn().unwrap());
-        let handle2 = std::thread::spawn(move || {
-            barrier.wait();
-            let result =
-                store_pointer.transaction(&provider, |provider| -> Result<(), anyhow::Error> {
-                    let connection = provider.conn_ref();
-                    let group = StoredGroup::new(
-                        b"should not exist".to_vec(),
-                        0,
-                        GroupMembershipState::Allowed,
-                        "goodbye".to_string(),
-                        None,
-                    );
-                    group.store(connection)?;
-                    Ok(())
-                });
-            barrier.wait();
-            result
-        });
-
-        let result = handle.join().unwrap();
-        assert!(result.is_ok());
-
-        let result = handle2.join().unwrap();
-
-        // handle 2 errored because the first transaction has precedence
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "Diesel result error: database is locked"
-        );
-        let groups = store
-            .conn()
-            .unwrap()
-            .find_group(b"should not exist".to_vec())
-            .unwrap();
-        assert_eq!(groups, None);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_async_transaction() {
-        let db_path = tmp_path();
-
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path.clone()),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-
-        let store_pointer = store.clone();
-        let provider = XmtpOpenMlsProvider::new(store_pointer.conn().unwrap());
-        let handle = crate::spawn(None, async move {
-            store_pointer
-                .transaction_async(&provider, |provider| async move {
-                    let conn1 = provider.conn_ref();
-                    StoredIdentity::new("crab".to_string(), rand_vec::<24>(), rand_vec::<24>())
-                        .store(conn1)
-                        .unwrap();
-
-                    let group = StoredGroup::new(
-                        b"should not exist".to_vec(),
-                        0,
-                        GroupMembershipState::Allowed,
-                        "goodbye".to_string(),
-                        None,
-                    );
-                    group.store(conn1).unwrap();
-
-                    anyhow::bail!("force a rollback")
-                })
-                .await?;
-            Ok::<_, anyhow::Error>(())
-        });
-
-        let result = handle.join().await.unwrap();
-        assert!(result.is_err());
-
-        let conn = store.conn().unwrap();
-        // this group should not exist because of the rollback
-        let groups = conn.find_group(b"should not exist".to_vec()).unwrap();
-        assert_eq!(groups, None);
     }
 }

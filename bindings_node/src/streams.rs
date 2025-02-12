@@ -1,14 +1,14 @@
 use napi::bindgen_prelude::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use xmtp_mls::{
-  client::ClientError, AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle,
-  StreamHandleError,
+use xmtp_common::{
+  AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
 };
+use xmtp_mls::subscriptions::SubscribeError;
 
 use napi_derive::napi;
 
-type StreamHandle = Box<GenericStreamHandle<Result<(), ClientError>>>;
+type StreamHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
 #[napi]
 pub struct StreamCloser {
@@ -18,7 +18,7 @@ pub struct StreamCloser {
 
 impl StreamCloser {
   pub fn new(
-    handle: impl XmtpStreamHandle<StreamOutput = Result<(), ClientError>> + Send + Sync + 'static,
+    handle: impl XmtpStreamHandle<StreamOutput = Result<(), SubscribeError>> + Send + Sync + 'static,
   ) -> Self {
     let abort = handle.abort_handle();
     Self {
@@ -39,7 +39,7 @@ impl StreamCloser {
 
   /// End the stream and `await` for it to shutdown
   /// Returns the `Result` of the task.
-  /// End the stream and asyncronously wait for it to shutdown
+  /// End the stream and asynchronously wait for it to shutdown
   #[napi]
   pub async fn end_and_wait(&self) -> Result<(), Error> {
     use StreamHandleError::*;

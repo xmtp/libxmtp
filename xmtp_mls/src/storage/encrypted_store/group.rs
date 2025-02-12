@@ -12,6 +12,7 @@ use crate::{
 
 use crate::storage::NotFound;
 
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -51,6 +52,10 @@ pub struct StoredGroup {
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     pub last_message_ns: Option<i64>,
+    /// The Time in NS when the messages should be deleted
+    pub message_disappear_from_ns: Option<i64>,
+    /// How long a message in the group can live in NS
+    pub message_disappear_in_ns: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -58,6 +63,7 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new group from a welcome message
+    #[allow(clippy::too_many_arguments)]
     pub fn new_from_welcome(
         id: ID,
         created_at_ns: i64,
@@ -66,6 +72,7 @@ impl StoredGroup {
         welcome_id: i64,
         conversation_type: ConversationType,
         dm_members: Option<DmMembers<String>>,
+        message_disappearing_settings: Option<MessageDisappearingSettings>,
     ) -> Self {
         Self {
             id,
@@ -78,6 +85,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
+            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
         }
     }
 
@@ -88,6 +97,7 @@ impl StoredGroup {
         membership_state: GroupMembershipState,
         added_by_inbox_id: String,
         dm_members: Option<DmMembers<String>>,
+        message_disappearing_settings: Option<MessageDisappearingSettings>,
     ) -> Self {
         Self {
             id,
@@ -103,6 +113,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
+            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
         }
     }
 
@@ -124,6 +136,8 @@ impl StoredGroup {
             rotated_at_ns: 0,
             dm_id: None,
             last_message_ns: Some(now_ns()),
+            message_disappear_from_ns: None,
+            message_disappear_in_ns: None,
         }
     }
 }
@@ -135,7 +149,7 @@ pub struct GroupQueryArgs {
     pub created_before_ns: Option<i64>,
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
-    pub consent_state: Option<ConsentState>,
+    pub consent_states: Option<Vec<ConsentState>>,
     pub include_sync_groups: bool,
     pub include_duplicate_dms: bool,
 }
@@ -195,11 +209,11 @@ impl GroupQueryArgs {
         self
     }
 
-    pub fn consent_state(self, consent_state: ConsentState) -> Self {
-        self.maybe_consent_state(Some(consent_state))
+    pub fn consent_states(self, consent_states: Vec<ConsentState>) -> Self {
+        self.maybe_consent_states(Some(consent_states))
     }
-    pub fn maybe_consent_state(mut self, consent_state: Option<ConsentState>) -> Self {
-        self.consent_state = consent_state;
+    pub fn maybe_consent_states(mut self, consent_states: Option<Vec<ConsentState>>) -> Self {
+        self.consent_states = consent_states;
         self
     }
 
@@ -223,7 +237,7 @@ impl DbConnection {
             created_before_ns,
             limit,
             conversation_type,
-            consent_state,
+            consent_states,
             include_sync_groups,
             include_duplicate_dms,
         } = args.as_ref();
@@ -265,8 +279,12 @@ impl DbConnection {
             query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut groups = if let Some(consent_state) = consent_state {
-            if *consent_state == ConsentState::Unknown {
+        let mut groups = if let Some(consent_states) = consent_states {
+            if consent_states
+                .iter()
+                .any(|state| *state == ConsentState::Unknown)
+            {
+                // Include both `Unknown`, `null`, and other specified states
                 let query = query
                     .left_join(
                         consent_dsl::consent_records
@@ -276,27 +294,36 @@ impl DbConnection {
                     .filter(
                         consent_dsl::state
                             .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown)),
+                            .or(consent_dsl::state.eq(ConsentState::Unknown))
+                            .or(consent_dsl::state.eq_any(
+                                consent_states
+                                    .iter()
+                                    .filter(|state| **state != ConsentState::Unknown)
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                            )),
                     )
                     .select(groups_dsl::groups::all_columns())
                     .order(groups_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             } else {
+                // Only include the specified states
                 let query = query
                     .inner_join(
                         consent_dsl::consent_records
                             .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
                                 .eq(consent_dsl::entity)),
                     )
-                    .filter(consent_dsl::state.eq(*consent_state))
+                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
                     .select(groups_dsl::groups::all_columns())
                     .order(groups_dsl::created_at_ns.asc());
 
-                self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             }
         } else {
-            self.raw_query(|conn| query.load::<StoredGroup>(conn))?
+            // Handle the case where `consent_states` is `None`
+            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -304,7 +331,7 @@ impl DbConnection {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query =
                 groups_dsl::groups.filter(groups_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
             groups.append(&mut sync_groups);
         }
 
@@ -312,7 +339,7 @@ impl DbConnection {
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query(|conn| super::schema::consent_records::table.load(conn))?)
+        Ok(self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
@@ -320,7 +347,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
@@ -329,17 +356,17 @@ impl DbConnection {
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .limit(1);
 
-        Ok(self.raw_query(|conn| query.load(conn))?.pop())
+        Ok(self.raw_query_read(|conn| query.load(conn))?.pop())
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
-        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .order(dsl::created_at_ns.asc())
+            .limit(1)
+            .filter(dsl::id.eq(id));
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
 
-        query = query.limit(1).filter(dsl::id.eq(id));
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
-
-        // Manually extract the first element
         Ok(groups.into_iter().next())
     }
 
@@ -352,11 +379,14 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
-        if groups.len() > 1 {
-            tracing::error!("More than one group found for welcome_id {}", welcome_id);
-        }
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
 
+        if groups.len() > 1 {
+            tracing::warn!(
+                welcome_id,
+                "More than one group found for welcome_id {welcome_id}"
+            );
+        }
         Ok(groups.into_iter().next())
     }
 
@@ -370,7 +400,7 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(Some(dm_id)))
             .order(dsl::last_message_ns.desc());
 
-        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
         if groups.len() > 1 {
             tracing::info!("More than one group found for dm_inbox_id {members:?}");
         }
@@ -384,7 +414,7 @@ impl DbConnection {
         group_id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
                 .execute(conn)
@@ -394,7 +424,7 @@ impl DbConnection {
     }
 
     pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts: Option<i64> = self.raw_query(|conn| {
+        let last_ts: Option<i64> = self.raw_query_read(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
@@ -410,7 +440,7 @@ impl DbConnection {
 
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::rotated_at_ns.eq(now))
@@ -421,7 +451,7 @@ impl DbConnection {
     }
 
     pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query(|conn| {
+        let last_ts = self.raw_query_read(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::installations_last_checked)
@@ -435,7 +465,7 @@ impl DbConnection {
 
     /// Updates the 'last time checked' we checked for new installations.
     pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
-        self.raw_query(|conn| {
+        self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installations_last_checked.eq(now))
@@ -445,9 +475,37 @@ impl DbConnection {
         Ok(())
     }
 
+    pub fn update_message_disappearing_from_ns(
+        &self,
+        group_id: Vec<u8>,
+        from_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_from_ns.eq(from_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn update_message_disappearing_in_ns(
+        &self,
+        group_id: Vec<u8>,
+        in_ns: Option<i64>,
+    ) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::message_disappear_in_ns.eq(in_ns))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
-        let stored_group = self.raw_query(|conn| {
+        let stored_group = self.raw_query_write(|conn| {
             let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
@@ -477,6 +535,22 @@ impl DbConnection {
         })?;
 
         Ok(stored_group)
+    }
+
+    /// Get all the welcome ids turned into groups
+    pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+        self.raw_query_read(|conn| {
+            Ok::<_, StorageError>(
+                dsl::groups
+                    .filter(dsl::welcome_id.is_not_null())
+                    .select(dsl::welcome_id)
+                    .load::<Option<i64>>(conn)?
+                    .into_iter()
+                    .map(|id| id.expect("SQL explicity filters for none"))
+                    .collect(),
+            )
+        })
+        .map_err(Into::into)
     }
 }
 
@@ -616,6 +690,27 @@ pub(crate) mod tests {
             membership_state,
             "placeholder_address".to_string(),
             None,
+            None,
+        )
+    }
+
+    /// Generate a test group with welcome
+    pub fn generate_group_with_welcome(
+        state: Option<GroupMembershipState>,
+        welcome_id: Option<i64>,
+    ) -> StoredGroup {
+        let id = rand_vec::<24>();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        StoredGroup::new_from_welcome(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+            welcome_id.unwrap_or(xmtp_common::rand_i64()),
+            ConversationType::Group,
+            None,
+            None,
         )
     }
 
@@ -649,6 +744,7 @@ pub(crate) mod tests {
             state.unwrap_or(GroupMembershipState::Allowed),
             "placeholder_address".to_string(),
             Some(members),
+            None,
         )
     }
 
@@ -660,7 +756,7 @@ pub(crate) mod tests {
 
             test_group.store(conn).unwrap();
             assert_eq!(
-                conn.raw_query(|raw_conn| groups.first::<StoredGroup>(raw_conn))
+                conn.raw_query_read(|raw_conn| groups.first::<StoredGroup>(raw_conn))
                     .unwrap(),
                 test_group
             );
@@ -674,7 +770,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query(|raw_conn| {
+            conn.raw_query_write(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)
@@ -722,6 +818,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "thats_me".to_string(),
                     member_two_inbox_id: "some_wise_guy".to_string(),
                 }),
+                None,
             );
             dm1.store(conn).unwrap();
 
@@ -734,6 +831,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "some_wise_guy".to_string(),
                     member_two_inbox_id: "thats_me".to_string(),
                 }),
+                None,
             );
             dm2.store(conn).unwrap();
 
@@ -754,6 +852,11 @@ pub(crate) mod tests {
             test_group_2.store(conn).unwrap();
             let test_group_3 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_3.store(conn).unwrap();
+
+            let other_inbox_id = test_group_3
+                .dm_id
+                .unwrap()
+                .other_inbox_id("placeholder_inbox_id_1");
 
             let all_results = conn
                 .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
@@ -802,11 +905,10 @@ pub(crate) mod tests {
             assert_eq!(dm_results[2].id, test_group_3.id);
 
             // test find_dm_group
-
             let dm_result = conn
                 .find_dm_group(&DmMembers {
                     member_one_inbox_id: "placeholder_inbox_id_1",
-                    member_two_inbox_id: "placeholder_inbox_id_2",
+                    member_two_inbox_id: &other_inbox_id,
                 })
                 .unwrap();
             assert!(dm_result.is_some());
@@ -850,7 +952,7 @@ pub(crate) mod tests {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
-            conn.raw_query(|raw_conn| {
+            conn.raw_query_write(|raw_conn| {
                 diesel::insert_into(groups)
                     .values(test_group.clone())
                     .execute(raw_conn)
@@ -886,7 +988,7 @@ pub(crate) mod tests {
             // Load the sync group with a consent filter
             let allowed_groups = conn
                 .find_groups(&GroupQueryArgs {
-                    consent_state: Some(ConsentState::Allowed),
+                    consent_states: Some([ConsentState::Allowed].to_vec()),
                     include_sync_groups: true,
                     ..Default::default()
                 })
@@ -934,21 +1036,53 @@ pub(crate) mod tests {
             assert_eq!(all_results.len(), 4);
 
             let allowed_results = conn
-                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Allowed))
+                .find_groups(
+                    GroupQueryArgs::default().consent_states([ConsentState::Allowed].to_vec()),
+                )
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
+            let allowed_unknown_results = conn
+                .find_groups(
+                    GroupQueryArgs::default()
+                        .consent_states([ConsentState::Allowed, ConsentState::Unknown].to_vec()),
+                )
+                .unwrap();
+            assert_eq!(allowed_unknown_results.len(), 3);
+
             let denied_results = conn
-                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Denied))
+                .find_groups(
+                    GroupQueryArgs::default().consent_states([ConsentState::Denied].to_vec()),
+                )
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
             assert_eq!(denied_results[0].id, test_group_2.id);
 
             let unknown_results = conn
-                .find_groups(GroupQueryArgs::default().consent_state(ConsentState::Unknown))
+                .find_groups(
+                    GroupQueryArgs::default().consent_states([ConsentState::Unknown].to_vec()),
+                )
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
+        })
+        .await
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_group_welcome_ids() {
+        with_connection(|conn| {
+            let mls_groups = vec![
+                generate_group_with_welcome(None, Some(30)),
+                generate_group(None),
+                generate_group(None),
+                generate_group_with_welcome(None, Some(10)),
+            ];
+            for g in mls_groups.iter() {
+                g.store(conn).unwrap();
+            }
+            assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
         .await
     }

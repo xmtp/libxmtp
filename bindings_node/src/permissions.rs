@@ -14,7 +14,7 @@ use xmtp_mls::groups::{
 
 #[napi]
 pub enum GroupPermissionsOptions {
-  AllMembers,
+  Default,
   AdminOnly,
   CustomPolicy,
 }
@@ -160,13 +160,13 @@ pub struct PermissionPolicySet {
   pub update_group_name_policy: PermissionPolicy,
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
-  pub update_group_pinned_frame_url_policy: PermissionPolicy,
+  pub update_message_disappearing_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
   fn from(policy: PreconfiguredPolicies) -> Self {
     match policy {
-      PreconfiguredPolicies::AllMembers => GroupPermissionsOptions::AllMembers,
+      PreconfiguredPolicies::Default => GroupPermissionsOptions::Default,
       PreconfiguredPolicies::AdminsOnly => GroupPermissionsOptions::AdminOnly,
     }
   }
@@ -212,8 +212,8 @@ impl GroupPermissions {
       update_group_image_url_square_policy: get_policy(
         XmtpMetadataField::GroupImageUrlSquare.as_str(),
       ),
-      update_group_pinned_frame_url_policy: get_policy(
-        XmtpMetadataField::GroupPinnedFrameUrl.as_str(),
+      update_message_disappearing_policy: get_policy(
+        XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
     })
   }
@@ -238,8 +238,8 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
       policy_set.update_group_image_url_square_policy.try_into()?,
     );
     metadata_permissions_map.insert(
-      XmtpMetadataField::GroupPinnedFrameUrl.to_string(),
-      policy_set.update_group_pinned_frame_url_policy.try_into()?,
+      XmtpMetadataField::MessageDisappearInNS.to_string(),
+      policy_set.update_message_disappearing_policy.try_into()?,
     );
 
     Ok(PolicySet {
@@ -258,7 +258,6 @@ pub enum MetadataField {
   GroupName,
   Description,
   ImageUrlSquare,
-  PinnedFrameUrl,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
@@ -267,7 +266,6 @@ impl From<&MetadataField> for XmtpMetadataField {
       MetadataField::GroupName => XmtpMetadataField::GroupName,
       MetadataField::Description => XmtpMetadataField::Description,
       MetadataField::ImageUrlSquare => XmtpMetadataField::GroupImageUrlSquare,
-      MetadataField::PinnedFrameUrl => XmtpMetadataField::GroupPinnedFrameUrl,
     }
   }
 }

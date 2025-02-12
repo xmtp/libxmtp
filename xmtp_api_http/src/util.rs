@@ -1,11 +1,9 @@
-use futures::{
-    stream::{self, StreamExt},
-    Stream,
-};
+use crate::http_stream::SubscriptionItem;
+use crate::Error;
+use crate::ErrorResponse;
+use crate::HttpClientError;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Deserializer;
 use std::io::Read;
-use xmtp_proto::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
@@ -16,18 +14,6 @@ pub(crate) enum GrpcResponse<T> {
     Empty {},
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub(crate) struct ErrorResponse {
-    code: usize,
-    pub message: String,
-    details: Vec<String>,
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub(crate) struct SubscriptionItem<T> {
-    pub result: T,
-}
-
 /// handle JSON response from gRPC, returning either
 /// the expected deserialized response object or a gRPC [`Error`]
 pub fn handle_error<R: Read, T>(reader: R) -> Result<T, Error>
@@ -36,97 +22,36 @@ where
 {
     match serde_json::from_reader(reader) {
         Ok(GrpcResponse::Ok(response)) => Ok(response),
-        Ok(GrpcResponse::Err(e)) => Err(Error::new(ErrorKind::IdentityError).with(e.message)),
+        Ok(GrpcResponse::Err(e)) => Err(Error::new(HttpClientError::from(e))),
         Ok(GrpcResponse::Empty {}) => Ok(Default::default()),
         Ok(GrpcResponse::SubscriptionItem(item)) => Ok(item.result),
-        Err(e) => Err(Error::new(ErrorKind::QueryError).with(e.to_string())),
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn create_grpc_stream<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
->(
-    request: T,
-    endpoint: String,
-    http_client: reqwest::Client,
-) -> stream::LocalBoxStream<'static, Result<R, Error>> {
-    create_grpc_stream_inner(request, endpoint, http_client).boxed_local()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn create_grpc_stream<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
->(
-    request: T,
-    endpoint: String,
-    http_client: reqwest::Client,
-) -> stream::BoxStream<'static, Result<R, Error>> {
-    create_grpc_stream_inner(request, endpoint, http_client).boxed()
-}
-
-pub fn create_grpc_stream_inner<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + std::fmt::Debug + 'static,
->(
-    request: T,
-    endpoint: String,
-    http_client: reqwest::Client,
-) -> impl Stream<Item = Result<R, Error>> {
-    async_stream::stream! {
-        let request = http_client
-                .post(endpoint)
-                .json(&request)
-                .send()
-                .await
-                .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
-
-        let mut remaining = vec![];
-        for await bytes in request.bytes_stream() {
-            let bytes = bytes
-                .map_err(|e| Error::new(ErrorKind::SubscriptionUpdateError).with(e.to_string()))?;
-            let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
-            let de = Deserializer::from_slice(bytes);
-            let mut stream = de.into_iter::<GrpcResponse<R>>();
-            'messages: loop {
-                let response = stream.next();
-                let res = match response {
-                    Some(Ok(GrpcResponse::Ok(response))) => Ok(response),
-                    Some(Ok(GrpcResponse::SubscriptionItem(item))) => Ok(item.result),
-                    Some(Ok(GrpcResponse::Err(e))) => {
-                        Err(Error::new(ErrorKind::MlsError).with(e.message))
-                    }
-                    Some(Err(e)) => {
-                        if e.is_eof() {
-                            remaining = (&**bytes)[stream.byte_offset()..].to_vec();
-                            break 'messages;
-                        } else {
-                            Err(Error::new(ErrorKind::MlsError).with(e.to_string()))
-                        }
-                    }
-                    Some(Ok(GrpcResponse::Empty {})) => continue 'messages,
-                    None => break 'messages,
-                };
-                yield res;
-            }
-        }
+        Err(e) => Err(Error::new(e)),
     }
 }
 
 #[cfg(feature = "test-utils")]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[allow(clippy::unwrap_used)]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     async fn create_local() -> Self {
-        crate::XmtpHttpApiClient::new("http://localhost:5555".into())
-            .expect("could not create client")
+        use xmtp_proto::api_client::ApiBuilder;
+        let mut api = crate::XmtpHttpApiClient::builder();
+        api.set_host(crate::constants::ApiUrls::LOCAL_ADDRESS.into());
+        api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        api.set_app_version("0.0.0".into()).unwrap();
+        api.build().await.unwrap()
     }
 
     async fn create_dev() -> Self {
-        crate::XmtpHttpApiClient::new("https://grpc.dev.xmtp.network:443".into())
-            .expect("coult not create client")
+        use xmtp_proto::api_client::ApiBuilder;
+        let mut api = crate::XmtpHttpApiClient::builder();
+        api.set_host(crate::constants::ApiUrls::DEV_ADDRESS.into());
+        api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        api.set_app_version("0.0.0".into()).unwrap();
+        api.build().await.unwrap()
     }
 }
 

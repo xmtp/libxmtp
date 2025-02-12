@@ -36,9 +36,10 @@ mod ios {
     }
 }
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+// production logger for anything not ios/android mobile
+#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 pub use other::*;
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
+#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
 mod other {
     use super::*;
 
@@ -50,43 +51,20 @@ mod other {
             fmt::{self, format},
             EnvFilter, Layer,
         };
-        let structured = std::env::var("STRUCTURED");
-        let is_structured = matches!(structured, Ok(s) if s == "true" || s == "1");
-
-        let filter = || {
-            EnvFilter::builder()
-                .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-                .from_env_lossy()
-        };
-
-        vec![
-            // structured JSON logger
-            is_structured
-                .then(|| {
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .flatten_event(true)
-                        .with_level(true)
-                        .with_filter(filter())
+        let filter = EnvFilter::builder()
+            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .from_env_lossy();
+        fmt::layer()
+            .compact()
+            .fmt_fields({
+                format::debug_fn(move |writer, field, value| {
+                    if field.name() == "message" {
+                        write!(writer, "{:?}", value)?;
+                    }
+                    Ok(())
                 })
-                .boxed(),
-            // default logger
-            (!is_structured)
-                .then(|| {
-                    fmt::layer()
-                        .compact()
-                        .fmt_fields({
-                            format::debug_fn(move |writer, field, value| {
-                                if field.name() == "message" {
-                                    write!(writer, "{:?}", value)?;
-                                }
-                                Ok(())
-                            })
-                        })
-                        .with_filter(filter())
-                })
-                .boxed(),
-        ]
+            })
+            .with_filter(filter)
     }
 }
 
@@ -96,4 +74,19 @@ pub fn init_logger() {
         let native_layer = native_layer();
         let _ = tracing_subscriber::registry().with(native_layer).try_init();
     });
+}
+
+#[cfg(test)]
+pub use test_logger::*;
+
+#[cfg(test)]
+mod test_logger {
+    use super::*;
+
+    pub fn native_layer<S>() -> impl Layer<S>
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        xmtp_common::logger_layer()
+    }
 }

@@ -7,6 +7,7 @@ use crate::client::RustXmtpClient;
 use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
+use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
@@ -18,10 +19,27 @@ use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind,
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
+}
+
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  #[allow(dead_code)]
+  inner: XmtpMessageDisappearingSettings,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.inner.from_ns,
+      in_ns: value.inner.in_ns,
+    }
+  }
 }
 
 #[wasm_bindgen]
@@ -240,7 +258,7 @@ impl Conversation {
       })
       .collect();
 
-    Ok(serde_wasm_bindgen::to_value(&members)?)
+    Ok(crate::to_value(&members)?)
   }
 
   #[wasm_bindgen(js_name = adminList)]
@@ -474,34 +492,18 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[wasm_bindgen(js_name = updateGroupPinnedFrameUrl)]
-  pub async fn update_group_pinned_frame_url(
-    &self,
-    pinned_frame_url: String,
-  ) -> Result<(), JsError> {
-    let group = self.to_mls_group();
+  #[wasm_bindgen(js_name = stream)]
+  pub fn stream(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let stream_closer = MlsGroup::stream_with_callback(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      move |message| match message {
+        Ok(item) => callback.on_message(item.into()),
+        Err(e) => callback.on_error(JsError::from(e)),
+      },
+    );
 
-    group
-      .update_group_pinned_frame_url(pinned_frame_url)
-      .await
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = groupPinnedFrameUrl)]
-  pub fn group_pinned_frame_url(&self) -> Result<String, JsError> {
-    let group = self.to_mls_group();
-
-    let group_pinned_frame_url = group
-      .group_pinned_frame_url(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
-      .map_err(|e| JsError::new(&format!("{e}")))?;
-
-    Ok(group_pinned_frame_url)
+    Ok(StreamCloser::new(stream_closer))
   }
 
   #[wasm_bindgen(js_name = createdAtNs)]
@@ -571,5 +573,35 @@ impl Conversation {
       )
       .await
       .map_err(Into::into)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::wasm_bindgen_test;
+  use xmtp_mls::storage::group_message::{
+    ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+  };
+  wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+  #[wasm_bindgen_test]
+  fn test_group_message_to_object() {
+    let stored_message = StoredGroupMessage {
+      id: xmtp_common::rand_vec::<32>(),
+      group_id: xmtp_common::rand_vec::<32>(),
+      decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
+      sent_at_ns: 1738354508964432000,
+      kind: GroupMessageKind::Application,
+      sender_installation_id: xmtp_common::rand_vec::<32>(),
+      sender_inbox_id: String::from("test"),
+      delivery_status: DeliveryStatus::Published,
+      content_type: ContentType::Text,
+      version_major: 4,
+      version_minor: 123,
+      authority_id: String::from("test"),
+      reference_id: None,
+    };
+    let value = crate::to_value(&stored_message).unwrap();
   }
 }
