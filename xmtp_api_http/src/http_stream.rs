@@ -1,6 +1,6 @@
 //! Streams that work with HTTP POST requests
 
-use crate::util::GrpcResponse;
+use crate::{util::GrpcResponse, Error, HttpClientError};
 use futures::{
     stream::{self, Stream, StreamExt},
     Future,
@@ -15,7 +15,6 @@ use std::{
     task::{ready, Context, Poll},
 };
 use xmtp_common::StreamWrapper;
-use xmtp_proto::{Error, ErrorKind};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub(crate) struct SubscriptionItem<T> {
@@ -43,17 +42,15 @@ impl<'a, F> Future for HttpStreamEstablish<'a, F>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
 {
-    type Output = Result<StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>, Error>;
+    type Output = Result<StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>, HttpClientError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         use Poll::*;
         let this = self.as_mut().project();
         let response = ready!(this.inner.poll(cx));
-        let stream = response
-            .inspect_err(|e| {
-                tracing::error!("Error during http subscription with grpc http gateway {e}");
-            })
-            .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
+        let stream = response.inspect_err(|e| {
+            tracing::error!("Error during http subscription with grpc http gateway {e}");
+        })?;
         Ready(Ok(StreamWrapper::new(stream.bytes_stream())))
     }
 }
@@ -70,7 +67,7 @@ impl<R> Stream for HttpPostStream<'_, R>
 where
     for<'de> R: Send + Deserialize<'de>,
 {
-    type Item = Result<R, Error>;
+    type Item = Result<R, HttpClientError>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -81,9 +78,7 @@ where
         let item = ready!(this.http.as_mut().poll_next(cx));
         match item {
             Some(bytes) => {
-                let bytes = bytes
-                    .inspect_err(|e| tracing::error!("Error in http stream to grpc gateway {e}"))
-                    .map_err(|_| Error::new(ErrorKind::SubscribeError))?;
+                let bytes = bytes?;
                 let item = Self::on_bytes(bytes, this.remaining)?.pop();
                 if let Some(item) = item {
                     Ready(Some(Ok(item)))
@@ -113,7 +108,7 @@ impl<R> HttpPostStream<'_, R>
 where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
 {
-    fn on_bytes(bytes: bytes::Bytes, remaining: &mut Vec<u8>) -> Result<Vec<R>, Error> {
+    fn on_bytes(bytes: bytes::Bytes, remaining: &mut Vec<u8>) -> Result<Vec<R>, HttpClientError> {
         let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
         let de = Deserializer::from_slice(bytes);
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
@@ -127,14 +122,14 @@ where
                 Ok(GrpcResponse::Ok(response)) => items.push(response),
                 Ok(GrpcResponse::SubscriptionItem(item)) => items.push(item.result),
                 Ok(GrpcResponse::Err(e)) => {
-                    return Err(Error::new(ErrorKind::MlsError).with(e.message));
+                    return Err(HttpClientError::Grpc(e));
                 }
                 Err(e) => {
                     if e.is_eof() {
                         *remaining = (&**bytes)[deser_stream.byte_offset()..].to_vec();
                         break;
                     } else {
-                        return Err(Error::new(ErrorKind::MlsError).with(e.to_string()));
+                        return Err(HttpClientError::from(e));
                     }
                 }
                 Ok(GrpcResponse::Empty {}) => continue,
@@ -210,7 +205,7 @@ where
             Started { stream } => {
                 let item = ready!(stream.poll_next(cx));
                 tracing::trace!("stream id={} ready with item", &self.id);
-                Poll::Ready(item)
+                Poll::Ready(item.map(|i| i.map_err(Error::from)))
             }
         }
     }

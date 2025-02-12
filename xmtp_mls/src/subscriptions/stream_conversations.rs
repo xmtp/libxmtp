@@ -84,20 +84,25 @@ impl Stream for BroadcastGroupStream {
 
 pin_project! {
     /// Subscription Stream mapped to WelcomeOrGroup
-    pub(super) struct SubscriptionStream<S> {
+    pub(super) struct SubscriptionStream<S, E> {
         #[pin] inner: S,
+        _marker: std::marker::PhantomData<E>
     }
 }
 
-impl<S> SubscriptionStream<S> {
+impl<S, E> SubscriptionStream<S, E> {
     fn new(inner: S) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
-impl<S> Stream for SubscriptionStream<S>
+impl<S, E> Stream for SubscriptionStream<S, E>
 where
-    S: Stream<Item = std::result::Result<WelcomeMessage, xmtp_proto::Error>>,
+    S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
+    E: xmtp_proto::XmtpApiError + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 
@@ -107,7 +112,9 @@ where
 
         match this.inner.poll_next(cx) {
             Ready(Some(welcome)) => {
-                let welcome = welcome.map_err(SubscribeError::from)?;
+                let welcome = welcome
+                    .map_err(xmtp_proto::ApiError::from)
+                    .map_err(SubscribeError::from)?;
                 Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
             }
             Pending => Pending,
@@ -141,10 +148,11 @@ pin_project! {
     }
 }
 
-type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
+type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
 
 pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
     <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::Error,
 >;
 
 impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>

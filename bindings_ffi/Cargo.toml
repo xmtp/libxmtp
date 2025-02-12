@@ -21,12 +21,13 @@ tracing-subscriber = { workspace = true, features = [
   "json",
 ] }
 uniffi = { version = "0.28.0", default-features = false, features = ["tokio"] }
-xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_api.workspace = true
+xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
-xmtp_content_types = { path = "../xmtp_content_types" }
-xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls" }
+xmtp_content_types.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_id.workspace = true
+xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }

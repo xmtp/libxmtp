@@ -30,8 +30,11 @@ use std::pin::Pin;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
-use xmtp_common::time::{now_ns, Duration};
 use xmtp_common::{retry_async, Retry, RetryableError};
+use xmtp_common::{
+    time::{now_ns, Duration},
+    ExponentialBackoff,
+};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -203,7 +206,7 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::error!("Outgoing preference update {preference_updates:?}");
+                    tracing::info!("Outgoing preference update {preference_updates:?}");
                     retry_async!(
                         self.retry,
                         (async {
@@ -336,10 +339,10 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     fn new(client: Client<ApiClient, V>) -> Self {
-        let retry = Retry::builder()
-            .retries(5)
+        let strategy = ExponentialBackoff::builder()
             .duration(Duration::from_millis(20))
             .build();
+        let retry = Retry::builder().retries(5).with_strategy(strategy).build();
 
         let receiver = client.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
@@ -356,7 +359,7 @@ where
     }
 
     fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
