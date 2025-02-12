@@ -222,6 +222,7 @@ pub enum ConversionError {
     InvalidLength {
         /// the item being converted
         item: &'static str,
+        /// expected length of the item being converted
         expected: usize,
         /// the length of the received item
         got: usize,
