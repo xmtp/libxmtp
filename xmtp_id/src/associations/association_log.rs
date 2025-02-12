@@ -1,9 +1,9 @@
-use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
 use super::verified_signature::VerifiedSignature;
+use super::PublicIdentifier;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -137,12 +137,11 @@ impl IdentityAction for AddAssociation {
 
         // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
         // Otherwise the client should use the regular wallet signature to create
+        let existing_member_public_identifier: PublicIdentifier =
+            existing_member_identifier.clone().into();
         if (is_legacy_signature(&self.new_member_signature)
             || is_legacy_signature(&self.existing_member_signature))
-            && existing_state.inbox_id().ne(&generate_inbox_id(
-                existing_member_identifier.to_string().as_str(),
-                &0,
-            )?)
+            && existing_state.inbox_id() != existing_member_public_identifier.get_inbox_id(0)?
         {
             return Err(AssociationError::LegacySignatureReuse);
         }
@@ -154,20 +153,19 @@ impl IdentityAction for AddAssociation {
 
         let existing_member = existing_state.get(existing_member_identifier);
 
-        if let Some(member) = &existing_member {
+        if let Some(member) = existing_member {
             verify_chain_id_matches(member, &self.existing_member_signature)?;
         }
 
         let existing_entity_id = match existing_member {
             // If there is an existing member of the XID, use that member's ID
-            Some(member) => member.identifier.clone(),
+            Some(member) => member.identifier.clone().into(),
             None => {
                 // Get the recovery address from the state as a MemberIdentifier
-                let recovery_identifier: MemberIdentifier =
-                    existing_state.recovery_address().clone().into();
+                let recovery_identifier = existing_state.recovery_identifier().clone();
 
                 // Check if it is a signature from the recovery address, which is allowed to add members
-                if existing_member_identifier.ne(&recovery_identifier) {
+                if *existing_member_identifier != recovery_identifier {
                     return Err(AssociationError::MissingExistingMember);
                 }
                 // BUT, the recovery address has to be used with a real wallet signature, can't be delegated
@@ -240,12 +238,10 @@ impl IdentityAction for RevokeAssociation {
         // Don't need to check for replay here since revocation is idempotent
         let recovery_signer = &self.recovery_address_signature.signer;
         // Make sure there is a recovery address set on the state
-        let state_recovery_address = existing_state.recovery_address();
+        let state_recovery_identifier = existing_state.recovery_identifier();
 
         // Ensure this message is signed by the recovery address
-        if recovery_signer.ne(&MemberIdentifier::Ethereum(
-            state_recovery_address.clone().to_lowercase(),
-        )) {
+        if recovery_signer != state_recovery_identifier {
             return Err(AssociationError::MissingExistingMember);
         }
 
@@ -273,12 +269,12 @@ impl IdentityAction for RevokeAssociation {
 
 /// ChangeRecoveryAddress Action
 #[derive(Debug, Clone)]
-pub struct ChangeRecoveryAddress {
+pub struct ChangeRecoveryIdentity {
     pub recovery_address_signature: VerifiedSignature,
-    pub new_recovery_address: String,
+    pub new_recovery_identity: PublicIdentifier,
 }
 
-impl IdentityAction for ChangeRecoveryAddress {
+impl IdentityAction for ChangeRecoveryIdentity {
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -300,11 +296,11 @@ impl IdentityAction for ChangeRecoveryAddress {
         }
 
         let recovery_signer = &self.recovery_address_signature.signer;
-        if recovery_signer.ne(&existing_state.recovery_address().clone().into()) {
+        if existing_state.recovery_identifier() != recovery_signer {
             return Err(AssociationError::MissingExistingMember);
         }
 
-        Ok(existing_state.set_recovery_address(self.new_recovery_address.clone()))
+        Ok(existing_state.set_recovery_address(self.new_recovery_identity.clone()))
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
@@ -318,7 +314,7 @@ pub enum Action {
     CreateInbox(CreateInbox),
     AddAssociation(AddAssociation),
     RevokeAssociation(RevokeAssociation),
-    ChangeRecoveryAddress(ChangeRecoveryAddress),
+    ChangeRecoveryIdentity(ChangeRecoveryIdentity),
 }
 
 impl IdentityAction for Action {
@@ -335,7 +331,7 @@ impl IdentityAction for Action {
             Action::RevokeAssociation(event) => {
                 event.update_state(existing_state, client_timestamp_ns)
             }
-            Action::ChangeRecoveryAddress(event) => {
+            Action::ChangeRecoveryIdentity(event) => {
                 event.update_state(existing_state, client_timestamp_ns)
             }
         }
@@ -346,7 +342,7 @@ impl IdentityAction for Action {
             Action::CreateInbox(event) => event.signatures(),
             Action::AddAssociation(event) => event.signatures(),
             Action::RevokeAssociation(event) => event.signatures(),
-            Action::ChangeRecoveryAddress(event) => event.signatures(),
+            Action::ChangeRecoveryIdentity(event) => event.signatures(),
         }
     }
 }

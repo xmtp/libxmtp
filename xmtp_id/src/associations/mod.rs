@@ -613,7 +613,7 @@ pub(crate) mod tests {
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
         let new_recovery_address = rand_hexstring();
-        let update_recovery = Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+        let update_recovery = Action::ChangeRecoveryIdentity(ChangeRecoveryAddress {
             new_recovery_address: new_recovery_address.clone(),
             recovery_address_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
@@ -701,7 +701,7 @@ pub(crate) mod tests {
                 recovery_address_signature: existing_member_sig.clone(),
                 revoked_member: signer.clone().into(),
             }),
-            Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+            Action::ChangeRecoveryIdentity(ChangeRecoveryAddress {
                 recovery_address_signature: existing_member_sig.clone(),
                 new_recovery_address: rand_hexstring(),
             }),

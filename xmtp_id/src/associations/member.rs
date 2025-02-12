@@ -4,6 +4,8 @@ use ed25519_dalek::VerifyingKey;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
 
+use super::PublicIdentifier;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
     Installation,
@@ -72,9 +74,9 @@ impl std::fmt::Debug for MemberIdentifier {
 impl MemberIdentifier {
     pub fn kind(&self) -> MemberKind {
         match self {
-            MemberIdentifier::Ethereum(_) => MemberKind::Ethereum,
-            MemberIdentifier::Installation(_) => MemberKind::Installation,
-            MemberIdentifier::Passkey(_) => MemberKind::Passkey,
+            Self::Ethereum(_) => MemberKind::Ethereum,
+            Self::Installation(_) => MemberKind::Installation,
+            Self::Passkey(_) => MemberKind::Passkey,
         }
     }
 
@@ -182,7 +184,7 @@ impl From<XmtpInstallationCredential> for MemberIdentifier {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Member {
     pub identifier: MemberIdentifier,
-    pub added_by_entity: Option<MemberIdentifier>,
+    pub added_by_entity: Option<PublicIdentifier>,
     pub client_timestamp_ns: Option<u64>,
     pub added_on_chain_id: Option<u64>,
 }
@@ -190,7 +192,7 @@ pub struct Member {
 impl Member {
     pub fn new(
         identifier: MemberIdentifier,
-        added_by_entity: Option<MemberIdentifier>,
+        added_by_entity: Option<PublicIdentifier>,
         client_timestamp_ns: Option<u64>,
         added_on_chain_id: Option<u64>,
     ) -> Self {
