@@ -11,6 +11,7 @@ import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.Message.SortDirection
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.Topic
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
@@ -19,10 +20,15 @@ import uniffi.xmtpv3.FfiDirection
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiSubscribeException
 import java.util.Date
 
-class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private val ffiLastMessage: FfiMessage? = null) {
+class Dm(
+    val client: Client,
+    private val libXMTPGroup: FfiConversation,
+    private val ffiLastMessage: FfiMessage? = null,
+) {
     val id: String
         get() = libXMTPGroup.id().toHex()
 
@@ -34,6 +40,18 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
 
     val peerInboxId: String
         get() = libXMTPGroup.dmPeerInboxId()
+
+    val disappearingMessageSettings: DisappearingMessageSettings?
+        get() = runCatching {
+            libXMTPGroup.takeIf { isDisappearingMessagesEnabled }
+                ?.let { group ->
+                    group.conversationMessageDisappearingSettings()
+                        ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                }
+        }.getOrNull()
+
+    val isDisappearingMessagesEnabled: Boolean
+        get() = libXMTPGroup.isConversationMessageDisappearingEnabled()
 
     private suspend fun metadata(): FfiConversationMetadata {
         return libXMTPGroup.groupMetadata()
@@ -157,8 +175,8 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
             )
         )
 
-        return ffiMessageWithReactions.mapNotNull { ffiMessageWithReactions ->
-            Message.create(ffiMessageWithReactions)
+        return ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
+            Message.create(ffiMessageWithReaction)
         }
     }
 
@@ -195,6 +213,31 @@ class Dm(val client: Client, private val libXMTPGroup: FfiConversation, private 
 
         val stream = libXMTPGroup.stream(messageCallback)
         awaitClose { stream.end() }
+    }
+
+    suspend fun clearDisappearingMessageSettings() {
+        try {
+            libXMTPGroup.removeConversationMessageDisappearingSettings()
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to clear group message expiration", e)
+        }
+    }
+
+    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) {
+        try {
+            if (disappearingMessageSettings == null) {
+                clearDisappearingMessageSettings()
+            } else {
+                libXMTPGroup.updateConversationMessageDisappearingSettings(
+                    FfiMessageDisappearingSettings(
+                        disappearingMessageSettings.disappearStartingAtNs,
+                        disappearingMessageSettings.retentionDurationInNs
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update group message expiration", e)
+        }
     }
 
     fun updateConsentState(state: ConsentState) {

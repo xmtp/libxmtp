@@ -11,6 +11,7 @@ import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.Message.SortDirection
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import org.xmtp.android.library.messages.Topic
@@ -22,6 +23,7 @@ import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSubscribeException
@@ -57,6 +59,18 @@ class Group(
 
     val description: String
         get() = libXMTPGroup.groupDescription()
+
+    val disappearingMessageSettings: DisappearingMessageSettings?
+        get() = runCatching {
+            libXMTPGroup.takeIf { isDisappearingMessagesEnabled }
+                ?.let { group ->
+                    group.conversationMessageDisappearingSettings()
+                        ?.let { DisappearingMessageSettings.createFromFfi(it) }
+                }
+        }.getOrNull()
+
+    val isDisappearingMessagesEnabled: Boolean
+        get() = libXMTPGroup.isConversationMessageDisappearingEnabled()
 
     suspend fun send(text: String): String {
         return send(encodeContent(content = text, options = null))
@@ -176,8 +190,8 @@ class Group(
             )
         )
 
-        return ffiMessageWithReactions.mapNotNull { ffiMessageWithReactions ->
-            Message.create(ffiMessageWithReactions)
+        return ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
+            Message.create(ffiMessageWithReaction)
         }
     }
 
@@ -278,6 +292,31 @@ class Group(
             return libXMTPGroup.updateGroupDescription(description)
         } catch (e: Exception) {
             throw XMTPException("Permission denied: Unable to update group description", e)
+        }
+    }
+
+    suspend fun clearDisappearingMessageSettings() {
+        try {
+            libXMTPGroup.removeConversationMessageDisappearingSettings()
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to clear group message expiration", e)
+        }
+    }
+
+    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) {
+        try {
+            if (disappearingMessageSettings == null) {
+                clearDisappearingMessageSettings()
+            } else {
+                libXMTPGroup.updateConversationMessageDisappearingSettings(
+                    FfiMessageDisappearingSettings(
+                        disappearingMessageSettings.disappearStartingAtNs,
+                        disappearingMessageSettings.retentionDurationInNs
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            throw XMTPException("Permission denied: Unable to update group message expiration", e)
         }
     }
 

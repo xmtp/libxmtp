@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.Member
 import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import java.util.Date
 
 sealed class Conversation {
@@ -44,6 +45,22 @@ sealed class Conversation {
             }
         }
 
+    val disappearingMessageSettings: DisappearingMessageSettings?
+        get() {
+            return when (this) {
+                is Group -> group.disappearingMessageSettings
+                is Dm -> dm.disappearingMessageSettings
+            }
+        }
+
+    val isDisappearingMessagesEnabled: Boolean
+        get() {
+            return when (this) {
+                is Group -> group.isDisappearingMessagesEnabled
+                is Dm -> dm.isDisappearingMessagesEnabled
+            }
+        }
+
     suspend fun lastMessage(): Message? {
         return when (this) {
             is Group -> group.lastMessage()
@@ -55,6 +72,20 @@ sealed class Conversation {
         return when (this) {
             is Group -> group.members()
             is Dm -> dm.members()
+        }
+    }
+
+    suspend fun clearDisappearingMessageSettings() {
+        return when (this) {
+            is Group -> group.clearDisappearingMessageSettings()
+            is Dm -> dm.clearDisappearingMessageSettings()
+        }
+    }
+
+    suspend fun updateDisappearingMessageSettings(disappearingMessageSettings: DisappearingMessageSettings?) {
+        return when (this) {
+            is Group -> group.updateDisappearingMessageSettings(disappearingMessageSettings)
+            is Dm -> dm.updateDisappearingMessageSettings(disappearingMessageSettings)
         }
     }
 
@@ -135,7 +166,14 @@ sealed class Conversation {
         deliveryStatus: Message.MessageDeliveryStatus = Message.MessageDeliveryStatus.ALL,
     ): List<Message> {
         return when (this) {
-            is Group -> group.messagesWithReactions(limit, beforeNs, afterNs, direction, deliveryStatus)
+            is Group -> group.messagesWithReactions(
+                limit,
+                beforeNs,
+                afterNs,
+                direction,
+                deliveryStatus
+            )
+
             is Dm -> dm.messagesWithReactions(limit, beforeNs, afterNs, direction, deliveryStatus)
         }
     }

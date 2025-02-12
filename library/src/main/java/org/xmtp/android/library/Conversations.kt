@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.keystore.api.v1.Keystore
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
@@ -17,6 +18,7 @@ import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversationListItem
 import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiConversations
+import uniffi.xmtpv3.FfiCreateDmOptions
 import uniffi.xmtpv3.FfiCreateGroupOptions
 import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiListConversationsOptions
@@ -54,7 +56,7 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -63,7 +65,12 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             null,
-            messageDisappearingSettings,
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            },
         )
     }
 
@@ -73,7 +80,7 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
         return newGroupInternal(
             accountAddresses,
@@ -82,7 +89,12 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
-            messageDisappearingSettings
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            }
         )
     }
 
@@ -126,7 +138,7 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
             inboxIds,
@@ -135,7 +147,12 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             null,
-            messageDisappearingSettings
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            }
         )
     }
 
@@ -145,7 +162,7 @@ data class Conversations(
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
-        messageDisappearingSettings: FfiMessageDisappearingSettings? = null,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
         return newGroupInternalWithInboxIds(
             inboxIds,
@@ -154,7 +171,12 @@ data class Conversations(
             groupImageUrlSquare,
             groupDescription,
             PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
-            messageDisappearingSettings
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            }
         )
     }
 
@@ -200,12 +222,18 @@ data class Conversations(
         )
     }
 
-    suspend fun newConversation(peerAddress: String): Conversation {
-        val dm = findOrCreateDm(peerAddress)
+    suspend fun newConversation(
+        peerAddress: String,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Conversation {
+        val dm = findOrCreateDm(peerAddress, disappearingMessageSettings)
         return Conversation.Dm(dm)
     }
 
-    suspend fun findOrCreateDm(peerAddress: String): Dm {
+    suspend fun findOrCreateDm(
+        peerAddress: String,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Dm {
         if (peerAddress.lowercase() == client.address.lowercase()) {
             throw XMTPException("Recipient is sender")
         }
@@ -214,20 +242,46 @@ data class Conversations(
         if (falseAddresses.isNotEmpty()) {
             throw XMTPException("${falseAddresses.joinToString()} not on network")
         }
-        val dmConversation = ffiConversations.findOrCreateDm(peerAddress.lowercase())
+        val dmConversation = ffiConversations.findOrCreateDm(
+            peerAddress.lowercase(),
+            opts = FfiCreateDmOptions(
+                disappearingMessageSettings?.let {
+                    FfiMessageDisappearingSettings(
+                        it.disappearStartingAtNs,
+                        it.retentionDurationInNs
+                    )
+                }
+            )
+        )
         return Dm(client, dmConversation)
     }
 
-    suspend fun newConversationWithInboxId(peerInboxId: String): Conversation {
-        val dm = findOrCreateDmWithInboxId(peerInboxId)
+    suspend fun newConversationWithInboxId(
+        peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Conversation {
+        val dm = findOrCreateDmWithInboxId(peerInboxId, disappearingMessageSettings)
         return Conversation.Dm(dm)
     }
 
-    suspend fun findOrCreateDmWithInboxId(peerInboxId: String): Dm {
+    suspend fun findOrCreateDmWithInboxId(
+        peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Dm {
         if (peerInboxId.lowercase() == client.inboxId.lowercase()) {
             throw XMTPException("Recipient is sender")
         }
-        val dmConversation = ffiConversations.findOrCreateDmByInboxId(peerInboxId.lowercase())
+        val dmConversation = ffiConversations.findOrCreateDmByInboxId(
+            peerInboxId.lowercase(),
+            opts = FfiCreateDmOptions(
+                disappearingMessageSettings?.let {
+                    FfiMessageDisappearingSettings(
+                        it.disappearStartingAtNs,
+                        it.retentionDurationInNs
+                    )
+                }
+            )
+        )
         return Dm(client, dmConversation)
     }
 

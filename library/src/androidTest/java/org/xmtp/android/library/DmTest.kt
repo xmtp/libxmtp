@@ -6,7 +6,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -18,6 +20,7 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
@@ -399,5 +402,119 @@ class DmTest {
             )
             assertEquals(dm.consentState(), ConsentState.ALLOWED)
         }
+    }
+
+    @Test
+    fun testDmDisappearingMessages() = runBlocking {
+        val initialSettings = DisappearingMessageSettings(
+            1_000_000_000,
+            1_000_000_000 // 1s duration
+        )
+
+        // Create group with disappearing messages enabled
+        val boDm = boClient.conversations.findOrCreateDm(
+            alix.walletAddress,
+            disappearingMessageSettings = initialSettings
+        )
+        boDm.send("howdy")
+        alixClient.conversations.syncAllConversations()
+
+        val alixDm = alixClient.findDmByInboxId(boClient.inboxId)
+
+        // Validate messages exist and settings are applied
+        assertEquals(boDm.messages().size, 1) // howdy
+        assertEquals(alixDm?.messages()?.size, 1) // howdy
+        Assert.assertNotNull(boDm.disappearingMessageSettings)
+        assertEquals(boDm.disappearingMessageSettings!!.retentionDurationInNs, 1_000_000_000)
+        assertEquals(boDm.disappearingMessageSettings!!.disappearStartingAtNs, 1_000_000_000)
+        Thread.sleep(5000)
+        // Validate messages are deleted
+        assertEquals(boDm.messages().size, 0)
+        assertEquals(alixDm?.messages()?.size, 0)
+
+        // Set message disappearing settings to null
+        boDm.updateDisappearingMessageSettings(null)
+        boDm.sync()
+        alixDm!!.sync()
+
+        assertNull(boDm.disappearingMessageSettings)
+        assertNull(alixDm.disappearingMessageSettings)
+        assertFalse(boDm.isDisappearingMessagesEnabled)
+        assertFalse(alixDm.isDisappearingMessagesEnabled)
+
+        // Send messages after disabling disappearing settings
+        boDm.send("message after disabling disappearing")
+        alixDm.send("another message after disabling")
+        boDm.sync()
+
+        Thread.sleep(1000)
+
+        // Ensure messages persist
+        assertEquals(
+            boDm.messages().size,
+            2
+        ) // disappearing settings 1, disappearing settings 2, boMessage, alixMessage
+        assertEquals(
+            alixDm.messages().size,
+            2
+        ) // disappearing settings 1, disappearing settings 2, boMessage, alixMessage
+
+        // Re-enable disappearing messages
+        val updatedSettings = DisappearingMessageSettings(
+            boDm.messages().first().sentAtNs + 1_000_000_000, // 1s from now
+            1_000_000_000 // 1s duration
+        )
+        boDm.updateDisappearingMessageSettings(updatedSettings)
+        boDm.sync()
+        alixDm.sync()
+
+        Thread.sleep(1000)
+
+        assertEquals(
+            boDm.disappearingMessageSettings!!.disappearStartingAtNs,
+            updatedSettings.disappearStartingAtNs
+        )
+        assertEquals(
+            alixDm.disappearingMessageSettings!!.disappearStartingAtNs,
+            updatedSettings.disappearStartingAtNs
+        )
+
+        // Send new messages
+        boDm.send("this will disappear soon")
+        alixDm.send("so will this")
+        boDm.sync()
+
+        assertEquals(
+            boDm.messages().size,
+            4
+        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
+        assertEquals(
+            alixDm.messages().size,
+            4
+        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
+
+        Thread.sleep(6000) // Wait for messages to disappear
+
+        // Validate messages were deleted
+        assertEquals(
+            boDm.messages().size,
+            2
+        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
+        assertEquals(
+            alixDm.messages().size,
+            2
+        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
+
+        // Final validation that settings persist
+        assertEquals(
+            boDm.disappearingMessageSettings!!.retentionDurationInNs,
+            updatedSettings.retentionDurationInNs
+        )
+        assertEquals(
+            alixDm.disappearingMessageSettings!!.retentionDurationInNs,
+            updatedSettings.retentionDurationInNs
+        )
+        assert(boDm.isDisappearingMessagesEnabled)
+        assert(alixDm.isDisappearingMessagesEnabled)
     }
 }
