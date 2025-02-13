@@ -67,6 +67,7 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
+use xmtp_api::test_utils::get_test_mode_malformed_installations;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
@@ -1563,6 +1564,7 @@ where
                 new_membership.add(inbox_id.clone(), *sequence_id);
             }
 
+            println!("calculate");
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.client,
                 provider,
@@ -1570,9 +1572,11 @@ where
                 &old_group_membership,
             )
             .await?;
+            println!("calculate results:{:?}", changes_with_kps);
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
+            //todo: get the installations for all!
             if !inbox_ids_to_add.is_empty()
                 && changes_with_kps.failed_installations.len() == inbox_ids_to_add.len()
             {
@@ -1775,18 +1779,40 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
         tracing::info!("trying to validate keypackages");
 
+        let malformed_installations = get_test_mode_malformed_installations();
+        println!("malformed_installations:{:?}", malformed_installations);
+
         for (installation_id, result) in key_packages {
-            match result {
-                Ok(verified_key_package) => {
-                    new_installations.push(Installation::from_verified_key_package(
-                        &verified_key_package,
-                    ));
-                    new_key_packages.push(verified_key_package.inner.clone());
+            println!("installation_id to compare:{:?}", installation_id);
+
+            if malformed_installations.contains(&installation_id) {
+                // Mark as failed if in the malformed list
+                println!("compared true {:?}", installation_id);
+
+                failed_installations.push(installation_id.clone());
+                continue; // Skip further processing
+            } else {
+                match result {
+                    Ok(verified_key_package) => {
+                        println!("new_installations:{:?}", verified_key_package);
+
+                        new_installations.push(Installation::from_verified_key_package(
+                            &verified_key_package,
+                        ));
+                        new_key_packages.push(verified_key_package.inner.clone());
+                    }
+                    Err(_) => {
+                        println!("failed");
+
+                        failed_installations.push(installation_id.clone());
+                    }
                 }
-                Err(_) => failed_installations.push(installation_id.clone()),
             }
         }
     }
+    println!("new_installations:{:?}", new_installations);
+    println!("new_key_packages:{:?}", new_key_packages);
+    println!("failed_installations:{:?}", failed_installations);
 
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,

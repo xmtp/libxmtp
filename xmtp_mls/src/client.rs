@@ -861,6 +861,7 @@ where
                 })
                 .collect();
 
+        println!("results kps: {:?}", results);
         Ok(results)
     }
 

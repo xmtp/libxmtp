@@ -25,7 +25,7 @@ pub enum KeyPackageVerificationError {
 }
 
 /// A wrapper around the MLS key package struct with some additional fields
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VerifiedKeyPackageV2 {
     pub inner: KeyPackage,
     pub credential: MlsCredential,

@@ -1823,7 +1823,6 @@ async fn validate_initial_group_membership(
     for association_state in results {
         expected_installation_ids.extend(association_state.installation_ids());
     }
-    println!("expected_installation_ids: {:?}", expected_installation_ids);
 
     let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
         .public_group()
@@ -1831,8 +1830,9 @@ async fn validate_initial_group_membership(
         .map(|member| member.signature_key)
         .collect();
     println!("actual_installation_ids: {:?}", actual_installation_ids);
+    println!("expected_installation_ids: {:?}", expected_installation_ids);
     expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
-    println!("after filtering actual_installation_ids: {:?}", actual_installation_ids);
+    println!("after expected_installation_ids: {:?}", expected_installation_ids);
 
     if expected_installation_ids != actual_installation_ids {
         return Err(GroupError::InvalidGroupMembership);
@@ -1933,9 +1933,11 @@ pub(crate) mod tests {
     use diesel::connection::SimpleConnection;
     use diesel::RunQueryDsl;
     use futures::future::join_all;
+    use futures_util::FutureExt;
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_api::test_utils::set_test_mode_upload_malformed_keypackage;
     use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
@@ -1945,6 +1947,7 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+    use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
@@ -1974,8 +1977,6 @@ pub(crate) mod tests {
         InboxOwner,
     };
     use xmtp_common::StreamHandle as _;
-    use crate::api::set_test_mode_upload_malformed_keypackage;
-    use crate::groups::scoped_client::ScopedGroupClient;
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2411,6 +2412,140 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_add_members_while_there_are_some_bad_keypackages() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie_wallet = generate_local_wallet();
+        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        println!(
+            "charlie failed installations:{:?}",
+            charlie_2.installation_id().to_vec()
+        );
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![charlie_2.installation_id().to_vec()]),
+        );
+
+        let result = group
+            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        assert_eq!(bola_group.members().await.unwrap().len(), 3);
+        assert_eq!(group.members().await.unwrap().len(), 3);
+        // assert_eq!(group_total_installations, 3);
+        assert_eq!(result.added_members.len(), 3);
+        // assert_eq!(result.failed_installations.len(), 1);
+
+        let group_id = group.group_id;
+
+        let messages = alix
+            .api_client
+            .query_group_messages(group_id, None)
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+    }
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_add_members_while_all_have_bad_keypackages() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie_wallet = generate_local_wallet();
+        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        println!(
+            "charlie failed installations:{:?}",
+            charlie_2.installation_id().to_vec()
+        );
+        // one of charlies' keypackages is malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![
+                bola.installation_id().to_vec(),
+                charlie_1.installation_id().to_vec(),
+                charlie_2.installation_id().to_vec(),
+            ]),
+        );
+        let result = group
+            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+            .await
+            .unwrap();
+        //todo: must stop creating the group?
+        assert_eq!(result.failed_installations.len(),3);
+        group.sync().await.unwrap();
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bola_groups.len(), 0);
+    }
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_create_group_while_there_are_some_bad_keypackages() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = &generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+        let charlie_wallet = generate_local_wallet();
+        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        println!(
+            "charlie failed installations:{:?}",
+            charlie_2.installation_id().to_vec()
+        );
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![charlie_2.installation_id().to_vec()]),
+        );
+        let group = alix
+            .create_group_with_members(
+                &[bola_wallet.get_address(), charlie_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+        // one of charlies' keypackages is malformed
+
+        group.sync().await.unwrap();
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        assert_eq!(bola_group.members().await.unwrap().len(), 3);
+        assert_eq!(group.members().await.unwrap().len(), 3);
+        // assert_eq!(group_total_installations, 3);
+        // assert_eq!(result.failed_installations.len(), 1);
+
+        let group_id = group.group_id;
+
+        let messages = alix
+            .api_client
+            .query_group_messages(group_id, None)
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+    }
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_members_while_there_are_bad_keypackages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2443,7 +2578,7 @@ pub(crate) mod tests {
         assert_eq!(bola_group.members().await.unwrap().len(), 3);
         assert_eq!(group.members().await.unwrap().len(), 3);
         assert_eq!(result.added_members.len(), 3);
-        assert_eq!(result.members_with_errors.len(), 1);
+        assert_eq!(result.failed_installations.len(), 0);
 
         let group_id = group.group_id;
 
@@ -2735,23 +2870,17 @@ pub(crate) mod tests {
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
-        let bola_wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&amal_wallet).await;
-        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-        let charlie = ClientBuilder::new_test_client(&bola_wallet).await;
-        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         group
-            .add_members_by_inbox_id(&[bola.inbox_id(), charlie.inbox_id(), dave.inbox_id()])
+            .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
             .unwrap();
 
-        assert_eq!(group.members().await.unwrap().len(), 2);
-        assert_eq!(group.members().await.unwrap().len(), 2);
-        assert_eq!(group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
 
         let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();

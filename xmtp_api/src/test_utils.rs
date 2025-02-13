@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use std::env;
 use mockall::mock;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
@@ -210,4 +211,61 @@ mod wasm {
             async fn create_dev() -> Self { ApiClient }
         }
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_upload_malformed_keypackage() -> bool {
+    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Sets test mode and specifies malformed installations dynamically.
+/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
+pub fn set_test_mode_upload_malformed_keypackage(
+    enable: bool,
+    installations: Option<Vec<Vec<u8>>>,
+) {
+    if enable {
+        // Enable test mode
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
+
+        if let Some(installs) = installations {
+            // Convert installation keys to a comma-separated hex string
+            let installations_str = installs
+                .iter()
+                .map(|key| hex::encode(key))
+                .collect::<Vec<_>>()
+                .join(",");
+
+            // Set the environment variable
+            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
+            println!("{:?}",get_test_mode_malformed_installations())
+        }
+    } else {
+        // Disable test mode and clear related env variables
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Retrieves and decodes malformed installations from the environment variable.
+/// Returns an empty list if test mode is not enabled.
+pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
+    if !is_test_mode_upload_malformed_keypackage() {
+        return Vec::new(); // Return empty if test mode is not enabled
+    }
+
+    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
+        .unwrap_or_else(|_| "".to_string()) // Default to an empty string if not set
+        .split(',')
+        .filter_map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(hex::decode(s).unwrap_or_else(|_| Vec::new())) // Convert hex string to Vec<u8>
+            }
+        })
+        .collect()
 }

@@ -289,19 +289,19 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
 pub struct UpdateGroupMembershipResult {
     pub added_members: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub members_with_errors: Vec<Vec<u8>>,
+    pub failed_installations: Vec<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipResult {
     pub fn new(
         added_members: HashMap<String, u64>,
         removed_members: Vec<String>,
-        members_with_errors: Vec<Vec<u8>>,
+        failed_installations: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             added_members,
             removed_members,
-            members_with_errors,
+            failed_installations,
         }
     }
 }
@@ -311,7 +311,7 @@ impl From<UpdateGroupMembershipIntentData> for UpdateGroupMembershipResult {
         UpdateGroupMembershipResult::new(
             value.membership_updates,
             value.removed_members,
-            value.members_with_errors,
+            value.failed_installations,
         )
     }
 }
@@ -320,24 +320,24 @@ impl From<UpdateGroupMembershipIntentData> for UpdateGroupMembershipResult {
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub members_with_errors: Vec<Vec<u8>>,
+    pub failed_installations: Vec<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipIntentData {
     pub fn new(
         membership_updates: HashMap<String, u64>,
         removed_members: Vec<String>,
-        members_with_errors: Vec<Vec<u8>>,
+        failed_installations: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             membership_updates,
             removed_members,
-            members_with_errors,
+            failed_installations,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.membership_updates.is_empty() && self.removed_members.is_empty() && self.members_with_errors.is_empty()
+        self.membership_updates.is_empty() && self.removed_members.is_empty() && self.failed_installations.is_empty()
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
@@ -350,6 +350,9 @@ impl UpdateGroupMembershipIntentData {
         for inbox_id in self.removed_members.iter() {
             new_membership.remove(inbox_id)
         }
+
+        new_membership.failed_installations.extend(self.failed_installations.iter().cloned());
+
         tracing::info!("updated group membership: {:?}", new_membership.members);
         new_membership
     }
@@ -363,7 +366,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
             version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
-                failed_installations: intent.members_with_errors
+                failed_installations: intent.failed_installations
             })),
         }
         .encode(&mut buf)
@@ -384,7 +387,7 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
             Ok(Self::new(
                 v1.membership_updates,
                 v1.removed_members,
-                Vec::new(), // we don't need to store the members_with_errors and restoring them from the db
+                v1.failed_installations,
             ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
@@ -403,7 +406,7 @@ impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
             Ok(Self::new(
                 v1.membership_updates,
                 v1.removed_members,
-                Vec::new(), // we don't need to store the members_with_errors and restoring them from the db
+                v1.failed_installations,
             ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
@@ -811,7 +814,7 @@ pub(crate) mod tests {
         let intent = UpdateGroupMembershipIntentData::new(
             membership_updates,
             vec!["bar".to_string()],
-            Vec::new(),
+            vec![vec![1,2,3]],
         );
 
         let as_bytes: Vec<u8> = intent.clone().into();
@@ -823,6 +826,8 @@ pub(crate) mod tests {
         );
 
         assert_eq!(intent.removed_members, restored_intent.removed_members);
+
+        assert_eq!(intent.failed_installations, restored_intent.failed_installations);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

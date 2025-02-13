@@ -1,7 +1,9 @@
 use super::ApiClientWrapper;
+use crate::test_utils::{
+    get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
+};
 use crate::{Result, XmtpApi};
 use std::collections::HashMap;
-use std::env;
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
@@ -13,6 +15,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::ApiError;
+
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -256,25 +259,7 @@ where
             .into_iter()
             .enumerate()
             .map(|(idx, key_package)| {
-                let installation_key = installation_keys[idx].to_vec();
-
-                #[cfg(test)]
-                {
-                    // Only fetch malformed installations if test mode is enabled
-                    if is_test_mode_upload_malformed_keypackage() {
-                        println!("test mode enabled");
-                        let malformed_installations = get_test_mode_malformed_installations();
-
-                        if malformed_installations.contains(&installation_key) {
-                            tracing::trace!(
-                    "Test mode enabled: Uploading an empty key package for installation {:?}",
-                    installation_key);
-                            return (installation_key, vec![1,2,3]);
-                        }
-                    }
-                }
-
-                (installation_key, key_package.key_package_tls_serialized)
+                (installation_keys[idx].to_vec(), key_package.key_package_tls_serialized)
             })
             .collect();
 
@@ -842,60 +827,4 @@ pub mod tests {
             assert!(s.duration_since(fail) < max_expected_cooldown);
         }
     }
-}
-
-#[cfg(test)]
-/// Checks if test mode is enabled.
-pub fn is_test_mode_upload_malformed_keypackage() -> bool {
-    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
-}
-
-#[cfg(test)]
-/// Sets test mode and specifies malformed installations dynamically.
-/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
-pub fn set_test_mode_upload_malformed_keypackage(
-    enable: bool,
-    installations: Option<Vec<Vec<u8>>>,
-) {
-    if enable {
-        // Enable test mode
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
-
-        if let Some(installs) = installations {
-            // Convert installation keys to a comma-separated hex string
-            let installations_str = installs
-                .iter()
-                .map(|key| hex::encode(key))
-                .collect::<Vec<_>>()
-                .join(",");
-
-            // Set the environment variable
-            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
-        }
-    } else {
-        // Disable test mode and clear related env variables
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
-        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
-    }
-}
-
-#[cfg(test)]
-/// Retrieves and decodes malformed installations from the environment variable.
-/// Returns an empty list if test mode is not enabled.
-pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
-    if !is_test_mode_upload_malformed_keypackage() {
-        return Vec::new(); // Return empty if test mode is not enabled
-    }
-
-    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
-        .unwrap_or_else(|_| "".to_string()) // Default to an empty string if not set
-        .split(',')
-        .filter_map(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                Some(hex::decode(s).unwrap_or_else(|_| Vec::new())) // Convert hex string to Vec<u8>
-            }
-        })
-        .collect()
 }
