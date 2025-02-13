@@ -25,9 +25,9 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::ConversationListItem;
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::{
-    api::ApiClientWrapper,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
         group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
@@ -50,6 +50,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -71,10 +72,8 @@ pub enum ClientError {
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("Query failed: {0}")]
-    QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
-    Api(#[from] crate::api::WrappedApiError),
+    Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -560,6 +559,7 @@ where
     async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
         let provider = self.mls_provider()?;
@@ -569,6 +569,7 @@ where
             Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
+            opts,
         )?;
 
         group
@@ -587,6 +588,7 @@ where
     pub async fn find_or_create_dm(
         &self,
         account_address: String,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with address: {}", account_address);
         let provider = self.mls_provider()?;
@@ -600,13 +602,14 @@ where
             }
         };
 
-        self.find_or_create_dm_by_inbox_id(inbox_id).await
+        self.find_or_create_dm_by_inbox_id(inbox_id, opts).await
     }
 
     /// Find or create a Direct Message by inbox_id with the default settings
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: InboxId,
+        opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider()?;
@@ -617,7 +620,7 @@ where
         if let Some(group) = group {
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
-        self.create_dm_by_inbox_id(inbox_id).await
+        self.create_dm_by_inbox_id(inbox_id, opts).await
     }
 
     pub(crate) fn create_sync_group(
@@ -653,6 +656,27 @@ where
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &mut self.store().conn()?;
         self.group_with_conn(conn, &group_id)
+    }
+
+    /// Fetches the message disappearing settings for a given group ID.
+    ///
+    /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
+    /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
+    pub fn group_disappearing_settings(
+        &self,
+        group_id: Vec<u8>,
+    ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+
+        let settings = stored_group.and_then(|group| {
+            let from_ns = group.message_disappear_from_ns?;
+            let in_ns = group.message_disappear_in_ns?;
+
+            Some(MessageDisappearingSettings { from_ns, in_ns })
+        });
+
+        Ok(settings)
     }
 
     /**
@@ -1027,6 +1051,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
+    use crate::groups::DMMetadataOptions;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1049,6 +1074,7 @@ pub(crate) mod tests {
         // Add two separate installations for Bola
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -1071,7 +1097,6 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
-        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
@@ -1411,7 +1436,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
-        tracing::info!("Syncing bolas welcomes");
 
         // See if Bola can see that they were added to the group
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -1420,7 +1444,6 @@ pub(crate) mod tests {
         let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        tracing::info!("Syncing bolas messages");
         bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
@@ -1577,7 +1600,10 @@ pub(crate) mod tests {
 
         // First call should create a new DM
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                client2.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -1597,7 +1623,10 @@ pub(crate) mod tests {
 
         // Second call should find the existing DM
         let dm2 = client1
-            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                client2.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 

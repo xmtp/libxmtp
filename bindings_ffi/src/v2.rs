@@ -563,7 +563,6 @@ mod tests {
 
     use futures::stream;
     use xmtp_proto::api_client::Envelope;
-    use xmtp_proto::Error as ApiError;
 
     use crate::{
         v2::{
@@ -610,7 +609,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscribe() {
-        let items: Vec<Result<Envelope, ApiError>> = vec![
+        let items: Vec<Result<Envelope, xmtp_api_grpc::GrpcError>> = vec![
             Ok(Envelope {
                 content_topic: "test1".to_string(),
                 timestamp_ns: 0,
@@ -646,7 +645,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_subscription_close() {
-        let items: Vec<Result<Envelope, ApiError>> = vec![
+        let items: Vec<Result<Envelope, xmtp_api_grpc::GrpcError>> = vec![
             Ok(Envelope {
                 content_topic: "test1".to_string(),
                 timestamp_ns: 0,

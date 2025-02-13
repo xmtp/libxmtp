@@ -119,6 +119,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::InboxOwner;
 
+    use crate::groups::DMMetadataOptions;
     use futures::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -144,7 +145,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(caro_wallet.get_address())
+            .find_or_create_dm(caro_wallet.get_address(), DMMetadataOptions::default())
             .await
             .unwrap();
 
@@ -220,7 +221,7 @@ mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
             .await
             .unwrap();
         // TODO: This test does not work on web
@@ -293,7 +294,7 @@ mod tests {
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let mut sent = 0;
             for i in 0..15 {
                 let msg = format!("main spam {i}");
@@ -311,7 +312,7 @@ mod tests {
         // and immediately sending a message
         // this forces our streams to re-subscribe
         let caro_id = caro.inbox_id().to_string();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
                 let new_group = eve
@@ -364,7 +365,7 @@ mod tests {
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
                 let new_group = hale

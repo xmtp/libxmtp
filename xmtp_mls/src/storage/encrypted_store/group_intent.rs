@@ -409,6 +409,7 @@ pub(crate) mod tests {
             GroupMembershipState::Allowed,
             "placeholder_address".to_string(),
             None,
+            None,
         );
         group.store(conn).unwrap();
     }

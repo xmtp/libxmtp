@@ -1,5 +1,6 @@
 //! App Argument Options
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -255,7 +256,7 @@ impl BackendOpts {
         }
     }
 
-    pub async fn connect(&self) -> eyre::Result<Box<dyn xmtp_mls::XmtpApi>> {
+    pub async fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         let network = self.network_url();
         let is_secure = network.scheme() == "https";
 
@@ -263,7 +264,7 @@ impl BackendOpts {
             let payer = self.payer_url()?;
             trace!(url = %network, payer = %payer, is_secure, "create grpc");
 
-            Ok(Box::new(
+            Ok(Arc::new(
                 xmtp_api_grpc::replication_client::ClientV4::create(
                     network.as_str().to_string(),
                     payer.as_str().to_string(),
@@ -273,7 +274,7 @@ impl BackendOpts {
             ))
         } else {
             trace!(url = %network, is_secure, "create grpc");
-            Ok(Box::new(
+            Ok(Arc::new(
                 crate::GrpcClient::create(network.as_str().to_string(), is_secure).await?,
             ))
         }

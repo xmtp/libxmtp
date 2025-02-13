@@ -35,7 +35,9 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::group_mutable_metadata::{
+    extract_group_mutable_metadata, MessageDisappearingSettings,
+};
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -43,7 +45,6 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use crate::{
-    api::WrappedApiError,
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -116,9 +117,7 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::Error),
-    #[error("api error: {0}")]
-    WrappedApi(#[from] WrappedApiError),
+    WrappedApi(#[from] xmtp_api::Error),
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
@@ -223,7 +222,6 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(api_error) => api_error.is_retryable(),
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Diesel(diesel) => diesel.is_retryable(),
@@ -290,11 +288,16 @@ pub struct ConversationListItem<C> {
     pub last_message: Option<StoredGroupMessage>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct GroupMetadataOptions {
     pub name: Option<String>,
     pub image_url_square: Option<String>,
     pub description: Option<String>,
+    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+}
+
+#[derive(Default, Clone)]
+pub struct DMMetadataOptions {
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
@@ -496,7 +499,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(creator_inbox_id, opts)?;
+        let mutable_metadata =
+            build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
@@ -523,6 +527,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             membership_state,
             context.inbox_id().to_string(),
             None,
+            opts.message_disappearing_settings,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -539,12 +544,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
+        opts: DMMetadataOptions,
     ) -> Result<Self, GroupError> {
         let context = client.context();
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
-        let mutable_metadata =
-            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)?;
+        let mutable_metadata = build_dm_mutable_metadata_extension_default(
+            context.inbox_id(),
+            &dm_target_inbox_id,
+            opts.clone(),
+        )?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = PolicySet::new_dm();
         let mutable_permission_extension =
@@ -577,6 +586,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_one_inbox_id: dm_target_inbox_id,
                 member_two_inbox_id: client.inbox_id().to_string(),
             }),
+            opts.message_disappearing_settings,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -659,6 +669,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let metadata = extract_group_metadata(&mls_group)?;
             let dm_members = metadata.dm_members;
             let conversation_type = metadata.conversation_type;
+            let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
+            let disappearing_settings = mutable_metadata.and_then(|metadata| {
+                Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
+            });
 
             let to_store = match conversation_type {
                 ConversationType::Group => StoredGroup::new_from_welcome(
@@ -669,6 +683,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome.id as i64,
                     conversation_type,
                     dm_members,
+                    disappearing_settings,
                 ),
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
@@ -680,6 +695,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         welcome.id as i64,
                         conversation_type,
                         dm_members,
+                        disappearing_settings,
                     )
                 }
                 ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -690,6 +706,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome.id as i64,
                     conversation_type,
                     dm_members,
+                    disappearing_settings,
                 ),
             };
 
@@ -1219,7 +1236,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        let mutable_metadata = self.mutable_metadata(provider)?;
+        Self::conversation_message_disappearing_settings_from_extensions(
+            self.mutable_metadata(provider)?,
+        )
+    }
+
+    pub fn conversation_message_disappearing_settings_from_extensions(
+        mutable_metadata: GroupMutableMetadata,
+    ) -> Result<MessageDisappearingSettings, GroupError> {
         let disappear_from_ns = mutable_metadata
             .attributes
             .get(&MetadataField::MessageDisappearFromNS.to_string());
@@ -1432,6 +1456,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         custom_mutable_metadata: Option<Extension>,
         custom_group_membership: Option<Extension>,
         custom_mutable_permissions: Option<PolicySet>,
+        opts: DMMetadataOptions,
     ) -> Result<Self, GroupError> {
         let context = client.context();
         let conn = context.store().conn()?;
@@ -1442,8 +1467,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .unwrap()
         });
         let mutable_metadata = custom_mutable_metadata.unwrap_or_else(|| {
-            build_dm_mutable_metadata_extension_default(context.inbox_id(), &dm_target_inbox_id)
-                .unwrap()
+            build_dm_mutable_metadata_extension_default(
+                context.inbox_id(),
+                &dm_target_inbox_id,
+                opts,
+            )
+            .unwrap()
         });
         let group_membership = custom_group_membership
             .unwrap_or_else(|| build_starting_group_membership_extension(context.inbox_id(), 0));
@@ -1478,6 +1507,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_one_inbox_id: client.inbox_id().to_string(),
                 member_two_inbox_id: dm_target_inbox_id,
             }),
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -1545,10 +1575,14 @@ pub fn build_mutable_metadata_extension_default(
 pub fn build_dm_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     dm_target_inbox_id: &str,
+    opts: DMMetadataOptions,
 ) -> Result<Extension, GroupError> {
-    let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_dm_default(creator_inbox_id.to_string(), dm_target_inbox_id)
-            .try_into()?;
+    let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
+        creator_inbox_id.to_string(),
+        dm_target_inbox_id,
+        opts,
+    )
+    .try_into()?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1892,7 +1926,7 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-    use super::{group_permissions::PolicySet, MlsGroup};
+    use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -1920,8 +1954,9 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner, StreamHandle as _,
+        InboxOwner,
     };
+    use xmtp_common::StreamHandle as _;
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2271,11 +2306,14 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let bo_dm = bo
-            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                alix.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
         let alix_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
             .await
             .unwrap();
 
@@ -3768,7 +3806,10 @@ pub(crate) mod tests {
 
         // Amal creates a dm group targetting bola
         let amal_dm = amal
-            .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                bola.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -3944,7 +3985,7 @@ pub(crate) mod tests {
                 let group_clone = alix1_group.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(None, async move { group_clone.sync().await }).join()
+                xmtp_common::spawn(None, async move { group_clone.sync().await }).join()
             })
             .collect();
 
@@ -4292,6 +4333,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(valid_dm_group
@@ -4310,6 +4352,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4332,6 +4375,7 @@ pub(crate) mod tests {
             None,
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4354,6 +4398,7 @@ pub(crate) mod tests {
             Some(non_empty_admin_list),
             None,
             None,
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(
@@ -4375,6 +4420,7 @@ pub(crate) mod tests {
             None,
             None,
             Some(invalid_permissions),
+            DMMetadataOptions::default(),
         )
         .unwrap();
         assert!(matches!(

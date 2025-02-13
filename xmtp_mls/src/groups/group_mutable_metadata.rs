@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
-use super::GroupMetadataOptions;
+use super::{DMMetadataOptions, GroupMetadataOptions};
 use crate::configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
@@ -156,7 +156,11 @@ impl GroupMutableMetadata {
     }
 
     // Admin / super admin is not needed for a DM
-    pub fn new_dm_default(_creator_inbox_id: String, _dm_target_inbox_id: &str) -> Self {
+    pub fn new_dm_default(
+        _creator_inbox_id: String,
+        _dm_target_inbox_id: &str,
+        opts: DMMetadataOptions,
+    ) -> Self {
         let mut attributes = HashMap::new();
         // TODO: would it be helpful to incorporate the dm inbox ids in the name or description?
         attributes.insert(
@@ -171,6 +175,17 @@ impl GroupMutableMetadata {
             MetadataField::GroupImageUrlSquare.to_string(),
             DEFAULT_GROUP_IMAGE_URL_SQUARE.to_string(),
         );
+        if let Some(message_disappearing_settings) = opts.message_disappearing_settings {
+            attributes.insert(
+                MetadataField::MessageDisappearFromNS.to_string(),
+                message_disappearing_settings.from_ns.to_string(),
+            );
+            attributes.insert(
+                MetadataField::MessageDisappearInNS.to_string(),
+                message_disappearing_settings.in_ns.to_string(),
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {
@@ -293,4 +308,12 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions) -> Option<&Vec<u
         }
         None
     })
+}
+
+pub fn extract_group_mutable_metadata(
+    group: &OpenMlsGroup,
+) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
+    find_mutable_metadata_extension(group.extensions())
+        .ok_or(GroupMutableMetadataError::MissingExtension)?
+        .try_into()
 }

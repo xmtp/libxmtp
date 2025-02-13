@@ -1,10 +1,10 @@
 use napi::bindgen_prelude::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use xmtp_mls::{
-  subscriptions::SubscribeError, AbortHandle, GenericStreamHandle,
-  StreamHandle as XmtpStreamHandle, StreamHandleError,
+use xmtp_common::{
+  AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
 };
+use xmtp_mls::subscriptions::SubscribeError;
 
 use napi_derive::napi;
 

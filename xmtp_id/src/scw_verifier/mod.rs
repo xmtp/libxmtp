@@ -29,8 +29,6 @@ pub enum VerifierError {
     #[error(transparent)]
     Provider(#[from] ethers::providers::ProviderError),
     #[error(transparent)]
-    ApiClient(#[from] xmtp_proto::Error),
-    #[error(transparent)]
     Url(#[from] url::ParseError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -38,6 +36,8 @@ pub enum VerifierError {
     Serde(#[from] serde_json::Error),
     #[error("URLs must be preceeded with eip144:")]
     MalformedEipUrl,
+    #[error(transparent)]
+    Api(#[from] xmtp_api::Error),
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -1,26 +1,28 @@
 use std::collections::HashMap;
 
-use super::{ApiClientWrapper, WrappedApiError};
-use crate::XmtpApi;
+use super::{ApiClientWrapper, Error};
+use crate::{Result, XmtpApi};
 use futures::future::try_join_all;
-use xmtp_id::{
-    associations::{unverified::UnverifiedIdentityUpdate, DeserializationError},
-    InboxId,
-};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetIdentityUpdatesResponse,
-    GetInboxIdsRequest, PublishIdentityUpdateRequest,
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
 };
+use xmtp_proto::xmtp::identity::api::v1::{
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+};
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
+
+use xmtp_proto::ApiError;
 
 const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
 #[derive(Debug)]
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
-    pub inbox_id: InboxId,
+    pub inbox_id: String,
     pub sequence_id: Option<u64>,
 }
 
@@ -33,95 +35,69 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
     }
 }
 
-#[derive(Clone)]
-pub struct InboxUpdate {
-    pub sequence_id: u64,
-    pub server_timestamp_ns: u64,
-    pub update: UnverifiedIdentityUpdate,
-}
-
-impl TryFrom<IdentityUpdateLog> for InboxUpdate {
-    type Error = DeserializationError;
-
-    fn try_from(update: IdentityUpdateLog) -> Result<Self, Self::Error> {
-        Ok(Self {
-            sequence_id: update.sequence_id,
-            server_timestamp_ns: update.server_timestamp_ns,
-            update: update
-                .update
-                .ok_or(DeserializationError::MissingUpdate)?
-                // TODO: Figure out what to do with requests that don't deserialize correctly. Maybe we want to just filter them out?,
-                .try_into()?,
-        })
-    }
-}
-
-/// A mapping of `inbox_id` -> Vec<InboxUpdate>
-type InboxUpdateMap = HashMap<InboxId, Vec<InboxUpdate>>;
-
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, InboxId>;
+type AddressToInboxIdMap = HashMap<String, String>;
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    pub async fn publish_identity_update(
-        &self,
-        update: UnverifiedIdentityUpdate,
-    ) -> Result<(), WrappedApiError> {
+    pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
                 identity_update: Some(update.into()),
             })
-            .await?;
+            .await
+            .map_err(ApiError::from)?;
 
         Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn get_identity_updates_v2(
+    pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<InboxUpdateMap, WrappedApiError> {
+    ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
+    where
+        T: TryFrom<IdentityUpdateLog>,
+        Error: From<<T as TryFrom<IdentityUpdateLog>>::Error>,
+    {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
-        let chunked_results: Result<Vec<GetIdentityUpdatesResponse>, WrappedApiError> =
-            try_join_all(chunks.map(|chunk| async move {
-                let result = self
-                    .api_client
-                    .get_identity_updates_v2(GetIdentityUpdatesV2Request {
-                        requests: chunk.iter().map(|filter| filter.into()).collect(),
-                    })
-                    .await?;
-
-                Ok(result)
-            }))
-            .await;
-
-        let inbox_map = chunked_results?
-            .into_iter()
-            .flat_map(|response| {
-                response.responses.into_iter().map(|item| {
-                    let deserialized_updates = item
+        let res = try_join_all(chunks.map(|chunk| async move {
+            let res = self
+                .api_client
+                .get_identity_updates_v2(GetIdentityUpdatesV2Request {
+                    requests: chunk.iter().map(|filter| filter.into()).collect(),
+                })
+                .await
+                .map_err(ApiError::from)?
+                .responses
+                .into_iter()
+                .map(|item| {
+                    let deser_items = item
                         .updates
                         .into_iter()
-                        .map(|update| update.try_into().map_err(WrappedApiError::from))
-                        .collect::<Result<Vec<InboxUpdate>, WrappedApiError>>()?;
+                        .map(move |update| update.try_into().map_err(Error::from))
+                        .collect::<Result<Vec<_>>>()?;
+                    Ok::<_, Error>((item.inbox_id, deser_items))
+                });
+            Ok::<_, Error>(res)
+        }))
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Result<Vec<(String, Vec<T>)>>>()?
+        .into_iter();
 
-                    Ok((item.inbox_id, deserialized_updates))
-                })
-            })
-            .collect::<Result<InboxUpdateMap, WrappedApiError>>()?;
-
-        Ok(inbox_map)
+        Ok(res)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<AddressToInboxIdMap, WrappedApiError> {
+    ) -> Result<AddressToInboxIdMap> {
         tracing::info!(
             "Getting inbox_ids for account addresses: {:?}",
             &account_addresses
@@ -134,13 +110,26 @@ where
                     .map(|address| GetInboxIdsRequestProto { address })
                     .collect(),
             })
-            .await?;
+            .await
+            .map_err(ApiError::from)?;
 
         Ok(result
             .responses
             .into_iter()
             .filter_map(|resp| Some((resp.address, resp.inbox_id?)))
             .collect())
+    }
+
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse> {
+        self.api_client
+            .verify_smart_contract_wallet_signatures(request)
+            .await
+            .map_err(ApiError::from)
+            .map_err(Error::from)
     }
 }
 
@@ -151,8 +140,9 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::api::ApiClientWrapper;
-    use xmtp_common::{rand_hexstring, Retry};
+    use crate::ApiClientWrapper;
+    use std::collections::HashMap;
+    use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::api::v1::{
         get_identity_updates_response::{
@@ -182,7 +172,7 @@ pub(crate) mod tests {
             .withf(move |req| req.identity_update.as_ref().unwrap().inbox_id.eq(&inbox_id))
             .returning(move |_| Ok(PublishIdentityUpdateResponse {}));
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper.publish_identity_update(identity_update).await;
 
         assert!(result.is_ok());
@@ -191,6 +181,18 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn get_identity_update_v2() {
+        pub struct InboxIdentityUpdate {
+            inbox_id: String,
+        }
+        impl TryFrom<IdentityUpdateLog> for InboxIdentityUpdate {
+            type Error = crate::Error;
+            fn try_from(v: IdentityUpdateLog) -> Result<InboxIdentityUpdate, Self::Error> {
+                Ok(InboxIdentityUpdate {
+                    inbox_id: v.update.unwrap().inbox_id,
+                })
+            }
+        }
+
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_hexstring();
         let inbox_id_clone = inbox_id.clone();
@@ -212,14 +214,15 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
             .get_identity_updates_v2(vec![GetIdentityUpdatesV2Filter {
                 inbox_id: inbox_id_clone_2.clone(),
                 sequence_id: None,
             }])
             .await
-            .expect("should work");
+            .expect("should work")
+            .collect::<HashMap<_, Vec<InboxIdentityUpdate>>>();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result.get(&inbox_id_clone_2).unwrap().len(), 1);
@@ -229,7 +232,6 @@ pub(crate) mod tests {
                 .unwrap()
                 .first()
                 .unwrap()
-                .update
                 .inbox_id,
             inbox_id_clone_2
         );
@@ -258,7 +260,7 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
             .get_inbox_ids(vec![address.clone()])
             .await

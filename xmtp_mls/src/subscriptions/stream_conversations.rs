@@ -61,38 +61,48 @@ impl Stream for BroadcastGroupStream {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
-        let this = self.project();
-        if let Some(event) = ready!(this.inner.poll_next(cx)) {
-            if let Some(group) =
-                xmtp_common::optify!(event, "Missed messages due to event queue lag")
-                    .and_then(LocalEvents::group_filter)
-            {
-                Ready(Some(Ok(WelcomeOrGroup::Group(group))))
+        let mut this = self.project();
+        // loop until the inner stream returns:
+        // - Ready with a group
+        // - Ready(None) - stream ended
+        // ignore None values, since it is not a group, but may indicate more values in the stream
+        // itself
+        loop {
+            if let Some(event) = ready!(this.inner.as_mut().poll_next(cx)) {
+                if let Some(group) =
+                    xmtp_common::optify!(event, "Missed messages due to event queue lag")
+                        .and_then(LocalEvents::group_filter)
+                {
+                    return Ready(Some(Ok(WelcomeOrGroup::Group(group))));
+                }
             } else {
-                Pending
+                return Ready(None);
             }
-        } else {
-            Ready(None)
         }
     }
 }
 
 pin_project! {
     /// Subscription Stream mapped to WelcomeOrGroup
-    pub(super) struct SubscriptionStream<S> {
+    pub(super) struct SubscriptionStream<S, E> {
         #[pin] inner: S,
+        _marker: std::marker::PhantomData<E>
     }
 }
 
-impl<S> SubscriptionStream<S> {
+impl<S, E> SubscriptionStream<S, E> {
     fn new(inner: S) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
-impl<S> Stream for SubscriptionStream<S>
+impl<S, E> Stream for SubscriptionStream<S, E>
 where
-    S: Stream<Item = std::result::Result<WelcomeMessage, xmtp_proto::Error>>,
+    S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
+    E: xmtp_proto::XmtpApiError + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 
@@ -102,7 +112,9 @@ where
 
         match this.inner.poll_next(cx) {
             Ready(Some(welcome)) => {
-                let welcome = welcome.map_err(SubscribeError::from)?;
+                let welcome = welcome
+                    .map_err(xmtp_proto::ApiError::from)
+                    .map_err(SubscribeError::from)?;
                 Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
             }
             Pending => Pending,
@@ -136,10 +148,11 @@ pin_project! {
     }
 }
 
-type MultiplexedSelect<S> = Select<BroadcastGroupStream, SubscriptionStream<S>>;
+type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
 
 pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
     <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::Error,
 >;
 
 impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>
@@ -434,7 +447,7 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::GroupMetadataOptions;
+    use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
     use crate::storage::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -477,7 +490,7 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string())
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
             .await
             .unwrap();
         let result =
@@ -516,9 +529,12 @@ mod test {
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.find_or_create_dm_by_inbox_id(caro.inbox_id().to_string())
-            .await
-            .unwrap();
+        alix.find_or_create_dm_by_inbox_id(
+            caro.inbox_id().to_string(),
+            DMMetadataOptions::default(),
+        )
+        .await
+        .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
 
@@ -528,15 +544,21 @@ mod test {
         let stream = alix.stream_conversations(None).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(davon.inbox_id().to_string())
-            .await
-            .unwrap();
+        alix.find_or_create_dm_by_inbox_id(
+            davon.inbox_id().to_string(),
+            DMMetadataOptions::default(),
+        )
+        .await
+        .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
         let dm = eri
-            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string())
+            .find_or_create_dm_by_inbox_id(
+                alix.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])

@@ -1,7 +1,8 @@
 use super::*;
 use crate::storage::{
+    group::ConversationType,
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    schema::group_messages,
+    schema::{group_messages, groups},
 };
 use diesel::prelude::*;
 use xmtp_id::associations::DeserializationError;
@@ -17,7 +18,10 @@ impl BackupRecordProvider for GroupMessageSave {
         Self: Sized,
     {
         let mut query = group_messages::table
+            .left_join(groups::table)
+            .filter(groups::conversation_type.ne(ConversationType::Sync))
             .filter(group_messages::kind.eq(GroupMessageKind::Application))
+            .select(group_messages::all_columns)
             .order_by(group_messages::id)
             .into_boxed();
 

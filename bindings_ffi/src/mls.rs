@@ -4,8 +4,10 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
+use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
+use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
@@ -24,13 +26,11 @@ use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::HmacKey;
+use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_mls::{
-    api::ApiClientWrapper,
-    builder::ClientBuilder,
     client::Client as MlsClient,
     groups::{
         group_metadata::GroupMetadata,
@@ -52,8 +52,8 @@ use xmtp_mls::{
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     subscriptions::SubscribeError,
-    AbortHandle, GenericStreamHandle, StreamHandle,
 };
+use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
@@ -77,7 +77,11 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let api_client = TonicApiClient::create(host, is_secure).await?;
+    let mut api_client = TonicApiClient::builder();
+    api_client.set_host(host);
+    api_client.set_tls(true);
+    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
+    let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -143,8 +147,9 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let mut builder = ClientBuilder::new(identity_strategy)
+    let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
+        .with_remote_verifier()?
         .store(store);
 
     if let Some(url) = &history_sync_url {
@@ -169,7 +174,8 @@ pub async fn get_inbox_id_for_address(
     api: Arc<XmtpApiClient>,
     account_address: String,
 ) -> Result<Option<String>, GenericError> {
-    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), Default::default());
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let results = api
         .get_inbox_ids(vec![account_address.clone()])
         .await
@@ -1105,10 +1111,11 @@ impl FfiConversations {
     pub async fn find_or_create_dm(
         &self,
         account_address: String,
+        opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target address: {}", account_address);
         self.inner_client
-            .find_or_create_dm(account_address)
+            .find_or_create_dm(account_address, opts.into_dm_metadata_options())
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1117,10 +1124,11 @@ impl FfiConversations {
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: String,
+        opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
-            .find_or_create_dm_by_inbox_id(inbox_id)
+            .find_or_create_dm_by_inbox_id(inbox_id, opts.into_dm_metadata_options())
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1625,6 +1633,26 @@ impl FfiCreateGroupOptions {
     }
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiCreateDMOptions {
+    pub message_disappearing_settings: Option<FfiMessageDisappearingSettings>,
+}
+
+impl FfiCreateDMOptions {
+    pub fn new(disappearing_settings: FfiMessageDisappearingSettings) -> Self {
+        FfiCreateDMOptions {
+            message_disappearing_settings: Some(disappearing_settings),
+        }
+    }
+    pub fn into_dm_metadata_options(self) -> DMMetadataOptions {
+        DMMetadataOptions {
+            message_disappearing_settings: self
+                .message_disappearing_settings
+                .map(|settings| settings.into()),
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
@@ -1857,22 +1885,22 @@ impl FfiConversation {
 
     pub fn conversation_message_disappearing_settings(
         &self,
-    ) -> Result<FfiMessageDisappearingSettings, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        let group_message_expiration_settings = self
-            .inner
-            .conversation_message_disappearing_settings(&provider)?;
+    ) -> Result<Option<FfiMessageDisappearingSettings>, GenericError> {
+        let settings = self.inner.client.group_disappearing_settings(self.id())?;
 
-        Ok(FfiMessageDisappearingSettings::new(
-            group_message_expiration_settings.from_ns,
-            group_message_expiration_settings.in_ns,
-        ))
+        match settings {
+            Some(s) => Ok(Some(FfiMessageDisappearingSettings::from(s))),
+            None => Ok(None),
+        }
     }
 
     pub fn is_conversation_message_disappearing_enabled(&self) -> Result<bool, GenericError> {
-        let settings = self.conversation_message_disappearing_settings()?;
-
-        Ok(settings.from_ns > 0 && settings.in_ns > 0)
+        self.conversation_message_disappearing_settings()
+            .map(|settings| {
+                settings
+                    .as_ref()
+                    .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+            })
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
@@ -2383,7 +2411,7 @@ impl FfiStreamCloser {
 
     /// End the stream and asynchronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-        use xmtp_mls::StreamHandleError::*;
+        use xmtp_common::StreamHandleError::*;
         use GenericError::Generic;
 
         if self.abort_handle.is_finished() {
@@ -2516,15 +2544,7 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
-        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        connect_to_backend, decode_multi_remote_attachment, decode_reaction, encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2536,6 +2556,7 @@ mod tests {
         },
     };
     use tokio::{sync::Notify, time::error::Elapsed};
+    use xmtp_common::time::now_ns;
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
@@ -3252,12 +3273,14 @@ mod tests {
             group
                 .conversation_message_disappearing_settings()
                 .unwrap()
+                .unwrap()
                 .from_ns,
             conversation_message_disappearing_settings.clone().from_ns
         );
         assert_eq!(
             group
                 .conversation_message_disappearing_settings()
+                .unwrap()
                 .unwrap()
                 .in_ns,
             conversation_message_disappearing_settings.in_ns
@@ -3495,7 +3518,7 @@ mod tests {
 
         let dm = bo
             .conversations()
-            .find_or_create_dm(alix.account_address.clone())
+            .find_or_create_dm(alix.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
@@ -4154,7 +4177,10 @@ mod tests {
         // Create DM from client1 to client2
         let dm_group = client1
             .conversations()
-            .find_or_create_dm(client2.account_address.clone())
+            .find_or_create_dm(
+                client2.account_address.clone(),
+                FfiCreateDMOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -4972,7 +4998,7 @@ mod tests {
 
         let alix_group_admin_only = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -5123,11 +5149,16 @@ mod tests {
     async fn test_disappearing_messages_deletion() {
         let alix = new_test_client().await;
         let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let bola_provider = bola.inner_client.mls_provider().unwrap();
 
         // Step 1: Create a group
         let alix_group = alix
             .conversations()
-            .create_group(vec![], FfiCreateGroupOptions::default())
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -5143,7 +5174,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(alix_messages.len(), 1);
+        assert_eq!(alix_messages.len(), 2);
 
         // Step 4: Set disappearing settings to 5ns after the latest message
         let latest_message_sent_at_ns = alix_messages.last().unwrap().sent_at_ns;
@@ -5176,6 +5207,31 @@ mod tests {
             .is_conversation_message_disappearing_enabled()
             .unwrap());
 
+        bola.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let bola_group_from_db = bola_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            bola_group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert_eq!(
+            bola_group_from_db.unwrap().message_disappear_in_ns.unwrap(),
+            disappearing_settings.in_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
             alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
@@ -5188,10 +5244,6 @@ mod tests {
             .await
             .unwrap();
         let msg_counts_before_cleanup = alix_messages.len();
-
-        // Step 7: Start cleanup worker and delete expired messages
-        alix.inner_client
-            .start_disappearing_messages_cleaner_worker();
 
         // Wait for cleanup to complete
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -5235,6 +5287,117 @@ mod tests {
             .unwrap();
         assert_eq!(msg_counts_before_cleanup, alix_messages.len());
         // 3 messages got deleted, then two messages got added for metadataUpdate and one normal messaged added later
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_disappearing_messages_when_creating_group() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                    group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string()),
+                    custom_permission_policy_set: None,
+                    message_disappearing_settings: Some(disappearing_settings.clone()),
+                },
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 2);
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 1);
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_set_disappearing_messages_when_creating_dm() {
+        let alix = new_test_client().await;
+        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let bola = new_test_client().await;
+        let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
+        // Step 1: Create a group
+        let alix_group = alix
+            .conversations()
+            .find_or_create_dm(
+                bola.account_address.clone(),
+                FfiCreateDMOptions::new(disappearing_settings.clone()),
+            )
+            .await
+            .unwrap();
+
+        // Step 2: Send a message and sync
+        alix_group
+            .send("Msg 1 from group".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group.sync().await.unwrap();
+
+        // Step 3: Verify initial messages
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(alix_messages.len(), 1);
+        let group_from_db = alix_provider
+            .conn_ref()
+            .find_group(&alix_group.id())
+            .unwrap();
+        assert_eq!(
+            group_from_db
+                .clone()
+                .unwrap()
+                .message_disappear_from_ns
+                .unwrap(),
+            disappearing_settings.from_ns
+        );
+        assert!(alix_group
+            .is_conversation_message_disappearing_enabled()
+            .unwrap());
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages.len(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -5566,7 +5729,7 @@ mod tests {
         let bola_conversations = bola.conversations();
 
         let _alix_dm = alix_conversations
-            .find_or_create_dm(bola.account_address.clone())
+            .find_or_create_dm(bola.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let alix_num_sync = alix_conversations
@@ -5634,7 +5797,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5663,7 +5826,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -5678,7 +5841,7 @@ mod tests {
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
         caro.conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5706,7 +5869,7 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -5948,7 +6111,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -5984,7 +6147,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6046,7 +6209,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone())
+            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6191,7 +6354,10 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .find_or_create_dm(wallet_a.get_address().clone())
+            .find_or_create_dm(
+                wallet_a.get_address().clone(),
+                FfiCreateDMOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -6632,7 +6798,7 @@ mod tests {
         let inbox_id2 = client2.inbox_id();
         let dm_by_inbox = client1
             .conversations()
-            .find_or_create_dm_by_inbox_id(inbox_id2)
+            .find_or_create_dm_by_inbox_id(inbox_id2, FfiCreateDMOptions::default())
             .await
             .expect("Should create DM with inbox ID");
 
@@ -6655,7 +6821,7 @@ mod tests {
         // First client tries to create another DM with the same inbox id
         let dm_by_inbox2 = client1
             .conversations()
-            .find_or_create_dm_by_inbox_id(client2.inbox_id())
+            .find_or_create_dm_by_inbox_id(client2.inbox_id(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6678,7 +6844,7 @@ mod tests {
         // Second client tries to create a DM with the client 1 inbox id
         let dm_by_inbox3 = client2
             .conversations()
-            .find_or_create_dm_by_inbox_id(client1.inbox_id())
+            .find_or_create_dm_by_inbox_id(client1.inbox_id(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 

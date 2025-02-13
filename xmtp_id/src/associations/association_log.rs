@@ -38,6 +38,8 @@ pub enum AssociationError {
     ChainIdMismatch(u64, u64),
     #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
     InvalidAccountAddress,
+    #[error(transparent)]
+    Convert(#[from] xmtp_proto::ConversionError),
 }
 
 pub trait IdentityAction: Send {

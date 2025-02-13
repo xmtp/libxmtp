@@ -32,14 +32,20 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
         <TestApiClient as XmtpTestClient>::create_local().await
     };
 
-    let client = BenchClient::builder(IdentityStrategy::new(
+    let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_address(),
         nonce,
         None,
     ));
 
-    let mut client = client.temp_store().await.api_client(api_client);
+    let mut client = client
+        .temp_store()
+        .await
+        .api_client(api_client)
+        .with_remote_verifier()
+        .unwrap();
+
     if history_sync {
         client = client.history_sync_url(HISTORY_SYNC_URL);
     }

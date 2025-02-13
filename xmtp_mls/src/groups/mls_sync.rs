@@ -70,6 +70,7 @@ use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -908,7 +909,7 @@ where
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
-                                self.handle_metadata_update(provider, &intent)?;
+                                self.handle_metadata_update_from_intent(provider, &intent)?;
                                 Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
                             IntentState::Published => {
@@ -955,7 +956,7 @@ where
     }
 
     /// In case of metadataUpdate will extract the updated fields and store them to the db
-    fn handle_metadata_update(
+    fn handle_metadata_update_from_intent(
         &self,
         provider: &XmtpOpenMlsProvider,
         intent: &StoredGroupIntent,
@@ -977,6 +978,34 @@ where
                     )?
                 }
                 _ => {} // handle other metadata updates
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_metadata_update_from_commit(
+        &self,
+        conn: &DbConnection,
+        metadata_field_changes: Vec<group_updated::MetadataFieldChange>,
+    ) -> Result<(), StorageError> {
+        for change in metadata_field_changes {
+            match change.field_name.as_str() {
+                field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
+                    let parsed_value = change
+                        .new_value
+                        .as_deref()
+                        .and_then(|v| v.parse::<i64>().ok());
+                    conn.update_message_disappearing_from_ns(self.group_id.clone(), parsed_value)?
+                }
+                field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
+                    let parsed_value = change
+                        .new_value
+                        .as_deref()
+                        .and_then(|v| v.parse::<i64>().ok());
+                    conn.update_message_disappearing_in_ns(self.group_id.clone(), parsed_value)?
+                }
+                _ => {} // Handle other metadata updates if needed
             }
         }
 
@@ -1113,7 +1142,7 @@ where
         let sender_inbox_id = validated_commit.actor_inbox_id();
 
         let payload: GroupUpdated = validated_commit.into();
-        let encoded_payload = GroupUpdatedCodec::encode(payload)?;
+        let encoded_payload = GroupUpdatedCodec::encode(payload.clone())?;
         let mut encoded_payload_bytes = Vec::new();
         encoded_payload.encode(&mut encoded_payload_bytes)?;
 
@@ -1136,6 +1165,7 @@ where
                 }
             }
         };
+        self.handle_metadata_update_from_commit(conn, payload.metadata_field_changes)?;
         let msg = StoredGroupMessage {
             id: message_id,
             group_id: group_id.to_vec(),
@@ -1498,6 +1528,7 @@ where
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
+                        tracing::info!("INBOX ID = {}", inbox_id);
                         match (
                             latest_sequence_id_map.get(inbox_id as &str),
                             existing_group_membership.get(inbox_id),
@@ -1510,7 +1541,7 @@ where
                                 }
                             }
                             // This is for new additions to the group
-                            (Some(latest_sequence_id), _) => {
+                            (Some(latest_sequence_id), None) => {
                                 // This is the case for net new members to the group
                                 updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
                             }

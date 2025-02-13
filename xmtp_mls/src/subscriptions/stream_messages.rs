@@ -7,7 +7,6 @@ use std::{
 
 use super::{Result, SubscribeError};
 use crate::{
-    api::GroupFilter,
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     storage::{
         group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
@@ -18,6 +17,7 @@ use crate::{
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
+use xmtp_api::GroupFilter;
 use xmtp_common::{retry_async, FutureWrapper, Retry};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
@@ -253,7 +253,10 @@ where
         let mut drained = VecDeque::new();
         let mut this = self.as_mut().project();
         while let Poll::Ready(msg) = this.inner.as_mut().poll_next(cx) {
-            drained.push_back(msg.map(|v| v.map_err(SubscribeError::from)));
+            drained.push_back(msg.map(|v| {
+                v.map_err(xmtp_proto::ApiError::from)
+                    .map_err(SubscribeError::from)
+            }));
         }
         drained
     }
@@ -282,7 +285,10 @@ where
                     return self.try_update_state(cx);
                 }
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
-                    let future = ProcessMessageFuture::new(*this.client, envelope?)?;
+                    let future = ProcessMessageFuture::new(
+                        *this.client,
+                        envelope.map_err(xmtp_proto::ApiError::from)?,
+                    )?;
                     let future = future.process();
                     this.state.set(State::Processing {
                         future: FutureWrapper::new(future),
@@ -330,7 +336,6 @@ impl<C, S> StreamGroupMessages<'_, C, S> {
 impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
 where
     C: ScopedGroupClient + 'a,
-    // Subscription: Stream<Item = std::result::Result<GroupMessage, xmtp_proto::Error>> + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
     fn set_cursor(mut self: Pin<&mut Self>, group_id: &[u8], new_cursor: u64) {
