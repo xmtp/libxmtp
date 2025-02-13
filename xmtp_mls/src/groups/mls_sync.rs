@@ -62,14 +62,12 @@ use prost::Message;
 use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
+    env,
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_api::test_utils::{
-    get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
-};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
@@ -1999,4 +1997,56 @@ pub(crate) mod tests {
         assert_eq!(hmac_keys[1].epoch, current_epoch);
         assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_upload_malformed_keypackage() -> bool {
+    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Sets test mode and specifies malformed installations dynamically.
+/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
+pub fn set_test_mode_upload_malformed_keypackage(
+    enable: bool,
+    installations: Option<Vec<Vec<u8>>>,
+) {
+    if enable {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
+
+        if let Some(installs) = installations {
+            let installations_str = installs
+                .iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>()
+                .join(",");
+
+            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
+        }
+    } else {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Retrieves and decodes malformed installations from the environment variable.
+/// Returns an empty list if test mode is not enabled.
+pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
+    if !is_test_mode_upload_malformed_keypackage() {
+        return Vec::new();
+    }
+
+    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
+        .unwrap_or_else(|_| "".to_string())
+        .split(',')
+        .filter_map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(hex::decode(s).unwrap_or_else(|_| Vec::new()))
+            }
+        })
+        .collect()
 }

@@ -1932,11 +1932,9 @@ pub(crate) mod tests {
     use diesel::connection::SimpleConnection;
     use diesel::RunQueryDsl;
     use futures::future::join_all;
-    use futures_util::FutureExt;
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
-    use xmtp_api::test_utils::set_test_mode_upload_malformed_keypackage;
     use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
@@ -1946,6 +1944,7 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+    use crate::groups::mls_sync::set_test_mode_upload_malformed_keypackage;
     use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
