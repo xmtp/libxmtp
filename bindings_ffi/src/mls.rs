@@ -6,8 +6,8 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
@@ -2544,7 +2544,16 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, decode_multi_remote_attachment, decode_reaction, encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError
+        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
+        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
+        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
+        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
+        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
+        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
+        FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
+        FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
+        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
+        FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
