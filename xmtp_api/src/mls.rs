@@ -1,9 +1,7 @@
-use super::ApiClientWrapper;
-use crate::test_utils::{
-    get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
-};
-use crate::{Result, XmtpApi};
 use std::collections::HashMap;
+
+use super::ApiClientWrapper;
+use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
@@ -15,7 +13,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
 use xmtp_proto::ApiError;
-
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -259,7 +256,10 @@ where
             .into_iter()
             .enumerate()
             .map(|(idx, key_package)| {
-                (installation_keys[idx].to_vec(), key_package.key_package_tls_serialized)
+                (
+                    installation_keys[idx].to_vec(),
+                    key_package.key_package_tls_serialized,
+                )
             })
             .collect();
 

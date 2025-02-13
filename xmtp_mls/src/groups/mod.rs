@@ -1829,10 +1829,9 @@ async fn validate_initial_group_membership(
         .members()
         .map(|member| member.signature_key)
         .collect();
-    println!("actual_installation_ids: {:?}", actual_installation_ids);
-    println!("expected_installation_ids: {:?}", expected_installation_ids);
+
+    // exclude failed installations
     expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
-    println!("after expected_installation_ids: {:?}", expected_installation_ids);
 
     if expected_installation_ids != actual_installation_ids {
         return Err(GroupError::InvalidGroupMembership);
