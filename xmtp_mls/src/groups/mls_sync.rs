@@ -15,6 +15,7 @@ use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::utils::{
     get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
 };
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::{
@@ -1765,37 +1766,12 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     let mut failed_installations = Vec::new();
 
     if !installation_diff.added_installations.is_empty() {
-        let my_installation_id = client.context().installation_public_key().to_vec();
-
-        let key_packages = client
-            .get_key_packages_for_installation_ids(
-                installation_diff
-                    .added_installations
-                    .iter()
-                    .filter(|installation| my_installation_id.ne(*installation))
-                    .cloned()
-                    .collect(),
-            )
-            .await?;
-
-        tracing::info!("trying to validate keypackages");
-
-        #[cfg(any(test, feature = "test-utils"))]
-        let key_packages = {
-            if is_test_mode_upload_malformed_keypackage() {
-                let malformed_installations = get_test_mode_malformed_installations();
-                failed_installations.extend(malformed_installations.clone());
-
-                // Return only valid key packages (excluding malformed)
-                key_packages
-                    .into_iter()
-                    .filter(|(id, _)| !malformed_installations.contains(id))
-                    .collect::<HashMap<_, _>>()
-            } else {
-                key_packages
-            }
-        };
-
+        let key_packages = get_keypackages_for_installation_ids(
+            client,
+            installation_diff.added_installations,
+            &mut failed_installations,
+        )
+        .await?;
         for (installation_id, result) in key_packages {
             match result {
                 Ok(verified_key_package) => {
@@ -1815,6 +1791,59 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         installation_diff.removed_installations,
         failed_installations,
     ))
+}
+#[allow(dead_code)]
+#[cfg(any(test, feature = "test-utils"))]
+async fn get_keypackages_for_installation_ids<'a>(
+    client: impl ScopedGroupClient,
+    added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+{
+    let my_installation_id = client.context().installation_public_key().to_vec();
+    let key_packages = client
+        .get_key_packages_for_installation_ids(
+            added_installations
+                .iter()
+                .filter(|installation| my_installation_id.ne(*installation))
+                .cloned()
+                .collect(),
+        )
+        .await?;
+
+    tracing::info!("trying to validate keypackages");
+
+    Ok(if is_test_mode_upload_malformed_keypackage() {
+        let malformed_installations = get_test_mode_malformed_installations();
+        failed_installations.extend(malformed_installations.clone());
+
+        // Return only valid key packages (excluding malformed)
+        key_packages
+            .into_iter()
+            .filter(|(id, _)| !malformed_installations.contains(id))
+            .collect::<HashMap<_, _>>()
+    } else {
+        key_packages
+    })
+}
+#[allow(unused_variables, dead_code)]
+#[cfg(not(any(test, feature = "test-utils")))]
+async fn get_keypackages_for_installation_ids<'a>(
+    client: impl ScopedGroupClient,
+    added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+{
+    let my_installation_id = client.context().installation_public_key().to_vec();
+    client
+        .get_key_packages_for_installation_ids(
+            added_installations
+                .iter()
+                .filter(|installation| my_installation_id.ne(*installation))
+                .cloned()
+                .collect(),
+        )
+        .await
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
