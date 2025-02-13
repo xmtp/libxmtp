@@ -60,9 +60,10 @@ use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
 use sha2::Sha256;
+#[cfg(any(test, feature = "test-utils"))]
+use std::env;
 use std::{
     collections::{HashMap, HashSet},
-    env,
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
 };
@@ -1564,7 +1565,6 @@ where
                 new_membership.add(inbox_id.clone(), *sequence_id);
             }
 
-            println!("calculate");
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.client,
                 provider,
@@ -1572,7 +1572,6 @@ where
                 &old_group_membership,
             )
             .await?;
-            println!("calculate results:{:?}", changes_with_kps);
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
@@ -2006,6 +2005,7 @@ pub fn is_test_mode_upload_malformed_keypackage() -> bool {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[warn(dead_code)]
 /// Sets test mode and specifies malformed installations dynamically.
 /// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
 pub fn set_test_mode_upload_malformed_keypackage(

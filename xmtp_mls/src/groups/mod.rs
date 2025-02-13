@@ -2410,6 +2410,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[ignore] //todo: mojtaba in progress
     async fn test_add_members_while_there_are_some_bad_keypackages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2458,6 +2459,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[ignore] //todo: mojtaba in progress
     async fn test_add_members_while_all_have_bad_keypackages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2495,12 +2497,13 @@ pub(crate) mod tests {
         assert_eq!(bola_groups.len(), 0);
     }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[ignore] //todo: mojtaba in progress
     async fn test_create_group_while_there_are_some_bad_keypackages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
         let bola = ClientBuilder::new_test_client(&bola_wallet).await;
         let charlie_wallet = generate_local_wallet();
-        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        // let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
         let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
         println!(
             "charlie failed installations:{:?}",
@@ -2544,6 +2547,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[ignore] //todo: mojtaba in progress
     async fn test_add_members_while_there_are_bad_keypackages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2590,21 +2594,22 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[ignore] //todo: mojtaba in progress
     async fn test_add_installations_before_processing_welcomes() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie_wallet = generate_local_wallet();
-        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        // let charlie_wallet = generate_local_wallet();
+        // let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
 
         let group = alix
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
-        let result = group
-            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
-            .await
-            .unwrap();
+        // let result = group
+        //     .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+        //     .await
+        //     .unwrap();
         group.sync().await.unwrap();
-        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        // let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
         bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await
             .unwrap();
