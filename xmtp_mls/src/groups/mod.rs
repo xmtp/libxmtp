@@ -2410,224 +2410,317 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore] //todo: mojtaba in progress
-    async fn test_add_members_while_there_are_some_bad_keypackages() {
+    async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
+        // 1) Prepare clients
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie_wallet = generate_local_wallet();
-        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        let bola_wallet = generate_local_wallet();
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-        println!(
-            "charlie failed installations:{:?}",
-            charlie_2.installation_id().to_vec()
-        );
+        // bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark the second installation as malformed
         set_test_mode_upload_malformed_keypackage(
             true,
-            Some(vec![charlie_2.installation_id().to_vec()]),
+            Some(vec![bola_2.installation_id().to_vec()]),
         );
 
-        let result = group
-            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
-            .await
-            .unwrap();
-        group.sync().await.unwrap();
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
-        assert_eq!(bola_group.members().await.unwrap().len(), 3);
-        assert_eq!(group.members().await.unwrap().len(), 3);
-        // assert_eq!(group_total_installations, 3);
-        assert_eq!(result.added_members.len(), 3);
-        // assert_eq!(result.failed_installations.len(), 1);
-
-        let group_id = group.group_id;
-
-        let messages = alix
-            .api_client
-            .query_group_messages(group_id, None)
-            .await
-            .unwrap();
-
-        assert_eq!(messages.len(), 1);
-    }
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore] //todo: mojtaba in progress
-    async fn test_add_members_while_all_have_bad_keypackages() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie_wallet = generate_local_wallet();
-        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-        println!(
-            "charlie failed installations:{:?}",
-            charlie_2.installation_id().to_vec()
-        );
-        // one of charlies' keypackages is malformed
-        set_test_mode_upload_malformed_keypackage(
-            true,
-            Some(vec![
-                bola.installation_id().to_vec(),
-                charlie_1.installation_id().to_vec(),
-                charlie_2.installation_id().to_vec(),
-            ]),
-        );
-        let result = group
-            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
-            .await
-            .unwrap();
-        //todo: must stop creating the group?
-        assert_eq!(result.failed_installations.len(), 3);
-        group.sync().await.unwrap();
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(bola_groups.len(), 0);
-    }
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore] //todo: mojtaba in progress
-    async fn test_create_group_while_there_are_some_bad_keypackages() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola_wallet = &generate_local_wallet();
-        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
-        let charlie_wallet = generate_local_wallet();
-        // let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        println!(
-            "charlie failed installations:{:?}",
-            charlie_2.installation_id().to_vec()
-        );
-        set_test_mode_upload_malformed_keypackage(
-            true,
-            Some(vec![charlie_2.installation_id().to_vec()]),
-        );
+        // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
         let group = alix
             .create_group_with_members(
-                &[bola_wallet.get_address(), charlie_wallet.get_address()],
+                &[bola_wallet.get_address()],
                 None,
                 GroupMetadataOptions::default(),
             )
             .await
             .unwrap();
-        // one of charlies' keypackages is malformed
 
+        // 4) Sync from Alix's side
         group.sync().await.unwrap();
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // 5) Bola_1 syncs welcomes and checks for groups
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
             .await
             .unwrap();
-        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
-        assert_eq!(bola_group.members().await.unwrap().len(), 3);
-        assert_eq!(group.members().await.unwrap().len(), 3);
-        // assert_eq!(group_total_installations, 3);
-        // assert_eq!(result.failed_installations.len(), 1);
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        let group_id = group.group_id;
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
 
-        let messages = alix
+        assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
+        assert_eq!(bola_2_groups.len(), 0, "Bola_2 should see no groups!");
+
+        let bola_1_group = bola_1_groups.first().unwrap();
+        bola_1_group.sync().await.unwrap();
+
+        // 6) Verify group membership from both sides
+        //    Here we expect 2 *members* (Alix + Bola), though internally Bola might have 2 installations.
+        assert_eq!(
+            group.members().await.unwrap().len(),
+            2,
+            "Group should have 2 members"
+        );
+        assert_eq!(
+            bola_1_group.members().await.unwrap().len(),
+            2,
+            "Bola_1 should also see 2 members in the group"
+        );
+
+        // 7) Send a message from Alix and confirm Bola_1 receives it
+        let message = b"Hello";
+        group.send_message(message).await.unwrap();
+        bola_1_group.send_message(message).await.unwrap();
+
+        // Sync both sides again
+        group.sync().await.unwrap();
+        bola_1_group.sync().await.unwrap();
+
+        // Query messages from Bola_1's perspective
+        let messages_bola_1 = bola_1
             .api_client
-            .query_group_messages(group_id, None)
+            .query_group_messages(group.clone().group_id.clone(), None)
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        // The last message should be our "Hello from Alix"
+        assert_eq!(messages_bola_1.len(), 4);
+
+        // Query messages from Alix's perspective
+        let messages_alix = alix
+            .api_client
+            .query_group_messages(group.clone().group_id, None)
+            .await
+            .unwrap();
+
+        // The last message should be our "Hello from Alix"
+        assert_eq!(messages_alix.len(), 4);
+        assert_eq!(
+            message.to_vec(),
+            get_latest_message(&group).await.decrypted_message_bytes
+        );
+        assert_eq!(
+            message.to_vec(),
+            get_latest_message(&bola_1_group)
+                .await
+                .decrypted_message_bytes
+        );
     }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore] //todo: mojtaba in progress
-    async fn test_add_members_while_there_are_bad_keypackages() {
+    async fn test_create_group_with_member_all_malformed_installations() {
+        // 1) Prepare clients
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie_wallet = generate_local_wallet();
-        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
+        // bola has two installations
+        let bola_wallet = generate_local_wallet();
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark both installations as malformed
         set_test_mode_upload_malformed_keypackage(
             true,
-            Some(vec![charlie_2.installation_id().to_vec()]),
+            Some(vec![
+                bola_1.installation_id().to_vec(),
+                bola_2.installation_id().to_vec(),
+            ]),
         );
-        let result = group
-            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+
+        // 3) Attempt to create the group, which should fail
+        let result = alix
+            .create_group_with_members(
+                &[bola_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await;
+        // 4) Ensure group creation failed
+        assert!(
+            result.is_err(),
+            "Group creation should fail when all installations have bad key packages"
+        );
+
+        // 5) Ensure Bola does not have any groups on either installation
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
             .await
             .unwrap();
-        println!("errors {:?}", result.removed_members);
-        println!("added {:?}", result.added_members);
-        println!("removed {:?}", result.removed_members);
-        group.sync().await.unwrap();
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
-        assert_eq!(bola_group.members().await.unwrap().len(), 3);
-        assert_eq!(group.members().await.unwrap().len(), 3);
-        assert_eq!(result.added_members.len(), 3);
-        assert_eq!(result.failed_installations.len(), 0);
-
-        let group_id = group.group_id;
-
-        let messages = alix
-            .api_client
-            .query_group_messages(group_id, None)
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+
+        assert_eq!(
+            bola_1_groups.len(),
+            0,
+            "Bola_1 should have no groups after failed creation"
+        );
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should have no groups after failed creation"
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    #[ignore] //todo: mojtaba in progress
-    async fn test_add_installations_before_processing_welcomes() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        // let charlie_wallet = generate_local_wallet();
-        // let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+    async fn test_dm_creation_with_user_two_installations_one_malformed() {
+        // 1) Prepare clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
-        // let result = group
-        //     .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
-        //     .await
-        //     .unwrap();
-        group.sync().await.unwrap();
-        // let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
+        // Bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
 
-        let group_id = group.group_id;
+        // 2) Mark bola_2's installation as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bola_2.installation_id().to_vec()]),
+        );
 
-        let messages = alix
-            .api_client
-            .query_group_messages(group_id, None)
+        // 3) Amal creates a DM group targeting Bola
+        let amal_dm = amal
+            .find_or_create_dm(bola_wallet.get_address(), DMMetadataOptions::default())
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        // 4) Ensure the DM is created with only 2 members (Amal + one valid Bola installation)
+        amal_dm.sync().await.unwrap();
+        let members = amal_dm.members().await.unwrap();
+        assert_eq!(
+            members.len(),
+            2,
+            "DM should contain only Amal and one valid Bola installation"
+        );
+
+        // 5) Bola_1 syncs and confirms it has the DM
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+
+        let bola_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+
+        assert_eq!(bola_groups.len(), 1, "Bola_1 should see the DM group");
+
+        let bola_1_dm: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_1_dm.sync().await.unwrap();
+
+        // 6) Ensure Bola_2 does NOT have the group
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should not have the DM group due to malformed key package"
+        );
+
+        // 7) Send a message from Amal to Bola_1
+        let message_text = b"Hello from Amal";
+        amal_dm.send_message(message_text).await.unwrap();
+
+        // 8) Sync both sides and check message delivery
+        amal_dm.sync().await.unwrap();
+        bola_1_dm.sync().await.unwrap();
+
+        // Verify Bola_1 received the message
+        let messages_bola_1 = bola_1_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            messages_bola_1.len(),
+            1,
+            "Bola_1 should have received Amal's message"
+        );
+
+        let last_message = messages_bola_1.last().unwrap();
+        assert_eq!(
+            last_message.decrypted_message_bytes, message_text,
+            "Bola_1 should receive the correct message"
+        );
+
+        // 9) Bola_1 replies, and Amal confirms receipt
+        let reply_text = b"Hey Amal!";
+        bola_1_dm.send_message(reply_text).await.unwrap();
+
+        amal_dm.sync().await.unwrap();
+        let messages_amal = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages_amal.len(), 3, "Amal should receive Bola_1's reply");
+
+        let last_message_amal = messages_amal.last().unwrap();
+        assert_eq!(
+            last_message_amal.decrypted_message_bytes, reply_text,
+            "Amal should receive the correct reply from Bola_1"
+        );
+
+        // 10) Ensure only valid installations are considered for the DM
+        assert_eq!(
+            amal_dm.members().await.unwrap().len(),
+            2,
+            "Only Amal and Bola_1 should be in the DM"
+        );
     }
 
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_dm_creation_with_user_all_malformed_installations() {
+        // 1) Prepare clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+
+        // Bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark all of Bola's installations as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![
+                bola_1.installation_id().to_vec(),
+                bola_2.installation_id().to_vec(),
+            ]),
+        );
+
+        // 3) Attempt to create the DM group, which should fail
+        let result = amal
+            .find_or_create_dm(bola_wallet.get_address(), DMMetadataOptions::default())
+            .await;
+
+        // 4) Ensure DM creation fails with the correct error
+        assert!(result.is_err());
+
+        // 5) Ensure Bola_1 does not have any groups
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_1_groups.len(),
+            0,
+            "Bola_1 should have no DM group due to malformed key package"
+        );
+
+        // 6) Ensure Bola_2 does not have any groups
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should have no DM group due to malformed key package"
+        );
+    }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;

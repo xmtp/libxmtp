@@ -355,6 +355,7 @@ pub fn set_test_mode_upload_malformed_keypackage(
 ) {
     if enable {
         env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
 
         if let Some(installs) = installations {
             let installations_str = installs
