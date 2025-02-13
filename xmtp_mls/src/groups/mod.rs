@@ -38,6 +38,7 @@ use self::{
 use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
+use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -106,10 +107,6 @@ use xmtp_proto::xmtp::mls::{
         EncodedContent, PlaintextEnvelope,
     },
 };
-
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-use crate::groups::intents::UpdateGroupMembershipResult;
-use xmtp_common::retry::RetryableError;
 
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
@@ -1830,12 +1827,16 @@ async fn validate_initial_group_membership(
     for association_state in results {
         expected_installation_ids.extend(association_state.installation_ids());
     }
+    println!("expected_installation_ids: {:?}", expected_installation_ids);
 
     let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
         .public_group()
         .members()
         .map(|member| member.signature_key)
         .collect();
+    println!("actual_installation_ids: {:?}", actual_installation_ids);
+    expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
+    println!("after filtering actual_installation_ids: {:?}", actual_installation_ids);
 
     if expected_installation_ids != actual_installation_ids {
         return Err(GroupError::InvalidGroupMembership);
@@ -1976,6 +1977,8 @@ pub(crate) mod tests {
         utils::test::FullXmtpClient,
         InboxOwner, StreamHandle as _,
     };
+    use crate::api::set_test_mode_upload_malformed_keypackage;
+    use crate::groups::scoped_client::ScopedGroupClient;
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2402,6 +2405,86 @@ pub(crate) mod tests {
         let group_id = group.group_id;
 
         let messages = client
+            .api_client
+            .query_group_messages(group_id, None)
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_add_members_while_there_are_bad_keypackages() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie_wallet = generate_local_wallet();
+        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![charlie_2.installation_id().to_vec()]),
+        );
+        let result = group
+            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+            .await
+            .unwrap();
+        println!("errors {:?}", result.removed_members);
+        println!("added {:?}", result.added_members);
+        println!("removed {:?}", result.removed_members);
+        group.sync().await.unwrap();
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        assert_eq!(bola_group.members().await.unwrap().len(), 3);
+        assert_eq!(group.members().await.unwrap().len(), 3);
+        assert_eq!(result.added_members.len(), 3);
+        assert_eq!(result.members_with_errors.len(), 1);
+
+        let group_id = group.group_id;
+
+        let messages = alix
+            .api_client
+            .query_group_messages(group_id, None)
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_add_installations_before_processing_welcomes() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie_wallet = generate_local_wallet();
+        let charlie_1 = ClientBuilder::new_test_client(&charlie_wallet).await;
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .expect("create group");
+        let result = group
+            .add_members_by_inbox_id(&[bola.inbox_id(), charlie_1.inbox_id()])
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+        let charlie_2 = ClientBuilder::new_test_client(&charlie_wallet).await;
+        bola.sync_welcomes(&bola.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+
+        let group_id = group.group_id;
+
+        let messages = alix
             .api_client
             .query_group_messages(group_id, None)
             .await

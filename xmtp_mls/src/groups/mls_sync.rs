@@ -1569,11 +1569,6 @@ where
                 &old_group_membership,
             )
             .await?;
-            let members_with_errors = changes_with_kps
-                .failed_installations
-                .iter()
-                .map(|bytes| String::from_utf8_lossy(bytes).to_string())
-                .collect();
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
@@ -1591,7 +1586,7 @@ where
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
-                members_with_errors,
+                changes_with_kps.failed_installations,
             ))
         })
         .await
@@ -1812,7 +1807,7 @@ async fn apply_update_group_membership_intent(
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
-    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
+    let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     let changes_with_kps = calculate_membership_changes_with_keypackages(
@@ -1834,6 +1829,7 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
+    new_group_membership.failed_installations = changes_with_kps.failed_installations;
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit

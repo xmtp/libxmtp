@@ -2,17 +2,19 @@ use crate::groups::intents::Installation;
 use openmls::key_packages::KeyPackage;
 use prost::{DecodeError, Message};
 use std::collections::{HashMap, HashSet};
-use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
+use xmtp_proto::xmtp::mls::message_contents::{GroupMembership as GroupMembershipProto};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMembership {
     pub(crate) members: HashMap<String, u64>,
+    pub(crate) failed_installations: Vec<Vec<u8>>,
 }
 
 impl GroupMembership {
     pub fn new() -> Self {
         GroupMembership {
             members: HashMap::new(),
+            failed_installations: Vec::new(),
         }
     }
 
@@ -94,6 +96,7 @@ impl TryFrom<Vec<u8>> for GroupMembership {
 
         Ok(GroupMembership {
             members: membership_proto.members,
+            failed_installations: membership_proto.failed_installations,
         })
     }
 }
@@ -102,6 +105,7 @@ impl From<&GroupMembership> for Vec<u8> {
     fn from(value: &GroupMembership) -> Self {
         let membership_proto = GroupMembershipProto {
             members: value.members.clone(),
+            failed_installations: value.failed_installations.clone()
         };
 
         membership_proto.encode_to_vec()
@@ -115,6 +119,7 @@ pub struct MembershipDiff<'inbox_id> {
     pub updated_inboxes: Vec<&'inbox_id String>,
 }
 
+#[derive(Debug)]
 pub struct MembershipDiffWithKeyPackages {
     pub new_installations: Vec<Installation>,
     pub new_key_packages: Vec<KeyPackage>,

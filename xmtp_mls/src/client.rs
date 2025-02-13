@@ -857,7 +857,8 @@ where
                 .zip(key_package_results.values())
                 .map(|(id, bytes)| {
                     (
-                        id.clone(), VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes),
+                        id.clone(),
+                        VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes),
                     )
                 })
                 .collect();
@@ -1539,15 +1540,19 @@ pub(crate) mod tests {
         let kps_map = client
             .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
-            .map_err(|_| IdentityError::NewIdentity("fetched malformed keypackage".to_string()))?;
+            .map_err(|_| IdentityError::NewIdentity("Failed to fetch key packages".to_string()))?;
 
         let kp_result = kps_map
             .get(installation_id.as_ref())
-            .ok_or(IdentityError::NewIdentity(
-                "fetched malformed keypackage".to_string(),
-            ))?;
+            .ok_or_else(|| {
+                IdentityError::NewIdentity(format!(
+                    "Missing key package for {}",
+                    hex::encode(installation_id.as_ref())
+                ))
+            })?
+            .clone()?;
 
-        serialize_key_package_hash_ref(&kp_result.clone().unwrap().inner, &client.mls_provider()?)
+        serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider()?)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

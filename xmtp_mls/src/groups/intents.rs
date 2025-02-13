@@ -289,14 +289,14 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
 pub struct UpdateGroupMembershipResult {
     pub added_members: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub members_with_errors: Vec<String>,
+    pub members_with_errors: Vec<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipResult {
     pub fn new(
         added_members: HashMap<String, u64>,
         removed_members: Vec<String>,
-        members_with_errors: Vec<String>,
+        members_with_errors: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             added_members,
@@ -320,14 +320,14 @@ impl From<UpdateGroupMembershipIntentData> for UpdateGroupMembershipResult {
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub members_with_errors: Vec<String>,
+    pub members_with_errors: Vec<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipIntentData {
     pub fn new(
         membership_updates: HashMap<String, u64>,
         removed_members: Vec<String>,
-        members_with_errors: Vec<String>,
+        members_with_errors: Vec<Vec<u8>>,
     ) -> Self {
         Self {
             membership_updates,
@@ -363,6 +363,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
             version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
+                failed_installations: intent.members_with_errors
             })),
         }
         .encode(&mut buf)

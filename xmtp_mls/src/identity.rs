@@ -40,6 +40,7 @@ use xmtp_id::{
     InboxId, InboxIdRef,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
+use crate::verified_key_package_v2::KeyPackageVerificationError;
 
 /**
  * The identity strategy determines how the [`ClientBuilder`] constructs an identity on startup.
@@ -205,6 +206,8 @@ pub enum IdentityError {
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
+    #[error(transparent)]
+    KeyPackageVerificationError(#[from] KeyPackageVerificationError),
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
     #[error("The address {0} has no associated InboxID")]
