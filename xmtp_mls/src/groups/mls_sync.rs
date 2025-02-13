@@ -1780,27 +1780,19 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
         tracing::info!("trying to validate keypackages");
 
+        #[cfg(any(test, feature = "test-utils"))]
         let key_packages = {
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                if is_test_mode_upload_malformed_keypackage() {
-                    let malformed_installations = get_test_mode_malformed_installations();
-                    failed_installations.extend(malformed_installations.clone());
+            if is_test_mode_upload_malformed_keypackage() {
+                let malformed_installations = get_test_mode_malformed_installations();
+                failed_installations.extend(malformed_installations);
 
-                    // Return only valid key packages (excluding malformed)
-                    key_packages
-                        .clone()
-                        .into_iter()
-                        .filter(|(id, _)| !malformed_installations.contains(id))
-                        .collect::<HashMap<_, _>>()
-                } else {
-                    key_packages.clone()
-                }
-            }
-
-            #[cfg(not(any(test, feature = "test-utils")))]
-            {
-                key_packages.clone()
+                // Return only valid key packages (excluding malformed)
+                key_packages
+                    .into_iter()
+                    .filter(|(id, _)| !malformed_installations.contains(id))
+                    .collect::<HashMap<_, _>>()
+            } else {
+                key_packages
             }
         };
 
