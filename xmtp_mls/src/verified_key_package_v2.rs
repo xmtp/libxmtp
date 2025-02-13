@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::configuration::MLS_PROTOCOL_VERSION;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum KeyPackageVerificationError {
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
@@ -25,6 +25,7 @@ pub enum KeyPackageVerificationError {
 }
 
 /// A wrapper around the MLS key package struct with some additional fields
+#[derive(Clone, Debug)]
 pub struct VerifiedKeyPackageV2 {
     pub inner: KeyPackage,
     pub credential: MlsCredential,

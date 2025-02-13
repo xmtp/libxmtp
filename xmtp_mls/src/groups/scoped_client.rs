@@ -1,4 +1,5 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
+use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
@@ -11,6 +12,7 @@ use crate::{
     verified_key_package_v2::VerifiedKeyPackageV2,
     Client,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
@@ -65,7 +67,10 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    >;
 
     async fn get_association_state(
         &self,
@@ -196,7 +201,10 @@ where
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    > {
         crate::Client::<ApiClient, Verifier>::get_key_packages_for_installation_ids(
             self,
             installation_ids,
@@ -291,7 +299,10 @@ where
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    > {
         (**self)
             .get_key_packages_for_installation_ids(installation_ids)
             .await
@@ -381,7 +392,10 @@ where
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    > {
         (**self)
             .get_key_packages_for_installation_ids(installation_ids)
             .await
