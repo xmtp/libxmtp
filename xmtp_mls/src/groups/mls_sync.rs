@@ -1784,7 +1784,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         let key_packages = {
             if is_test_mode_upload_malformed_keypackage() {
                 let malformed_installations = get_test_mode_malformed_installations();
-                failed_installations.extend(malformed_installations);
+                failed_installations.extend(malformed_installations.clone());
 
                 // Return only valid key packages (excluding malformed)
                 key_packages
