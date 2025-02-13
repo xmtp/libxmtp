@@ -25,6 +25,8 @@ use crate::{
     storage::{DbConnection, EncryptedMessageStore, StorageOption},
     Client, InboxOwner, XmtpApi,
 };
+#[cfg(any(test, feature = "test-utils"))]
+use std::env;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -335,4 +337,57 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
         xmtp_common::yield_().await;
         published = conn.intents_published() as usize;
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_upload_malformed_keypackage() -> bool {
+    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+#[warn(dead_code)]
+/// Sets test mode and specifies malformed installations dynamically.
+/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
+pub fn set_test_mode_upload_malformed_keypackage(
+    enable: bool,
+    installations: Option<Vec<Vec<u8>>>,
+) {
+    if enable {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
+
+        if let Some(installs) = installations {
+            let installations_str = installs
+                .iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>()
+                .join(",");
+
+            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
+        }
+    } else {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Retrieves and decodes malformed installations from the environment variable.
+/// Returns an empty list if test mode is not enabled.
+pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
+    if !is_test_mode_upload_malformed_keypackage() {
+        return Vec::new();
+    }
+
+    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
+        .unwrap_or_else(|_| "".to_string())
+        .split(',')
+        .filter_map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(hex::decode(s).unwrap_or_else(|_| Vec::new()))
+            }
+        })
+        .collect()
 }

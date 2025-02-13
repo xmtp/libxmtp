@@ -1944,13 +1944,13 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-    use crate::groups::mls_sync::set_test_mode_upload_malformed_keypackage;
     use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
     use crate::{
         builder::ClientBuilder,
         groups::{
