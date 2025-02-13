@@ -7418,6 +7418,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_api_v2"
+version = "0.1.0"
+
+[[package]]
 name = "xmtp_cli"
 version = "0.1.0"
 dependencies = [

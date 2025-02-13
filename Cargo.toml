@@ -17,7 +17,7 @@ members = [
   "xtask",
   "xmtp_debug",
   "xmtp_content_types",
-  "common",
+  "common", "xmtp_api_v2",
 ]
 
 # Make the feature resolver explicit.
