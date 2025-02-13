@@ -1,9 +1,9 @@
 [package]
+build = "build.rs"
 edition = "2021"
+license.workspace = true
 name = "mls_validation_service"
 version = "0.1.4"
-build = "build.rs"
-license.workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
@@ -34,9 +34,9 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 anyhow.workspace = true
 ethers.workspace = true
 rand = { workspace = true }
+xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [features]
 test-utils = ["xmtp_id/test-utils"]

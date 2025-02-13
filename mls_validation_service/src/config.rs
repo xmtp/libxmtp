@@ -18,4 +18,8 @@ pub(crate) struct Args {
     // A path to a json file in the same format as chain_urls_default.json in the codebase.
     #[arg(long)]
     pub(crate) chain_urls: Option<String>,
+
+    // The size of the cache to use for the smart contract signature verifier.
+    #[arg(long, default_value_t = 20)]
+    pub(crate) cache_size: usize,
 }
