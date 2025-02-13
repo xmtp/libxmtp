@@ -1,5 +1,6 @@
 pub mod auth_token;
 pub mod grpc_api_helper;
+pub mod grpc_client;
 mod identity;
 pub mod replication_client;
 

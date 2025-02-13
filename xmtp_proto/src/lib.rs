@@ -9,6 +9,7 @@ mod error;
 pub use error::*;
 
 pub mod api_client;
+pub mod traits;
 
 #[cfg(feature = "convert")]
 pub mod convert;

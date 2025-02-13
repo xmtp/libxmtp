@@ -7646,6 +7646,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "hex",
+ "http 1.2.0",
  "openmls",
  "openmls_rust_crypto",
  "pbjson",
