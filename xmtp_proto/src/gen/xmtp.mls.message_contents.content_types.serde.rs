@@ -431,7 +431,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
         if !self.url.is_empty() {
             len += 1;
         }
-        if self.content_length_kb.is_some() {
+        if self.content_length.is_some() {
             len += 1;
         }
         if self.filename.is_some() {
@@ -462,8 +462,8 @@ impl serde::Serialize for RemoteAttachmentInfo {
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
-        if let Some(v) = self.content_length_kb.as_ref() {
-            struct_ser.serialize_field("contentLengthKb", v)?;
+        if let Some(v) = self.content_length.as_ref() {
+            struct_ser.serialize_field("contentLength", v)?;
         }
         if let Some(v) = self.filename.as_ref() {
             struct_ser.serialize_field("filename", v)?;
@@ -485,8 +485,8 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             "salt",
             "scheme",
             "url",
-            "content_length_kb",
-            "contentLengthKb",
+            "content_length",
+            "contentLength",
             "filename",
         ];
 
@@ -498,7 +498,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             Salt,
             Scheme,
             Url,
-            ContentLengthKb,
+            ContentLength,
             Filename,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -527,7 +527,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                             "salt" => Ok(GeneratedField::Salt),
                             "scheme" => Ok(GeneratedField::Scheme),
                             "url" => Ok(GeneratedField::Url),
-                            "contentLengthKb" | "content_length_kb" => Ok(GeneratedField::ContentLengthKb),
+                            "contentLength" | "content_length" => Ok(GeneratedField::ContentLength),
                             "filename" => Ok(GeneratedField::Filename),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -554,7 +554,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                 let mut salt__ = None;
                 let mut scheme__ = None;
                 let mut url__ = None;
-                let mut content_length_kb__ = None;
+                let mut content_length__ = None;
                 let mut filename__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -600,11 +600,11 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                             }
                             url__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::ContentLengthKb => {
-                            if content_length_kb__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("contentLengthKb"));
+                        GeneratedField::ContentLength => {
+                            if content_length__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contentLength"));
                             }
-                            content_length_kb__ = 
+                            content_length__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
@@ -623,7 +623,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                     salt: salt__.unwrap_or_default(),
                     scheme: scheme__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
-                    content_length_kb: content_length_kb__,
+                    content_length: content_length__,
                     filename: filename__,
                 })
             }
