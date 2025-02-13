@@ -1582,7 +1582,7 @@ where
                 && changes_with_kps.failed_installations.len() == inbox_ids_to_add.len()
             {
                 return Err(GroupError::Generic(
-                    "Failed to add all installations".to_string(),
+                    "Failed to verify all installations".to_string(),
                 ));
             }
 
