@@ -66,7 +66,7 @@ pub(crate) mod tests {
             salt: vec![0; 16],
             scheme: "https".to_string(),
             url: "https://example.com/attachment".to_string(),
-            content_length_kb: Some(1000),
+            content_length: Some(1000),
             filename: Some("attachment_1.jpg".to_string()),
         };
         let attachment_info_2 = RemoteAttachmentInfo {
@@ -76,7 +76,7 @@ pub(crate) mod tests {
             salt: vec![0; 16],
             scheme: "https".to_string(),
             url: "https://example.com/attachment".to_string(),
-            content_length_kb: Some(1000),
+            content_length: Some(1000),
             filename: Some("attachment_2.jpg".to_string()),
         };
 
@@ -98,7 +98,7 @@ pub(crate) mod tests {
         let decoded = MultiRemoteAttachmentCodec::decode(encoded).unwrap();
         assert_eq!(decoded.attachments[0].filename, filename_1);
         assert_eq!(decoded.attachments[1].filename, filename_2);
-        assert_eq!(decoded.attachments[0].content_length_kb, Some(1000));
-        assert_eq!(decoded.attachments[1].content_length_kb, Some(1000));
+        assert_eq!(decoded.attachments[0].content_length, Some(1000));
+        assert_eq!(decoded.attachments[1].content_length, Some(1000));
     }
 }

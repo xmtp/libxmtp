@@ -2239,7 +2239,7 @@ pub struct FfiRemoteAttachmentInfo {
     pub scheme: String,
     pub url: String,
     pub salt: Vec<u8>,
-    pub content_length_kb: Option<u32>,
+    pub content_length: Option<u32>,
     pub filename: Option<String>,
 }
 
@@ -2252,7 +2252,7 @@ impl From<FfiRemoteAttachmentInfo> for RemoteAttachmentInfo {
             salt: ffi_remote_attachment_info.salt,
             scheme: ffi_remote_attachment_info.scheme,
             url: ffi_remote_attachment_info.url,
-            content_length_kb: ffi_remote_attachment_info.content_length_kb,
+            content_length: ffi_remote_attachment_info.content_length,
             filename: ffi_remote_attachment_info.filename,
         }
     }
@@ -2267,7 +2267,7 @@ impl From<RemoteAttachmentInfo> for FfiRemoteAttachmentInfo {
             scheme: remote_attachment_info.scheme,
             url: remote_attachment_info.url,
             salt: remote_attachment_info.salt,
-            content_length_kb: remote_attachment_info.content_length_kb,
+            content_length: remote_attachment_info.content_length,
             filename: remote_attachment_info.filename,
         }
     }
@@ -6975,7 +6975,7 @@ mod tests {
             attachments: vec![
                 FfiRemoteAttachmentInfo {
                     filename: Some("test1.jpg".to_string()),
-                    content_length_kb: Some(1000),
+                    content_length: Some(1000),
                     secret: vec![1, 2, 3],
                     content_digest: "123".to_string(),
                     nonce: vec![7, 8, 9],
@@ -6985,7 +6985,7 @@ mod tests {
                 },
                 FfiRemoteAttachmentInfo {
                     filename: Some("test2.pdf".to_string()),
-                    content_length_kb: Some(2000),
+                    content_length: Some(2000),
                     secret: vec![4, 5, 6],
                     content_digest: "456".to_string(),
                     nonce: vec![10, 11, 12],
