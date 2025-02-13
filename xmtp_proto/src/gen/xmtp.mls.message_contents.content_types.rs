@@ -8,6 +8,10 @@ pub struct MultiRemoteAttachment {
     #[prost(message, repeated, tag="1")]
     pub attachments: ::prost::alloc::vec::Vec<RemoteAttachmentInfo>,
 }
+impl ::prost::Name for MultiRemoteAttachment {
+const NAME: &'static str = "MultiRemoteAttachment";
+const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.content_types.MultiRemoteAttachment".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.content_types.MultiRemoteAttachment".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteAttachmentInfo {
@@ -36,6 +40,10 @@ pub struct RemoteAttachmentInfo {
     #[prost(string, optional, tag="8")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for RemoteAttachmentInfo {
+const NAME: &'static str = "RemoteAttachmentInfo";
+const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into() }}
 /// Reaction message type
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -57,6 +65,10 @@ pub struct ReactionV2 {
     #[prost(enumeration="ReactionSchema", tag="5")]
     pub schema: i32,
 }
+impl ::prost::Name for ReactionV2 {
+const NAME: &'static str = "ReactionV2";
+const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.content_types.ReactionV2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.content_types.ReactionV2".into() }}
 /// Action enum to represent reaction states
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

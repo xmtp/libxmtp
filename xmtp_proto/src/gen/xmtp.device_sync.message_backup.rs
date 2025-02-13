@@ -31,6 +31,10 @@ pub struct GroupMessageSave {
     #[prost(bytes="vec", optional, tag="13")]
     pub reference_id: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for GroupMessageSave {
+const NAME: &'static str = "GroupMessageSave";
+const PACKAGE: &'static str = "xmtp.device_sync.message_backup";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.message_backup.GroupMessageSave".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.message_backup.GroupMessageSave".into() }}
 /// Group message kind
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
