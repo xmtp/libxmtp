@@ -24,6 +24,8 @@ use std::sync::{
     Arc,
 };
 
+pub type BoxedRetry = Retry<Box<dyn Strategy>, Box<dyn Strategy>>;
+
 pub struct NotSpecialized;
 
 /// Specifies which errors are retryable.
