@@ -337,7 +337,9 @@ impl UpdateGroupMembershipIntentData {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.membership_updates.is_empty() && self.removed_members.is_empty() && self.failed_installations.is_empty()
+        self.membership_updates.is_empty()
+            && self.removed_members.is_empty()
+            && self.failed_installations.is_empty()
     }
 
     pub fn apply_to_group_membership(&self, group_membership: &GroupMembership) -> GroupMembership {
@@ -351,7 +353,9 @@ impl UpdateGroupMembershipIntentData {
             new_membership.remove(inbox_id)
         }
 
-        new_membership.failed_installations.extend(self.failed_installations.iter().cloned());
+        new_membership
+            .failed_installations
+            .extend(self.failed_installations.iter().cloned());
 
         tracing::info!("updated group membership: {:?}", new_membership.members);
         new_membership
@@ -366,7 +370,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
             version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
-                failed_installations: intent.failed_installations
+                failed_installations: intent.failed_installations,
             })),
         }
         .encode(&mut buf)
@@ -814,7 +818,7 @@ pub(crate) mod tests {
         let intent = UpdateGroupMembershipIntentData::new(
             membership_updates,
             vec!["bar".to_string()],
-            vec![vec![1,2,3]],
+            vec![vec![1, 2, 3]],
         );
 
         let as_bytes: Vec<u8> = intent.clone().into();
@@ -827,7 +831,10 @@ pub(crate) mod tests {
 
         assert_eq!(intent.removed_members, restored_intent.removed_members);
 
-        assert_eq!(intent.failed_installations, restored_intent.failed_installations);
+        assert_eq!(
+            intent.failed_installations,
+            restored_intent.failed_installations
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

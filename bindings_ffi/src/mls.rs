@@ -1431,19 +1431,19 @@ impl FfiConversationListItem {
 pub struct FfiUpdateGroupMembershipResult {
     added_members: HashMap<String, u64>,
     removed_members: Vec<String>,
-    members_with_errors: Vec<String>,
+    failed_installations: Vec<Vec<u8>>,
 }
 
 impl FfiUpdateGroupMembershipResult {
     fn new(
         added_members: HashMap<String, u64>,
         removed_members: Vec<String>,
-        members_with_errors: Vec<String>,
+        failed_installations: Vec<Vec<u8>>,
     ) -> Self {
         FfiUpdateGroupMembershipResult {
             added_members,
             removed_members,
-            members_with_errors,
+            failed_installations,
         }
     }
 }
@@ -1453,7 +1453,7 @@ impl From<UpdateGroupMembershipResult> for FfiUpdateGroupMembershipResult {
         FfiUpdateGroupMembershipResult::new(
             value.added_members,
             value.removed_members,
-            value.members_with_errors,
+            value.failed_installations,
         )
     }
 }

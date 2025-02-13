@@ -2487,7 +2487,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         //todo: must stop creating the group?
-        assert_eq!(result.failed_installations.len(),3);
+        assert_eq!(result.failed_installations.len(), 3);
         group.sync().await.unwrap();
         bola.sync_welcomes(&bola.mls_provider().unwrap())
             .await

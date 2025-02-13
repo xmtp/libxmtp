@@ -3,6 +3,7 @@ use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::ProviderTransactions;
+use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
@@ -40,7 +41,6 @@ use xmtp_id::{
     InboxId, InboxIdRef,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
-use crate::verified_key_package_v2::KeyPackageVerificationError;
 
 /**
  * The identity strategy determines how the [`ClientBuilder`] constructs an identity on startup.

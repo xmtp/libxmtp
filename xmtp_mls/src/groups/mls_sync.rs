@@ -67,7 +67,9 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_api::test_utils::get_test_mode_malformed_installations;
+use xmtp_api::test_utils::{
+    get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
+};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_id::{InboxId, InboxIdRef};
@@ -1779,40 +1781,42 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
         tracing::info!("trying to validate keypackages");
 
-        let malformed_installations = get_test_mode_malformed_installations();
-        println!("malformed_installations:{:?}", malformed_installations);
+        let key_packages = {
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                if is_test_mode_upload_malformed_keypackage() {
+                    let malformed_installations = get_test_mode_malformed_installations();
+                    failed_installations.extend(malformed_installations.clone());
+
+                    // Return only valid key packages (excluding malformed)
+                    key_packages
+                        .clone()
+                        .into_iter()
+                        .filter(|(id, _)| !malformed_installations.contains(id))
+                        .collect::<HashMap<_, _>>()
+                } else {
+                    key_packages.clone()
+                }
+            }
+
+            #[cfg(not(any(test, feature = "test-utils")))]
+            {
+                key_packages.clone()
+            }
+        };
 
         for (installation_id, result) in key_packages {
-            println!("installation_id to compare:{:?}", installation_id);
-
-            if malformed_installations.contains(&installation_id) {
-                // Mark as failed if in the malformed list
-                println!("compared true {:?}", installation_id);
-
-                failed_installations.push(installation_id.clone());
-                continue; // Skip further processing
-            } else {
-                match result {
-                    Ok(verified_key_package) => {
-                        println!("new_installations:{:?}", verified_key_package);
-
-                        new_installations.push(Installation::from_verified_key_package(
-                            &verified_key_package,
-                        ));
-                        new_key_packages.push(verified_key_package.inner.clone());
-                    }
-                    Err(_) => {
-                        println!("failed");
-
-                        failed_installations.push(installation_id.clone());
-                    }
+            match result {
+                Ok(verified_key_package) => {
+                    new_installations.push(Installation::from_verified_key_package(
+                        &verified_key_package,
+                    ));
+                    new_key_packages.push(verified_key_package.inner.clone());
                 }
+                Err(_) => failed_installations.push(installation_id.clone()),
             }
         }
     }
-    println!("new_installations:{:?}", new_installations);
-    println!("new_key_packages:{:?}", new_key_packages);
-    println!("failed_installations:{:?}", failed_installations);
 
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,

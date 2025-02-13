@@ -2,7 +2,7 @@ use crate::groups::intents::Installation;
 use openmls::key_packages::KeyPackage;
 use prost::{DecodeError, Message};
 use std::collections::{HashMap, HashSet};
-use xmtp_proto::xmtp::mls::message_contents::{GroupMembership as GroupMembershipProto};
+use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMembership {
@@ -105,7 +105,7 @@ impl From<&GroupMembership> for Vec<u8> {
     fn from(value: &GroupMembership) -> Self {
         let membership_proto = GroupMembershipProto {
             members: value.members.clone(),
-            failed_installations: value.failed_installations.clone()
+            failed_installations: value.failed_installations.clone(),
         };
 
         membership_proto.encode_to_vec()

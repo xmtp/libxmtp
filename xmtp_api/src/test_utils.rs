@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use std::env;
 use mockall::mock;
+use std::env;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
@@ -227,23 +227,18 @@ pub fn set_test_mode_upload_malformed_keypackage(
     installations: Option<Vec<Vec<u8>>>,
 ) {
     if enable {
-        // Enable test mode
         env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
 
         if let Some(installs) = installations {
-            // Convert installation keys to a comma-separated hex string
             let installations_str = installs
                 .iter()
-                .map(|key| hex::encode(key))
+                .map(hex::encode)
                 .collect::<Vec<_>>()
                 .join(",");
 
-            // Set the environment variable
             env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
-            println!("{:?}",get_test_mode_malformed_installations())
         }
     } else {
-        // Disable test mode and clear related env variables
         env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
         env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
     }
@@ -254,17 +249,17 @@ pub fn set_test_mode_upload_malformed_keypackage(
 /// Returns an empty list if test mode is not enabled.
 pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
     if !is_test_mode_upload_malformed_keypackage() {
-        return Vec::new(); // Return empty if test mode is not enabled
+        return Vec::new();
     }
 
     env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
-        .unwrap_or_else(|_| "".to_string()) // Default to an empty string if not set
+        .unwrap_or_else(|_| "".to_string())
         .split(',')
         .filter_map(|s| {
             if s.is_empty() {
                 None
             } else {
-                Some(hex::decode(s).unwrap_or_else(|_| Vec::new())) // Convert hex string to Vec<u8>
+                Some(hex::decode(s).unwrap_or_else(|_| Vec::new()))
             }
         })
         .collect()
