@@ -20,15 +20,16 @@ use xmtp_id::{
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     AsIdRef, InboxIdRef,
 };
-use xmtp_proto::api_client::{ClientWithMetadata, XmtpIdentityClient, XmtpMlsClient};
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
-    api::{ApiClientWrapper, GetIdentityUpdatesV2Filter, InboxUpdate},
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
     Client, XmtpApi,
 };
+use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
+use xmtp_id::InboxUpdate;
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {
@@ -500,12 +501,15 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         })
         .collect();
 
-    let updates = api_client.get_identity_updates_v2(filters).await?;
+    let updates = api_client
+        .get_identity_updates_v2(filters)
+        .await?
+        .collect::<HashMap<_, Vec<InboxUpdate>>>();
 
     let to_store = updates
         .iter()
-        .flat_map(|(inbox_id, updates)| {
-            updates.iter().map(|update| StoredIdentityUpdate {
+        .flat_map(move |(inbox_id, updates)| {
+            updates.iter().map(move |update| StoredIdentityUpdate {
                 inbox_id: inbox_id.clone(),
                 sequence_id: update.sequence_id as i64,
                 server_timestamp_ns: update.server_timestamp_ns as i64,
@@ -539,13 +543,16 @@ pub async fn is_member_of_association_state<Client>(
     scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
 ) -> Result<bool, ClientError>
 where
-    Client: XmtpMlsClient + XmtpIdentityClient + ClientWithMetadata + Send + Sync,
+    Client: XmtpMlsClient + XmtpIdentityClient + Clone + Send + Sync,
 {
     let filters = vec![GetIdentityUpdatesV2Filter {
         inbox_id: inbox_id.to_string(),
         sequence_id: None,
     }];
-    let mut updates = api_client.get_identity_updates_v2(filters).await?;
+    let mut updates = api_client
+        .get_identity_updates_v2(filters)
+        .await?
+        .collect::<HashMap<xmtp_id::InboxId, Vec<InboxUpdate>>>();
 
     let Some(updates) = updates.remove(inbox_id) else {
         return Err(ClientError::Generic(
@@ -557,7 +564,7 @@ where
     let mut association_state = None;
 
     let scw_verifier = scw_verifier.unwrap_or_else(|| {
-        Box::new(RemoteSignatureVerifier::new(api_client.api_client.clone()))
+        Box::new(RemoteSignatureVerifier::new(api_client.clone()))
             as Box<dyn SmartContractSignatureVerifier>
     });
 

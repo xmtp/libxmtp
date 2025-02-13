@@ -1,5 +1,5 @@
 use super::ApiClientWrapper;
-use crate::XmtpApi;
+use crate::{Result, XmtpApi};
 use std::collections::HashMap;
 use std::env;
 use xmtp_common::retry_async;
@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-use xmtp_proto::{Error as ApiError, ErrorKind};
+use xmtp_proto::ApiError;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -72,7 +72,7 @@ where
         &self,
         group_id: Vec<u8>,
         id_cursor: Option<u64>,
-    ) -> Result<Vec<GroupMessage>, ApiError> {
+    ) -> Result<Vec<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(&group_id),
             id_cursor,
@@ -96,7 +96,8 @@ where
                         })
                         .await
                 })
-            )?;
+            )
+            .map_err(ApiError::from)?;
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
 
@@ -119,7 +120,7 @@ where
     pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
         &self,
         group_id: Id,
-    ) -> Result<Option<GroupMessage>, ApiError> {
+    ) -> Result<Option<GroupMessage>> {
         tracing::debug!(
             group_id = hex::encode(group_id),
             inbox_id = self.inbox_id,
@@ -139,7 +140,8 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(result.messages.into_iter().next())
     }
@@ -149,7 +151,7 @@ where
         &self,
         installation_id: Id,
         id_cursor: Option<u64>,
-    ) -> Result<Vec<WelcomeMessage>, ApiError> {
+    ) -> Result<Vec<WelcomeMessage>> {
         tracing::debug!(
             installation_id = hex::encode(installation_id),
             cursor = id_cursor,
@@ -174,7 +176,8 @@ where
                         })
                         .await
                 })
-            )?;
+            )
+            .map_err(ApiError::from)?;
 
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
@@ -203,7 +206,7 @@ where
         &self,
         key_package: Vec<u8>,
         is_inbox_id_credential: bool,
-    ) -> Result<(), ApiError> {
+    ) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "upload key packages");
         retry_async!(
             self.retry_strategy,
@@ -217,7 +220,8 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
@@ -226,7 +230,7 @@ where
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
-    ) -> Result<KeyPackageMap, ApiError> {
+    ) -> Result<KeyPackageMap> {
         tracing::debug!(inbox_id = self.inbox_id, "fetch key packages");
         let res = retry_async!(
             self.retry_strategy,
@@ -237,11 +241,14 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         if res.key_packages.len() != installation_keys.len() {
-            println!("mismatched number of results");
-            return Err(ApiError::new(ErrorKind::MlsError));
+            return Err(crate::Error::MismatchedKeyPackages {
+                key_packages: res.key_packages.len(),
+                installation_keys: installation_keys.len(),
+            });
         }
 
         let mapping: KeyPackageMap = res
@@ -275,10 +282,7 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_welcome_messages(
-        &self,
-        messages: &[WelcomeMessageInput],
-    ) -> Result<(), ApiError> {
+    pub async fn send_welcome_messages(&self, messages: &[WelcomeMessageInput]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
             self.retry_strategy,
@@ -289,16 +293,14 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn send_group_messages(
-        &self,
-        group_messages: Vec<GroupMessageInput>,
-    ) -> Result<(), ApiError> {
+    pub async fn send_group_messages(&self, group_messages: Vec<GroupMessageInput>) -> Result<()> {
         tracing::debug!(
             inbox_id = self.inbox_id,
             "sending [{}] group messages",
@@ -314,15 +316,16 @@ where
                     })
                     .await
             })
-        )?;
+        )
+        .map_err(ApiError::from)?;
 
         Ok(())
     }
 
-    pub(crate) async fn subscribe_group_messages(
+    pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -332,13 +335,15 @@ where
                 filters: filters.into_iter().map(|f| f.into()).collect(),
             })
             .await
+            .map_err(ApiError::from)
+            .map_err(crate::Error::from)
     }
 
-    pub(crate) async fn subscribe_welcome_messages(
+    pub async fn subscribe_welcome_messages(
         &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>, ApiError>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -354,6 +359,8 @@ where
                 }],
             })
             .await
+            .map_err(ApiError::from)
+            .map_err(crate::Error::from)
     }
 }
 
@@ -362,16 +369,18 @@ pub mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use super::super::test_utils::*;
-    use super::super::*;
+    use crate::test_utils::*;
+    use crate::*;
 
-    use xmtp_proto::{
-        xmtp::mls::api::v1::{
-            fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
-            QueryGroupMessagesResponse,
-        },
-        Error, ErrorKind,
+    use crate::test_utils::MockError;
+    use xmtp_common::StreamHandle;
+    use xmtp_proto::xmtp::mls::api::v1::{
+        fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
+        QueryGroupMessagesResponse,
     };
+
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::Barrier;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
@@ -391,7 +400,7 @@ pub mod tests {
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper.upload_key_package(key_package_clone, false).await;
         assert!(result.is_ok());
     }
@@ -414,7 +423,7 @@ pub mod tests {
                 ],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
             .fetch_key_packages(installation_keys.clone())
             .await
@@ -452,7 +461,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -484,7 +493,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -535,7 +544,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone2, None)
@@ -554,11 +563,11 @@ pub mod tests {
         mock_api
             .expect_query_group_messages()
             .times(1)
-            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+            .returning(move |_| Err(MockError::MockQuery));
         mock_api
             .expect_query_group_messages()
             .times(1)
-            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+            .returning(move |_| Err(MockError::MockQuery));
         mock_api
             .expect_query_group_messages()
             .times(1)
@@ -569,13 +578,269 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
             .await
             .unwrap();
         assert_eq!(result.len(), 50);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_cools_down_then_succeeds() {
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+        let group_id_clone = group_id.clone();
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(None));
+
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = s.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            });
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(1))
+            .build();
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
+        );
+
+        let result = wrapper
+            .query_group_messages(group_id_clone, None)
+            .await
+            .unwrap();
+        let failed = time_failure.lock().unwrap().unwrap();
+        let success = time_success.lock().unwrap().unwrap();
+        assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
+        assert_eq!(result.len(), 50);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn it_exponentially_increases_the_cooldown() {
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+        let group_id_clone = group_id.clone();
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_failure2 = Arc::new(Mutex::new(None));
+        let time_failure3 = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(None));
+
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let f = time_failure2.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let f = time_failure3.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                let mut set = s.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            });
+
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(1))
+            .multiplier(2)
+            .build();
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
+        );
+
+        let result = wrapper
+            .query_group_messages(group_id_clone, None)
+            .await
+            .unwrap();
+        let failed = time_failure.lock().unwrap().unwrap();
+        let failed2 = time_failure2.lock().unwrap().unwrap();
+        let failed3 = time_failure3.lock().unwrap().unwrap();
+        let success = time_success.lock().unwrap().unwrap();
+        assert!((failed.elapsed() - success.elapsed()) > std::time::Duration::from_secs(1));
+        assert!((failed2.elapsed() - success.elapsed()) > std::time::Duration::from_secs(2));
+        tracing::info!("failed3.elapsed={:?}", failed3.elapsed());
+        assert!((failed3.elapsed() - success.elapsed()) > std::time::Duration::from_secs(4));
+
+        assert_eq!(result.len(), 50);
+    }
+
+    // this test fails on wasm, but seems to be functioning as expected
+    // It fails because of mockall expects which should be investigated
+    // but occurs in an unrelated library (mockall).
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn cooldowns_apply_to_concurrent_fns() {
+        xmtp_common::logger();
+        let mut mock_api = MockApiClient::new();
+        let group_id = vec![1, 2, 3];
+
+        let time_failure = Arc::new(Mutex::new(None));
+        let time_success = Arc::new(Mutex::new(Vec::new()));
+        // first task gets rate limited
+        let f = time_failure.clone();
+        mock_api
+            .expect_query_group_messages()
+            .times(1)
+            .returning(move |_| {
+                tracing::info!("called query_message rate limit");
+                let mut set = f.lock().unwrap();
+                *set = Some(xmtp_common::time::Instant::now());
+                Err(MockError::RateLimit)
+            });
+
+        let s = time_success.clone();
+        mock_api.expect_query_group_messages().times(3).returning({
+            let group_id = group_id.clone();
+            move |_| {
+                tracing::info!("Called non rate limit");
+                let set = s.lock();
+                set.unwrap().push(xmtp_common::time::Instant::now());
+                Ok(QueryGroupMessagesResponse {
+                    paging_info: None,
+                    messages: build_group_messages(50, group_id.clone()),
+                })
+            }
+        });
+
+        let strategy = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_millis(10))
+            .build();
+        let cooldown = xmtp_common::ExponentialBackoff::builder()
+            .duration(std::time::Duration::from_secs(2))
+            .multiplier(2)
+            .build();
+
+        let wrapper = ApiClientWrapper::new(
+            mock_api.into(),
+            Retry::builder()
+                .with_strategy(strategy)
+                .with_cooldown(cooldown)
+                .build(),
+        );
+
+        let barrier = Arc::new(Barrier::new(4));
+        let c = barrier.clone();
+        let api = wrapper.clone();
+        let g = group_id.clone();
+        let rate_limits = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            tracing::info!("Waited query_msg RATE LIMIT");
+            let _ = api.query_group_messages(g.clone(), None).await.unwrap();
+        })
+        .join();
+
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h1 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            tracing::info!("Waited query_msg 2 sleeping 5ms");
+            // ensure 5ms to fire after rate limit
+            xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
+            let _ = api.query_group_messages(g, None).await;
+        })
+        .join();
+
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h2 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            tracing::info!("Waited query_msg 3 sleeping 5ms");
+            // ensure 5ms to fire after rate limit
+            xmtp_common::time::sleep(std::time::Duration::from_millis(5)).await;
+            let _ = api.query_group_messages(g, None).await;
+        })
+        .join();
+
+        let c = barrier.clone();
+        let g = group_id.clone();
+        let api = wrapper.clone();
+        let h3 = xmtp_common::spawn(None, async move {
+            c.wait().await;
+            tracing::info!("Waited query_msg 3 sleeping 1000ms");
+            // Firing this 1s later, should still start within duration of backoff
+            xmtp_common::time::sleep(std::time::Duration::from_millis(1_000)).await;
+            let _ = api.query_group_messages(g, None).await;
+            tracing::info!("long query finished");
+        })
+        .join();
+
+        futures::future::join_all(vec![rate_limits, h1, h2, h3]).await;
+        let fail = time_failure.lock().unwrap().unwrap();
+        let success = time_success.lock().unwrap();
+        let min_expected_cooldown = std::time::Duration::from_secs(2);
+        let max_expected_cooldown = std::time::Duration::from_millis(2050);
+
+        for s in success.iter() {
+            tracing::info!("Duration since rate limit={:?}", s.duration_since(fail));
+            assert!(s.duration_since(fail) > min_expected_cooldown);
+            assert!(s.duration_since(fail) < max_expected_cooldown);
+        }
     }
 }
 

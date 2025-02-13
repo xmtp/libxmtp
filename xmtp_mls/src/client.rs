@@ -28,7 +28,6 @@ use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::{
-    api::ApiClientWrapper,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
         group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
@@ -51,6 +50,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -72,10 +72,8 @@ pub enum ClientError {
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("Query failed: {0}")]
-    QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
-    Api(#[from] crate::api::WrappedApiError),
+    Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -1093,6 +1091,7 @@ pub(crate) mod tests {
         // Add two separate installations for Bola
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -1115,7 +1114,6 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
-        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
@@ -1458,7 +1456,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
-        tracing::info!("Syncing bolas welcomes");
 
         // See if Bola can see that they were added to the group
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -1467,7 +1464,6 @@ pub(crate) mod tests {
         let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        tracing::info!("Syncing bolas messages");
         bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());

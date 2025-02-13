@@ -1,7 +1,6 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
-    api::ApiClientWrapper,
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::{
@@ -16,6 +15,7 @@ use crate::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use xmtp_api::ApiClientWrapper;
 use xmtp_id::{
     associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, AsIdRef,
     InboxIdRef,

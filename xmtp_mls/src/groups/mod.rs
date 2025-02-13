@@ -46,7 +46,6 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use crate::{
-    api::WrappedApiError,
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -119,9 +118,7 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::Error),
-    #[error("api error: {0}")]
-    WrappedApi(#[from] WrappedApiError),
+    WrappedApi(#[from] xmtp_api::Error),
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
@@ -226,7 +223,6 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(api_error) => api_error.is_retryable(),
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Diesel(diesel) => diesel.is_retryable(),
@@ -1975,8 +1971,9 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner, StreamHandle as _,
+        InboxOwner,
     };
+    use xmtp_common::StreamHandle as _;
     use crate::api::set_test_mode_upload_malformed_keypackage;
     use crate::groups::scoped_client::ScopedGroupClient;
 
@@ -4093,7 +4090,7 @@ pub(crate) mod tests {
                 let group_clone = alix1_group.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(None, async move { group_clone.sync().await }).join()
+                xmtp_common::spawn(None, async move { group_clone.sync().await }).join()
             })
             .collect();
 

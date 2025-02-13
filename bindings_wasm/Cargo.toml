@@ -19,12 +19,13 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
+xmtp_api.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_common.workspace = true
-xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_id = { path = "../xmtp_id" }
-xmtp_mls = { path = "../xmtp_mls", features = ["test-utils", "http-api"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_cryptography.workspace = true
+xmtp_id.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils", "http-api"] }
+xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true

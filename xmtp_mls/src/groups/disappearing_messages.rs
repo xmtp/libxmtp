@@ -1,10 +1,10 @@
 use crate::client::ClientError;
 use crate::storage::StorageError;
 use crate::Client;
+use futures::StreamExt;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_common::time::Interval;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
@@ -39,7 +39,7 @@ where
         }
     }
     pub(crate) fn spawn_worker(mut self) {
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
@@ -84,12 +84,12 @@ where
         }
         Ok(())
     }
-    async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let mut interval = Interval::new(INTERVAL_DURATION);
 
-        loop {
-            interval.tick().await;
+    async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
+        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        while (intervals.next().await).is_some() {
             self.delete_expired_messages().await?;
         }
+        Ok(())
     }
 }
