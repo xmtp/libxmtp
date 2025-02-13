@@ -1,5 +1,4 @@
 pub mod attachment;
-pub mod encryption;
 pub mod group_updated;
 pub mod membership_change;
 pub mod multi_remote_attachment;
