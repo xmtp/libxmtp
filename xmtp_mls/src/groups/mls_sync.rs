@@ -1577,7 +1577,6 @@ where
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             // skip if the inbox ids is 0 from the beginning
-            //todo: get the installations for all!
             if !inbox_ids_to_add.is_empty()
                 && !changes_with_kps.failed_installations.is_empty()
                 && changes_with_kps.new_installations.is_empty()
