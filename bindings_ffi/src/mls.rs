@@ -6270,10 +6270,10 @@ mod tests {
             .unwrap();
 
         // Verify DM messages
-        assert_eq!(alix_dm_messages.len(), 1);
+        assert_eq!(alix_dm_messages.len(), 2);
         assert_eq!(bo_dm_messages.len(), 1);
         assert_eq!(
-            String::from_utf8_lossy(&alix_dm_messages[0].content),
+            String::from_utf8_lossy(&alix_dm_messages[1].content),
             "Hello in DM"
         );
         assert_eq!(
