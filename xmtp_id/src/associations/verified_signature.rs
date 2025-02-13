@@ -68,7 +68,7 @@ impl VerifiedSignature {
         let partially_verified = Self::from_recoverable_ecdsa(signature_text, signature_bytes)?;
         if partially_verified
             .signer
-            .address()
+            .eth_address()
             .ok_or(SignatureError::Invalid)?
             .to_lowercase()
             != expected_address.as_ref().to_lowercase()
@@ -201,7 +201,10 @@ mod tests {
         let verified_sig = VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig_bytes)
             .expect("should succeed");
 
-        assert_eq!(verified_sig.signer.address().unwrap(), wallet.get_public_identifier());
+        assert_eq!(
+            verified_sig.signer.eth_address().unwrap(),
+            wallet.get_public_identifier()
+        );
         assert_eq!(verified_sig.kind, SignatureKind::Erc191);
         assert_eq!(verified_sig.raw_bytes, sig_bytes);
     }

@@ -1,6 +1,5 @@
-use std::hash::Hash;
-
 use ed25519_dalek::VerifyingKey;
+use std::{fmt::Display, hash::Hash};
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
 
@@ -26,12 +25,20 @@ impl std::fmt::Display for MemberKind {
 /// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum MemberIdentifier {
-    Ethereum(String),
     Installation(Vec<u8>),
+    Root(MemberRootIdentifier),
+    // TODO:
+    // Leaf(MemberLeafIdentifier)
+}
+
+/// These are Keypair types that can be a recovery key in the InboxState.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub enum MemberRootIdentifier {
+    Ethereum(String),
     Passkey(Passkey),
 }
 
-impl MemberIdentifier {
+impl MemberRootIdentifier {
     pub fn to_lowercase(self) -> Self {
         match self {
             Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
@@ -54,32 +61,7 @@ impl Passkey {
     pub const KEY_SIZE: usize = 33;
 }
 
-impl std::fmt::Debug for MemberIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ethereum(addr) => f.debug_tuple("Address").field(addr).finish(),
-            Self::Installation(i) => f
-                .debug_tuple("Installation")
-                .field(&hex::encode(i))
-                .finish(),
-            Self::Passkey(pk) => f
-                .debug_tuple("Passkey")
-                .field(&hex::encode(&pk.public_key))
-                .field(&pk.relying_party)
-                .finish(),
-        }
-    }
-}
-
 impl MemberIdentifier {
-    pub fn kind(&self) -> MemberKind {
-        match self {
-            Self::Ethereum(_) => MemberKind::Ethereum,
-            Self::Installation(_) => MemberKind::Installation,
-            Self::Passkey(_) => MemberKind::Passkey,
-        }
-    }
-
     /// Get the value for [`MemberIdentifier::Installation`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn installation(&self) -> Option<&[u8]> {
@@ -92,8 +74,8 @@ impl MemberIdentifier {
 
     /// Get the value for [`MemberIdentifier::Address`] variant.
     /// Returns `None` if the type is not the correct variant.
-    pub fn address(&self) -> Option<&str> {
-        if let Self::Ethereum(ref address) = self {
+    pub fn eth_address(&self) -> Option<&str> {
+        if let Self::Root(MemberRootIdentifier::Ethereum(address)) = self {
             Some(address)
         } else {
             None
@@ -102,8 +84,8 @@ impl MemberIdentifier {
 
     /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
     /// in the process
-    pub fn to_address(self) -> Option<String> {
-        if let Self::Ethereum(address) = self {
+    pub fn to_eth_address(self) -> Option<String> {
+        if let Self::Root(MemberRootIdentifier::Ethereum(address)) = self {
             Some(address)
         } else {
             None
@@ -121,26 +103,64 @@ impl MemberIdentifier {
     }
 }
 
-impl std::fmt::Display for MemberIdentifier {
+pub trait HasMemberKind {
+    fn kind(&self) -> MemberKind;
+}
+
+impl HasMemberKind for MemberIdentifier {
+    fn kind(&self) -> MemberKind {
+        match self {
+            Self::Installation(_) => MemberKind::Installation,
+            Self::Root(root_ident) => root_ident.kind(),
+        }
+    }
+}
+
+impl HasMemberKind for MemberRootIdentifier {
+    fn kind(&self) -> MemberKind {
+        match self {
+            Self::Ethereum(_) => MemberKind::Ethereum,
+            Self::Passkey(_) => MemberKind::Passkey,
+        }
+    }
+}
+
+impl Display for MemberIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Installation(key) => write!(f, "{}", hex::encode(key)),
+            Self::Root(root) => write!(f, "{root}"),
+        }
+    }
+}
+impl Display for MemberRootIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let addr;
         let output = match self {
-            MemberIdentifier::Ethereum(addr) => addr,
-            MemberIdentifier::Installation(installation) => {
-                addr = hex::encode(installation);
-                &addr
-            }
-            MemberIdentifier::Passkey(passkey) => {
-                addr = format!(
-                    "Passkey: {}, {}",
-                    hex::encode(&passkey.public_key),
-                    &passkey.relying_party
-                );
+            Self::Ethereum(addr) => addr,
+            Self::Passkey(Passkey { public_key, .. }) => {
+                addr = hex::encode(public_key);
                 &addr
             }
         };
+        write!(f, "{output}")
+    }
+}
 
-        write!(f, "{}", output)
+impl std::fmt::Debug for MemberIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ethereum(addr) => f.debug_tuple("Address").field(addr).finish(),
+            Self::Installation(i) => f
+                .debug_tuple("Installation")
+                .field(&hex::encode(i))
+                .finish(),
+            Self::Passkey(pk) => f
+                .debug_tuple("Passkey")
+                .field(&hex::encode(&pk.public_key))
+                .field(&pk.relying_party)
+                .finish(),
+        }
     }
 }
 

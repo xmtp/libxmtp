@@ -1,4 +1,4 @@
-use super::{state::PublicIdentifier, MemberIdentifier};
+use super::{public_identifier::PubilcRootIdentifier, MemberIdentifier};
 use crate::associations::MemberKind;
 use chrono::DateTime;
 
@@ -12,7 +12,7 @@ pub trait SignatureTextCreator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
-    pub account_identifier: PublicIdentifier,
+    pub account_identifier: PubilcRootIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedCreateInbox {
@@ -62,7 +62,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_identifier: PublicIdentifier,
+    pub new_recovery_identifier: PubilcRootIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
@@ -145,24 +145,24 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::hashes::generate_inbox_id;
-
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
-        let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
+        let account_identifier =
+            PubilcRootIdentifier::new_eth("0x1234567890abcdef1234567890abcdef12345678");
+
         let client_timestamp_ns: u64 = 12;
         let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
-        let new_recovery_address = "0x7890abcdef1234567890abcdef12345678123456".to_string();
+        let new_recovery_identifier =
+            PubilcRootIdentifier::new_eth("0x7890abcdef1234567890abcdef12345678123456");
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,
-            account_address: account_address.clone(),
+            account_identifier: account_identifier.clone(),
         };
-        let inbox_id =
-            generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
+        let inbox_id = account_identifier.get_inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
             new_member_identifier: MemberIdentifier::Ethereum(new_member_address.clone()),
@@ -181,7 +181,7 @@ pub(crate) mod tests {
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {
-            new_recovery_identifier: new_recovery_address.clone(),
+            new_recovery_identifier: new_recovery_identifier.clone(),
         };
 
         let identity_update = UnsignedIdentityUpdate {

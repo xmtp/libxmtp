@@ -1,54 +1,43 @@
-use super::{member::Passkey, AssociationError, MemberIdentifier, MemberKind};
+use super::{
+    member::{HasMemberKind, Passkey},
+    AssociationError, MemberIdentifier, MemberKind,
+};
 use sha2::{Digest, Sha256};
 use std::fmt::{Debug, Display};
 
+/// A PublicIdentifier is a public-facing MemberIdentifier.
 #[derive(Clone, PartialEq)]
 pub enum PublicIdentifier {
     Installation(Vec<u8>),
-    External(ExternalIdentifier),
+    Root(PubilcRootIdentifier),
+    // TODO:
+    // Leaf(PublicLeafIdentifier)
 }
 
+/// These are external PublicIdentifiers that can be a recovery key.
 #[derive(Clone, PartialEq)]
-pub enum ExternalIdentifier {
+pub enum PubilcRootIdentifier {
     Ethereum(String),
     Passkey([u8; Passkey::KEY_SIZE]),
 }
 
 impl PublicIdentifier {
-    pub fn to_lowercase(self) -> Self {
-        match self {
-            Self::External(ext) => Self::External(ext.to_lowercase()),
-            ident => ident,
-        }
+    #[cfg(test)]
+    pub fn rand_ethereum() -> Self {
+        MemberIdentifier::rand_ethereum().into()
     }
+}
 
-    /// Get the generated inbox_id for this public identifier.
-    /// The same public identifier will always give the same inbox_id.
-    pub fn get_inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
-        if !self.is_valid_address() {
-            return Err(AssociationError::InvalidAccountAddress);
-        }
-        Ok(sha256_string(format!("{self}{nonce}")))
-    }
-
-    /// Validates that the account address is exactly 42 characters, starts with "0x",
-    /// and contains only valid hex digits.
-    fn is_valid_address(&self) -> bool {
-        match self {
-            Self::External(ext) => ext.is_valid_address(),
-            _ => true,
-        }
-    }
-
-    pub fn kind(&self) -> MemberKind {
+impl HasMemberKind for PublicIdentifier {
+    fn kind(&self) -> MemberKind {
         match self {
             Self::Installation(_) => MemberKind::Installation,
-            Self::External(ext) => ext.kind(),
+            Self::Root(ext) => ext.kind(),
         }
     }
 }
 
-impl ExternalIdentifier {
+impl PubilcRootIdentifier {
     pub fn to_lowercase(self) -> Self {
         match self {
             Self::Ethereum(addr) => Self::Ethereum(addr.to_lowercase()),
@@ -69,7 +58,22 @@ impl ExternalIdentifier {
         }
     }
 
-    pub fn kind(&self) -> MemberKind {
+    /// Get the generated inbox_id for this public identifier.
+    /// The same public identifier will always give the same inbox_id.
+    pub fn get_inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
+        if !self.is_valid_address() {
+            return Err(AssociationError::InvalidAccountAddress);
+        }
+        Ok(sha256_string(format!("{self}{nonce}")))
+    }
+
+    pub fn new_eth(addr: impl ToString) -> Self {
+        Self::Ethereum(addr.to_string())
+    }
+}
+
+impl HasMemberKind for PubilcRootIdentifier {
+    fn kind(&self) -> MemberKind {
         match self {
             Self::Ethereum(_) => MemberKind::Ethereum,
             Self::Passkey(_) => MemberKind::Passkey,
@@ -81,11 +85,11 @@ impl Display for PublicIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Installation(key) => write!(f, "{}", hex::encode(key)),
-            Self::External(ext) => write!(f, "{ext}"),
+            Self::Root(root) => write!(f, "{root}"),
         }
     }
 }
-impl Display for ExternalIdentifier {
+impl Display for PubilcRootIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let addr;
         let output = match self {
@@ -106,7 +110,7 @@ impl Debug for PublicIdentifier {
     }
 }
 
-impl Debug for ExternalIdentifier {
+impl Debug for PubilcRootIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let kind = self.kind();
         write!(f, "{kind}: {self}")
@@ -117,11 +121,16 @@ impl From<MemberIdentifier> for PublicIdentifier {
     fn from(ident: MemberIdentifier) -> Self {
         match ident {
             MemberIdentifier::Installation(key) => Self::Installation(key),
-            MemberIdentifier::Ethereum(addr) => Self::External(ExternalIdentifier::Ethereum(addr)),
+            MemberIdentifier::Ethereum(addr) => Self::Root(PubilcRootIdentifier::Ethereum(addr)),
             MemberIdentifier::Passkey(Passkey { public_key, .. }) => {
-                Self::External(ExternalIdentifier::Passkey(public_key))
+                Self::Root(PubilcRootIdentifier::Passkey(public_key))
             }
         }
+    }
+}
+impl From<PubilcRootIdentifier> for PublicIdentifier {
+    fn from(ext: PubilcRootIdentifier) -> Self {
+        Self::Root(ext)
     }
 }
 
@@ -132,12 +141,12 @@ impl PartialEq<MemberIdentifier> for PublicIdentifier {
                 MemberIdentifier::Installation(other_key) => key == other_key,
                 _ => false,
             },
-            Self::External(ext) => match ext {
-                ExternalIdentifier::Ethereum(addr) => match other {
+            Self::Root(ext) => match ext {
+                PubilcRootIdentifier::Ethereum(addr) => match other {
                     MemberIdentifier::Ethereum(other_addr) => addr == other_addr,
                     _ => false,
                 },
-                ExternalIdentifier::Passkey(key) => match other {
+                PubilcRootIdentifier::Passkey(key) => match other {
                     MemberIdentifier::Passkey(Passkey {
                         public_key: other_key,
                         ..
