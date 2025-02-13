@@ -2506,7 +2506,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             message.to_vec(),
-            get_latest_message(&bola_1_group)
+            get_latest_message(bola_1_group)
                 .await
                 .decrypted_message_bytes
         );
