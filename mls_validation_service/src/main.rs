@@ -16,6 +16,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt as _, EnvFilter};
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
+use std::num::NonZeroUsize;
 
 #[macro_use]
 extern crate tracing;
@@ -50,8 +51,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
 
+    let cache_size = match NonZeroUsize::new(args.cache_size) {
+        Some(size) => size,
+        None => {
+            error!("Invalid cache size: {}", args.cache_size);
+            return Err("Invalid cache size".into());
+        }
+    };
+
     let cached_verifier: CachedSmartContractSignatureVerifier =
-        CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
+        CachedSmartContractSignatureVerifier::new(verifier, cache_size)?;
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(

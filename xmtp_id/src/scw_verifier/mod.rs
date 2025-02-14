@@ -36,8 +36,6 @@ pub enum VerifierError {
     MalformedEipUrl,
     #[error(transparent)]
     Api(#[from] xmtp_api::Error),
-    #[error("invalid cache size: {0}")]
-    InvalidCacheSize(usize),
 }
 
 #[cfg(not(target_arch = "wasm32"))]

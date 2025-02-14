@@ -48,14 +48,11 @@ pub struct CachedSmartContractSignatureVerifier {
 impl CachedSmartContractSignatureVerifier {
     pub fn new(
         verifier: impl SmartContractSignatureVerifier + 'static,
-        cache_size: usize,
+        cache_size: NonZeroUsize,
     ) -> Result<Self, VerifierError> {
-        if cache_size == 0 {
-            return Err(VerifierError::InvalidCacheSize(cache_size));
-        }
         Ok(Self {
             verifier: Box::new(verifier),
-            cache: Mutex::new(LruCache::new(NonZeroUsize::new(cache_size).unwrap())),
+            cache: Mutex::new(LruCache::new(cache_size)),
         })
     }
 }
@@ -94,8 +91,7 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use url::Url;
+
     use xmtp_id::scw_verifier::{
         MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
         VerifierError,
@@ -141,26 +137,12 @@ mod tests {
         assert_eq!(response2.block_number, val2.block_number);
     }
 
-    #[test]
-    fn test_invalid_cache_size() {
-        let urls: HashMap<String, Url> = HashMap::new();
-        let scw_verifier = MultiSmartContractSignatureVerifier::new(urls)
-            .expect("Failed to create MultiSmartContractSignatureVerifier");
-
-        let err = CachedSmartContractSignatureVerifier::new(scw_verifier, 0);
-        if let Err(VerifierError::InvalidCacheSize(size)) = err {
-            assert_eq!(size, 0);
-        } else {
-            panic!("Expected a VerifierError::InvalidCacheSize");
-        }
-    }
-
     #[tokio::test]
     async fn test_missing_verifier() {
         //
         let verifiers = std::collections::HashMap::new();
         let multi_verifier = MultiSmartContractSignatureVerifier::new(verifiers).unwrap();
-        let cached_verifier = CachedSmartContractSignatureVerifier::new(multi_verifier, 1).unwrap();
+        let cached_verifier = CachedSmartContractSignatureVerifier::new(multi_verifier, NonZeroUsize::new(1).unwrap()).unwrap();
 
         let account_id = AccountId::new("missing".to_string(), "account1".to_string());
         let hash = [0u8; 32];

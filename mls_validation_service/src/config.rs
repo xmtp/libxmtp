@@ -20,6 +20,6 @@ pub(crate) struct Args {
     pub(crate) chain_urls: Option<String>,
 
     // The size of the cache to use for the smart contract signature verifier.
-    #[arg(long, default_value_t = 20)]
+    #[arg(long, default_value_t = 1000)]
     pub(crate) cache_size: usize,
 }
