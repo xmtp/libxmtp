@@ -2,7 +2,9 @@ mod config;
 mod handlers;
 mod health_check;
 mod version;
+mod cached_signature_verifier;
 
+use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
 use clap::Parser;
 use config::Args;
@@ -43,14 +45,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_server = health_check_server(args.health_check_port as u16);
 
-    let scw_verifier = match args.chain_urls {
-        Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path, args.cache_size)?,
-        None => MultiSmartContractSignatureVerifier::new_from_env(args.cache_size)?,
+    let verifier = match args.chain_urls {
+        Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path)?,
+        None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
+
+    let cached_verifier: CachedSmartContractSignatureVerifier = CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(
-            scw_verifier,
+            cached_verifier,
         )))
         .serve_with_shutdown(addr, async {
             wait_for_quit().await;
