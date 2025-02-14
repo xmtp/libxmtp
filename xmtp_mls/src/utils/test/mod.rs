@@ -338,7 +338,6 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg(not(target_arch = "wasm32"))]
 /// Checks if test mode is enabled.
 pub fn is_test_mode_upload_malformed_keypackage() -> bool {
     use std::env;
@@ -346,7 +345,6 @@ pub fn is_test_mode_upload_malformed_keypackage() -> bool {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg(not(target_arch = "wasm32"))]
 #[warn(dead_code)]
 /// Sets test mode and specifies malformed installations dynamically.
 /// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
@@ -375,7 +373,6 @@ pub fn set_test_mode_upload_malformed_keypackage(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg(not(target_arch = "wasm32"))]
 /// Retrieves and decodes malformed installations from the environment variable.
 /// Returns an empty list if test mode is not enabled.
 pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
