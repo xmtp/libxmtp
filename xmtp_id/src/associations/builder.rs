@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use super::{member::HasMemberKind, PublicIdentifier};
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
@@ -36,7 +37,7 @@ enum SignatureField {
 #[derive(Clone, Debug)]
 pub struct PendingIdentityAction {
     unsigned_action: UnsignedAction,
-    pending_signatures: HashMap<SignatureField, MemberIdentifier>,
+    pending_signatures: HashMap<SignatureField, PublicIdentifier>,
 }
 
 /// The SignatureRequestBuilder is used to collect all of the actions in
@@ -60,10 +61,10 @@ impl SignatureRequestBuilder {
     }
 
     /// Create a new inbox. This method must be called before any other methods or the IdentityUpdate will fail
-    pub fn create_inbox(mut self, signer_identity: MemberIdentifier, nonce: u64) -> Self {
+    pub fn create_inbox(mut self, signer_identity: PubilcRootIdentifier, nonce: u64) -> Self {
         let pending_action = PendingIdentityAction {
             unsigned_action: UnsignedAction::CreateInbox(UnsignedCreateInbox {
-                account_identifier: signer_identity.into(),
+                account_identifier: signer_identity,
                 nonce,
             }),
             pending_signatures: HashMap::from([(
@@ -416,7 +417,6 @@ pub(crate) mod tests {
     use crate::{
         associations::{
             get_state,
-            hashes::generate_inbox_id,
             test_utils::{
                 add_installation_key_signature, add_wallet_signature,
                 MockSmartContractSignatureVerifier,

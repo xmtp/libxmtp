@@ -1,5 +1,5 @@
 use super::{public_identifier::PubilcRootIdentifier, MemberIdentifier};
-use crate::associations::MemberKind;
+use crate::associations::{member::HasMemberKind, MemberKind};
 use chrono::DateTime;
 
 const HEADER: &str = "XMTP : Authenticate to inbox";
@@ -145,6 +145,8 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use crate::associations::member::MemberRootIdentifier;
+
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -165,7 +167,8 @@ pub(crate) mod tests {
         let inbox_id = account_identifier.get_inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Ethereum(new_member_address.clone()),
+            new_member_identifier: MemberRootIdentifier::Ethereum(new_member_address.clone())
+                .into(),
         };
 
         let add_installation = UnsignedAddAssociation {
@@ -173,7 +176,7 @@ pub(crate) mod tests {
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Ethereum(new_member_address.clone()),
+            revoked_member: MemberRootIdentifier::Ethereum(new_member_address).into(),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {

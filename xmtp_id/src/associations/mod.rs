@@ -1,7 +1,7 @@
 mod association_log;
 pub mod builder;
+mod ident;
 pub(super) mod member;
-pub mod public_identifier;
 pub(super) mod serialization;
 pub mod signature;
 pub(super) mod state;
@@ -13,7 +13,6 @@ pub mod verified_signature;
 
 pub use self::association_log::*;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
-pub use self::public_identifier::PublicIdentifier;
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};

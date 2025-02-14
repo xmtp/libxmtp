@@ -1,9 +1,8 @@
-use super::member::{Member, MemberIdentifier, MemberKind};
+use super::member::{HasMemberKind, Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
 use super::verified_signature::VerifiedSignature;
-use super::PublicIdentifier;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -137,11 +136,10 @@ impl IdentityAction for AddAssociation {
 
         // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
         // Otherwise the client should use the regular wallet signature to create
-        let existing_member_public_identifier: PublicIdentifier =
-            existing_member_identifier.clone().into();
+        let existing_member_identifier = existing_member_identifier.clone();
         if (is_legacy_signature(&self.new_member_signature)
             || is_legacy_signature(&self.existing_member_signature))
-            && existing_state.inbox_id() != existing_member_public_identifier.get_inbox_id(0)?
+            && existing_state.inbox_id() != existing_member_identifier.get_inbox_id(0)?
         {
             return Err(AssociationError::LegacySignatureReuse);
         }
