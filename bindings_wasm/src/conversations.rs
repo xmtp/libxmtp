@@ -371,15 +371,20 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = syncAllConversations)]
-  pub async fn sync_all_conversations(&self) -> Result<usize, JsError> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize, JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
+    let consents: Option<Vec<ConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, None)
+      .sync_all_welcomes_and_groups(&provider, consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

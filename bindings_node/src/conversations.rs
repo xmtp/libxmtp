@@ -322,11 +322,20 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn sync_all_conversations(&self) -> Result<usize> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
+
+    let consents: Option<Vec<ConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+    let num_groups_synced: usize = inner
+      .sync_all_welcomes_and_groups(&provider, consents)
+      .await?;
 
     let num_groups_synced = self
       .inner_client
