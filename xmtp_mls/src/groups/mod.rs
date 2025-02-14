@@ -2408,7 +2408,8 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
@@ -2511,7 +2512,8 @@ pub(crate) mod tests {
                 .decrypted_message_bytes
         );
     }
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_group_with_member_all_malformed_installations() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
@@ -2570,7 +2572,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_dm_creation_with_user_two_installations_one_malformed() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
@@ -2672,7 +2675,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_dm_creation_with_user_all_malformed_installations() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
