@@ -22,6 +22,6 @@ jobs:
           chmod +x taplo && \
           sudo mv taplo /usr/local/bin/taplo
       - name: Run format check
-        run: taplo format --check
+        run: taplo format --check --diff
       - name: Run validation check
         run: taplo check
