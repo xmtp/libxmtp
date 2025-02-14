@@ -136,7 +136,10 @@ pub trait ScopedGroupClient: Sized {
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError>;
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    >;
 
     async fn get_association_state(
         &self,
@@ -486,7 +489,10 @@ where
     async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    > {
         (**self)
             .get_key_packages_for_installation_ids(installation_ids)
             .await
