@@ -41,8 +41,8 @@ class ReplyTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 3)
+        if (messages.size == 3) {
             val content: Reply? = messages.first().content()
             assertEquals("Hello", content?.content)
             assertEquals(messageToReact.id, content?.reference)

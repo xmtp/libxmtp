@@ -1199,6 +1199,10 @@ internal open class UniffiVTableCallbackInterfaceFfiV2SubscriptionCallback(
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1558,9 +1562,13 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_xmtpv3_fn_func_create_v2_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,
     ): Long
+    fun uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_decode_reaction(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(`ffiMultiRemoteAttachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_encode_reaction(`reaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1708,9 +1716,13 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_func_create_v2_client(
     ): Short
+    fun uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment(
+    ): Short
     fun uniffi_xmtpv3_checksum_func_decode_reaction(
     ): Short
     fun uniffi_xmtpv3_checksum_func_diffie_hellman_k256(
+    ): Short
+    fun uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment(
     ): Short
     fun uniffi_xmtpv3_checksum_func_encode_reaction(
     ): Short
@@ -2022,10 +2034,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_create_v2_client() != 48060.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 59746.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_decode_reaction() != 28885.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_diffie_hellman_k256() != 37475.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_reaction() != 6548.toShort()) {
@@ -2079,10 +2097,10 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 52417.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 3260.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 51549.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_inbox_id() != 28069.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_inbox_id() != 30553.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 62984.toShort()) {
@@ -3247,9 +3265,9 @@ public interface FfiConversationInterface {
     
     suspend fun `addAdmin`(`inboxId`: kotlin.String)
     
-    suspend fun `addMembers`(`accountAddresses`: List<kotlin.String>)
+    suspend fun `addMembers`(`accountAddresses`: List<kotlin.String>): FfiUpdateGroupMembershipResult
     
-    suspend fun `addMembersByInboxId`(`inboxIds`: List<kotlin.String>)
+    suspend fun `addMembersByInboxId`(`inboxIds`: List<kotlin.String>): FfiUpdateGroupMembershipResult
     
     suspend fun `addSuperAdmin`(`inboxId`: kotlin.String)
     
@@ -3446,7 +3464,7 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface 
     
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `addMembers`(`accountAddresses`: List<kotlin.String>) {
+    override suspend fun `addMembers`(`accountAddresses`: List<kotlin.String>) : FfiUpdateGroupMembershipResult {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_add_members(
@@ -3454,12 +3472,11 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface 
                 FfiConverterSequenceString.lower(`accountAddresses`),
             )
         },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
         // lift function
-        { Unit },
-        
+        { FfiConverterTypeFfiUpdateGroupMembershipResult.lift(it) },
         // Error FFI converter
         GenericException.ErrorHandler,
     )
@@ -3468,7 +3485,7 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface 
     
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `addMembersByInboxId`(`inboxIds`: List<kotlin.String>) {
+    override suspend fun `addMembersByInboxId`(`inboxIds`: List<kotlin.String>) : FfiUpdateGroupMembershipResult {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_add_members_by_inbox_id(
@@ -3476,12 +3493,11 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface 
                 FfiConverterSequenceString.lower(`inboxIds`),
             )
         },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
         // lift function
-        { Unit },
-        
+        { FfiConverterTypeFfiUpdateGroupMembershipResult.lift(it) },
         // Error FFI converter
         GenericException.ErrorHandler,
     )
@@ -9866,6 +9882,34 @@ public object FfiConverterTypeFfiMessageWithReactions: FfiConverterRustBuffer<Ff
 
 
 
+data class FfiMultiRemoteAttachment (
+    var `attachments`: List<FfiRemoteAttachmentInfo>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiMultiRemoteAttachment: FfiConverterRustBuffer<FfiMultiRemoteAttachment> {
+    override fun read(buf: ByteBuffer): FfiMultiRemoteAttachment {
+        return FfiMultiRemoteAttachment(
+            FfiConverterSequenceTypeFfiRemoteAttachmentInfo.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiMultiRemoteAttachment) = (
+            FfiConverterSequenceTypeFfiRemoteAttachmentInfo.allocationSize(value.`attachments`)
+    )
+
+    override fun write(value: FfiMultiRemoteAttachment, buf: ByteBuffer) {
+            FfiConverterSequenceTypeFfiRemoteAttachmentInfo.write(value.`attachments`, buf)
+    }
+}
+
+
+
 data class FfiPagingInfo (
     var `limit`: kotlin.UInt, 
     var `cursor`: FfiCursor?, 
@@ -10025,6 +10069,98 @@ public object FfiConverterTypeFfiReaction: FfiConverterRustBuffer<FfiReaction> {
             FfiConverterTypeFfiReactionAction.write(value.`action`, buf)
             FfiConverterString.write(value.`content`, buf)
             FfiConverterTypeFfiReactionSchema.write(value.`schema`, buf)
+    }
+}
+
+
+
+data class FfiRemoteAttachmentInfo (
+    var `secret`: kotlin.ByteArray, 
+    var `contentDigest`: kotlin.String, 
+    var `nonce`: kotlin.ByteArray, 
+    var `scheme`: kotlin.String, 
+    var `url`: kotlin.String, 
+    var `salt`: kotlin.ByteArray, 
+    var `contentLength`: kotlin.UInt?, 
+    var `filename`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiRemoteAttachmentInfo: FfiConverterRustBuffer<FfiRemoteAttachmentInfo> {
+    override fun read(buf: ByteBuffer): FfiRemoteAttachmentInfo {
+        return FfiRemoteAttachmentInfo(
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiRemoteAttachmentInfo) = (
+            FfiConverterByteArray.allocationSize(value.`secret`) +
+            FfiConverterString.allocationSize(value.`contentDigest`) +
+            FfiConverterByteArray.allocationSize(value.`nonce`) +
+            FfiConverterString.allocationSize(value.`scheme`) +
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterByteArray.allocationSize(value.`salt`) +
+            FfiConverterOptionalUInt.allocationSize(value.`contentLength`) +
+            FfiConverterOptionalString.allocationSize(value.`filename`)
+    )
+
+    override fun write(value: FfiRemoteAttachmentInfo, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`secret`, buf)
+            FfiConverterString.write(value.`contentDigest`, buf)
+            FfiConverterByteArray.write(value.`nonce`, buf)
+            FfiConverterString.write(value.`scheme`, buf)
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterByteArray.write(value.`salt`, buf)
+            FfiConverterOptionalUInt.write(value.`contentLength`, buf)
+            FfiConverterOptionalString.write(value.`filename`, buf)
+    }
+}
+
+
+
+data class FfiUpdateGroupMembershipResult (
+    var `addedMembers`: Map<kotlin.String, kotlin.ULong>, 
+    var `removedMembers`: List<kotlin.String>, 
+    var `failedInstallations`: List<kotlin.ByteArray>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiUpdateGroupMembershipResult: FfiConverterRustBuffer<FfiUpdateGroupMembershipResult> {
+    override fun read(buf: ByteBuffer): FfiUpdateGroupMembershipResult {
+        return FfiUpdateGroupMembershipResult(
+            FfiConverterMapStringULong.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiUpdateGroupMembershipResult) = (
+            FfiConverterMapStringULong.allocationSize(value.`addedMembers`) +
+            FfiConverterSequenceString.allocationSize(value.`removedMembers`) +
+            FfiConverterSequenceByteArray.allocationSize(value.`failedInstallations`)
+    )
+
+    override fun write(value: FfiUpdateGroupMembershipResult, buf: ByteBuffer) {
+            FfiConverterMapStringULong.write(value.`addedMembers`, buf)
+            FfiConverterSequenceString.write(value.`removedMembers`, buf)
+            FfiConverterSequenceByteArray.write(value.`failedInstallations`, buf)
     }
 }
 
@@ -10831,8 +10967,6 @@ sealed class GenericException(message: String): kotlin.Exception(message) {
         
         class Storage(message: String) : GenericException(message)
         
-        class ApiException(message: String) : GenericException(message)
-        
         class GroupException(message: String) : GenericException(message)
         
         class Signature(message: String) : GenericException(message)
@@ -10863,6 +10997,10 @@ sealed class GenericException(message: String): kotlin.Exception(message) {
         
         class Subscription(message: String) : GenericException(message)
         
+        class ApiClientBuild(message: String) : GenericException(message)
+        
+        class Grpc(message: String) : GenericException(message)
+        
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<GenericException> {
         override fun lift(error_buf: RustBuffer.ByValue): GenericException = FfiConverterTypeGenericError.lift(error_buf)
@@ -10879,22 +11017,23 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             1 -> GenericException.Client(FfiConverterString.read(buf))
             2 -> GenericException.ClientBuilder(FfiConverterString.read(buf))
             3 -> GenericException.Storage(FfiConverterString.read(buf))
-            4 -> GenericException.ApiException(FfiConverterString.read(buf))
-            5 -> GenericException.GroupException(FfiConverterString.read(buf))
-            6 -> GenericException.Signature(FfiConverterString.read(buf))
-            7 -> GenericException.GroupMetadata(FfiConverterString.read(buf))
-            8 -> GenericException.GroupMutablePermissions(FfiConverterString.read(buf))
-            9 -> GenericException.Generic(FfiConverterString.read(buf))
-            10 -> GenericException.SignatureRequestException(FfiConverterString.read(buf))
-            11 -> GenericException.Erc1271SignatureException(FfiConverterString.read(buf))
-            12 -> GenericException.Verifier(FfiConverterString.read(buf))
-            13 -> GenericException.FailedToConvertToU32(FfiConverterString.read(buf))
-            14 -> GenericException.Association(FfiConverterString.read(buf))
-            15 -> GenericException.DeviceSync(FfiConverterString.read(buf))
-            16 -> GenericException.Identity(FfiConverterString.read(buf))
-            17 -> GenericException.JoinException(FfiConverterString.read(buf))
-            18 -> GenericException.IoException(FfiConverterString.read(buf))
-            19 -> GenericException.Subscription(FfiConverterString.read(buf))
+            4 -> GenericException.GroupException(FfiConverterString.read(buf))
+            5 -> GenericException.Signature(FfiConverterString.read(buf))
+            6 -> GenericException.GroupMetadata(FfiConverterString.read(buf))
+            7 -> GenericException.GroupMutablePermissions(FfiConverterString.read(buf))
+            8 -> GenericException.Generic(FfiConverterString.read(buf))
+            9 -> GenericException.SignatureRequestException(FfiConverterString.read(buf))
+            10 -> GenericException.Erc1271SignatureException(FfiConverterString.read(buf))
+            11 -> GenericException.Verifier(FfiConverterString.read(buf))
+            12 -> GenericException.FailedToConvertToU32(FfiConverterString.read(buf))
+            13 -> GenericException.Association(FfiConverterString.read(buf))
+            14 -> GenericException.DeviceSync(FfiConverterString.read(buf))
+            15 -> GenericException.Identity(FfiConverterString.read(buf))
+            16 -> GenericException.JoinException(FfiConverterString.read(buf))
+            17 -> GenericException.IoException(FfiConverterString.read(buf))
+            18 -> GenericException.Subscription(FfiConverterString.read(buf))
+            19 -> GenericException.ApiClientBuild(FfiConverterString.read(buf))
+            20 -> GenericException.Grpc(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
@@ -10918,68 +11057,72 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
                 buf.putInt(3)
                 Unit
             }
-            is GenericException.ApiException -> {
+            is GenericException.GroupException -> {
                 buf.putInt(4)
                 Unit
             }
-            is GenericException.GroupException -> {
+            is GenericException.Signature -> {
                 buf.putInt(5)
                 Unit
             }
-            is GenericException.Signature -> {
+            is GenericException.GroupMetadata -> {
                 buf.putInt(6)
                 Unit
             }
-            is GenericException.GroupMetadata -> {
+            is GenericException.GroupMutablePermissions -> {
                 buf.putInt(7)
                 Unit
             }
-            is GenericException.GroupMutablePermissions -> {
+            is GenericException.Generic -> {
                 buf.putInt(8)
                 Unit
             }
-            is GenericException.Generic -> {
+            is GenericException.SignatureRequestException -> {
                 buf.putInt(9)
                 Unit
             }
-            is GenericException.SignatureRequestException -> {
+            is GenericException.Erc1271SignatureException -> {
                 buf.putInt(10)
                 Unit
             }
-            is GenericException.Erc1271SignatureException -> {
+            is GenericException.Verifier -> {
                 buf.putInt(11)
                 Unit
             }
-            is GenericException.Verifier -> {
+            is GenericException.FailedToConvertToU32 -> {
                 buf.putInt(12)
                 Unit
             }
-            is GenericException.FailedToConvertToU32 -> {
+            is GenericException.Association -> {
                 buf.putInt(13)
                 Unit
             }
-            is GenericException.Association -> {
+            is GenericException.DeviceSync -> {
                 buf.putInt(14)
                 Unit
             }
-            is GenericException.DeviceSync -> {
+            is GenericException.Identity -> {
                 buf.putInt(15)
                 Unit
             }
-            is GenericException.Identity -> {
+            is GenericException.JoinException -> {
                 buf.putInt(16)
                 Unit
             }
-            is GenericException.JoinException -> {
+            is GenericException.IoException -> {
                 buf.putInt(17)
                 Unit
             }
-            is GenericException.IoException -> {
+            is GenericException.Subscription -> {
                 buf.putInt(18)
                 Unit
             }
-            is GenericException.Subscription -> {
+            is GenericException.ApiClientBuild -> {
                 buf.putInt(19)
+                Unit
+            }
+            is GenericException.Grpc -> {
+                buf.putInt(20)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -11100,6 +11243,38 @@ internal object uniffiCallbackInterfaceFfiInboxOwner {
  * @suppress
  */
 public object FfiConverterTypeFfiInboxOwner: FfiConverterCallbackInterface<FfiInboxOwner>()
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
+    override fun read(buf: ByteBuffer): kotlin.UInt? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UInt?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UInt?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUInt.write(value, buf)
+        }
+    }
+}
 
 
 
@@ -11959,6 +12134,34 @@ public object FfiConverterSequenceTypeFfiMessageWithReactions: FfiConverterRustB
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiRemoteAttachmentInfo: FfiConverterRustBuffer<List<FfiRemoteAttachmentInfo>> {
+    override fun read(buf: ByteBuffer): List<FfiRemoteAttachmentInfo> {
+        val len = buf.getInt()
+        return List<FfiRemoteAttachmentInfo>(len) {
+            FfiConverterTypeFfiRemoteAttachmentInfo.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiRemoteAttachmentInfo>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiRemoteAttachmentInfo.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiRemoteAttachmentInfo>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiRemoteAttachmentInfo.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiV2QueryRequest: FfiConverterRustBuffer<List<FfiV2QueryRequest>> {
     override fun read(buf: ByteBuffer): List<FfiV2QueryRequest> {
         val len = buf.getInt()
@@ -12127,6 +12330,45 @@ public object FfiConverterSequenceTypeFfiPreferenceUpdate: FfiConverterRustBuffe
 /**
  * @suppress
  */
+public object FfiConverterMapStringULong: FfiConverterRustBuffer<Map<kotlin.String, kotlin.ULong>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.ULong> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.ULong>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterULong.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.ULong>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterULong.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.ULong>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.iterator().forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterULong.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterMapStringBoolean: FfiConverterRustBuffer<Map<kotlin.String, kotlin.Boolean>> {
     override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.Boolean> {
         val len = buf.getInt()
@@ -12272,6 +12514,16 @@ public object FfiConverterMapByteArraySequenceTypeFfiHmacKey: FfiConverterRustBu
     )
     }
 
+    @Throws(GenericException::class) fun `decodeMultiRemoteAttachment`(`bytes`: kotlin.ByteArray): FfiMultiRemoteAttachment {
+            return FfiConverterTypeFfiMultiRemoteAttachment.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `decodeReaction`(`bytes`: kotlin.ByteArray): FfiReaction {
             return FfiConverterTypeFfiReaction.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -12287,6 +12539,16 @@ public object FfiConverterMapByteArraySequenceTypeFfiHmacKey: FfiConverterRustBu
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_diffie_hellman_k256(
         FfiConverterByteArray.lower(`privateKeyBytes`),FfiConverterByteArray.lower(`publicKeyBytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeMultiRemoteAttachment`(`ffiMultiRemoteAttachment`: FfiMultiRemoteAttachment): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(
+        FfiConverterTypeFfiMultiRemoteAttachment.lower(`ffiMultiRemoteAttachment`),_status)
 }
     )
     }

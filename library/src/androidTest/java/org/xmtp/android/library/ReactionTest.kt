@@ -95,8 +95,8 @@ class ReactionTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 3)
+        if (messages.size == 3) {
             val content: Reaction? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
@@ -134,8 +134,8 @@ class ReactionTest {
             )
         }
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 2)
-        if (messages.size == 2) {
+        assertEquals(messages.size, 3)
+        if (messages.size == 3) {
             val content: FfiReaction? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
