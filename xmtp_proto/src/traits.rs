@@ -4,7 +4,7 @@ use prost::bytes::Bytes;
 use std::borrow::Cow;
 use thiserror::Error;
 
-trait Endpoint {
+pub trait Endpoint {
     fn http_endpoint(&self) -> Cow<'static, str>;
 
     fn grpc_endpoint(&self) -> Cow<'static, str>;
@@ -30,24 +30,24 @@ pub trait Client {
 }
 
 // query can return a Wrapper XmtpResponse<T> that implements both Future and Stream. If stream is used on singular response, just a stream of one item. This lets us re-use query for everything.
-trait Query<T, C>
+#[allow(async_fn_in_trait)]
+pub trait Query<T, C>
 where
     C: Client,
 {
     async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>>;
 }
 
-/*
 // blanket Query implementation for a bare Endpoint
 impl<E, T, C> Query<T, C> for E
 where
     E: Endpoint,
-    T: TryInto,
     C: Client,
 {
-    /* ... */
+    async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>> {
+        todo!()
+    }
 }
-*/
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
