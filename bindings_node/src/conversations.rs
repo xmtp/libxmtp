@@ -18,7 +18,10 @@ use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
-use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use crate::{
+  client::RustXmtpClient, consent_state::ConsentState, conversation::Conversation,
+  streams::StreamCloser,
+};
 
 #[napi]
 #[derive(Debug)]
@@ -84,6 +87,7 @@ pub struct ListConversationsOptions {
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
   pub conversation_type: Option<ConversationType>,
+  pub consent_states: Option<Vec<ConsentState>>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -98,6 +102,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       .maybe_created_after_ns(opts.created_after_ns)
       .maybe_created_before_ns(opts.created_before_ns)
       .maybe_limit(opts.limit)
+      .maybe_consent_states(consent_states.map(|cs| cs.into()))
   }
 }
 

@@ -83,6 +83,8 @@ pub struct ListConversationsOptions {
   #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+  #[wasm_bindgen(js_name = consentState)]
+  pub consent_states: Option<Vec<ConsentState>>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -97,6 +99,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       .maybe_created_after_ns(opts.created_after_ns)
       .maybe_created_before_ns(opts.created_before_ns)
       .maybe_limit(opts.limit)
+      .maybe_consent_states(opts.consent_states.map(Into::into))
   }
 }
 
