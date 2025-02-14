@@ -1754,6 +1754,9 @@ impl serde::Serialize for update_group_membership_data::V1 {
         if !self.removed_members.is_empty() {
             len += 1;
         }
+        if !self.failed_installations.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdateGroupMembershipData.V1", len)?;
         if !self.membership_updates.is_empty() {
             let v: std::collections::HashMap<_, _> = self.membership_updates.iter()
@@ -1762,6 +1765,9 @@ impl serde::Serialize for update_group_membership_data::V1 {
         }
         if !self.removed_members.is_empty() {
             struct_ser.serialize_field("removedMembers", &self.removed_members)?;
+        }
+        if !self.failed_installations.is_empty() {
+            struct_ser.serialize_field("failedInstallations", &self.failed_installations.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -1777,12 +1783,15 @@ impl<'de> serde::Deserialize<'de> for update_group_membership_data::V1 {
             "membershipUpdates",
             "removed_members",
             "removedMembers",
+            "failed_installations",
+            "failedInstallations",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             MembershipUpdates,
             RemovedMembers,
+            FailedInstallations,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1806,6 +1815,7 @@ impl<'de> serde::Deserialize<'de> for update_group_membership_data::V1 {
                         match value {
                             "membershipUpdates" | "membership_updates" => Ok(GeneratedField::MembershipUpdates),
                             "removedMembers" | "removed_members" => Ok(GeneratedField::RemovedMembers),
+                            "failedInstallations" | "failed_installations" => Ok(GeneratedField::FailedInstallations),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1827,6 +1837,7 @@ impl<'de> serde::Deserialize<'de> for update_group_membership_data::V1 {
             {
                 let mut membership_updates__ = None;
                 let mut removed_members__ = None;
+                let mut failed_installations__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::MembershipUpdates => {
@@ -1844,11 +1855,21 @@ impl<'de> serde::Deserialize<'de> for update_group_membership_data::V1 {
                             }
                             removed_members__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::FailedInstallations => {
+                            if failed_installations__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("failedInstallations"));
+                            }
+                            failed_installations__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
                     }
                 }
                 Ok(update_group_membership_data::V1 {
                     membership_updates: membership_updates__.unwrap_or_default(),
                     removed_members: removed_members__.unwrap_or_default(),
+                    failed_installations: failed_installations__.unwrap_or_default(),
                 })
             }
         }

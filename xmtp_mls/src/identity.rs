@@ -3,6 +3,7 @@ use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
 use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use crate::storage::ProviderTransactions;
+use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
     storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
@@ -201,6 +202,8 @@ pub enum IdentityError {
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
     KeyPackageGenerationError(#[from] openmls::key_packages::errors::KeyPackageNewError),
+    #[error(transparent)]
+    KeyPackageVerificationError(#[from] KeyPackageVerificationError),
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
     #[error("The address {0} has no associated InboxID")]
