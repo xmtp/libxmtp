@@ -1,5 +1,5 @@
 use clap::Parser;
-
+use std::num::NonZeroUsize;
 // Gather the command line arguments into a struct
 #[derive(Parser, Debug)]
 #[command(about = "MLS Validation Server")]
@@ -20,6 +20,6 @@ pub(crate) struct Args {
     pub(crate) chain_urls: Option<String>,
 
     // The size of the cache to use for the smart contract signature verifier.
-    #[arg(long, default_value_t = 10000)]
-    pub(crate) cache_size: usize,
+    #[arg(long, default_value_t = NonZeroUsize::new(10000).expect("Set to positive number"))]
+    pub(crate) cache_size: NonZeroUsize,
 }

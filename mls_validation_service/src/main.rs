@@ -10,7 +10,6 @@ use clap::Parser;
 use config::Args;
 use handlers::ValidationService;
 use health_check::health_check_server;
-use std::num::NonZeroUsize;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -51,16 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
 
-    let cache_size = match NonZeroUsize::new(args.cache_size) {
-        Some(size) => size,
-        None => {
-            error!("Invalid cache size: {}", args.cache_size);
-            return Err("Invalid cache size".into());
-        }
-    };
-
     let cached_verifier: CachedSmartContractSignatureVerifier =
-        CachedSmartContractSignatureVerifier::new(verifier, cache_size)?;
+        CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(
