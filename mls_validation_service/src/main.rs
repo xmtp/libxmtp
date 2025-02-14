@@ -10,13 +10,13 @@ use clap::Parser;
 use config::Args;
 use handlers::ValidationService;
 use health_check::health_check_server;
+use std::num::NonZeroUsize;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt as _, EnvFilter};
 use xmtp_id::scw_verifier::MultiSmartContractSignatureVerifier;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
-use std::num::NonZeroUsize;
 
 #[macro_use]
 extern crate tracing;
