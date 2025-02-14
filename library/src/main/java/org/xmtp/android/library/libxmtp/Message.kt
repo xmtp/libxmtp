@@ -1,9 +1,11 @@
 package org.xmtp.android.library.libxmtp
 
+import android.util.Log
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
+import org.xmtp.android.library.codecs.id
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Content
@@ -68,6 +70,7 @@ class Message private constructor(
         fun create(libXMTPMessage: FfiMessage): Message? {
             return try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
+                Log.d("XMTP Message Create", "encodedContent type:" + encodedContent.type.id)
                 if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
                     throw XMTPException("Error decoding group membership change")
                 }
