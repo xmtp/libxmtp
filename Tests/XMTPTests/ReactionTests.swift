@@ -156,7 +156,7 @@ class ReactionTests: XCTestCase {
         )
         
         let messages = try await conversation.messages()
-        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages.count, 3)
         
         let content: FfiReaction = try messages[0].content()
         XCTAssertEqual("U+1F603", content.content)

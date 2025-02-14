@@ -174,7 +174,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(firstMessage.id, messageId)
 		XCTAssertEqual(firstMessage.deliveryStatus, .published)
 		let messages = try await dm.messages()
-		XCTAssertEqual(messages.count, 2)
+		XCTAssertEqual(messages.count, 3)
 
 		try await fixtures.alixClient.conversations.sync()
 		let sameDm = try await fixtures.alixClient.conversations.listDms().last!
@@ -307,7 +307,7 @@ class DmTests: XCTestCase {
 		let boGroupSettings = boDm.disappearingMessageSettings
 
 		// Validate messages exist and settings are applied
-		XCTAssertEqual(boGroupMessagesCount, 1)  // howdy
+		XCTAssertEqual(boGroupMessagesCount, 2)  // memberAdd howdy
 		XCTAssertEqual(alixGroupMessagesCount, 1)  // howdy
 		XCTAssertNotNil(boGroupSettings)
 
@@ -317,7 +317,7 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesAfterSleep = try await alixDm?.messages().count
 
 		// Validate messages are deleted
-		XCTAssertEqual(boGroupMessagesAfterSleep, 0)
+		XCTAssertEqual(boGroupMessagesAfterSleep, 1)
 		XCTAssertEqual(alixGroupMessagesAfterSleep, 0)
 
 		// Set message disappearing settings to nil
@@ -346,8 +346,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesPersist = try await alixDm?.messages().count
 
 		// Ensure messages persist
-		XCTAssertEqual(boGroupMessagesPersist, 2)  // settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 2)  // settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(boGroupMessagesPersist, 5)  // memberAdd settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 4)  // settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
 		let updatedSettings = await DisappearingMessageSettings(
@@ -379,8 +379,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesAfterNewSend = try await alixDm?.messages()
 			.count
 
-		XCTAssertEqual(boGroupMessagesAfterNewSend, 4)
-		XCTAssertEqual(alixGroupMessagesAfterNewSend, 4)
+		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 8)
 
 		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
 
@@ -388,8 +388,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesFinal = try await alixDm?.messages().count
 
 		// Validate messages were deleted
-		XCTAssertEqual(boGroupMessagesFinal, 2)
-		XCTAssertEqual(alixGroupMessagesFinal, 2)
+		XCTAssertEqual(boGroupMessagesFinal, 7)
+		XCTAssertEqual(alixGroupMessagesFinal, 6)
 
 		let boGroupFinalSettings = boDm.disappearingMessageSettings
 		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings
