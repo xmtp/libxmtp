@@ -87,12 +87,12 @@ mod tests {
             error: None,
         };
 
-        cache.put(hash1.clone(), val1.clone());
+        cache.put(hash1, val1.clone());
         let response = cache.get(&hash1).unwrap();
         assert_eq!(response.is_valid, val1.is_valid);
         assert_eq!(response.block_number, val1.block_number);
 
-        cache.put(hash2.clone(), val2.clone());
+        cache.put(hash2, val2.clone());
         assert!(cache.get(&hash1).is_none());
 
         // And key2 is correctly cached.
