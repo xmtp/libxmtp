@@ -105,6 +105,22 @@ pub struct Conversation {
   created_at_ns: i64,
 }
 
+#[napi]
+pub struct ConversationListItem {
+  conversation: Conversation,
+  last_message: Option<Message>,
+}
+
+#[napi]
+impl ConversationListItem {
+  pub fn conversation(&self) -> Arc<Conversation> {
+    Arc::new(self.conversation.clone())
+  }
+  pub fn last_message(&self) -> Option<Message> {
+    self.last_message.clone()
+  }
+}
+
 impl From<MlsGroup<RustXmtpClient>> for Conversation {
   fn from(mls_group: MlsGroup<RustXmtpClient>) -> Self {
     Conversation {

@@ -114,6 +114,22 @@ pub struct Conversation {
   created_at_ns: i64,
 }
 
+#[wasm_bindgen]
+pub struct ConversationListItem {
+  conversation: Conversation,
+  last_message: Option<Message>,
+}
+
+#[wasm_bindgen]
+impl ConversationListItem {
+  pub fn conversation(&self) -> Arc<Conversation> {
+    Arc::new(self.conversation.clone())
+  }
+  pub fn last_message(&self) -> Option<Message> {
+    self.last_message.clone()
+  }
+}
+
 impl Conversation {
   pub fn new(inner_client: Arc<RustXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
     Self {
