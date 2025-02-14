@@ -1829,6 +1829,7 @@ async fn get_keypackages_for_installation_ids(
 }
 #[allow(unused_variables, dead_code)]
 #[cfg(not(any(test, feature = "test-utils")))]
+#[cfg(target_arch = "wasm32")]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
