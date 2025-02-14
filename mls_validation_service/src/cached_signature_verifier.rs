@@ -1,11 +1,10 @@
+use lru::LruCache;
 use std::num::NonZeroUsize;
 use tokio::sync::Mutex;
-use lru::LruCache;
 
 use ethers::types::{BlockNumber, Bytes};
 use xmtp_id::associations::AccountId;
-use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse,VerifierError};
-
+use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub struct CacheKey {
@@ -47,7 +46,10 @@ pub struct CachedSmartContractSignatureVerifier {
 }
 
 impl CachedSmartContractSignatureVerifier {
-    pub fn new(verifier: impl SmartContractSignatureVerifier + 'static, cache_size: usize) -> Result<Self, VerifierError> {
+    pub fn new(
+        verifier: impl SmartContractSignatureVerifier + 'static,
+        cache_size: usize,
+    ) -> Result<Self, VerifierError> {
         if cache_size == 0 {
             return Err(VerifierError::InvalidCacheSize(cache_size));
         }
@@ -89,13 +91,15 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, MultiSmartContractSignatureVerifier, ValidationResponse,VerifierError};
     use url::Url;
+    use xmtp_id::scw_verifier::{
+        MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
+        VerifierError,
+    };
 
     #[test]
     fn test_cache_eviction() {
@@ -147,8 +151,8 @@ mod tests {
         if let Err(VerifierError::InvalidCacheSize(size)) = err {
             assert_eq!(size, 0);
         } else {
-                panic!("Expected a VerifierError::InvalidCacheSize");
-            }
+            panic!("Expected a VerifierError::InvalidCacheSize");
+        }
     }
 
     #[tokio::test]

@@ -1,8 +1,8 @@
+mod cached_signature_verifier;
 mod config;
 mod handlers;
 mod health_check;
 mod version;
-mod cached_signature_verifier;
 
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
@@ -50,7 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
 
-    let cached_verifier: CachedSmartContractSignatureVerifier = CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
+    let cached_verifier: CachedSmartContractSignatureVerifier =
+        CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
 
     let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::new(
