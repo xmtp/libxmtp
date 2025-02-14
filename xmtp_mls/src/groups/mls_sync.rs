@@ -11,10 +11,6 @@ use super::{
 use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
-#[cfg(any(test, feature = "test-utils"))]
-use crate::utils::{
-    get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
-};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
@@ -1794,12 +1790,17 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 }
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(not(target_arch = "wasm32"))]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
     failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
+    use crate::utils::{
+        get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
+    };
+
     let my_installation_id = client.context().installation_public_key().to_vec();
     let key_packages = client
         .get_key_packages_for_installation_ids(

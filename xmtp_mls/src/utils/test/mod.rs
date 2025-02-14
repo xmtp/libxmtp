@@ -25,8 +25,6 @@ use crate::{
     storage::{DbConnection, EncryptedMessageStore, StorageOption},
     Client, InboxOwner, XmtpApi,
 };
-#[cfg(any(test, feature = "test-utils"))]
-use std::env;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -340,12 +338,15 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(not(target_arch = "wasm32"))]
 /// Checks if test mode is enabled.
 pub fn is_test_mode_upload_malformed_keypackage() -> bool {
+    use std::env;
     env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(not(target_arch = "wasm32"))]
 #[warn(dead_code)]
 /// Sets test mode and specifies malformed installations dynamically.
 /// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
@@ -353,6 +354,7 @@ pub fn set_test_mode_upload_malformed_keypackage(
     enable: bool,
     installations: Option<Vec<Vec<u8>>>,
 ) {
+    use std::env;
     if enable {
         env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
         env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
@@ -373,9 +375,11 @@ pub fn set_test_mode_upload_malformed_keypackage(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[cfg(not(target_arch = "wasm32"))]
 /// Retrieves and decodes malformed installations from the environment variable.
 /// Returns an empty list if test mode is not enabled.
 pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
+    use std::env;
     if !is_test_mode_upload_malformed_keypackage() {
         return Vec::new();
     }

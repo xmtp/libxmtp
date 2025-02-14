@@ -1950,7 +1950,6 @@ pub(crate) mod tests {
     };
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -2409,8 +2408,9 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2511,8 +2511,9 @@ pub(crate) mod tests {
                 .decrypted_message_bytes
         );
     }
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_create_group_with_member_all_malformed_installations() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -2569,8 +2570,9 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_dm_creation_with_user_two_installations_one_malformed() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -2670,8 +2672,9 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
     async fn test_dm_creation_with_user_all_malformed_installations() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
