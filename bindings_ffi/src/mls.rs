@@ -1721,7 +1721,7 @@ impl FfiConversation {
         let direction = opts.direction.map(|dir| dir.into());
         let kind = match self.conversation_type().await? {
             FfiConversationType::Group => None,
-            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
         };
 
@@ -5423,7 +5423,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(alix_messages.len(), 1);
+        assert_eq!(alix_messages.len(), 2);
         let group_from_db = alix_provider
             .conn_ref()
             .find_group(&alix_group.id())
@@ -5444,7 +5444,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(alix_messages.len(), 0);
+        assert_eq!(alix_messages.len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -6308,10 +6308,10 @@ mod tests {
             .unwrap();
 
         // Verify DM messages
-        assert_eq!(alix_dm_messages.len(), 1);
+        assert_eq!(alix_dm_messages.len(), 2);
         assert_eq!(bo_dm_messages.len(), 1);
         assert_eq!(
-            String::from_utf8_lossy(&alix_dm_messages[0].content),
+            String::from_utf8_lossy(&alix_dm_messages[1].content),
             "Hello in DM"
         );
         assert_eq!(
