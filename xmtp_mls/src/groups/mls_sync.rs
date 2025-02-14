@@ -1790,7 +1790,6 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 }
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg(not(target_arch = "wasm32"))]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
@@ -1829,7 +1828,6 @@ async fn get_keypackages_for_installation_ids(
 }
 #[allow(unused_variables, dead_code)]
 #[cfg(not(any(test, feature = "test-utils")))]
-#[cfg(target_arch = "wasm32")]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
