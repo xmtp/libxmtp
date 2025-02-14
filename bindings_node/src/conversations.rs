@@ -173,67 +173,92 @@ impl Conversations {
     account_addresses: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let options = options.unwrap_or(CreateGroupOptions {
-      permissions: None,
-      group_name: None,
-      group_image_url_square: None,
-      group_description: None,
-      custom_permission_policy_set: None,
-      message_disappearing_settings: None,
-    });
+    self
+      .create_group_internal(
+        Some(&account_addresses),
+        options.unwrap_or_default(),
+        |s, members, perms, meta| async move {
+          s.inner_client
+            .create_group_with_members(members, perms, meta)
+            .await
+        },
+      )
+      .await
+      .map(|arc_convo| (*arc_convo).clone())
+  }
 
-    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
-      if options.custom_permission_policy_set.is_none() {
+  #[napi]
+  pub async fn create_group_with_inbox_ids(
+    &self,
+    inbox_ids: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation> {
+    self
+      .create_group_internal(
+        Some(&inbox_ids),
+        options.unwrap_or_default(),
+        |s, members, perms, meta| async move {
+          s.inner_client
+            .create_group_with_inbox_ids(members, perms, meta)
+            .await
+        },
+      )
+      .await
+      .map(|arc_convo| (*arc_convo).clone())
+  }
+
+  async fn create_group_internal(
+    &self,
+    members: Option<&Vec<String>>,
+    opts: CreateGroupOptions,
+    create_fn: impl FnOnce(
+        &Self,
+        &Vec<String>,
+        Option<PolicySet>,
+        GroupMetadataOptions,
+      ) -> Result<Conversation, Error>
+      + Copy,
+  ) -> Result<Arc<Conversation>, Error> {
+    if let Some(GroupPermissionsOptions::CustomPolicy) = opts.permissions {
+      if opts.custom_permission_policy_set.is_none() {
         return Err(Error::from_reason("CustomPolicy must include policy set"));
       }
-    } else if options.custom_permission_policy_set.is_some() {
+    } else if opts.custom_permission_policy_set.is_some() {
       return Err(Error::from_reason(
         "Only CustomPolicy may specify a policy set",
       ));
     }
 
-    let metadata_options = options.clone().into_group_metadata_options();
+    let metadata_options = opts.clone().into_group_metadata_options();
 
-    let group_permissions = match options.permissions {
+    let group_permissions = match opts.permissions {
       Some(GroupPermissionsOptions::Default) => {
         Some(PreconfiguredPolicies::Default.to_policy_set())
       }
       Some(GroupPermissionsOptions::AdminOnly) => {
         Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
       }
-      Some(GroupPermissionsOptions::CustomPolicy) => {
-        if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
-          )
-        } else {
-          None
-        }
-      }
+      Some(GroupPermissionsOptions::CustomPolicy) => opts
+        .custom_permission_policy_set
+        .map(|p| p.try_into())
+        .transpose()?,
       _ => None,
     };
 
-    let convo = if account_addresses.is_empty() {
-      let group = self
-        .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
-        .sync()
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
-    } else {
-      self
-        .inner_client
-        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+    let convo = match members {
+      Some(members) if !members.is_empty() => {
+        create_fn(self, members, group_permissions, metadata_options).await?
+      }
+      _ => {
+        let group = self
+          .inner_client
+          .create_group(group_permissions, metadata_options)?;
+        group.sync().await?;
+        group
+      }
     };
 
-    Ok(convo.into())
+    Ok(Arc::new(convo.into()))
   }
 
   #[napi(js_name = "createDm")]
@@ -242,16 +267,42 @@ impl Conversations {
     account_address: String,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation> {
-    let convo = self
-      .inner_client
-      .find_or_create_dm(
+    self
+      .find_or_create_dm_internal(
         account_address,
-        options.unwrap_or_default().into_dm_metadata_options(),
+        options.unwrap_or_default(),
+        |s, id, meta| async move { s.inner_client.find_or_create_dm(id, meta).await },
       )
       .await
-      .map_err(ErrorWrapper::from)?;
+      .map(|arc_convo| (*arc_convo).clone())
+  }
 
-    Ok(convo.into())
+  #[napi(js_name = "createDmByInboxId")]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation> {
+    self
+      .find_or_create_dm_internal(
+        inbox_id,
+        options.unwrap_or_default(),
+        |s, id, meta| async move { s.inner_client.find_or_create_dm_by_inbox_id(id, meta).await },
+      )
+      .await
+      .map(|arc_convo| (*arc_convo).clone())
+  }
+
+  async fn find_or_create_dm_internal(
+    &self,
+    identifier: String,
+    opts: CreateDMOptions,
+    dm_fn: impl FnOnce(&Self, String, DMMetadataOptions) -> Result<Conversation, Error> + Copy,
+  ) -> Result<Arc<Conversation>, Error> {
+    dm_fn(self, identifier, opts.into_dm_metadata_options())
+      .await
+      .map(|g| Arc::new(g.into()))
+      .map_err(Into::into)
   }
 
   #[napi]
