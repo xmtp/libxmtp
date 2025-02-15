@@ -432,22 +432,29 @@ class Group(
                     if (decodedMessage != null) {
                         trySend(decodedMessage)
                     } else {
-                        Log.w("XMTP Group stream", "Failed to decode message: id=${message.id.toHex()}, " +
-                            "convoId=${message.convoId.toHex()}, " +
-                            "senderInboxId=${message.senderInboxId}")
+                        Log.w(
+                            "XMTP Group stream",
+                            "Failed to decode message: id=${message.id.toHex()}, " +
+                                "convoId=${message.convoId.toHex()}, " +
+                                "senderInboxId=${message.senderInboxId}"
+                        )
                     }
                 } catch (e: Exception) {
-                    Log.e("XMTP Group stream", "Error decoding message: id=${message.id.toHex()}, " +
-                        "convoId=${message.convoId.toHex()}, " + 
-                        "senderInboxId=${message.senderInboxId}", e)
+                    Log.e(
+                        "XMTP Group stream",
+                        "Error decoding message: id=${message.id.toHex()}, " +
+                            "convoId=${message.convoId.toHex()}, " +
+                            "senderInboxId=${message.senderInboxId}",
+                        e
+                    )
                 }
             }
-    
+
             override fun onError(error: FfiSubscribeException) {
                 Log.e("XMTP Group stream", "Stream error: ${error.message}", error)
             }
         }
-    
+
         val stream = libXMTPGroup.stream(messageCallback)
         awaitClose { stream.end() }
     }

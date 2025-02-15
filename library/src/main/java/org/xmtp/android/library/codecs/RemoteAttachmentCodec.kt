@@ -95,6 +95,23 @@ data class RemoteAttachment(
             )
         }
 
+        fun encodeEncryptedBytes(encodedContent: ByteArray, filename: String): EncryptedEncodedContent {
+            val secret = SecureRandom().generateSeed(32)
+            val ciphertext = Crypto.encrypt(secret, encodedContent)
+                ?: throw XMTPException("ciphertext not created")
+            val contentDigest =
+                Hash.sha256(ciphertext.aes256GcmHkdfSha256.payload.toByteArray()).toHex()
+            return EncryptedEncodedContent(
+                contentDigest = contentDigest,
+                secret = secret.toByteString(),
+                salt = ciphertext.aes256GcmHkdfSha256.hkdfSalt,
+                nonce = ciphertext.aes256GcmHkdfSha256.gcmNonce,
+                payload = ciphertext.aes256GcmHkdfSha256.payload,
+                contentLength = null,
+                filename = filename,
+            )
+        }
+
         fun from(url: URL, encryptedEncodedContent: EncryptedEncodedContent): RemoteAttachment {
             if (URI(url.toString()).scheme != "https") {
                 throw XMTPException("scheme must be https://")
