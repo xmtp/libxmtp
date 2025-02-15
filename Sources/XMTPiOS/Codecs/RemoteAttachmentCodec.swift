@@ -56,7 +56,7 @@ public struct RemoteAttachment {
 	public var contentLength: Int?
 	public var filename: String?
 
-	public init(url: String, contentDigest: String, secret: Data, salt: Data, nonce: Data, scheme: Scheme) throws {
+	public init(url: String, contentDigest: String, secret: Data, salt: Data, nonce: Data, scheme: Scheme, contentLength: Int? = nil, filename: String? = nil) throws {
 		self.url = url
 		self.contentDigest = contentDigest
 		self.secret = secret
@@ -100,6 +100,21 @@ public struct RemoteAttachment {
 			salt: ciphertext.aes256GcmHkdfSha256.hkdfSalt,
 			nonce: ciphertext.aes256GcmHkdfSha256.gcmNonce,
 			payload: ciphertext.aes256GcmHkdfSha256.payload
+		)
+	}
+
+	public static func encodeEncryptedBytes(encodedContent: Data, filename: String) throws -> EncryptedEncodedContent {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let ciphertext = try Crypto.encrypt(secret, encodedContent)
+		let contentDigest = sha256(data: ciphertext.aes256GcmHkdfSha256.payload)
+
+		return EncryptedEncodedContent(
+			secret: secret,
+			digest: contentDigest,
+			salt: ciphertext.aes256GcmHkdfSha256.hkdfSalt,
+			nonce: ciphertext.aes256GcmHkdfSha256.gcmNonce,
+			payload: ciphertext.aes256GcmHkdfSha256.payload,
+            filename: filename
 		)
 	}
 

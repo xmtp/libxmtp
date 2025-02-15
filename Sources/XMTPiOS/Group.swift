@@ -292,9 +292,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func send(encodedContent: EncodedContent) async throws -> String {
-		let messageId = try await ffiGroup.send(
-			contentBytes: encodedContent.serializedData())
-		return messageId.toHex
+		do {
+			let messageId = try await ffiGroup.send(
+				contentBytes: encodedContent.serializedData())
+			return messageId.toHex
+		} catch {
+			throw error
+		}
 	}
 
 	public func encodeContent<T>(content: T, options: SendOptions?) async throws

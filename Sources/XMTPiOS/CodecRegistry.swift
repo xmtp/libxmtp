@@ -38,3 +38,13 @@ struct CodecRegistry {
 		return TextCodec()
 	}
 }
+
+extension CodecRegistry {
+    func isRegistered(codec: any ContentCodec) -> Bool {
+        return codecs[codec.id] != nil
+    }
+    
+    func isRegistered(codecId: String) -> Bool {
+        return codecs[codecId] != nil
+    }
+}
