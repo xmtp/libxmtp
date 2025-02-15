@@ -11,3 +11,7 @@ prost-types ="0.13.5"
 prost = "0.13.5"
 once_cell.workspace = true
 parking_lot.workspace = true
+
+[features]
+http-api = []
+grpc-api = []

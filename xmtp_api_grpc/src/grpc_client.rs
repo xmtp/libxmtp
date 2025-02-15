@@ -19,8 +19,9 @@ pub struct GrpcClient {
 
 impl Client for GrpcClient {
     type Error = crate::GrpcError;
+
     async fn request(
-        &mut self,
+        &self,
         request: http::request::Builder,
         body: Vec<u8>,
     ) -> Result<http::Response<Bytes>, ApiError<Self::Error>> {
@@ -33,7 +34,8 @@ impl Client for GrpcClient {
         let path = request.uri().path_and_query().unwrap().clone();
         let tonic_request = tonic::Request::from_http(request);
         let codec = tonic::codec::ProstCodec::default();
-        let response = self.inner.unary(tonic_request, path, codec).await.unwrap();
+        let client = &mut self.inner.clone();
+        let response = client.unary(tonic_request, path, codec).await.unwrap();
         let (metadata, body, extensions) = response.into_parts();
         let mut response = http::Response::new(body);
         *response.version_mut() = http::version::Version::HTTP_2;
