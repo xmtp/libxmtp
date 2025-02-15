@@ -367,7 +367,7 @@ fn build_action(
 
             Ok(UnverifiedAction::RevokeAssociation(
                 UnverifiedRevokeAssociation {
-                    recovery_address_signature,
+                    recovery_identifier_signature: recovery_address_signature,
                     unsigned_action,
                 },
             ))

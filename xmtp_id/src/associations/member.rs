@@ -33,13 +33,15 @@ pub enum MemberIdentifier {
     Passkey(ident::Passkey),
 }
 
-pub enum SigningIdentifier {
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum SignerIdentifier {
     Installation(ident::Installation),
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
 }
 
-pub enum ExternalIdentifier {
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum ExternalSignerIdentifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
 }
@@ -106,7 +108,12 @@ impl MemberIdentifier {
     }
 }
 
-impl ExternalIdentifier {
+impl ExternalSignerIdentifier {
+    #[cfg(test)]
+    pub fn rand_ethereum() -> Self {
+        Self::Ethereum(ident::Ethereum::rand())
+    }
+
     /// Get the generated inbox_id for this public identifier.
     /// The same public identifier will always give the same inbox_id.
     pub fn get_inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
@@ -147,19 +154,11 @@ impl HasMemberKind for MemberIdentifier {
 
 impl Display for MemberIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let addr;
-        let output = match self {
-            Self::Ethereum(ident::Ethereum(addr)) => addr,
-            Self::Installation(ident::Installation(key)) => {
-                addr = hex::encode(key);
-                &addr
-            }
-            Self::Passkey(ident::Passkey { public_key, .. }) => {
-                addr = hex::encode(public_key);
-                &addr
-            }
-        };
-        write!(f, "{output}")
+        match self {
+            Self::Ethereum(eth) => write!(f, "{eth}"),
+            Self::Installation(ident) => write!(f, "{ident}"),
+            Self::Passkey(passkey) => write!(f, "{passkey}"),
+        }
     }
 }
 
@@ -180,6 +179,13 @@ impl Debug for MemberIdentifier {
                 .field(relying_party)
                 .finish(),
         }
+    }
+}
+
+impl Display for ExternalSignerIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ident: MemberIdentifier = self.into();
+        write!(f, "{ident}")
     }
 }
 
@@ -208,11 +214,11 @@ impl From<XmtpInstallationCredential> for MemberIdentifier {
     }
 }
 
-impl From<ExternalIdentifier> for MemberIdentifier {
-    fn from(ident: ExternalIdentifier) -> Self {
+impl From<ExternalSignerIdentifier> for MemberIdentifier {
+    fn from(ident: ExternalSignerIdentifier) -> Self {
         match ident {
-            ExternalIdentifier::Ethereum(addr) => Self::Ethereum(addr),
-            ExternalIdentifier::Passkey(passkey) => Self::Passkey(passkey),
+            ExternalSignerIdentifier::Ethereum(addr) => Self::Ethereum(addr),
+            ExternalSignerIdentifier::Passkey(passkey) => Self::Passkey(passkey),
         }
     }
 }

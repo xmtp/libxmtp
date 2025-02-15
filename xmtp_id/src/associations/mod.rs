@@ -102,7 +102,7 @@ pub mod test_defaults {
         fn default() -> Self {
             let signer = rand_hexstring();
             Self {
-                recovery_address_signature: VerifiedSignature::new(
+                recovery_identifier_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec::<32>(),
@@ -468,7 +468,7 @@ pub(crate) mod tests {
             .unwrap()
             .identifier;
         let update = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: VerifiedSignature::new(
+            recovery_identifier_signature: VerifiedSignature::new(
                 initial_state.recovery_address().clone().into(),
                 SignatureKind::Erc191,
                 rand_vec::<32>(),
@@ -514,7 +514,7 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
 
         let revocation = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: VerifiedSignature::new(
+            recovery_identifier_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec::<32>(),
@@ -562,7 +562,7 @@ pub(crate) mod tests {
         });
 
         let revoke_second_wallet = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: VerifiedSignature::new(
+            recovery_identifier_signature: VerifiedSignature::new(
                 wallet_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec::<32>(),
@@ -630,7 +630,7 @@ pub(crate) mod tests {
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
 
         let attempted_revoke = Action::RevokeAssociation(RevokeAssociation {
-            recovery_address_signature: VerifiedSignature::new(
+            recovery_identifier_signature: VerifiedSignature::new(
                 initial_recovery_address.clone(),
                 SignatureKind::Erc191,
                 rand_vec::<32>(),
@@ -697,7 +697,7 @@ pub(crate) mod tests {
                 new_member_identifier: new_member.clone(),
             }),
             Action::RevokeAssociation(RevokeAssociation {
-                recovery_address_signature: existing_member_sig.clone(),
+                recovery_identifier_signature: existing_member_sig.clone(),
                 revoked_member: signer.clone().into(),
             }),
             Action::ChangeRecoveryIdentity(ChangeRecoveryAddress {
