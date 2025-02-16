@@ -333,6 +333,24 @@ impl Conversations {
     Ok(convo.into())
   }
 
+  #[wasm_bindgen(js_name = createDmByInboxId)]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation, JsError> {
+    let convo = self
+      .inner_client
+      .find_or_create_dm_by_inbox_id(
+        inbox_id,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(convo.into())
+  }
+
   #[wasm_bindgen(js_name = findGroupById)]
   pub fn find_group_by_id(&self, group_id: String) -> Result<Conversation, JsError> {
     let group_id = hex::decode(group_id).map_err(|e| JsError::new(format!("{}", e).as_str()))?;
