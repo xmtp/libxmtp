@@ -1,9 +1,9 @@
 [package]
+build = "build.rs"
 edition = "2021"
+license.workspace = true
 name = "mls_validation_service"
 version = "0.1.4"
-build = "build.rs"
-license.workspace = true
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
@@ -13,17 +13,21 @@ path = "src/main.rs"
 vergen-git2 = { workspace = true, features = ["build"] }
 
 [dependencies]
+async-trait.workspace = true
 clap = { version = "4.4.6", features = ["derive"] }
 ethers = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
+lru = "0.13.0"
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
+parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi"] }
+url.workspace = true
 warp = "0.3.6"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_id.workspace = true
@@ -34,9 +38,9 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 anyhow.workspace = true
 ethers.workspace = true
 rand = { workspace = true }
+xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [features]
 test-utils = ["xmtp_id/test-utils"]

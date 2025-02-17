@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::num::NonZeroUsize;
 
 // Gather the command line arguments into a struct
 #[derive(Parser, Debug)]
@@ -18,4 +19,8 @@ pub(crate) struct Args {
     // A path to a json file in the same format as chain_urls_default.json in the codebase.
     #[arg(long)]
     pub(crate) chain_urls: Option<String>,
+
+    // The size of the cache to use for the smart contract signature verifier.
+    #[arg(long, default_value_t = NonZeroUsize::new(10000).expect("Set to positive number"))]
+    pub(crate) cache_size: NonZeroUsize,
 }
