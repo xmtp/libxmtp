@@ -68,7 +68,7 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn test_cache_eviction() {
+    async fn test_cache_happy_path_and_eviction() {
         let mut cache: LruCache<CacheKey, ValidationResponse> =
             LruCache::new(NonZeroUsize::new(1).unwrap());
         let key1 = [0u8; 32];
