@@ -83,6 +83,8 @@ pub struct ListConversationsOptions {
   #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
+  #[wasm_bindgen(js_name = consentState)]
+  pub consent_states: Option<Vec<ConsentState>>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -97,6 +99,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       .maybe_created_after_ns(opts.created_after_ns)
       .maybe_created_before_ns(opts.created_before_ns)
       .maybe_limit(opts.limit)
+      .maybe_consent_states(opts.consent_states.map(Into::into))
   }
 }
 
@@ -368,15 +371,20 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = syncAllConversations)]
-  pub async fn sync_all_conversations(&self) -> Result<usize, JsError> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize, JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
+    let consents: Option<Vec<ConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, None)
+      .sync_all_welcomes_and_groups(&provider, consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -384,29 +392,27 @@ impl Conversations {
   }
 
   #[wasm_bindgen]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
-    let convo_list: js_sys::Array = self
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Array, JsError> {
+    let convo_list = Array::new();
+
+    let conversations = self
       .inner_client
-      .find_groups(opts.unwrap_or_default().into())
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
-      .into_iter()
-      .map(|group| {
-        JsValue::from(Conversation::new(
-          self.inner_client.clone(),
-          group.group_id,
-          group.created_at_ns,
-        ))
-      })
-      .collect();
+      .list_conversations(opts.unwrap_or_default().into())
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    for conversation_item in conversations {
+      let item = ConversationListItem::new(
+        conversation_item.group.into(),
+        conversation_item.last_message.map(|msg| msg.into()),
+      );
+      convo_list.push(&JsValue::from(item));
+    }
 
     Ok(convo_list)
   }
 
   #[wasm_bindgen(js_name = listGroups)]
-  pub fn list_groups(
-    &self,
-    opts: Option<ListConversationsOptions>,
-  ) -> Result<js_sys::Array, JsError> {
+  pub fn list_groups(&self, opts: Option<ListConversationsOptions>) -> Result<Array, JsError> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Group),
       ..opts.unwrap_or_default()
@@ -414,7 +420,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = listDms)]
-  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
+  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<Array, JsError> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()

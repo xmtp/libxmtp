@@ -18,7 +18,10 @@ use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
-use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use crate::{
+  client::RustXmtpClient, consent_state::ConsentState, conversation::Conversation,
+  streams::StreamCloser,
+};
 
 #[napi]
 #[derive(Debug)]
@@ -84,6 +87,7 @@ pub struct ListConversationsOptions {
   pub created_before_ns: Option<i64>,
   pub limit: Option<i64>,
   pub conversation_type: Option<ConversationType>,
+  pub consent_states: Option<Vec<ConsentState>>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
@@ -98,6 +102,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       .maybe_created_after_ns(opts.created_after_ns)
       .maybe_created_before_ns(opts.created_before_ns)
       .maybe_limit(opts.limit)
+      .maybe_consent_states(consent_states.map(|cs| cs.into()))
   }
 }
 
@@ -317,11 +322,20 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn sync_all_conversations(&self) -> Result<usize> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
+
+    let consents: Option<Vec<ConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+    let num_groups_synced: usize = inner
+      .sync_all_welcomes_and_groups(&provider, consents)
+      .await?;
 
     let num_groups_synced = self
       .inner_client
@@ -333,20 +347,30 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
-    let convo_list: Vec<Conversation> = self
-      .inner_client
-      .find_groups(opts.unwrap_or_default().into())
-      .map_err(ErrorWrapper::from)?
+  pub fn list(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<Arc<ConversationListItem>>> {
+    let convo_list: Vec<Arc<ConversationListItem>> = inner
+      .list_conversations(opts.into())?
       .into_iter()
-      .map(Conversation::from)
+      .map(|conversation_item| {
+        Arc::new(ConversationListItem {
+          conversation: conversation_item.group.into(),
+          last_message: conversation_item
+            .last_message
+            .map(|stored_message| stored_message.into()),
+        })
+      })
       .collect();
-
     Ok(convo_list)
   }
 
   #[napi]
-  pub fn list_groups(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_groups(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<Arc<ConversationListItem>>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Group),
       ..opts.unwrap_or_default()
@@ -354,7 +378,10 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_dms(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<Arc<ConversationListItem>>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()
