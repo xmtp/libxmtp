@@ -108,6 +108,7 @@ impl GroupMember {
 }
 
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct Conversation {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,

@@ -235,6 +235,24 @@ impl From<XmtpHmacKey> for HmacKey {
   }
 }
 
+#[wasm_bindgen(getter_with_clone)]
+pub struct ConversationListItem {
+  pub conversation: Conversation,
+  #[wasm_bindgen(js_name = lastMessage)]
+  pub last_message: Option<Message>,
+}
+
+#[wasm_bindgen]
+impl ConversationListItem {
+  #[wasm_bindgen(constructor)]
+  pub fn new(conversation: Conversation, last_message: Option<Message>) -> Self {
+    Self {
+      conversation,
+      last_message,
+    }
+  }
+}
+
 #[wasm_bindgen]
 pub struct Conversations {
   inner_client: Arc<RustXmtpClient>,
@@ -511,14 +529,13 @@ impl Conversations {
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .find_groups(opts.unwrap_or_default().into())
+      .list_conversations(opts.unwrap_or_default().into())
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(Conversation::new(
-          self.inner_client.clone(),
-          group.group_id,
-          group.created_at_ns,
+        JsValue::from(ConversationListItem::new(
+          group.group.into(),
+          group.last_message.map(|m| m.into()),
         ))
       })
       .collect();
