@@ -229,20 +229,13 @@ impl Conversations {
 
 #[wasm_bindgen]
 impl Conversations {
-  #[wasm_bindgen(js_name = createGroup)]
-  pub async fn create_group(
+  async fn create_group_internal(
     &self,
-    account_addresses: Vec<String>,
+    ids: Vec<String>,
     options: Option<CreateGroupOptions>,
+    use_inbox_ids: bool,
   ) -> Result<Conversation, JsError> {
-    let options = options.unwrap_or(CreateGroupOptions {
-      permissions: None,
-      group_name: None,
-      group_image_url_square: None,
-      group_description: None,
-      custom_permission_policy_set: None,
-      message_disappearing_settings: None,
-    });
+    let options = options.unwrap_or_default();
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
       if options.custom_permission_policy_set.is_none() {
@@ -253,44 +246,67 @@ impl Conversations {
     }
 
     let metadata_options = options.clone().into_group_metadata_options();
+    let group_permissions = options.permissions.map(|p| p.to_policy_set()?);
 
-    let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::Default) => {
-        Some(PreconfiguredPolicies::Default.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::AdminOnly) => {
-        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::CustomPolicy) => {
-        if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-          )
-        } else {
-          None
-        }
-      }
-      _ => None,
-    };
-
-    let convo = if account_addresses.is_empty() {
+    let convo = if ids.is_empty() {
       let group = self
         .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+        .create_group(group_permissions, metadata_options)?;
+      group.sync().await?;
       group
-        .sync()
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-      group
+    } else {
+      if use_inbox_ids {
+        self
+          .inner_client
+          .create_group_with_inbox_ids(&ids, group_permissions, metadata_options)
+          .await?
+      } else {
+        self
+          .inner_client
+          .create_group_with_members(&ids, group_permissions, metadata_options)
+          .await?
+      }
+    };
+
+    Ok(convo.into())
+  }
+
+  #[wasm_bindgen(js_name = createGroup)]
+  pub async fn create_group(
+    &self,
+    account_addresses: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation, JsError> {
+    self
+      .create_group_internal(account_addresses, options, false)
+      .await
+  }
+
+  #[wasm_bindgen(js_name = createGroupWithInboxIds)]
+  pub async fn create_group_with_inbox_ids(
+    &self,
+    inbox_ids: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation, JsError> {
+    self.create_group_internal(inbox_ids, options, true).await
+  }
+
+  async fn find_or_create_dm_internal(
+    &self,
+    id: String,
+    options: Option<CreateDMOptions>,
+    use_inbox_id: bool,
+  ) -> Result<Conversation, JsError> {
+    let convo = if use_inbox_id {
+      self
+        .inner_client
+        .find_or_create_dm_by_inbox_id(id, options.unwrap_or_default().into_dm_metadata_options())
+        .await?
     } else {
       self
         .inner_client
-        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .find_or_create_dm(id, options.unwrap_or_default().into_dm_metadata_options())
+        .await?
     };
 
     Ok(convo.into())
@@ -302,16 +318,20 @@ impl Conversations {
     account_address: String,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
-    let convo = self
-      .inner_client
-      .find_or_create_dm(
-        account_address,
-        options.unwrap_or_default().into_dm_metadata_options(),
-      )
+    self
+      .find_or_create_dm_internal(account_address, options, false)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  }
 
-    Ok(convo.into())
+  #[wasm_bindgen(js_name = createDmByInboxId)]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation, JsError> {
+    self
+      .find_or_create_dm_internal(inbox_id, options, true)
+      .await
   }
 
   #[wasm_bindgen(js_name = findGroupById)]
