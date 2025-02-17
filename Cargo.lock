@@ -7514,6 +7514,8 @@ dependencies = [
 name = "xmtp_content_types"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "libsecp256k1",
  "prost",
  "rand",
  "serde",
@@ -7522,7 +7524,9 @@ dependencies = [
  "tonic",
  "tracing",
  "xmtp_common",
+ "xmtp_cryptography",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]

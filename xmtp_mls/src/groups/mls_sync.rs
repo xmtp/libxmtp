@@ -9,7 +9,9 @@ use super::{
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
 use crate::configuration::sync_update_installations_interval_ns;
+use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::{
@@ -47,7 +49,6 @@ use openmls::{
     extensions::Extensions,
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
-    key_packages::KeyPackage,
     prelude::{
         tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
@@ -1556,6 +1557,31 @@ where
 
                         Ok(updates)
                     })?;
+            let extensions: Extensions = mls_group.extensions().clone();
+            let old_group_membership = extract_group_membership(&extensions)?;
+            let mut new_membership = old_group_membership.clone();
+            for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
+                new_membership.add(inbox_id.clone(), *sequence_id);
+            }
+
+            let changes_with_kps = calculate_membership_changes_with_keypackages(
+                &self.client,
+                provider,
+                &new_membership,
+                &old_group_membership,
+            )
+            .await?;
+
+            // If we fail to fetch or verify all the added members' KeyPackage, return an error.
+            // skip if the inbox ids is 0 from the beginning
+            if !inbox_ids_to_add.is_empty()
+                && !changes_with_kps.failed_installations.is_empty()
+                && changes_with_kps.new_installations.is_empty()
+            {
+                return Err(GroupError::Generic(
+                    "Failed to verify all installations".to_string(),
+                ));
+            }
 
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
@@ -1563,6 +1589,7 @@ where
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
+                changes_with_kps.failed_installations,
             ))
         })
         .await
@@ -1713,6 +1740,112 @@ fn extract_message_sender(
     })
 }
 
+async fn calculate_membership_changes_with_keypackages<'a>(
+    client: impl ScopedGroupClient,
+    provider: &'a XmtpOpenMlsProvider,
+    new_group_membership: &'a GroupMembership,
+    old_group_membership: &'a GroupMembership,
+) -> Result<MembershipDiffWithKeyPackages, GroupError> {
+    let membership_diff = old_group_membership.diff(new_group_membership);
+
+    let installation_diff = client
+        .get_installation_diff(
+            provider.conn_ref(),
+            old_group_membership,
+            new_group_membership,
+            &membership_diff,
+        )
+        .await?;
+
+    let mut new_installations = Vec::new();
+    let mut new_key_packages = Vec::new();
+    let mut failed_installations = Vec::new();
+
+    if !installation_diff.added_installations.is_empty() {
+        let key_packages = get_keypackages_for_installation_ids(
+            client,
+            installation_diff.added_installations,
+            &mut failed_installations,
+        )
+        .await?;
+        for (installation_id, result) in key_packages {
+            match result {
+                Ok(verified_key_package) => {
+                    new_installations.push(Installation::from_verified_key_package(
+                        &verified_key_package,
+                    ));
+                    new_key_packages.push(verified_key_package.inner.clone());
+                }
+                Err(_) => failed_installations.push(installation_id.clone()),
+            }
+        }
+    }
+
+    Ok(MembershipDiffWithKeyPackages::new(
+        new_installations,
+        new_key_packages,
+        installation_diff.removed_installations,
+        failed_installations,
+    ))
+}
+#[allow(dead_code)]
+#[cfg(any(test, feature = "test-utils"))]
+async fn get_keypackages_for_installation_ids(
+    client: impl ScopedGroupClient,
+    added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+{
+    use crate::utils::{
+        get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
+    };
+
+    let my_installation_id = client.context().installation_public_key().to_vec();
+    let key_packages = client
+        .get_key_packages_for_installation_ids(
+            added_installations
+                .iter()
+                .filter(|installation| my_installation_id.ne(*installation))
+                .cloned()
+                .collect(),
+        )
+        .await?;
+
+    tracing::info!("trying to validate keypackages");
+
+    Ok(if is_test_mode_upload_malformed_keypackage() {
+        let malformed_installations = get_test_mode_malformed_installations();
+        failed_installations.extend(malformed_installations.clone());
+
+        // Return only valid key packages (excluding malformed)
+        key_packages
+            .into_iter()
+            .filter(|(id, _)| !malformed_installations.contains(id))
+            .collect::<HashMap<_, _>>()
+    } else {
+        key_packages
+    })
+}
+#[allow(unused_variables, dead_code)]
+#[cfg(not(any(test, feature = "test-utils")))]
+async fn get_keypackages_for_installation_ids(
+    client: impl ScopedGroupClient,
+    added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+{
+    let my_installation_id = client.context().installation_public_key().to_vec();
+    client
+        .get_key_packages_for_installation_ids(
+            added_installations
+                .iter()
+                .filter(|installation| my_installation_id.ne(*installation))
+                .cloned()
+                .collect(),
+        )
+        .await
+}
+
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1724,52 +1857,22 @@ async fn apply_update_group_membership_intent(
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
-
     let old_group_membership = extract_group_membership(&extensions)?;
-    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
-
-    // Diff the two membership hashmaps getting a list of inboxes that have been added, removed, or updated
+    let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
-    // Construct a diff of the installations that have been added or removed.
-    // This function goes to the network and fills in any missing Identity Updates
-    let installation_diff = client
-        .get_installation_diff(
-            provider.conn_ref(),
-            &old_group_membership,
-            &new_group_membership,
-            &membership_diff,
-        )
-        .await?;
-
-    let mut new_installations: Vec<Installation> = vec![];
-    let mut new_key_packages: Vec<KeyPackage> = vec![];
-
-    if !installation_diff.added_installations.is_empty() {
-        let my_installation_id = &client.context().installation_public_key().to_vec();
-        // Go to the network and load the key packages for any new installation
-        let key_packages = client
-            .get_key_packages_for_installation_ids(
-                installation_diff
-                    .added_installations
-                    .into_iter()
-                    .filter(|installation| my_installation_id.ne(installation))
-                    .collect(),
-            )
-            .await?;
-
-        for key_package in key_packages {
-            // Add a proposal to add the member to the local proposal queue
-            new_installations.push(Installation::from_verified_key_package(&key_package));
-            new_key_packages.push(key_package.inner);
-        }
-    }
-
+    let changes_with_kps = calculate_membership_changes_with_keypackages(
+        client,
+        provider,
+        &new_group_membership,
+        &old_group_membership,
+    )
+    .await?;
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
-        get_removed_leaf_nodes(openmls_group, &installation_diff.removed_installations);
+        get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
 
     if leaf_nodes_to_remove.is_empty()
-        && new_key_packages.is_empty()
+        && changes_with_kps.new_key_packages.is_empty()
         && membership_diff.updated_inboxes.is_empty()
     {
         return Ok(None);
@@ -1777,13 +1880,14 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
+    new_group_membership.failed_installations = changes_with_kps.failed_installations;
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit
     let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
         provider,
         &signer,
-        &new_key_packages,
+        &changes_with_kps.new_key_packages,
         &leaf_nodes_to_remove,
         new_extensions,
     )?;
@@ -1791,7 +1895,7 @@ async fn apply_update_group_membership_intent(
     let post_commit_action = match maybe_welcome_message {
         Some(welcome_message) => Some(PostCommitAction::from_welcome(
             welcome_message,
-            new_installations,
+            changes_with_kps.new_installations,
         )?),
         None => None,
     };

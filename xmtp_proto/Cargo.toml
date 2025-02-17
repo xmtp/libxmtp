@@ -59,6 +59,7 @@ proto_full = [
   "xmtp-mls_validation-v1",
   "xmtp-xmtpv4-envelopes",
   "xmtp-xmtpv4-message_api",
+  "xmtp-xmtpv4-metadata_api",
   "xmtp-xmtpv4-payer_api",
 ]
 "xmtp-device_sync" = [
@@ -88,5 +89,6 @@ proto_full = [
   "xmtp-identity-associations",
   "xmtp-xmtpv4-envelopes",
 ]
+"xmtp-xmtpv4-metadata_api" = ["xmtp-xmtpv4-envelopes"]
 "xmtp-xmtpv4-payer_api" = ["xmtp-xmtpv4-envelopes"]
 ## @@protoc_insertion_point(features)
