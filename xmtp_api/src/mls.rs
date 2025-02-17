@@ -16,7 +16,7 @@ use xmtp_proto::ApiError;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
-/// A filter for querying group messages
+/// A filter for querying group messages.
 #[derive(Clone)]
 pub struct GroupFilter {
     pub group_id: Vec<u8>,
