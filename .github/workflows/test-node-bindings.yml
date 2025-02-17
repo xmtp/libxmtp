@@ -21,6 +21,7 @@ on:
       - ".node-version"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
       - "rust-toolchain"
 
 jobs:
