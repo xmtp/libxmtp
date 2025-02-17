@@ -21,6 +21,7 @@ hex = { workspace = true }
 lru = "0.13.0"
 openmls = { workspace = true }
 openmls_rust_crypto = { workspace = true }
+parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tonic = { workspace = true }

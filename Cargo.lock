@@ -3586,6 +3586,7 @@ dependencies = [
  "lru",
  "openmls",
  "openmls_rust_crypto",
+ "parking_lot 0.12.3",
  "rand",
  "thiserror 2.0.6",
  "tokio",

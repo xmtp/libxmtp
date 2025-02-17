@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::num::NonZeroUsize;
+
 // Gather the command line arguments into a struct
 #[derive(Parser, Debug)]
 #[command(about = "MLS Validation Server")]
