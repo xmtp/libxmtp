@@ -7,6 +7,10 @@ pub struct MlsCredential {
     #[prost(string, tag="1")]
     pub inbox_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for MlsCredential {
+const NAME: &'static str = "MlsCredential";
+const PACKAGE: &'static str = "xmtp.identity";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.identity.MlsCredential".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.identity.MlsCredential".into() }}
 /// Encoded file descriptor set for the `xmtp.identity` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0xc5, 0x03, 0x0a, 0x19, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x74, 0x79, 0x2f, 0x63, 0x72,

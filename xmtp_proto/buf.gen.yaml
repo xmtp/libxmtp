@@ -7,7 +7,8 @@ plugins:
     opt:
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
-      - file_descriptor_set
+      - file_descriptor_set=true
+      - enable_type_names
   - plugin: buf.build/community/neoeinstein-prost-serde:v0.3.1
     out: src/gen
   - plugin: buf.build/community/neoeinstein-tonic:v0.4.1
