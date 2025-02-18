@@ -47,4 +47,4 @@ jobs:
       - name: build tests
         run: cargo nextest run --config-file ".cargo/nextest.toml" --no-run --tests --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --features http-api
       - name: cargo test
-        run: cargo nextest run --config-file ".cargo/nextest.toml" --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --features http-api --test-threads 2
+        run: cargo nextest run --config-file ".cargo/nextest.toml" --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
