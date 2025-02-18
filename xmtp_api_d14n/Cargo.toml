@@ -5,6 +5,7 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 derive_builder = "0.20"
 once_cell.workspace = true
 parking_lot.workspace = true

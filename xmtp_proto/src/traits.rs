@@ -23,11 +23,11 @@ where
     inner: S,
 }
 */
+
 #[allow(async_fn_in_trait)]
 pub trait Client {
     type Error: std::error::Error + Send + Sync + 'static;
     type Stream: futures::Stream;
-    // TODO: probably need type: Stream here
 
     async fn request(
         &self,
