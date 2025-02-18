@@ -4,7 +4,7 @@ use std::fmt::Display;
 pub struct Ethereum(pub String);
 
 impl Ethereum {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn rand() -> Self {
         Self(xmtp_common::rand_hexstring())
     }

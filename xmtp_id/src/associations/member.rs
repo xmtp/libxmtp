@@ -47,9 +47,14 @@ impl MemberIdentifier {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn rand_ethereum() -> Self {
         Self::Ethereum(ident::Ethereum::rand())
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn rand_installation() -> Self {
+        Self::Installation(ident::Installation::rand())
     }
 
     pub fn new_ethereum(addr: impl ToString) -> Self {
@@ -102,7 +107,7 @@ impl MemberIdentifier {
 }
 
 impl RootIdentifier {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn rand_ethereum() -> Self {
         Self::Ethereum(ident::Ethereum::rand())
     }
