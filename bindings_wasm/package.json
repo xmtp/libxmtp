@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
@@ -30,7 +30,7 @@
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "lint": "yarn lint:clippy && yarn lint:fmt",
-    "lint:clippy": "cargo clippy --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings",
+    "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
