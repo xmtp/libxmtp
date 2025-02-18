@@ -1,5 +1,18 @@
 # @xmtp/wasm-bindings
 
+## 0.0.15
+
+- Added `consent_states`, `include_sync_groups`, and `include_duplicate_dms` to `ListConversationsOptions`
+- Added `allowed_states` to `GroupQueryArgs`
+- Refactored `MessageDisappearingSettings` struct
+- Added `consent_states` options to `sync_all_conversations`
+- Added `create_group_by_inbox_ids` method to `Conversations`
+- Added `find_or_create_dm_by_inbox_id` method to `Conversations`
+- Added `ConversationListItem` struct
+- Updated `Conversations.list()` method to return `Vec<ConversationListItem>`
+- Fixed invalid key package issues
+- Fixed rate limiting issues
+
 ## 0.0.14
 
 - Removed group pinned frame URL
