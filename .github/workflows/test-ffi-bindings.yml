@@ -18,6 +18,7 @@ on:
       - "xmtp_v2/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
       - "rust-toolchain"
 env:
   CARGO_TERM_COLOR: always

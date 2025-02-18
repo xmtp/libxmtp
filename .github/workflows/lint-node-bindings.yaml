@@ -5,6 +5,10 @@ on:
       - "bindings_node/**"
       - ".github/workflows/lint-node-bindings.yaml"
       - "rustfmt.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain"
 jobs:
   lint:
     name: Lint
