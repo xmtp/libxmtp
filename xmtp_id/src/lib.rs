@@ -128,20 +128,6 @@ where
 }
 
 #[cfg(test)]
-pub trait WalletTestExt {
-    fn get_inbox_id(&self, nonce: u64) -> String;
-}
-#[cfg(test)]
-impl WalletTestExt for LocalWallet {
-    fn get_inbox_id(&self, nonce: u64) -> String {
-        let addr = self.get_address();
-        RootIdentifier::new_ethereum(addr)
-            .get_inbox_id(nonce)
-            .unwrap()
-    }
-}
-
-#[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
 

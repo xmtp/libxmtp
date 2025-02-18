@@ -49,7 +49,7 @@ impl VerifiedSignature {
         let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
 
         Ok(Self::new(
-            MemberIdentifier::Ethereum(address),
+            MemberIdentifier::new_ethereum(address),
             SignatureKind::Erc191,
             normalized_signature_bytes.to_vec(),
             None,
@@ -93,7 +93,7 @@ impl VerifiedSignature {
             signature_bytes.try_into()?,
         )?;
         Ok(Self::new(
-            MemberIdentifier::Installation(verifying_key.as_bytes().to_vec()),
+            MemberIdentifier::new_installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
             None,
@@ -114,12 +114,12 @@ impl VerifiedSignature {
         let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
         let address = h160addr_to_string(public_key_to_address(&public_key));
 
-        if MemberIdentifier::Ethereum(address) != verified_legacy_signature.signer {
+        if MemberIdentifier::new_ethereum(address) != verified_legacy_signature.signer {
             return Err(SignatureError::Invalid);
         }
 
         Ok(Self::new(
-            MemberIdentifier::Ethereum(signed_public_key.account_address.to_lowercase()),
+            MemberIdentifier::new_ethereum(signed_public_key.account_address),
             SignatureKind::LegacyDelegated,
             // Must use the wallet signature bytes, since those are the ones we care about making unique.
             // This protects against using the legacy key more than once in the Identity Update Log
@@ -150,9 +150,7 @@ impl VerifiedSignature {
             *block_number = response.block_number;
 
             Ok(Self::new(
-                MemberIdentifier::Ethereum(
-                    account_id.get_account_address().to_string().to_lowercase(),
-                ),
+                MemberIdentifier::new_ethereum(account_id.get_account_address()),
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
                 Some(account_id.get_chain_id_u64()?),
@@ -173,13 +171,11 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{
-        associations::{
-            sign_with_legacy_key, test_utils::MockSmartContractSignatureVerifier,
-            verified_signature::VerifiedSignature, InstallationKeyContext, MemberIdentifier,
-            SignatureKind,
-        },
-        InboxOwner,
+    use crate::associations::{
+        sign_with_legacy_key,
+        test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
+        verified_signature::VerifiedSignature,
+        InstallationKeyContext, MemberIdentifier, SignatureKind,
     };
     use ethers::signers::{LocalWallet, Signer};
     use prost::Message;
@@ -201,10 +197,7 @@ mod tests {
         let verified_sig = VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig_bytes)
             .expect("should succeed");
 
-        assert_eq!(
-            verified_sig.signer.eth_address().unwrap(),
-            wallet.get_public_identifier()
-        );
+        assert_eq!(verified_sig.signer, wallet.member_identifier());
         assert_eq!(verified_sig.kind, SignatureKind::Erc191);
         assert_eq!(verified_sig.raw_bytes, sig_bytes);
     }
@@ -219,7 +212,7 @@ mod tests {
 
         let verified_sig =
             VerifiedSignature::from_recoverable_ecdsa("wrong text again", &sig_bytes).unwrap();
-        assert_ne!(verified_sig.signer, wallet.get_public_identifier().into());
+        assert_ne!(verified_sig.signer, wallet.member_identifier());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -235,7 +228,7 @@ mod tests {
         let verified_sig =
             VerifiedSignature::from_installation_key(signature_text, sig.as_slice(), verifying_key)
                 .expect("should succeed");
-        let expected = MemberIdentifier::Installation(verifying_key.as_bytes().to_vec());
+        let expected = MemberIdentifier::new_installation(verifying_key.as_bytes());
         assert_eq!(expected, verified_sig.signer);
         assert_eq!(SignatureKind::InstallationKey, verified_sig.kind);
         assert_eq!(verified_sig.raw_bytes, sig.as_slice());
@@ -316,7 +309,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let expected = MemberIdentifier::Ethereum(account_address.clone());
+        let expected = MemberIdentifier::new_ethereum(&account_address);
         let verified_sig = VerifiedSignature::from_legacy_delegated(
             signature_text,
             &legacy_signature.legacy_key_signature.signature_bytes,
@@ -387,7 +380,7 @@ mod tests {
         .expect("should validate");
         assert_eq!(
             verified_sig.signer,
-            MemberIdentifier::Ethereum(account_address)
+            MemberIdentifier::new_ethereum(account_address)
         );
         assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
         assert_eq!(verified_sig.raw_bytes, signature_bytes);

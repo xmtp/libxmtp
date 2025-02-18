@@ -1,11 +1,15 @@
 #![allow(clippy::unwrap_used)]
 use super::{
     builder::SignatureRequest,
+    member::RootIdentifier,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
-    AccountId, InstallationKeyContext,
+    AccountId, InstallationKeyContext, MemberIdentifier,
 };
-use crate::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
+use crate::{
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
+    InboxOwner,
+};
 use ethers::{
     core::types::BlockNumber,
     signers::{LocalWallet, Signer},
@@ -22,6 +26,27 @@ pub struct MockSmartContractSignatureVerifier {
 impl MockSmartContractSignatureVerifier {
     pub fn new(is_valid_signature: bool) -> Self {
         Self { is_valid_signature }
+    }
+}
+
+pub trait WalletTestExt {
+    fn get_inbox_id(&self, nonce: u64) -> String;
+    fn member_identifier(&self) -> MemberIdentifier;
+    fn root_identifier(&self) -> RootIdentifier;
+}
+
+impl WalletTestExt for LocalWallet {
+    fn get_inbox_id(&self, nonce: u64) -> String {
+        let addr = self.get_address();
+        RootIdentifier::new_ethereum(addr)
+            .get_inbox_id(nonce)
+            .unwrap()
+    }
+    fn member_identifier(&self) -> MemberIdentifier {
+        self.root_identifier().into()
+    }
+    fn root_identifier(&self) -> RootIdentifier {
+        RootIdentifier::new_ethereum(self.get_address())
     }
 }
 
@@ -80,7 +105,7 @@ impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_address: account_address.to_owned(),
+                account_identifier: RootIdentifier::new_ethereum(account_address),
                 nonce: *nonce,
             },
             UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),

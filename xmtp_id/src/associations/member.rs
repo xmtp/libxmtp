@@ -115,7 +115,7 @@ impl RootIdentifier {
     }
 
     pub fn new_ethereum(addr: impl ToString) -> Self {
-        Self::Ethereum(ident::Ethereum(addr.to_string()))
+        Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
     pub fn from_proto(
