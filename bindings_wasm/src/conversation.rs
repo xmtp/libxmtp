@@ -19,27 +19,10 @@ use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind,
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
-}
-
-#[wasm_bindgen]
-#[derive(Clone)]
-pub struct MessageDisappearingSettings {
-  #[allow(dead_code)]
-  inner: XmtpMessageDisappearingSettings,
-}
-
-impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
-  fn from(value: MessageDisappearingSettings) -> Self {
-    Self {
-      from_ns: value.inner.from_ns,
-      in_ns: value.inner.in_ns,
-    }
-  }
 }
 
 #[wasm_bindgen]
@@ -108,6 +91,7 @@ impl GroupMember {
 }
 
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct Conversation {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
