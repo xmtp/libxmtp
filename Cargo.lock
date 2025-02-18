@@ -7410,6 +7410,7 @@ dependencies = [
 name = "xmtp_api_d14n"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "derive_builder",
  "once_cell",
  "parking_lot 0.12.3",
@@ -7417,6 +7418,7 @@ dependencies = [
  "prost-types",
  "tokio",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_proto",
 ]
 

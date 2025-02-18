@@ -2,15 +2,16 @@ use derive_builder::Builder;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesRequest;
-use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DECRIPTOR_SET;
-use xmtp_proto::xmtp::xmtpv4::message_api::{GetInboxIdsRequest, GetInboxIdsResponse};
+use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
+use xmtp_proto::xmtp::xmtpv4::message_api::{
+    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse,
+};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
 pub struct GetInboxIds {
     #[builder(setter(into))]
-    envelopes: Vec<ClientEnvelope>,
+    addresses: Vec<String>,
 }
 
 impl GetInboxIds {
@@ -27,12 +28,17 @@ impl Endpoint for GetInboxIds {
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
-        crate::path_and_query::<PublishClientEnvelopesRequest>(FILE_DESCRIPTOR_SET)
+        crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET)
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
-        Ok(PublishClientEnvelopesRequest {
-            envelopes: self.envelopes.clone(),
+        Ok(GetInboxIdsRequest {
+            requests: self
+                .addresses
+                .iter()
+                .cloned()
+                .map(|i| get_inbox_ids_request::Request { address: i })
+                .collect(),
         }
         .encode_to_vec())
     }
