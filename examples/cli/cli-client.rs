@@ -252,7 +252,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 "https://payer.testnet.xmtp.network:443".into(),
                 true,
             )
-                .await?,
+            .await?,
         ),
         (true, Env::Dev) => Arc::new(
             ClientV4::create(
