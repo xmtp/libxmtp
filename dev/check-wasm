@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if [[ "${OSTYPE}" == "darwin"* ]]; then
+    export CC_wasm32-unknown-unknown = "/opt/homebrew/opt/llvm/bin/clang"
+fi
+
+cargo check -p bindings_wasm --target wasm32-unknown-unknown
