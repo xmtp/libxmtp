@@ -5,6 +5,7 @@
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::ApiError;
+use xmtp_proto::traits::Client;
 
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
@@ -38,8 +39,8 @@ pub struct D14nClient<C, P, E> {
 impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync,
-    C: Send + Sync,
+    P: Send + Sync + Client,
+    C: Send + Sync + Client,
 {
     type Error = ApiError<E>;
     async fn upload_key_package(
@@ -84,8 +85,8 @@ where
 impl<C, P, E> XmtpIdentityClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync,
-    C: Send + Sync,
+    P: Send + Sync + Client,
+    C: Send + Sync + Client,
 {
     type Error = ApiError<E>;
 
