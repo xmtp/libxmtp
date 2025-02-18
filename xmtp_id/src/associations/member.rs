@@ -1,4 +1,4 @@
-use super::{ident, AssociationError, DeserializationError};
+use super::{ident, AssociationError};
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
 use std::{
@@ -136,12 +136,14 @@ impl RootIdentifier {
             }
             IdentifierKind::Passkey => Self::Passkey(ident::Passkey(
                 hex::decode(ident)
-                    .map_err(|_| ConversionError::InvalidKey {
+                    .map_err(|_| ConversionError::InvalidPublicKey {
                         description: "passkey",
+                        value: None,
                     })?
                     .try_into()
-                    .map_err(|_| ConversionError::InvalidKey {
+                    .map_err(|val| ConversionError::InvalidPublicKey {
                         description: "passkey",
+                        value: Some(hex::encode(val)),
                     })?,
             )),
         };

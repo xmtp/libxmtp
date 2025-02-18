@@ -66,7 +66,7 @@ pub trait IdentityAction: Send {
 #[derive(Debug, Clone)]
 pub struct CreateInbox {
     pub nonce: u64,
-    pub account_identifier: MemberIdentifier,
+    pub account_identifier: RootIdentifier,
     pub initial_address_signature: VerifiedSignature,
 }
 
