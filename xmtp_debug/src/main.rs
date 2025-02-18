@@ -6,11 +6,10 @@ mod logger;
 use clap::Parser;
 use color_eyre::eyre::Result;
 
-use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
-use xmtp_mls::XmtpApi;
+use xmtp_api_grpc::{grpc_api_helper::Client as GrpcClient, Error};
 
-// pub type DbgClient = xmtp_mls::client::Client<GrpcClient>;
-type DbgClient = xmtp_mls::client::Client<Box<dyn XmtpApi>>;
+type DbgClientApi = xmtp_proto::api_client::ArcedXmtpApi<Error>;
+type DbgClient = xmtp_mls::client::Client<DbgClientApi>;
 
 #[macro_use]
 extern crate tracing;

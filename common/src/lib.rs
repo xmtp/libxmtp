@@ -2,9 +2,9 @@
 
 mod macros;
 
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 mod test;
-#[cfg(feature = "test-utils")]
+#[cfg(any(test, feature = "test-utils"))]
 pub use test::*;
 
 #[cfg(feature = "bench")]
@@ -15,6 +15,9 @@ pub use retry::*;
 
 pub mod wasm;
 pub use wasm::*;
+
+pub mod stream_handles;
+pub use stream_handles::*;
 
 pub mod time;
 
@@ -32,4 +35,14 @@ pub fn rand_array<const N: usize>() -> [u8; N] {
     let mut buffer = [0u8; N];
     crypto_utils::rng().fill_bytes(&mut buffer);
     buffer
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        crate::test::logger();
+    }
 }

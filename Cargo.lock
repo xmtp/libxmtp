@@ -154,6 +154,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -474,6 +480,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_cryptography",
@@ -499,6 +506,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "xmtp_api",
  "xmtp_api_http",
  "xmtp_common",
  "xmtp_cryptography",
@@ -6708,9 +6716,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.12.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3758f5e68192bb96cc8f9b7e2c2cfdabb435499a28499a42f8f984092adad4b"
+checksum = "744018581f9a3454a9e15beb8a33b017183f1e7c0cd170232a2d1453b23a51c4"
 dependencies = [
  "getrandom",
  "rand",
@@ -7351,6 +7359,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "672423d4fea7ffa2f6c25ba60031ea13dc6258070556f125cc4d790007d4a155"
 
 [[package]]
+name = "xmtp_api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ctor",
+ "futures",
+ "hex",
+ "mockall",
+ "thiserror 2.0.6",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp_common",
+ "xmtp_id",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_api_grpc"
 version = "0.1.0"
 dependencies = [
@@ -7359,11 +7385,14 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "hex",
+ "http 1.2.0",
  "prost",
+ "thiserror 2.0.6",
  "tokio",
  "tonic",
  "tracing",
- "uuid 1.12.1",
+ "uuid 1.12.0",
+ "xmtp_common",
  "xmtp_proto",
  "xmtp_v2",
  "zeroize",
@@ -7410,6 +7439,7 @@ dependencies = [
  "tracing-subscriber",
  "valuable",
  "valuable-serde",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
@@ -7423,7 +7453,10 @@ dependencies = [
 name = "xmtp_common"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
+ "async-trait",
  "console_error_panic_hook",
+ "ctor",
  "futures",
  "getrandom",
  "gloo-timers 0.3.0",
@@ -7433,6 +7466,7 @@ dependencies = [
  "rand",
  "thiserror 2.0.6",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-flame",
  "tracing-forest",
@@ -7450,6 +7484,8 @@ dependencies = [
 name = "xmtp_content_types"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "libsecp256k1",
  "prost",
  "rand",
  "serde",
@@ -7458,7 +7494,9 @@ dependencies = [
  "tonic",
  "tracing",
  "xmtp_common",
+ "xmtp_cryptography",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]
@@ -7495,6 +7533,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "ctor",
  "ed25519-dalek",
  "ethers",
  "futures",
@@ -7516,6 +7555,7 @@ dependencies = [
  "url",
  "wasm-bindgen-test",
  "web-time",
+ "xmtp_api",
  "xmtp_common",
  "xmtp_cryptography",
  "xmtp_proto",
@@ -7583,6 +7623,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
@@ -7598,6 +7639,7 @@ name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "ed25519-dalek",
  "futures",
  "hex",
  "openmls",
@@ -7606,6 +7648,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "serde",
+ "thiserror 2.0.6",
  "tonic",
  "tracing",
  "wasm-bindgen-test",
@@ -7658,7 +7701,8 @@ dependencies = [
  "tracing-oslog",
  "tracing-subscriber",
  "uniffi",
- "uuid 1.12.1",
+ "uuid 1.12.0",
+ "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",

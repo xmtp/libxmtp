@@ -86,6 +86,7 @@ mod tests {
             group_message::StoredGroupMessage,
             schema::{consent_records, group_messages, groups},
         },
+        utils::test::wait_for_min_intents,
     };
     use backup_exporter::BackupExporter;
     use backup_importer::BackupImporter;
@@ -169,6 +170,7 @@ mod tests {
         let alix_wallet = generate_local_wallet();
         let alix =
             ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
+        let alix_conn = alix.store().conn().unwrap();
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
 
         let bo_wallet = generate_local_wallet();
@@ -177,11 +179,23 @@ mod tests {
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
+
+        // wait for user preference update
+        wait_for_min_intents(&alix_conn, 1).await;
+
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
+
+        // wait for add member intent/commit
+        wait_for_min_intents(&alix_conn, 2).await;
+
         alix_group.send_message(b"hello there").await.unwrap();
+
+        // wait for send message intent/commit publish
+        // Wait for Consent state update
+        wait_for_min_intents(&alix_conn, 7).await;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix_provider
             .conn_ref()

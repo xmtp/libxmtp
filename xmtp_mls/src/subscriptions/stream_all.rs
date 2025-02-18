@@ -294,7 +294,7 @@ mod tests {
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let mut sent = 0;
             for i in 0..15 {
                 let msg = format!("main spam {i}");
@@ -312,7 +312,7 @@ mod tests {
         // and immediately sending a message
         // this forces our streams to re-subscribe
         let caro_id = caro.inbox_id().to_string();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
                 let new_group = eve
@@ -365,7 +365,7 @@ mod tests {
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();
-        crate::spawn(None, async move {
+        xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
                 let new_group = hale

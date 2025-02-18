@@ -38,6 +38,7 @@ use self::{
 use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
+use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -45,7 +46,6 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use crate::{
-    api::WrappedApiError,
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -118,9 +118,7 @@ pub enum GroupError {
     #[error("Max user limit exceeded.")]
     UserLimitExceeded,
     #[error("api error: {0}")]
-    Api(#[from] xmtp_proto::Error),
-    #[error("api error: {0}")]
-    WrappedApi(#[from] WrappedApiError),
+    WrappedApi(#[from] xmtp_api::Error),
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
@@ -225,7 +223,6 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Api(api_error) => api_error.is_retryable(),
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Diesel(diesel) => diesel.is_retryable(),
@@ -934,8 +931,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If any existing members have new installations that have not been added or removed, the
     /// group membership will be updated to include those changes as well.
+    /// # Returns
+    /// - `Ok(UpdateGroupMembershipResult)`: Contains details about the membership changes, including:
+    ///   - `added_members`: list of added installations
+    ///   - `removed_members`: A list of installations that were removed.
+    ///   - `members_with_errors`: A list of members that encountered errors during the update.
+    /// - `Err(GroupError)`: If the operation fails due to an error.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members(&self, account_addresses_to_add: &[String]) -> Result<(), GroupError> {
+    pub async fn add_members(
+        &self,
+        account_addresses_to_add: &[String],
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let inbox_id_map = self
             .client
@@ -969,7 +975,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members_by_inbox_id<S: AsRef<str>>(
         &self,
         inbox_ids: &[S],
-    ) -> Result<(), GroupError> {
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let provider = self.client.mls_provider()?;
         self.add_members_by_inbox_id_with_provider(&provider, inbox_ids)
             .await
@@ -980,7 +986,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
-    ) -> Result<(), GroupError> {
+    ) -> Result<UpdateGroupMembershipResult, GroupError> {
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
@@ -989,9 +995,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // TODO:nm this isn't the best test for whether the request is valid
         // If some existing group member has an update, this will return an intent with changes
         // when we really should return an error
+        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
+
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return Ok(());
+            return ok_result;
         }
 
         let intent = self.queue_intent(
@@ -1000,7 +1008,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data.into(),
         )?;
 
-        self.sync_until_intent_resolved(provider, intent.id).await
+        self.sync_until_intent_resolved(provider, intent.id).await?;
+        ok_result
     }
 
     /// Removes members from the group by their account addresses.
@@ -1821,6 +1830,9 @@ async fn validate_initial_group_membership(
         .map(|member| member.signature_key)
         .collect();
 
+    // exclude failed installations
+    expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
+
     if expected_installation_ids != actual_installation_ids {
         return Err(GroupError::InvalidGroupMembership);
     }
@@ -1932,6 +1944,7 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+    use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
@@ -1958,8 +1971,9 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner, StreamHandle as _,
+        InboxOwner,
     };
+    use xmtp_common::StreamHandle as _;
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2394,6 +2408,326 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        // 1) Prepare clients
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+
+        // bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark the second installation as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bola_2.installation_id().to_vec()]),
+        );
+
+        // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
+        let group = alix
+            .create_group_with_members(
+                &[bola_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // 4) Sync from Alix's side
+        group.sync().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // 5) Bola_1 syncs welcomes and checks for groups
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+
+        assert_eq!(bola_1_groups.len(), 1, "Bola_1 should see exactly 1 group");
+        assert_eq!(bola_2_groups.len(), 0, "Bola_2 should see no groups!");
+
+        let bola_1_group = bola_1_groups.first().unwrap();
+        bola_1_group.sync().await.unwrap();
+
+        // 6) Verify group membership from both sides
+        //    Here we expect 2 *members* (Alix + Bola), though internally Bola might have 2 installations.
+        assert_eq!(
+            group.members().await.unwrap().len(),
+            2,
+            "Group should have 2 members"
+        );
+        assert_eq!(
+            bola_1_group.members().await.unwrap().len(),
+            2,
+            "Bola_1 should also see 2 members in the group"
+        );
+
+        // 7) Send a message from Alix and confirm Bola_1 receives it
+        let message = b"Hello";
+        group.send_message(message).await.unwrap();
+        bola_1_group.send_message(message).await.unwrap();
+
+        // Sync both sides again
+        group.sync().await.unwrap();
+        bola_1_group.sync().await.unwrap();
+
+        // Query messages from Bola_1's perspective
+        let messages_bola_1 = bola_1
+            .api_client
+            .query_group_messages(group.clone().group_id.clone(), None)
+            .await
+            .unwrap();
+
+        // The last message should be our "Hello from Alix"
+        assert_eq!(messages_bola_1.len(), 4);
+
+        // Query messages from Alix's perspective
+        let messages_alix = alix
+            .api_client
+            .query_group_messages(group.clone().group_id, None)
+            .await
+            .unwrap();
+
+        // The last message should be our "Hello from Alix"
+        assert_eq!(messages_alix.len(), 4);
+        assert_eq!(
+            message.to_vec(),
+            get_latest_message(&group).await.decrypted_message_bytes
+        );
+        assert_eq!(
+            message.to_vec(),
+            get_latest_message(bola_1_group)
+                .await
+                .decrypted_message_bytes
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_create_group_with_member_all_malformed_installations() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        // 1) Prepare clients
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // bola has two installations
+        let bola_wallet = generate_local_wallet();
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark both installations as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![
+                bola_1.installation_id().to_vec(),
+                bola_2.installation_id().to_vec(),
+            ]),
+        );
+
+        // 3) Attempt to create the group, which should fail
+        let result = alix
+            .create_group_with_members(
+                &[bola_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await;
+        // 4) Ensure group creation failed
+        assert!(
+            result.is_err(),
+            "Group creation should fail when all installations have bad key packages"
+        );
+
+        // 5) Ensure Bola does not have any groups on either installation
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+
+        assert_eq!(
+            bola_1_groups.len(),
+            0,
+            "Bola_1 should have no groups after failed creation"
+        );
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should have no groups after failed creation"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_dm_creation_with_user_two_installations_one_malformed() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        // 1) Prepare clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+
+        // Bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark bola_2's installation as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bola_2.installation_id().to_vec()]),
+        );
+
+        // 3) Amal creates a DM group targeting Bola
+        let amal_dm = amal
+            .find_or_create_dm(bola_wallet.get_address(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+
+        // 4) Ensure the DM is created with only 2 members (Amal + one valid Bola installation)
+        amal_dm.sync().await.unwrap();
+        let members = amal_dm.members().await.unwrap();
+        assert_eq!(
+            members.len(),
+            2,
+            "DM should contain only Amal and one valid Bola installation"
+        );
+
+        // 5) Bola_1 syncs and confirms it has the DM
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+
+        let bola_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+
+        assert_eq!(bola_groups.len(), 1, "Bola_1 should see the DM group");
+
+        let bola_1_dm: &MlsGroup<_> = bola_groups.first().unwrap();
+        bola_1_dm.sync().await.unwrap();
+
+        // 6) Ensure Bola_2 does NOT have the group
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should not have the DM group due to malformed key package"
+        );
+
+        // 7) Send a message from Amal to Bola_1
+        let message_text = b"Hello from Amal";
+        amal_dm.send_message(message_text).await.unwrap();
+
+        // 8) Sync both sides and check message delivery
+        amal_dm.sync().await.unwrap();
+        bola_1_dm.sync().await.unwrap();
+
+        // Verify Bola_1 received the message
+        let messages_bola_1 = bola_1_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            messages_bola_1.len(),
+            1,
+            "Bola_1 should have received Amal's message"
+        );
+
+        let last_message = messages_bola_1.last().unwrap();
+        assert_eq!(
+            last_message.decrypted_message_bytes, message_text,
+            "Bola_1 should receive the correct message"
+        );
+
+        // 9) Bola_1 replies, and Amal confirms receipt
+        let reply_text = b"Hey Amal!";
+        bola_1_dm.send_message(reply_text).await.unwrap();
+
+        amal_dm.sync().await.unwrap();
+        let messages_amal = amal_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages_amal.len(), 3, "Amal should receive Bola_1's reply");
+
+        let last_message_amal = messages_amal.last().unwrap();
+        assert_eq!(
+            last_message_amal.decrypted_message_bytes, reply_text,
+            "Amal should receive the correct reply from Bola_1"
+        );
+
+        // 10) Ensure only valid installations are considered for the DM
+        assert_eq!(
+            amal_dm.members().await.unwrap().len(),
+            2,
+            "Only Amal and Bola_1 should be in the DM"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_dm_creation_with_user_all_malformed_installations() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        // 1) Prepare clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_wallet = generate_local_wallet();
+
+        // Bola has two installations
+        let bola_1 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+
+        // 2) Mark all of Bola's installations as malformed
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![
+                bola_1.installation_id().to_vec(),
+                bola_2.installation_id().to_vec(),
+            ]),
+        );
+
+        // 3) Attempt to create the DM group, which should fail
+        let result = amal
+            .find_or_create_dm(bola_wallet.get_address(), DMMetadataOptions::default())
+            .await;
+
+        // 4) Ensure DM creation fails with the correct error
+        assert!(result.is_err());
+
+        // 5) Ensure Bola_1 does not have any groups
+        bola_1
+            .sync_welcomes(&bola_1.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_1_groups.len(),
+            0,
+            "Bola_1 should have no DM group due to malformed key package"
+        );
+
+        // 6) Ensure Bola_2 does not have any groups
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(
+            bola_2_groups.len(),
+            0,
+            "Bola_2 should have no DM group due to malformed key package"
+        );
+    }
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3988,7 +4322,7 @@ pub(crate) mod tests {
                 let group_clone = alix1_group.clone();
                 // Each of these syncs is going to trigger the client to invite alix2 to the group
                 // because of the race
-                crate::spawn(None, async move { group_clone.sync().await }).join()
+                xmtp_common::spawn(None, async move { group_clone.sync().await }).join()
             })
             .collect();
 

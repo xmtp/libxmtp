@@ -1,4 +1,4 @@
-use super::{ident, AssociationError, DeserializationError};
+use super::{ident, AssociationError};
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
 use std::{
@@ -6,7 +6,6 @@ use std::{
     hash::Hash,
 };
 use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::xmtp::identity::associations::Passkey as PasskeyProto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
@@ -41,7 +40,7 @@ pub enum SignerIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum ExternalSignerIdentifier {
+pub enum RootIdentifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
 }
@@ -60,7 +59,7 @@ impl MemberIdentifier {
     }
 
     pub fn new_ethereum(addr: impl ToString) -> Self {
-        Self::Ethereum(ident::Ethereum(addr.to_string()))
+        RootIdentifier::new_ethereum(addr).into()
     }
 
     pub fn new_installation(key: impl Into<Vec<u8>>) -> Self {
@@ -108,10 +107,14 @@ impl MemberIdentifier {
     }
 }
 
-impl ExternalSignerIdentifier {
+impl RootIdentifier {
     #[cfg(test)]
     pub fn rand_ethereum() -> Self {
         Self::Ethereum(ident::Ethereum::rand())
+    }
+
+    pub fn new_ethereum(addr: impl ToString) -> Self {
+        Self::Ethereum(ident::Ethereum(addr.to_string()))
     }
 
     /// Get the generated inbox_id for this public identifier.
@@ -170,29 +173,19 @@ impl Debug for MemberIdentifier {
                 .field(&hex::encode(key))
                 .finish(),
             Self::Ethereum(ident::Ethereum(addr)) => f.debug_tuple("Address").field(addr).finish(),
-            Self::Passkey(ident::Passkey {
-                public_key,
-                relying_party,
-            }) => f
-                .debug_tuple("Passkey")
-                .field(&hex::encode(public_key))
-                .field(relying_party)
-                .finish(),
+            Self::Passkey(ident::Passkey(key)) => {
+                f.debug_tuple("Passkey").field(&hex::encode(key)).finish()
+            }
         }
     }
 }
 
-impl Display for ExternalSignerIdentifier {
+impl Display for RootIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ident: MemberIdentifier = self.into();
-        write!(f, "{ident}")
-    }
-}
-
-impl TryFrom<PasskeyProto> for MemberIdentifier {
-    type Error = DeserializationError;
-    fn try_from(passkey: PasskeyProto) -> Result<Self, Self::Error> {
-        Ok(Self::Passkey(ident::Passkey(passkey.try_into()?)))
+        match self {
+            Self::Ethereum(eth) => write!(f, "{eth}"),
+            Self::Passkey(passkey) => write!(f, "{passkey}"),
+        }
     }
 }
 
@@ -214,11 +207,11 @@ impl From<XmtpInstallationCredential> for MemberIdentifier {
     }
 }
 
-impl From<ExternalSignerIdentifier> for MemberIdentifier {
-    fn from(ident: ExternalSignerIdentifier) -> Self {
+impl From<RootIdentifier> for MemberIdentifier {
+    fn from(ident: RootIdentifier) -> Self {
         match ident {
-            ExternalSignerIdentifier::Ethereum(addr) => Self::Ethereum(addr),
-            ExternalSignerIdentifier::Passkey(passkey) => Self::Passkey(passkey),
+            RootIdentifier::Ethereum(addr) => Self::Ethereum(addr),
+            RootIdentifier::Passkey(passkey) => Self::Passkey(passkey),
         }
     }
 }

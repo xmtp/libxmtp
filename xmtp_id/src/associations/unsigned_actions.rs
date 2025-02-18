@@ -1,4 +1,4 @@
-use super::{public_identifier::PubilcRootIdentifier, MemberIdentifier};
+use super::{member::RootIdentifier, MemberIdentifier};
 use crate::associations::{member::HasMemberKind, MemberKind};
 use chrono::DateTime;
 
@@ -12,7 +12,7 @@ pub trait SignatureTextCreator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
-    pub account_identifier: PubilcRootIdentifier,
+    pub account_identifier: RootIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedCreateInbox {
@@ -62,7 +62,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_identifier: PubilcRootIdentifier,
+    pub new_recovery_identifier: RootIdentifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
@@ -145,20 +145,18 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::member::MemberRootIdentifier;
-
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
         let account_identifier =
-            PubilcRootIdentifier::new_eth("0x1234567890abcdef1234567890abcdef12345678");
+            RootIdentifier::new_ethereum("0x1234567890abcdef1234567890abcdef12345678");
 
         let client_timestamp_ns: u64 = 12;
         let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
         let new_recovery_identifier =
-            PubilcRootIdentifier::new_eth("0x7890abcdef1234567890abcdef12345678123456");
+            RootIdentifier::new_ethereum("0x7890abcdef1234567890abcdef12345678123456");
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,
@@ -167,20 +165,19 @@ pub(crate) mod tests {
         let inbox_id = account_identifier.get_inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
-            new_member_identifier: MemberRootIdentifier::Ethereum(new_member_address.clone())
-                .into(),
+            new_member_identifier: MemberIdentifier::new_ethereum(&new_member_address),
         };
 
         let add_installation = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Installation(new_installation_id.clone()),
+            new_member_identifier: MemberIdentifier::new_installation(new_installation_id.clone()),
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberRootIdentifier::Ethereum(new_member_address).into(),
+            revoked_member: MemberIdentifier::new_ethereum(new_member_address).into(),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Installation(new_installation_id.clone()),
+            revoked_member: MemberIdentifier::new_installation(new_installation_id.clone()),
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {

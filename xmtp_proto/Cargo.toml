@@ -1,11 +1,12 @@
 [package]
 edition = "2021"
+license.workspace = true
 name = "xmtp_proto"
 version.workspace = true
-license.workspace = true
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
+ed25519-dalek.workspace = true
 futures = { workspace = true }
 hex.workspace = true
 openmls_rust_crypto = { workspace = true, optional = true }
@@ -13,17 +14,18 @@ pbjson.workspace = true
 pbjson-types.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
+thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+openmls = { workspace = true }
 tonic = { workspace = true, features = [
   "codegen",
   "server",
   "channel",
   "prost",
 ] }
-openmls = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { workspace = true, features = ["js"] }
@@ -33,7 +35,7 @@ wasm-bindgen-test.workspace = true
 
 [features]
 convert = ["openmls_rust_crypto", "proto_full"]
-default = []
+default = ["proto_full"]
 test-utils = ["xmtp_common/test-utils"]
 
 # @@protoc_deletion_point(features)

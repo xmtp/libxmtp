@@ -3,10 +3,10 @@ use crate::messages::Message;
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
-use xmtp_mls::{
-  subscriptions::SubscribeError as XmtpSubscribeError, AbortHandle, GenericStreamHandle,
-  StreamHandle as XmtpStreamHandle, StreamHandleError,
+use xmtp_common::{
+  AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
 };
+use xmtp_mls::subscriptions::SubscribeError as XmtpSubscribeError;
 
 type StreamHandle = Box<GenericStreamHandle<Result<(), XmtpSubscribeError>>>;
 

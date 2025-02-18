@@ -15,7 +15,7 @@ use xmtp_id::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::XmtpTestClient;
 
@@ -119,7 +119,17 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     }
 }
 
-impl ClientBuilder<TestClient> {
+impl<ApiClient, V> ClientBuilder<ApiClient, V> {
+    pub async fn local_client(self) -> ClientBuilder<TestClient, V> {
+        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+    }
+
+    pub async fn dev_client(self) -> ClientBuilder<TestClient, V> {
+        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+    }
+}
+
+impl ClientBuilder<TestClient, RemoteSignatureVerifier<TestClient>> {
     /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_local().await;
@@ -130,25 +140,16 @@ impl ClientBuilder<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_dev().await;
         inner_build(owner, api_client).await
     }
-
-    /// Add the local client to this builder
-    pub async fn local_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
-    }
-
-    pub async fn dev_client(self) -> Self {
-        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
-    }
 }
 
 async fn inner_build<A>(owner: impl InboxOwner, api_client: A) -> Client<A>
 where
-    A: XmtpApi + 'static + Send + Sync,
+    A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
 
-    let client = Client::<A>::builder(IdentityStrategy::new(
+    let client = Client::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_public_identifier(),
         nonce,
@@ -159,6 +160,8 @@ where
         .temp_store()
         .await
         .api_client(api_client)
+        .with_remote_verifier()
+        .unwrap()
         .build()
         .await
         .unwrap();
@@ -182,7 +185,7 @@ where
     let nonce = 1;
     let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
 
-    let mut builder = Client::<A, V>::builder(IdentityStrategy::new(
+    let mut builder = Client::builder(IdentityStrategy::new(
         inbox_id,
         owner.get_public_identifier(),
         nonce,
@@ -191,13 +194,13 @@ where
     .temp_store()
     .await
     .api_client(api_client)
-    .scw_signature_verifier(scw_verifier);
+    .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
         builder = builder.history_sync_url(history_sync_url);
     }
 
-    let client = builder.build_with_verifier().await.unwrap();
+    let client = builder.build().await.unwrap();
     let conn = client.store().conn().unwrap();
     conn.register_triggers();
     register_client(&client, owner).await;
@@ -332,4 +335,61 @@ pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
         xmtp_common::yield_().await;
         published = conn.intents_published() as usize;
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_upload_malformed_keypackage() -> bool {
+    use std::env;
+    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+#[warn(dead_code)]
+/// Sets test mode and specifies malformed installations dynamically.
+/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
+pub fn set_test_mode_upload_malformed_keypackage(
+    enable: bool,
+    installations: Option<Vec<Vec<u8>>>,
+) {
+    use std::env;
+    if enable {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+
+        if let Some(installs) = installations {
+            let installations_str = installs
+                .iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>()
+                .join(",");
+
+            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
+        }
+    } else {
+        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
+        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Retrieves and decodes malformed installations from the environment variable.
+/// Returns an empty list if test mode is not enabled.
+pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
+    use std::env;
+    if !is_test_mode_upload_malformed_keypackage() {
+        return Vec::new();
+    }
+
+    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
+        .unwrap_or_else(|_| "".to_string())
+        .split(',')
+        .filter_map(|s| {
+            if s.is_empty() {
+                None
+            } else {
+                Some(hex::decode(s).unwrap_or_else(|_| Vec::new()))
+            }
+        })
+        .collect()
 }

@@ -12,7 +12,6 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_mls::builder::ClientBuilder;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
@@ -162,16 +161,20 @@ pub async fn create_client(
   );
 
   let xmtp_client = match history_sync_url {
-    Some(url) => ClientBuilder::new(identity_strategy)
+    Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()
+      .map_err(ErrorWrapper::from)?
       .store(store)
       .history_sync_url(&url)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
 
-    None => ClientBuilder::new(identity_strategy)
+    None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .with_remote_verifier()
+      .map_err(ErrorWrapper::from)?
       .store(store)
       .build()
       .await

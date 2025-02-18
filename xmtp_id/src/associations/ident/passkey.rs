@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct PubPasskey();
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Passkey(pub [u8; Passkey::KEY_SIZE]);
 
 impl Passkey {
@@ -12,6 +9,6 @@ impl Passkey {
 
 impl Display for Passkey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", hex::encode(&self.public_key))
+        write!(f, "{}", hex::encode(&self.0))
     }
 }

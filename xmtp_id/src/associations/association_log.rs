@@ -1,6 +1,4 @@
-use super::member::{
-    ExternalSignerIdentifier, HasMemberKind, Member, MemberIdentifier, MemberKind,
-};
+use super::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, RootIdentifier};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
@@ -41,6 +39,8 @@ pub enum AssociationError {
     InvalidAccountAddress,
     #[error("{0} are not a public identifier")]
     NotPublicIdentifier(String),
+    #[error(transparent)]
+    Convert(#[from] xmtp_proto::ConversionError),
 }
 
 pub trait IdentityAction: Send {
@@ -272,7 +272,7 @@ impl IdentityAction for RevokeAssociation {
 #[derive(Debug, Clone)]
 pub struct ChangeRecoveryIdentity {
     pub recovery_identifier_signature: VerifiedSignature,
-    pub new_recovery_identifier: ExternalSignerIdentifier,
+    pub new_recovery_identifier: RootIdentifier,
 }
 
 impl IdentityAction for ChangeRecoveryIdentity {

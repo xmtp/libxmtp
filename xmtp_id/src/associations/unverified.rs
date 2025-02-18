@@ -410,7 +410,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use crate::associations::{
-        member::ExternalSignerIdentifier, unsigned_actions::UnsignedCreateInbox, MemberIdentifier,
+        member::RootIdentifier, unsigned_actions::UnsignedCreateInbox, MemberIdentifier,
     };
 
     use super::{
@@ -421,7 +421,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
-        let account_identifier = ExternalSignerIdentifier::rand_ethereum();
+        let account_identifier = RootIdentifier::rand_ethereum();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
             inbox_id: account_identifier.get_inbox_id(nonce).unwrap(),

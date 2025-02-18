@@ -35,7 +35,7 @@ use xmtp_proto::xmtp::{
             IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
             LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
             RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
@@ -44,10 +44,11 @@ use xmtp_proto::xmtp::{
     message_contents::{
         signature::{Union, WalletEcdsaCompact},
         unsigned_public_key, Signature as SignedPublicKeySignatureProto,
-        SignedPublicKey as LegacySignedPublicKeyProto,
+        SignedPublicKey as LegacySignedPublicKeyProto, SignedPublicKey as SignedPublicKeyProto,
         UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
     },
 };
+use xmtp_proto::ConversionError;
 
 #[derive(Error, Debug)]
 pub enum DeserializationError {
@@ -80,7 +81,7 @@ pub enum DeserializationError {
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(proto: IdentityUpdateProto) -> Result<Self, Self::Error> {
         let IdentityUpdateProto {
@@ -92,14 +93,17 @@ impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
             .into_iter()
             .map(|action| match action.kind {
                 Some(action) => Ok(action),
-                None => Err(DeserializationError::MissingAction),
+                None => Err(ConversionError::Missing {
+                    item: "action",
+                    r#type: std::any::type_name::<IdentityActionKindProto>(),
+                }),
             })
-            .collect::<Result<Vec<IdentityActionKindProto>, DeserializationError>>()?;
+            .collect::<Result<Vec<IdentityActionKindProto>, ConversionError>>()?;
 
         let processed_actions: Vec<UnverifiedAction> = all_actions
             .into_iter()
             .map(UnverifiedAction::try_from)
-            .collect::<Result<Vec<UnverifiedAction>, DeserializationError>>()?;
+            .collect::<Result<Vec<UnverifiedAction>, ConversionError>>()?;
 
         Ok(UnverifiedIdentityUpdate::new(
             inbox_id,
@@ -110,7 +114,7 @@ impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
 }
 
 impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(action: IdentityActionKindProto) -> Result<Self, Self::Error> {
         Ok(match action {
@@ -121,7 +125,10 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     unsigned_action: UnsignedAddAssociation {
                         new_member_identifier: add_action
                             .new_member_identifier
-                            .ok_or(DeserializationError::MissingMemberIdentifier)?
+                            .ok_or(ConversionError::Missing {
+                                item: "member_identifier",
+                                r#type: std::any::type_name::<MemberIdentifierProto>(),
+                            })?
                             .try_into()?,
                     },
                 })
@@ -139,7 +146,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature: action_proto
+                    recovery_identifier_signature: action_proto
                         .existing_recovery_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedChangeRecoveryAddress {
@@ -155,7 +162,10 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     unsigned_action: UnsignedRevokeAssociation {
                         revoked_member: action_proto
                             .member_to_revoke
-                            .ok_or(DeserializationError::MissingMember)?
+                            .ok_or(ConversionError::Missing {
+                                item: "member_to_revoke",
+                                r#type: std::any::type_name::<MemberIdentifierProto>(),
+                            })?
                             .try_into()?,
                     },
                 })
@@ -165,7 +175,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
 }
 
 impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(proto: SignatureWrapperProto) -> Result<Self, Self::Error> {
         let signature = unwrap_proto_signature(proto)?;
@@ -176,9 +186,17 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
             SignatureKindProto::DelegatedErc191(sig) => {
                 UnverifiedSignature::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
                     UnverifiedRecoverableEcdsaSignature::new(
-                        sig.signature.ok_or(DeserializationError::Signature)?.bytes,
+                        sig.signature
+                            .ok_or(ConversionError::Missing {
+                                item: "signature",
+                                r#type: std::any::type_name::<RecoverableEcdsaSignatureProto>(),
+                            })?
+                            .bytes,
                     ),
-                    sig.delegated_key.ok_or(DeserializationError::Signature)?,
+                    sig.delegated_key.ok_or(ConversionError::Missing {
+                        item: "delegated_key",
+                        r#type: std::any::type_name::<SignedPublicKeyProto>(),
+                    })?,
                 ))
             }
             SignatureKindProto::InstallationKey(sig) => {
@@ -201,21 +219,27 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
 }
 
 impl TryFrom<Option<SignatureWrapperProto>> for UnverifiedSignature {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(value: Option<SignatureWrapperProto>) -> Result<Self, Self::Error> {
         value
-            .ok_or_else(|| DeserializationError::Signature)?
+            .ok_or_else(|| ConversionError::Missing {
+                item: "signature",
+                r#type: std::any::type_name::<SignatureWrapperProto>(),
+            })?
             .try_into()
     }
 }
 
 fn unwrap_proto_signature(
     value: SignatureWrapperProto,
-) -> Result<SignatureKindProto, DeserializationError> {
+) -> Result<SignatureKindProto, ConversionError> {
     match value.signature {
         Some(inner) => Ok(inner),
-        None => Err(DeserializationError::Signature),
+        None => Err(ConversionError::Missing {
+            item: "signature",
+            r#type: std::any::type_name::<SignatureKindProto>(),
+        }),
     }
 }
 
@@ -309,7 +333,7 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
 }
 
 impl TryFrom<Vec<u8>> for UnverifiedIdentityUpdate {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         let update_proto: IdentityUpdateProto = IdentityUpdateProto::decode(value.as_slice())?;
@@ -362,13 +386,16 @@ impl From<Member> for MemberProto {
 }
 
 impl TryFrom<MemberProto> for Member {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(proto: MemberProto) -> Result<Self, Self::Error> {
         Ok(Member {
             identifier: proto
                 .identifier
-                .ok_or(DeserializationError::MissingMemberIdentifier)?
+                .ok_or(ConversionError::Missing {
+                    item: "member_identifier",
+                    r#type: std::any::type_name::<MemberIdentifierProto>(),
+                })?
                 .try_into()?,
             added_by_entity: proto.added_by_entity.map(TryInto::try_into).transpose()?,
             client_timestamp_ns: proto.client_timestamp_ns,
@@ -399,7 +426,7 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
 }
 
 impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(proto: MemberIdentifierProto) -> Result<Self, Self::Error> {
         match proto.kind {
@@ -412,7 +439,10 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::Passkey(passkey)) => {
                 Ok(MemberIdentifier::Passkey(passkey.try_into()?))
             }
-            None => Err(DeserializationError::MissingMemberIdentifier),
+            None => Err(ConversionError::Missing {
+                item: "member_identifier",
+                r#type: std::any::type_name::<MemberIdentifierKindProto>(),
+            }),
         }
     }
 }
@@ -451,26 +481,34 @@ impl From<AssociationState> for AssociationStateProto {
 }
 
 impl TryFrom<AssociationStateProto> for AssociationState {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
         let members = proto
             .members
             .into_iter()
-            // Ignore unknown MemberIdentifiers from proto
-            .filter_map(|kv| Some((kv.key?, kv.value)))
-            .map(|(key, value)| {
-                let key = key.try_into()?;
-                let value = value
-                    .ok_or(DeserializationError::MissingMember)?
+            .map(|kv| {
+                let key = kv
+                    .key
+                    .ok_or(ConversionError::Missing {
+                        item: "member_identifier",
+                        r#type: std::any::type_name::<MemberIdentifierProto>(),
+                    })?
+                    .try_into()?;
+                let value = kv
+                    .value
+                    .ok_or(ConversionError::Missing {
+                        item: "member",
+                        r#type: std::any::type_name::<MemberProto>(),
+                    })?
                     .try_into()?;
                 Ok((key, value))
             })
-            .collect::<Result<HashMap<MemberIdentifier, Member>, DeserializationError>>()?;
+            .collect::<Result<HashMap<MemberIdentifier, Member>, ConversionError>>()?;
         Ok(AssociationState {
             inbox_id: proto.inbox_id,
             members,
-            recovery_address: proto.recovery_address,
+            recovery_identifier: proto.recovery_identifier,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
         })
     }
@@ -572,12 +610,16 @@ impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
 }
 
 impl TryFrom<String> for AccountId {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 3 {
-            return Err(DeserializationError::InvalidAccountId);
+            return Err(ConversionError::InvalidLength {
+                item: "account_id",
+                expected: 3,
+                got: parts.len(),
+            });
         }
         let chain_id = format!("{}:{}", parts[0], parts[1]);
         let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$")
@@ -586,7 +628,11 @@ impl TryFrom<String> for AccountId {
         let account_address_regex =
             Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").expect("static regex should always compile");
         if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
-            return Err(DeserializationError::InvalidAccountId);
+            return Err(ConversionError::InvalidValue {
+                item: "eth account_id",
+                expected: "well-formed chain_id & address",
+                got: "chain_id/address did not pass validation",
+            });
         }
 
         Ok(AccountId {
@@ -597,7 +643,7 @@ impl TryFrom<String> for AccountId {
 }
 
 impl TryFrom<&str> for AccountId {
-    type Error = DeserializationError;
+    type Error = ConversionError;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         s.to_string().try_into()
@@ -692,7 +738,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_accound_id() {
+    fn test_account_id() {
         // valid evm chain
         let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
         let account_id: AccountId = text.clone().try_into().unwrap();
@@ -786,10 +832,15 @@ pub(crate) mod tests {
 
         // invalid
         let text = "eip/155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcd";
-        let result: Result<AccountId, DeserializationError> = text.try_into();
+        let result: Result<AccountId, ConversionError> = text.try_into();
+        tracing::info!("{:?}", result);
         assert!(matches!(
             result,
-            Err(DeserializationError::InvalidAccountId)
+            Err(ConversionError::InvalidValue {
+                item: "eth account_id",
+                expected: "well-formed chain_id & address",
+                got: "chain_id/address did not pass validation"
+            })
         ));
     }
 

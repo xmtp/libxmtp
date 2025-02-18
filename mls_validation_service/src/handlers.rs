@@ -46,6 +46,8 @@ pub enum GrpcServerError {
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signature(#[from] SignatureError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 impl From<GrpcServerError> for Status {

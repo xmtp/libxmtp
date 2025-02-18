@@ -40,6 +40,35 @@ pub type InboxId = String;
 
 pub type WalletAddress = String;
 
+use crate::associations::unverified::UnverifiedIdentityUpdate;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
+use xmtp_proto::ConversionError;
+
+#[derive(Clone)]
+pub struct InboxUpdate {
+    pub sequence_id: u64,
+    pub server_timestamp_ns: u64,
+    pub update: UnverifiedIdentityUpdate,
+}
+
+impl TryFrom<IdentityUpdateLog> for InboxUpdate {
+    type Error = ConversionError;
+
+    fn try_from(update: IdentityUpdateLog) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sequence_id: update.sequence_id,
+            server_timestamp_ns: update.server_timestamp_ns,
+            update: update
+                .update
+                .ok_or(ConversionError::Missing {
+                    item: "update",
+                    r#type: std::any::type_name::<IdentityUpdateLog>(),
+                })?
+                .try_into()?,
+        })
+    }
+}
+
 pub trait AsIdRef: Send + Sync {
     fn as_ref(&'_ self) -> InboxIdRef<'_>;
 }
@@ -120,6 +149,12 @@ where
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        xmtp_common::logger();
+    }
 
     use ethers::contract::abigen;
 

@@ -28,7 +28,6 @@ use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::{
-    api::ApiClientWrapper,
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
         group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
@@ -51,6 +50,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, Store, XmtpApi,
 };
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
@@ -72,10 +72,8 @@ pub enum ClientError {
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("Query failed: {0}")]
-    QueryError(#[from] xmtp_proto::Error),
     #[error("API error: {0}")]
-    Api(#[from] crate::api::WrappedApiError),
+    Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -840,14 +838,30 @@ where
     pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
-    ) -> Result<Vec<VerifiedKeyPackageV2>, ClientError> {
-        let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
+    ) -> Result<
+        HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
+        ClientError,
+    > {
+        let key_package_results = self
+            .api_client
+            .fetch_key_packages(installation_ids.clone())
+            .await?;
 
         let crypto_provider = XmtpOpenMlsProvider::new_crypto();
-        Ok(key_package_results
-            .values()
-            .map(|bytes| VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes.as_slice()))
-            .collect::<Result<_, _>>()?)
+
+        let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
+            installation_ids
+                .iter()
+                .zip(key_package_results.values())
+                .map(|(id, bytes)| {
+                    (
+                        id.clone(),
+                        VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes),
+                    )
+                })
+                .collect();
+
+        Ok(results)
     }
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
@@ -1054,6 +1068,7 @@ pub(crate) mod tests {
     use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
     use crate::groups::DMMetadataOptions;
+    use crate::identity::IdentityError;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1076,6 +1091,7 @@ pub(crate) mod tests {
         // Add two separate installations for Bola
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
+
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -1098,7 +1114,6 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_mls_error() {
-        tracing::debug!("Test MLS Error");
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
             .api_client
@@ -1134,13 +1149,15 @@ pub(crate) mod tests {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
 
+        let installation_public_key = client.installation_public_key().to_vec();
         // Get original KeyPackage.
         let kp1 = client
-            .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
+            .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp1.len(), 1);
-        let init1 = kp1[0].inner.hpke_init_key();
+        let binding = kp1[&installation_public_key].clone().unwrap();
+        let init1 = binding.inner.hpke_init_key();
 
         // Rotate and fetch again.
         client
@@ -1149,11 +1166,12 @@ pub(crate) mod tests {
             .unwrap();
 
         let kp2 = client
-            .get_key_packages_for_installation_ids(vec![client.installation_public_key().to_vec()])
+            .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
             .await
             .unwrap();
         assert_eq!(kp2.len(), 1);
-        let init2 = kp2[0].inner.hpke_init_key();
+        let binding = kp2[&installation_public_key].clone().unwrap();
+        let init2 = binding.inner.hpke_init_key();
 
         assert_ne!(init1, init2);
     }
@@ -1438,7 +1456,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
-        tracing::info!("Syncing bolas welcomes");
 
         // See if Bola can see that they were added to the group
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -1447,7 +1464,6 @@ pub(crate) mod tests {
         let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
-        tracing::info!("Syncing bolas messages");
         bola_group.sync().await.unwrap();
         // TODO: figure out why Bola's status is not updating to be inactive
         // assert!(!bola_group.is_active().unwrap());
@@ -1516,14 +1532,23 @@ pub(crate) mod tests {
     >(
         client: &Client<ApiClient, Verifier>,
         installation_id: Id,
-    ) -> Vec<u8> {
-        let kps = client
+    ) -> Result<Vec<u8>, IdentityError> {
+        let kps_map = client
             .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
-            .unwrap();
-        let kp = kps.first().unwrap();
+            .map_err(|_| IdentityError::NewIdentity("Failed to fetch key packages".to_string()))?;
 
-        serialize_key_package_hash_ref(&kp.inner, &client.mls_provider().unwrap()).unwrap()
+        let kp_result = kps_map
+            .get(installation_id.as_ref())
+            .ok_or_else(|| {
+                IdentityError::NewIdentity(format!(
+                    "Missing key package for {}",
+                    hex::encode(installation_id.as_ref())
+                ))
+            })?
+            .clone()?;
+
+        serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider()?)
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1536,9 +1561,12 @@ pub(crate) mod tests {
         let bo_store = bo.store();
 
         let alix_original_init_key =
-            get_key_package_init_key(&alix, alix.installation_public_key()).await;
-        let bo_original_init_key =
-            get_key_package_init_key(&bo, bo.installation_public_key()).await;
+            get_key_package_init_key(&alix, alix.installation_public_key())
+                .await
+                .unwrap();
+        let bo_original_init_key = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
 
         // Bo's original key should be deleted
         let bo_original_from_db = bo_store
@@ -1557,19 +1585,25 @@ pub(crate) mod tests {
 
         bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
 
-        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key()).await;
+        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
         bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
-        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key()).await;
+        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
+            .await
+            .unwrap();
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
         alix.sync_welcomes(&alix.mls_provider().unwrap())
             .await
             .unwrap();
-        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key()).await;
+        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key())
+            .await
+            .unwrap();
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 
