@@ -160,10 +160,10 @@ impl IdentityAction for AddAssociation {
 
         let existing_entity_id = match existing_member {
             // If there is an existing member of the XID, use that member's ID
-            Some(member) => member.identifier.clone().into(),
+            Some(member) => member.identifier.clone(),
             None => {
                 // Get the recovery address from the state as a MemberIdentifier
-                let recovery_identifier = existing_state.recovery_identifier().clone();
+                let recovery_identifier = existing_state.recovery_identifier().clone().into();
 
                 // Check if it is a signature from the recovery address, which is allowed to add members
                 if existing_member_identifier != recovery_identifier {
@@ -239,10 +239,11 @@ impl IdentityAction for RevokeAssociation {
         // Don't need to check for replay here since revocation is idempotent
         let recovery_signer = &self.recovery_identifier_signature.signer;
         // Make sure there is a recovery address set on the state
-        let state_recovery_identifier = existing_state.recovery_identifier();
+        let state_recovery_identifier: MemberIdentifier =
+            existing_state.recovery_identifier().clone().into();
 
         // Ensure this message is signed by the recovery address
-        if recovery_signer != state_recovery_identifier {
+        if *recovery_signer != state_recovery_identifier {
             return Err(AssociationError::MissingExistingMember);
         }
 

@@ -291,6 +291,22 @@ impl PartialEq<MemberIdentifier> for Member {
         self.identifier.eq(other)
     }
 }
+impl PartialEq<MemberIdentifier> for RootIdentifier {
+    fn eq(&self, other: &MemberIdentifier) -> bool {
+        match (self, other) {
+            (Self::Ethereum(ident), MemberIdentifier::Ethereum(other_ident)) => {
+                ident == other_ident
+            }
+            (Self::Passkey(ident), MemberIdentifier::Passkey(other_ident)) => ident == other_ident,
+            _ => false,
+        }
+    }
+}
+impl PartialEq<RootIdentifier> for MemberIdentifier {
+    fn eq(&self, other: &RootIdentifier) -> bool {
+        other == self
+    }
+}
 
 /// Helper function to generate a SHA256 hash as a hex string.
 fn sha256_string(input: String) -> String {
