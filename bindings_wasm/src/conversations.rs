@@ -489,21 +489,6 @@ impl Conversations {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = getSyncGroup)]
-  pub fn get_sync_group(&self) -> Result<Conversation, JsError> {
-    let conn = self
-      .inner_client
-      .store()
-      .conn()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let sync_group = self
-      .inner_client
-      .get_sync_group(&conn)
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(sync_group.into())
-  }
-
   #[wasm_bindgen(js_name = syncAllConversations)]
   pub async fn sync_all_conversations(
     &self,
