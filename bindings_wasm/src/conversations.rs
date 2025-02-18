@@ -11,11 +11,12 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::consent_state::ConsentState;
-use crate::conversation::MessageDisappearingSettings;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{client::RustXmtpClient, conversation::Conversation};
+
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -136,6 +137,30 @@ impl ListConversationsOptions {
       include_sync_groups,
       limit,
     }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  pub from_ns: i64,
+  pub in_ns: i64,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+#[wasm_bindgen]
+impl MessageDisappearingSettings {
+  #[wasm_bindgen(constructor)]
+  pub fn new(from_ns: i64, in_ns: i64) -> Self {
+    Self { from_ns, in_ns }
   }
 }
 
