@@ -1,6 +1,6 @@
 use super::{
     ident::{self, Passkey},
-    member::Member,
+    member::{Member, RootIdentifier},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -32,7 +32,8 @@ use xmtp_proto::xmtp::{
             AssociationState as AssociationStateProto,
             AssociationStateDiff as AssociationStateDiffProto,
             ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-            IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+            IdentifierKind, IdentityAction as IdentityActionProto,
+            IdentityUpdate as IdentityUpdateProto,
             LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
             RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
@@ -134,23 +135,32 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::CreateInbox(action_proto) => {
+                let account_identifier = RootIdentifier::from_proto(
+                    &action_proto.initial_identifier,
+                    action_proto.initial_identifier_kind(),
+                )?;
+
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                     initial_address_signature: action_proto
                         .initial_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedCreateInbox {
                         nonce: action_proto.nonce,
-                        account_identifier: action_proto.initial_identifier,
+                        account_identifier,
                     },
                 })
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
+                let new_recovery_identifier = RootIdentifier::from_proto(
+                    &action_proto.new_recovery_identifier,
+                    action_proto.new_recovery_identifier_kind(),
+                )?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
                     recovery_identifier_signature: action_proto
                         .existing_recovery_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_identifier: action_proto.new_recovery_identifier,
+                        new_recovery_identifier,
                     },
                 })
             }
@@ -257,9 +267,13 @@ impl From<UnverifiedAction> for IdentityActionProto {
     fn from(value: UnverifiedAction) -> Self {
         let kind: IdentityActionKindProto = match value {
             UnverifiedAction::CreateInbox(action) => {
+                let account_identifier = action.unsigned_action.account_identifier;
+                let initial_identifier = format!("{account_identifier}");
+                let initial_identifier_kind: IdentifierKind = account_identifier.into();
                 IdentityActionKindProto::CreateInbox(CreateInboxProto {
                     nonce: action.unsigned_action.nonce,
-                    initial_identifier: action.unsigned_action.account_identifier,
+                    initial_identifier,
+                    initial_identifier_kind: initial_identifier_kind as i32,
                     initial_identifier_signature: Some(action.initial_address_signature.into()),
                 })
             }
@@ -273,8 +287,12 @@ impl From<UnverifiedAction> for IdentityActionProto {
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
+                let new_recovery_identifier = action.unsigned_action.new_recovery_identifier;
+                let new_recovery_identifier_string = format!("{new_recovery_identifier}");
+                let new_recovery_identifier_kind: IdentifierKind = new_recovery_identifier.into();
                 IdentityActionKindProto::ChangeRecoveryAddress(ChangeRecoveryAddressProto {
-                    new_recovery_identifier: action.unsigned_action.new_recovery_identifier,
+                    new_recovery_identifier: new_recovery_identifier_string,
+                    new_recovery_identifier_kind: new_recovery_identifier_kind as i32,
                     existing_recovery_identifier_signature: Some(
                         action.recovery_identifier_signature.into(),
                     ),
@@ -291,6 +309,15 @@ impl From<UnverifiedAction> for IdentityActionProto {
         };
 
         IdentityActionProto { kind: Some(kind) }
+    }
+}
+
+impl From<RootIdentifier> for IdentifierKind {
+    fn from(ident: RootIdentifier) -> Self {
+        match ident {
+            RootIdentifier::Ethereum(_) => IdentifierKind::Ethereum,
+            RootIdentifier::Passkey(_) => IdentifierKind::Passkey,
+        }
     }
 }
 
@@ -368,7 +395,9 @@ impl TryFrom<MemberIdentifierKindProto> for MemberIdentifier {
             MemberIdentifierKindProto::InstallationPublicKey(public_key) => {
                 Self::Installation(ident::Installation(public_key))
             }
-            MemberIdentifierKindProto::Passkey(passkey) => Self::Passkey(passkey.try_into()?),
+            MemberIdentifierKindProto::PasskeyPublicKey(passkey) => {
+                Self::Passkey(passkey.try_into()?)
+            }
         };
         Ok(ident)
     }
@@ -415,11 +444,8 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
                     kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
                 }
             }
-            MemberIdentifier::Passkey(passkey) => MemberIdentifierProto {
-                kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
-                    public_key: passkey.public_key.to_vec(),
-                    relying_party: passkey.relying_party,
-                })),
+            MemberIdentifier::Passkey(ident::Passkey(key)) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::PasskeyPublicKey(key.to_vec())),
             },
         }
     }
@@ -436,27 +462,19 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => Ok(
                 MemberIdentifier::Installation(ident::Installation(public_key)),
             ),
-            Some(MemberIdentifierKindProto::Passkey(passkey)) => {
-                Ok(MemberIdentifier::Passkey(passkey.try_into()?))
-            }
+            Some(MemberIdentifierKindProto::PasskeyPublicKey(key)) => Ok(
+                MemberIdentifier::Passkey(ident::Passkey(key.try_into().map_err(|key| {
+                    ConversionError::InvalidPublicKey {
+                        description: "passkey",
+                        value: Some(hex::encode(key)),
+                    }
+                })?)),
+            ),
             None => Err(ConversionError::Missing {
                 item: "member_identifier",
                 r#type: std::any::type_name::<MemberIdentifierKindProto>(),
             }),
         }
-    }
-}
-
-impl TryFrom<PasskeyProto> for Passkey {
-    type Error = DeserializationError;
-    fn try_from(value: PasskeyProto) -> Result<Self, Self::Error> {
-        Ok(Self {
-            public_key: value
-                .public_key
-                .try_into()
-                .map_err(|_| DeserializationError::InvalidPasskey)?,
-            relying_party: value.relying_party,
-        })
     }
 }
 

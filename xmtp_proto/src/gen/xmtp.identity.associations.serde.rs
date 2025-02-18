@@ -164,7 +164,7 @@ impl serde::Serialize for AssociationState {
             struct_ser.serialize_field("seenSignatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         if self.recovery_identifier_kind != 0 {
-            let v = ExternalRootIdentityKind::try_from(self.recovery_identifier_kind)
+            let v = IdentifierKind::try_from(self.recovery_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.recovery_identifier_kind)))?;
             struct_ser.serialize_field("recoveryIdentifierKind", &v)?;
         }
@@ -279,7 +279,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                             if recovery_identifier_kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("recoveryIdentifierKind"));
                             }
-                            recovery_identifier_kind__ = Some(map_.next_value::<ExternalRootIdentityKind>()? as i32);
+                            recovery_identifier_kind__ = Some(map_.next_value::<IdentifierKind>()? as i32);
                         }
                     }
                 }
@@ -430,7 +430,7 @@ impl serde::Serialize for ChangeRecoveryAddress {
             struct_ser.serialize_field("existingRecoveryIdentifierSignature", v)?;
         }
         if self.new_recovery_identifier_kind != 0 {
-            let v = ExternalRootIdentityKind::try_from(self.new_recovery_identifier_kind)
+            let v = IdentifierKind::try_from(self.new_recovery_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.new_recovery_identifier_kind)))?;
             struct_ser.serialize_field("newRecoveryIdentifierKind", &v)?;
         }
@@ -521,7 +521,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                             if new_recovery_identifier_kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("newRecoveryIdentifierKind"));
                             }
-                            new_recovery_identifier_kind__ = Some(map_.next_value::<ExternalRootIdentityKind>()? as i32);
+                            new_recovery_identifier_kind__ = Some(map_.next_value::<IdentifierKind>()? as i32);
                         }
                     }
                 }
@@ -568,7 +568,7 @@ impl serde::Serialize for CreateInbox {
             struct_ser.serialize_field("initialIdentifierSignature", v)?;
         }
         if self.initial_identifier_kind != 0 {
-            let v = ExternalRootIdentityKind::try_from(self.initial_identifier_kind)
+            let v = IdentifierKind::try_from(self.initial_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.initial_identifier_kind)))?;
             struct_ser.serialize_field("initialIdentifierKind", &v)?;
         }
@@ -671,7 +671,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                             if initial_identifier_kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("initialIdentifierKind"));
                             }
-                            initial_identifier_kind__ = Some(map_.next_value::<ExternalRootIdentityKind>()? as i32);
+                            initial_identifier_kind__ = Some(map_.next_value::<IdentifierKind>()? as i32);
                         }
                     }
                 }
@@ -686,36 +686,36 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
         deserializer.deserialize_struct("xmtp.identity.associations.CreateInbox", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for ExternalRootIdentityKind {
+impl serde::Serialize for IdentifierKind {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::PublicIdentityKindUnspecified => "PUBLIC_IDENTITY_KIND_UNSPECIFIED",
-            Self::PublicIdentityKindEthereum => "PUBLIC_IDENTITY_KIND_ETHEREUM",
-            Self::PublicIdentityKindPasskey => "PUBLIC_IDENTITY_KIND_PASSKEY",
+            Self::Unspecified => "IDENTIFIER_KIND_UNSPECIFIED",
+            Self::Ethereum => "IDENTIFIER_KIND_ETHEREUM",
+            Self::Passkey => "IDENTIFIER_KIND_PASSKEY",
         };
         serializer.serialize_str(variant)
     }
 }
-impl<'de> serde::Deserialize<'de> for ExternalRootIdentityKind {
+impl<'de> serde::Deserialize<'de> for IdentifierKind {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "PUBLIC_IDENTITY_KIND_UNSPECIFIED",
-            "PUBLIC_IDENTITY_KIND_ETHEREUM",
-            "PUBLIC_IDENTITY_KIND_PASSKEY",
+            "IDENTIFIER_KIND_UNSPECIFIED",
+            "IDENTIFIER_KIND_ETHEREUM",
+            "IDENTIFIER_KIND_PASSKEY",
         ];
 
         struct GeneratedVisitor;
 
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ExternalRootIdentityKind;
+            type Value = IdentifierKind;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(formatter, "expected one of: {:?}", &FIELDS)
@@ -750,9 +750,9 @@ impl<'de> serde::Deserialize<'de> for ExternalRootIdentityKind {
                 E: serde::de::Error,
             {
                 match value {
-                    "PUBLIC_IDENTITY_KIND_UNSPECIFIED" => Ok(ExternalRootIdentityKind::PublicIdentityKindUnspecified),
-                    "PUBLIC_IDENTITY_KIND_ETHEREUM" => Ok(ExternalRootIdentityKind::PublicIdentityKindEthereum),
-                    "PUBLIC_IDENTITY_KIND_PASSKEY" => Ok(ExternalRootIdentityKind::PublicIdentityKindPasskey),
+                    "IDENTIFIER_KIND_UNSPECIFIED" => Ok(IdentifierKind::Unspecified),
+                    "IDENTIFIER_KIND_ETHEREUM" => Ok(IdentifierKind::Ethereum),
+                    "IDENTIFIER_KIND_PASSKEY" => Ok(IdentifierKind::Passkey),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

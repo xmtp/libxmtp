@@ -1,4 +1,4 @@
-use super::{ident, AssociationError};
+use super::{ident, AssociationError, DeserializationError};
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
 use std::{
@@ -6,6 +6,7 @@ use std::{
     hash::Hash,
 };
 use xmtp_cryptography::XmtpInstallationCredential;
+use xmtp_proto::{xmtp::identity::associations::IdentifierKind, ConversionError};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
@@ -113,8 +114,38 @@ impl RootIdentifier {
         Self::Ethereum(ident::Ethereum::rand())
     }
 
+    pub fn sanitize(self) -> Self {
+        match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()),
+            ident => ident,
+        }
+    }
+
     pub fn new_ethereum(addr: impl ToString) -> Self {
         Self::Ethereum(ident::Ethereum(addr.to_string()))
+    }
+
+    pub fn from_proto(
+        ident: impl AsRef<str>,
+        kind: IdentifierKind,
+    ) -> Result<Self, ConversionError> {
+        let ident = ident.as_ref();
+        let root_ident = match kind {
+            IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
+                Self::Ethereum(ident::Ethereum(ident.to_string()))
+            }
+            IdentifierKind::Passkey => Self::Passkey(ident::Passkey(
+                hex::decode(ident)
+                    .map_err(|_| ConversionError::InvalidKey {
+                        description: "passkey",
+                    })?
+                    .try_into()
+                    .map_err(|_| ConversionError::InvalidKey {
+                        description: "passkey",
+                    })?,
+            )),
+        };
+        Ok(root_ident)
     }
 
     /// Get the generated inbox_id for this public identifier.
@@ -149,6 +180,14 @@ impl HasMemberKind for MemberIdentifier {
     fn kind(&self) -> MemberKind {
         match self {
             Self::Installation(_) => MemberKind::Installation,
+            Self::Ethereum(_) => MemberKind::Ethereum,
+            Self::Passkey(_) => MemberKind::Passkey,
+        }
+    }
+}
+impl HasMemberKind for RootIdentifier {
+    fn kind(&self) -> MemberKind {
+        match self {
             Self::Ethereum(_) => MemberKind::Ethereum,
             Self::Passkey(_) => MemberKind::Passkey,
         }
