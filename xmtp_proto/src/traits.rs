@@ -5,6 +5,8 @@ use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
 
+use crate::{ApiEndpoint, Code, XmtpApiError};
+
 pub trait Endpoint {
     type Output: prost::Message + Default;
 
@@ -102,6 +104,23 @@ where
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
+}
+
+impl<E> XmtpApiError for ApiError<E>
+where
+    E: std::error::Error + Send + Sync + RetryableError + 'static,
+{
+    fn api_call(&self) -> Option<ApiEndpoint> {
+        None
+    }
+
+    fn code(&self) -> Option<Code> {
+        None
+    }
+
+    fn grpc_message(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl<E> RetryableError for ApiError<E>

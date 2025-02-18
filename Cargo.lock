@@ -7388,6 +7388,7 @@ dependencies = [
  "prost-types",
  "tokio",
  "xmtp_api_grpc",
+ "xmtp_common",
  "xmtp_proto",
 ]
 

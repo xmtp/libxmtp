@@ -1,14 +1,47 @@
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
+//! Compatibility layer for d14n and previous xmtp_api crate
 
-pub struct D14nClient<C, P> {
+//TODO: Remove once d14n integration complete
+#![allow(unused)]
+use xmtp_common::RetryableError;
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
+use xmtp_proto::traits::ApiError;
+
+use xmtp_proto::xmtp::identity::api::v1::{
+    GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
+    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+};
+use xmtp_proto::XmtpApiError;
+use xmtp_proto::{
+    xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
+    xmtp::message_api::v1::{
+        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+    },
+    xmtp::mls::api::v1::{
+        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
+        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
+        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+        UploadKeyPackageRequest,
+    },
+};
+
+use crate::endpoints::{GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
+pub struct D14nClient<C, P, E> {
     message_client: C,
     payer_client: P,
+    _marker: E,
 }
 
 #[async_trait::async_trait]
-impl<C, P> XmtpMlsClient for D14nClient<C, P> {
-    type Error: crate::XmtpApiError + 'static;
-
+impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
+where
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    P: Send + Sync,
+    C: Send + Sync,
+{
+    type Error = ApiError<E>;
     async fn upload_key_package(
         &self,
         request: UploadKeyPackageRequest,
@@ -48,8 +81,14 @@ impl<C, P> XmtpMlsClient for D14nClient<C, P> {
 }
 
 #[async_trait::async_trait]
-impl<C, P> XmtpIdentityClient for D14nClient<C, P> {
-    type Error: crate::XmtpApiError + 'static;
+impl<C, P, E> XmtpIdentityClient for D14nClient<C, P, E>
+where
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    P: Send + Sync,
+    C: Send + Sync,
+{
+    type Error = ApiError<E>;
+
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
@@ -59,8 +98,8 @@ impl<C, P> XmtpIdentityClient for D14nClient<C, P> {
 
     async fn get_identity_updates_v2(
         &self,
-        request: GetIdentityUpdatesV2Request,
-    ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        request: GetIdentityUpdatesRequest,
+    ) -> Result<GetIdentityUpdatesResponse, Self::Error> {
         todo!()
     }
 

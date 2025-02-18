@@ -1,12 +1,13 @@
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient, XmtpMlsStreams};
+use xmtp_proto::api_client::{XmtpApiClient, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
+use xmtp_proto::traits::ApiError;
 
 pub struct V3Client<C> {
     client: C,
 }
 
 #[async_trait::async_trait]
-impl<C> XmtpMlsClient for D14nClient<C> {
-    type Error: crate::XmtpApiError + 'static;
+impl<C> XmtpMlsClient for V3Client<C> {
+    type Error = ApiError<Box<dyn XmtpApiError>>;
 
     async fn upload_key_package(
         &self,
@@ -47,8 +48,9 @@ impl<C> XmtpMlsClient for D14nClient<C> {
 }
 
 #[async_trait::async_trait]
-impl<C> XmtpIdentityClient for D14nClient<C> {
-    type Error: crate::XmtpApiError + 'static;
+impl<C> XmtpIdentityClient for V3Client<C> {
+    type Error = ApiError<Box<dyn XmtpApiError>>;
+
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
