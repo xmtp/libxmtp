@@ -246,10 +246,18 @@ async fn main() -> color_eyre::eyre::Result<()> {
             )
             .await?,
         ),
-        (true, Env::Dev) => Arc::new(
+        (true, Env::Production) => Arc::new(
             ClientV4::create(
                 "https://grpc.testnet.xmtp.network:443".into(),
                 "https://payer.testnet.xmtp.network:443".into(),
+                true,
+            )
+            .await?,
+        ),
+        (true, Env::Dev) => Arc::new(
+            ClientV4::create(
+                "https://grpc.testnet-staging.xmtp.network:443".into(),
+                "https://payer.testnet-staging.xmtp.network:443".into(),
                 true,
             )
             .await?,
@@ -261,7 +269,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
         (false, Env::Production) => {
             Arc::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
         }
-        (true, Env::Production) => todo!("not supported"),
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {
