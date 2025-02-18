@@ -7,6 +7,10 @@ pub struct Cursor {
     #[prost(map="uint32, uint64", tag="1")]
     pub node_id_to_sequence_id: ::std::collections::HashMap<u32, u64>,
 }
+impl ::prost::Name for Cursor {
+const NAME: &'static str = "Cursor";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.Cursor".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.Cursor".into() }}
 /// Data visible to the server that has been authenticated by the client.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -21,6 +25,10 @@ pub struct AuthenticatedData {
     #[prost(bool, tag="4")]
     pub is_commit: bool,
 }
+impl ::prost::Name for AuthenticatedData {
+const NAME: &'static str = "AuthenticatedData";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.AuthenticatedData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.AuthenticatedData".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientEnvelope {
@@ -44,6 +52,10 @@ pub mod client_envelope {
         IdentityUpdate(super::super::super::identity::associations::IdentityUpdate),
     }
 }
+impl ::prost::Name for ClientEnvelope {
+const NAME: &'static str = "ClientEnvelope";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.ClientEnvelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.ClientEnvelope".into() }}
 /// Wraps client envelope with payer signature
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -54,6 +66,10 @@ pub struct PayerEnvelope {
     #[prost(message, optional, tag="2")]
     pub payer_signature: ::core::option::Option<super::super::identity::associations::RecoverableEcdsaSignature>,
 }
+impl ::prost::Name for PayerEnvelope {
+const NAME: &'static str = "PayerEnvelope";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.PayerEnvelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.PayerEnvelope".into() }}
 /// For blockchain envelopes, these fields are set by the smart contract
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -67,6 +83,10 @@ pub struct UnsignedOriginatorEnvelope {
     #[prost(message, optional, tag="4")]
     pub payer_envelope: ::core::option::Option<PayerEnvelope>,
 }
+impl ::prost::Name for UnsignedOriginatorEnvelope {
+const NAME: &'static str = "UnsignedOriginatorEnvelope";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope".into() }}
 /// An alternative to a signature for blockchain payloads
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -74,6 +94,10 @@ pub struct BlockchainProof {
     #[prost(bytes="vec", tag="1")]
     pub transaction_hash: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for BlockchainProof {
+const NAME: &'static str = "BlockchainProof";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.BlockchainProof".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.BlockchainProof".into() }}
 /// Signed originator envelope
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -95,6 +119,10 @@ pub mod originator_envelope {
         BlockchainProof(super::BlockchainProof),
     }
 }
+impl ::prost::Name for OriginatorEnvelope {
+const NAME: &'static str = "OriginatorEnvelope";
+const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.envelopes.OriginatorEnvelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.envelopes.OriginatorEnvelope".into() }}
 /// Encoded file descriptor set for the `xmtp.xmtpv4.envelopes` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0xa2, 0x1e, 0x0a, 0x20, 0x78, 0x6d, 0x74, 0x70, 0x76, 0x34, 0x2f, 0x65, 0x6e, 0x76, 0x65,

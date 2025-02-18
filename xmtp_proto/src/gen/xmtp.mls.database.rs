@@ -16,6 +16,10 @@ pub mod send_message_data {
         #[prost(bytes="vec", tag="1")]
         pub payload_bytes: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.SendMessageData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.SendMessageData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -23,6 +27,10 @@ pub mod send_message_data {
         V1(V1),
     }
 }
+impl ::prost::Name for SendMessageData {
+const NAME: &'static str = "SendMessageData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.SendMessageData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.SendMessageData".into() }}
 /// Wrapper around a list af repeated EVM Account Addresses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -30,6 +38,10 @@ pub struct AccountAddresses {
     #[prost(string, repeated, tag="1")]
     pub account_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for AccountAddresses {
+const NAME: &'static str = "AccountAddresses";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.AccountAddresses".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.AccountAddresses".into() }}
 /// Wrapper around a list of repeated Installation IDs
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -37,6 +49,10 @@ pub struct InstallationIds {
     #[prost(bytes="vec", repeated, tag="1")]
     pub installation_ids: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for InstallationIds {
+const NAME: &'static str = "InstallationIds";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.InstallationIds".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.InstallationIds".into() }}
 /// One of an EVM account address or Installation ID
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,6 +71,10 @@ pub mod addresses_or_installation_ids {
         InstallationIds(super::InstallationIds),
     }
 }
+impl ::prost::Name for AddressesOrInstallationIds {
+const NAME: &'static str = "AddressesOrInstallationIds";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.AddressesOrInstallationIds".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.AddressesOrInstallationIds".into() }}
 /// The data required to add members to a group
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -71,6 +91,10 @@ pub mod add_members_data {
         #[prost(message, optional, tag="1")]
         pub addresses_or_installation_ids: ::core::option::Option<super::AddressesOrInstallationIds>,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.AddMembersData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.AddMembersData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -78,6 +102,10 @@ pub mod add_members_data {
         V1(V1),
     }
 }
+impl ::prost::Name for AddMembersData {
+const NAME: &'static str = "AddMembersData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.AddMembersData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.AddMembersData".into() }}
 /// The data required to remove members from a group
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -94,6 +122,10 @@ pub mod remove_members_data {
         #[prost(message, optional, tag="1")]
         pub addresses_or_installation_ids: ::core::option::Option<super::AddressesOrInstallationIds>,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.RemoveMembersData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.RemoveMembersData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -101,6 +133,10 @@ pub mod remove_members_data {
         V1(V1),
     }
 }
+impl ::prost::Name for RemoveMembersData {
+const NAME: &'static str = "RemoveMembersData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.RemoveMembersData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.RemoveMembersData".into() }}
 /// The data required to make a commit that updates group membership
 /// Handles both Add and Remove actions
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -125,6 +161,10 @@ pub mod update_group_membership_data {
         #[prost(bytes="vec", repeated, tag="3")]
         pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateGroupMembershipData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateGroupMembershipData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -132,6 +172,10 @@ pub mod update_group_membership_data {
         V1(V1),
     }
 }
+impl ::prost::Name for UpdateGroupMembershipData {
+const NAME: &'static str = "UpdateGroupMembershipData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateGroupMembershipData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateGroupMembershipData".into() }}
 /// The data required to update group metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -150,6 +194,10 @@ pub mod update_metadata_data {
         #[prost(string, tag="2")]
         pub field_value: ::prost::alloc::string::String,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateMetadataData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateMetadataData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -157,6 +205,10 @@ pub mod update_metadata_data {
         V1(V1),
     }
 }
+impl ::prost::Name for UpdateMetadataData {
+const NAME: &'static str = "UpdateMetadataData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateMetadataData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateMetadataData".into() }}
 /// The data required to update group admin/super admin lists
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -175,6 +227,10 @@ pub mod update_admin_lists_data {
         #[prost(string, tag="2")]
         pub inbox_id: ::prost::alloc::string::String,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateAdminListsData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateAdminListsData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -182,6 +238,10 @@ pub mod update_admin_lists_data {
         V1(V1),
     }
 }
+impl ::prost::Name for UpdateAdminListsData {
+const NAME: &'static str = "UpdateAdminListsData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdateAdminListsData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdateAdminListsData".into() }}
 /// The data required to update permissions
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -203,6 +263,10 @@ pub mod update_permission_data {
         #[prost(string, optional, tag="3")]
         pub metadata_field_name: ::core::option::Option<::prost::alloc::string::String>,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdatePermissionData.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdatePermissionData.V1".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -210,6 +274,10 @@ pub mod update_permission_data {
         V1(V1),
     }
 }
+impl ::prost::Name for UpdatePermissionData {
+const NAME: &'static str = "UpdatePermissionData";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.UpdatePermissionData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.UpdatePermissionData".into() }}
 /// Generic data-type for all post-commit actions
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -228,6 +296,10 @@ pub mod post_commit_action {
         #[prost(bytes="vec", tag="2")]
         pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Installation {
+const NAME: &'static str = "Installation";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.PostCommitAction.Installation".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.PostCommitAction.Installation".into() }}
     /// SendWelcome message
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -237,6 +309,10 @@ pub mod post_commit_action {
         #[prost(bytes="vec", tag="2")]
         pub welcome_message: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for SendWelcomes {
+const NAME: &'static str = "SendWelcomes";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.PostCommitAction.SendWelcomes".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.PostCommitAction.SendWelcomes".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
@@ -244,6 +320,10 @@ pub mod post_commit_action {
         SendWelcomes(SendWelcomes),
     }
 }
+impl ::prost::Name for PostCommitAction {
+const NAME: &'static str = "PostCommitAction";
+const PACKAGE: &'static str = "xmtp.mls.database";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.database.PostCommitAction".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.database.PostCommitAction".into() }}
 /// Type of update to admin lists
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

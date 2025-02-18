@@ -18,6 +18,7 @@ members = [
   "xmtp_debug",
   "xmtp_content_types",
   "common",
+  "xmtp_api_d14n",
 ]
 
 # Make the feature resolver explicit.
@@ -71,8 +72,8 @@ openssl-sys = { version = "0.9", features = ["vendored"] }
 parking_lot = "0.12.3"
 pbjson = "0.7.0"
 pbjson-types = "0.7.0"
-prost = "^0.13"
-prost-types = "^0.13"
+prost = { version = "^0.13", default-features = false }
+prost-types = { version = "^0.13", default-features = false }
 rand = "0.8.5"
 regex = "1.10.4"
 rustc-hex = "2.1.0"

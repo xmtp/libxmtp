@@ -17,6 +17,10 @@ pub struct ContentTypeId {
     #[prost(uint32, tag="4")]
     pub version_minor: u32,
 }
+impl ::prost::Name for ContentTypeId {
+const NAME: &'static str = "ContentTypeId";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.ContentTypeId".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.ContentTypeId".into() }}
 /// EncodedContent bundles the content with metadata identifying its type
 /// and parameters required for correct decoding and presentation of the content.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -41,6 +45,10 @@ pub struct EncodedContent {
     #[prost(bytes="vec", tag="4")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for EncodedContent {
+const NAME: &'static str = "EncodedContent";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.EncodedContent".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.EncodedContent".into() }}
 /// A PlaintextEnvelope is the outermost payload that gets encrypted by MLS
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -64,6 +72,10 @@ pub mod plaintext_envelope {
         #[prost(string, tag="2")]
         pub idempotency_key: ::prost::alloc::string::String,
     }
+impl ::prost::Name for V1 {
+const NAME: &'static str = "V1";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PlaintextEnvelope.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PlaintextEnvelope.V1".into() }}
     /// Version 2 of the encrypted envelope
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -94,6 +106,10 @@ pub mod plaintext_envelope {
             UserPreferenceUpdate(super::super::UserPreferenceUpdate),
         }
     }
+impl ::prost::Name for V2 {
+const NAME: &'static str = "V2";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PlaintextEnvelope.V2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PlaintextEnvelope.V2".into() }}
     /// Selector which declares which version of the EncodedContent this
     /// PlaintextEnvelope is
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -105,6 +121,10 @@ pub mod plaintext_envelope {
         V2(V2),
     }
 }
+impl ::prost::Name for PlaintextEnvelope {
+const NAME: &'static str = "PlaintextEnvelope";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PlaintextEnvelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PlaintextEnvelope".into() }}
 /// Initiator or new installation id requesting a sync payload send a request
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -119,6 +139,10 @@ pub struct DeviceSyncRequest {
     #[prost(enumeration="DeviceSyncKind", tag="3")]
     pub kind: i32,
 }
+impl ::prost::Name for DeviceSyncRequest {
+const NAME: &'static str = "DeviceSyncRequest";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.DeviceSyncRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.DeviceSyncRequest".into() }}
 /// Pre-existing installation id capable of supplying a sync payload sends this reply
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -139,6 +163,10 @@ pub struct DeviceSyncReply {
     #[prost(enumeration="DeviceSyncKind", tag="5")]
     pub kind: i32,
 }
+impl ::prost::Name for DeviceSyncReply {
+const NAME: &'static str = "DeviceSyncReply";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.DeviceSyncReply".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.DeviceSyncReply".into() }}
 /// Key used to encrypt the message-bundle
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -155,12 +183,20 @@ pub mod device_sync_key_type {
         Aes256Gcm(::prost::alloc::vec::Vec<u8>),
     }
 }
+impl ::prost::Name for DeviceSyncKeyType {
+const NAME: &'static str = "DeviceSyncKeyType";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.DeviceSyncKeyType".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.DeviceSyncKeyType".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UserPreferenceUpdate {
     #[prost(bytes="vec", repeated, tag="1")]
     pub contents: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for UserPreferenceUpdate {
+const NAME: &'static str = "UserPreferenceUpdate";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.UserPreferenceUpdate".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.UserPreferenceUpdate".into() }}
 /// Recognized compression algorithms
 /// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -230,6 +266,10 @@ pub struct GroupMembership {
     #[prost(bytes="vec", repeated, tag="2")]
     pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for GroupMembership {
+const NAME: &'static str = "GroupMembership";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupMembership".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupMembership".into() }}
 /// Parent message for group metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -245,6 +285,10 @@ pub struct GroupMetadataV1 {
     #[prost(message, optional, tag="4")]
     pub dm_members: ::core::option::Option<DmMembers>,
 }
+impl ::prost::Name for GroupMetadataV1 {
+const NAME: &'static str = "GroupMetadataV1";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupMetadataV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupMetadataV1".into() }}
 /// Wrapper around an Inbox Id
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -252,6 +296,10 @@ pub struct Inbox {
     #[prost(string, tag="1")]
     pub inbox_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for Inbox {
+const NAME: &'static str = "Inbox";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.Inbox".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.Inbox".into() }}
 /// Ordering does not matter here
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -261,6 +309,10 @@ pub struct DmMembers {
     #[prost(message, optional, tag="2")]
     pub dm_member_two: ::core::option::Option<Inbox>,
 }
+impl ::prost::Name for DmMembers {
+const NAME: &'static str = "DmMembers";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.DmMembers".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.DmMembers".into() }}
 /// Defines the type of conversation
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -308,6 +360,10 @@ pub struct GroupMutableMetadataV1 {
     #[prost(message, optional, tag="3")]
     pub super_admin_list: ::core::option::Option<Inboxes>,
 }
+impl ::prost::Name for GroupMutableMetadataV1 {
+const NAME: &'static str = "GroupMutableMetadataV1";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupMutableMetadataV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupMutableMetadataV1".into() }}
 /// Wrapper around a list of repeated Inbox Ids
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -315,6 +371,10 @@ pub struct Inboxes {
     #[prost(string, repeated, tag="1")]
     pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for Inboxes {
+const NAME: &'static str = "Inboxes";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.Inboxes".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.Inboxes".into() }}
 /// Message for group mutable metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -322,6 +382,10 @@ pub struct GroupMutablePermissionsV1 {
     #[prost(message, optional, tag="1")]
     pub policies: ::core::option::Option<PolicySet>,
 }
+impl ::prost::Name for GroupMutablePermissionsV1 {
+const NAME: &'static str = "GroupMutablePermissionsV1";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupMutablePermissionsV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupMutablePermissionsV1".into() }}
 /// The set of policies that govern the group
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -339,6 +403,10 @@ pub struct PolicySet {
     #[prost(message, optional, tag="6")]
     pub update_permissions_policy: ::core::option::Option<PermissionsUpdatePolicy>,
 }
+impl ::prost::Name for PolicySet {
+const NAME: &'static str = "PolicySet";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PolicySet".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PolicySet".into() }}
 /// A policy that governs adding/removing members or installations
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -355,6 +423,10 @@ pub mod membership_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
     }
+impl ::prost::Name for AndCondition {
+const NAME: &'static str = "AndCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MembershipPolicy.AndCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MembershipPolicy.AndCondition".into() }}
     /// Combine multiple policies. Any must evaluate to true
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -362,6 +434,10 @@ pub mod membership_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
     }
+impl ::prost::Name for AnyCondition {
+const NAME: &'static str = "AnyCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into() }}
     /// Base policy
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -409,6 +485,10 @@ pub mod membership_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for MembershipPolicy {
+const NAME: &'static str = "MembershipPolicy";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MembershipPolicy".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MembershipPolicy".into() }}
 /// A policy that governs updating metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -425,6 +505,10 @@ pub mod metadata_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
     }
+impl ::prost::Name for AndCondition {
+const NAME: &'static str = "AndCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MetadataPolicy.AndCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MetadataPolicy.AndCondition".into() }}
     /// Combine multiple policies. Any must evaluate to true
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -432,6 +516,10 @@ pub mod metadata_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
     }
+impl ::prost::Name for AnyCondition {
+const NAME: &'static str = "AnyCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into() }}
     /// Base policy
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -479,6 +567,10 @@ pub mod metadata_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for MetadataPolicy {
+const NAME: &'static str = "MetadataPolicy";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MetadataPolicy".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MetadataPolicy".into() }}
 /// A policy that governs updating permissions
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -495,6 +587,10 @@ pub mod permissions_update_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
     }
+impl ::prost::Name for AndCondition {
+const NAME: &'static str = "AndCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into() }}
     /// Combine multiple policies. Any must evaluate to true
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -502,6 +598,10 @@ pub mod permissions_update_policy {
         #[prost(message, repeated, tag="1")]
         pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
     }
+impl ::prost::Name for AnyCondition {
+const NAME: &'static str = "AnyCondition";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into() }}
     /// Base policy
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
@@ -546,6 +646,10 @@ pub mod permissions_update_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for PermissionsUpdatePolicy {
+const NAME: &'static str = "PermissionsUpdatePolicy";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.PermissionsUpdatePolicy".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into() }}
 /// A group member and affected installation IDs
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -557,6 +661,10 @@ pub struct MembershipChange {
     #[prost(string, tag="3")]
     pub initiated_by_account_address: ::prost::alloc::string::String,
 }
+impl ::prost::Name for MembershipChange {
+const NAME: &'static str = "MembershipChange";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.MembershipChange".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.MembershipChange".into() }}
 /// The group membership change proto
 ///
 /// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
@@ -576,6 +684,10 @@ pub struct GroupMembershipChanges {
     #[prost(message, repeated, tag="4")]
     pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
 }
+impl ::prost::Name for GroupMembershipChanges {
+const NAME: &'static str = "GroupMembershipChanges";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupMembershipChanges".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupMembershipChanges".into() }}
 /// A summary of the changes in a commit.
 /// Includes added/removed inboxes and changes to metadata
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -602,6 +714,10 @@ pub mod group_updated {
         #[prost(string, tag="1")]
         pub inbox_id: ::prost::alloc::string::String,
     }
+impl ::prost::Name for Inbox {
+const NAME: &'static str = "Inbox";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupUpdated.Inbox".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupUpdated.Inbox".into() }}
     /// A summary of a change to the mutable metadata
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -616,7 +732,15 @@ pub mod group_updated {
         #[prost(string, optional, tag="3")]
         pub new_value: ::core::option::Option<::prost::alloc::string::String>,
     }
+impl ::prost::Name for MetadataFieldChange {
+const NAME: &'static str = "MetadataFieldChange";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into() }}
 }
+impl ::prost::Name for GroupUpdated {
+const NAME: &'static str = "GroupUpdated";
+const PACKAGE: &'static str = "xmtp.mls.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.message_contents.GroupUpdated".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.message_contents.GroupUpdated".into() }}
 /// Encoded file descriptor set for the `xmtp.mls.message_contents` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0xbc, 0x34, 0x0a, 0x22, 0x6d, 0x6c, 0x73, 0x2f, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65,

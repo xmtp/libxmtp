@@ -21,6 +21,10 @@ pub mod signature {
         #[prost(uint32, tag="2")]
         pub recovery: u32,
     }
+impl ::prost::Name for EcdsaCompact {
+const NAME: &'static str = "ECDSACompact";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Signature.ECDSACompact".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Signature.ECDSACompact".into() }}
     /// ECDSA signature bytes and the recovery bit
     /// produced by xmtp-js::PublicKey.signWithWallet function, i.e.
     /// EIP-191 signature of a "Create Identity" message with the key embedded.
@@ -35,6 +39,10 @@ pub mod signature {
         #[prost(uint32, tag="2")]
         pub recovery: u32,
     }
+impl ::prost::Name for WalletEcdsaCompact {
+const NAME: &'static str = "WalletECDSACompact";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Signature.WalletECDSACompact".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Signature.WalletECDSACompact".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -44,6 +52,10 @@ pub mod signature {
         WalletEcdsaCompact(WalletEcdsaCompact),
     }
 }
+impl ::prost::Name for Signature {
+const NAME: &'static str = "Signature";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Signature".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Signature".into() }}
 /// UnsignedPublicKey represents a generalized public key,
 /// defined as a union to support cryptographic algorithm agility.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -66,6 +78,10 @@ pub mod unsigned_public_key {
         #[prost(bytes="vec", tag="1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Secp256k1Uncompressed {
+const NAME: &'static str = "Secp256k1Uncompressed";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.UnsignedPublicKey.Secp256k1Uncompressed".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.UnsignedPublicKey.Secp256k1Uncompressed".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -73,6 +89,10 @@ pub mod unsigned_public_key {
         Secp256k1Uncompressed(Secp256k1Uncompressed),
     }
 }
+impl ::prost::Name for UnsignedPublicKey {
+const NAME: &'static str = "UnsignedPublicKey";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.UnsignedPublicKey".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.UnsignedPublicKey".into() }}
 /// SignedPublicKey
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -84,6 +104,10 @@ pub struct SignedPublicKey {
     #[prost(message, optional, tag="2")]
     pub signature: ::core::option::Option<Signature>,
 }
+impl ::prost::Name for SignedPublicKey {
+const NAME: &'static str = "SignedPublicKey";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedPublicKey".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedPublicKey".into() }}
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -95,6 +119,10 @@ pub struct SignedPublicKeyBundle {
     #[prost(message, optional, tag="2")]
     pub pre_key: ::core::option::Option<SignedPublicKey>,
 }
+impl ::prost::Name for SignedPublicKeyBundle {
+const NAME: &'static str = "SignedPublicKeyBundle";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedPublicKeyBundle".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedPublicKeyBundle".into() }}
 // LEGACY
 
 /// PublicKey represents a generalized public key,
@@ -119,6 +147,10 @@ pub mod public_key {
         #[prost(bytes="vec", tag="1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Secp256k1Uncompressed {
+const NAME: &'static str = "Secp256k1Uncompressed";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PublicKey.Secp256k1Uncompressed".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PublicKey.Secp256k1Uncompressed".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -126,6 +158,10 @@ pub mod public_key {
         Secp256k1Uncompressed(Secp256k1Uncompressed),
     }
 }
+impl ::prost::Name for PublicKey {
+const NAME: &'static str = "PublicKey";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PublicKey".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PublicKey".into() }}
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet,
 /// both senders and recipients are identified by their key bundles.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -138,6 +174,10 @@ pub struct PublicKeyBundle {
     #[prost(message, optional, tag="2")]
     pub pre_key: ::core::option::Option<PublicKey>,
 }
+impl ::prost::Name for PublicKeyBundle {
+const NAME: &'static str = "PublicKeyBundle";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PublicKeyBundle".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PublicKeyBundle".into() }}
 /// Ciphertext represents encrypted payload.
 /// It is definited as a union to support cryptographic algorithm agility.
 /// The payload is accompanied by the cryptographic parameters
@@ -167,6 +207,10 @@ pub mod ciphertext {
         #[prost(bytes="vec", tag="3")]
         pub payload: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Aes256gcmHkdfsha256 {
+const NAME: &'static str = "Aes256gcmHkdfsha256";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Ciphertext.Aes256gcmHkdfsha256".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Ciphertext.Aes256gcmHkdfsha256".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -174,6 +218,10 @@ pub mod ciphertext {
         Aes256GcmHkdfSha256(Aes256gcmHkdfsha256),
     }
 }
+impl ::prost::Name for Ciphertext {
+const NAME: &'static str = "Ciphertext";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Ciphertext".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Ciphertext".into() }}
 /// SignedEciesCiphertext represents an ECIES encrypted payload and a signature
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -204,7 +252,15 @@ pub mod signed_ecies_ciphertext {
         #[prost(bytes="vec", tag="4")]
         pub ciphertext: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Ecies {
+const NAME: &'static str = "Ecies";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedEciesCiphertext.Ecies".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedEciesCiphertext.Ecies".into() }}
 }
+impl ::prost::Name for SignedEciesCiphertext {
+const NAME: &'static str = "SignedEciesCiphertext";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedEciesCiphertext".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedEciesCiphertext".into() }}
 /// Unsealed invitation V1
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -235,6 +291,10 @@ pub mod invitation_v1 {
         #[prost(bytes="vec", tag="1")]
         pub key_material: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Aes256gcmHkdfsha256 {
+const NAME: &'static str = "Aes256gcmHkdfsha256";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.InvitationV1.Aes256gcmHkdfsha256".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.InvitationV1.Aes256gcmHkdfsha256".into() }}
     /// The context type
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -247,6 +307,10 @@ pub mod invitation_v1 {
         #[prost(map="string, string", tag="2")]
         pub metadata: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     }
+impl ::prost::Name for Context {
+const NAME: &'static str = "Context";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.InvitationV1.Context".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.InvitationV1.Context".into() }}
     /// message encryption scheme and keys for this conversation.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -256,6 +320,10 @@ pub mod invitation_v1 {
         Aes256GcmHkdfSha256(Aes256gcmHkdfsha256),
     }
 }
+impl ::prost::Name for InvitationV1 {
+const NAME: &'static str = "InvitationV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.InvitationV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.InvitationV1".into() }}
 /// Sealed Invitation V1 Header
 /// Header carries information that is unencrypted, thus readable by the network
 /// it is however authenticated as associated data with the AEAD scheme used
@@ -270,6 +338,10 @@ pub struct SealedInvitationHeaderV1 {
     #[prost(uint64, tag="3")]
     pub created_ns: u64,
 }
+impl ::prost::Name for SealedInvitationHeaderV1 {
+const NAME: &'static str = "SealedInvitationHeaderV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SealedInvitationHeaderV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SealedInvitationHeaderV1".into() }}
 /// Sealed Invitation V1
 /// Invitation encrypted with key material derived from the sender's and
 /// recipient's public key bundles using simplified X3DH where
@@ -284,6 +356,10 @@ pub struct SealedInvitationV1 {
     #[prost(message, optional, tag="2")]
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
+impl ::prost::Name for SealedInvitationV1 {
+const NAME: &'static str = "SealedInvitationV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SealedInvitationV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SealedInvitationV1".into() }}
 /// Versioned Sealed Invitation
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -300,6 +376,10 @@ pub mod sealed_invitation {
         V1(super::SealedInvitationV1),
     }
 }
+impl ::prost::Name for SealedInvitation {
+const NAME: &'static str = "SealedInvitation";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SealedInvitation".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SealedInvitation".into() }}
 /// Payload for user's consent proof to be set in the invitation
 /// Signifying the conversation should be preapproved for the user on receipt
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -315,6 +395,10 @@ pub struct ConsentProofPayload {
     #[prost(enumeration="ConsentProofPayloadVersion", tag="3")]
     pub payload_version: i32,
 }
+impl ::prost::Name for ConsentProofPayload {
+const NAME: &'static str = "ConsentProofPayload";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ConsentProofPayload".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ConsentProofPayload".into() }}
 /// Version of consent proof payload 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -357,6 +441,10 @@ pub struct ConversationReference {
     #[prost(message, optional, tag="5")]
     pub consent_proof_payload: ::core::option::Option<ConsentProofPayload>,
 }
+impl ::prost::Name for ConversationReference {
+const NAME: &'static str = "ConversationReference";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ConversationReference".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ConversationReference".into() }}
 /// PrivateKey generalized to support different key types
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -383,6 +471,10 @@ pub mod signed_private_key {
         #[prost(bytes="vec", tag="1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Secp256k1 {
+const NAME: &'static str = "Secp256k1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedPrivateKey.Secp256k1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedPrivateKey.Secp256k1".into() }}
     /// private key
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -391,6 +483,10 @@ pub mod signed_private_key {
         Secp256k1(Secp256k1),
     }
 }
+impl ::prost::Name for SignedPrivateKey {
+const NAME: &'static str = "SignedPrivateKey";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedPrivateKey".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedPrivateKey".into() }}
 /// PrivateKeyBundle wraps the identityKey and the preKeys,
 /// enforces usage of signed keys.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -402,6 +498,10 @@ pub struct PrivateKeyBundleV2 {
     #[prost(message, repeated, tag="2")]
     pub pre_keys: ::prost::alloc::vec::Vec<SignedPrivateKey>,
 }
+impl ::prost::Name for PrivateKeyBundleV2 {
+const NAME: &'static str = "PrivateKeyBundleV2";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivateKeyBundleV2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivateKeyBundleV2".into() }}
 /// LEGACY: PrivateKey generalized to support different key types
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -428,6 +528,10 @@ pub mod private_key {
         #[prost(bytes="vec", tag="1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+impl ::prost::Name for Secp256k1 {
+const NAME: &'static str = "Secp256k1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivateKey.Secp256k1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivateKey.Secp256k1".into() }}
     /// private key
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
@@ -436,6 +540,10 @@ pub mod private_key {
         Secp256k1(Secp256k1),
     }
 }
+impl ::prost::Name for PrivateKey {
+const NAME: &'static str = "PrivateKey";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivateKey".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivateKey".into() }}
 /// LEGACY: PrivateKeyBundleV1 wraps the identityKey and the preKeys
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -446,6 +554,10 @@ pub struct PrivateKeyBundleV1 {
     #[prost(message, repeated, tag="2")]
     pub pre_keys: ::prost::alloc::vec::Vec<PrivateKey>,
 }
+impl ::prost::Name for PrivateKeyBundleV1 {
+const NAME: &'static str = "PrivateKeyBundleV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivateKeyBundleV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivateKeyBundleV1".into() }}
 /// Versioned PrivateKeyBundle
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -464,6 +576,10 @@ pub mod private_key_bundle {
         V2(super::PrivateKeyBundleV2),
     }
 }
+impl ::prost::Name for PrivateKeyBundle {
+const NAME: &'static str = "PrivateKeyBundle";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivateKeyBundle".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivateKeyBundle".into() }}
 /// PrivateKeyBundle encrypted with key material generated by
 /// signing a randomly generated "pre-key" with the user's wallet,
 /// i.e. EIP-191 signature of a "storage signature" message with
@@ -481,6 +597,10 @@ pub struct EncryptedPrivateKeyBundleV1 {
     #[prost(message, optional, tag="2")]
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
+impl ::prost::Name for EncryptedPrivateKeyBundleV1 {
+const NAME: &'static str = "EncryptedPrivateKeyBundleV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.EncryptedPrivateKeyBundleV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.EncryptedPrivateKeyBundleV1".into() }}
 /// Versioned encrypted PrivateKeyBundle
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -497,6 +617,10 @@ pub mod encrypted_private_key_bundle {
         V1(super::EncryptedPrivateKeyBundleV1),
     }
 }
+impl ::prost::Name for EncryptedPrivateKeyBundle {
+const NAME: &'static str = "EncryptedPrivateKeyBundle";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.EncryptedPrivateKeyBundle".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.EncryptedPrivateKeyBundle".into() }}
 /// PrivatePreferencesAction is a message used to update the client's preference
 /// store.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -515,6 +639,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub wallet_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for AllowAddress {
+const NAME: &'static str = "AllowAddress";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.AllowAddress".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.AllowAddress".into() }}
     /// Deny (block) 1:1 direct message (DM) access
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -523,6 +651,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub wallet_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for DenyAddress {
+const NAME: &'static str = "DenyAddress";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.DenyAddress".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.DenyAddress".into() }}
     /// Allow V3 1:1 direct message (DM) access
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -531,6 +663,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for AllowInboxId {
+const NAME: &'static str = "AllowInboxId";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.AllowInboxId".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.AllowInboxId".into() }}
     /// Deny (block) V3 1:1 direct message (DM) access
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -539,6 +675,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for DenyInboxId {
+const NAME: &'static str = "DenyInboxId";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.DenyInboxId".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.DenyInboxId".into() }}
     /// Allow Group access
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -547,6 +687,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub group_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for AllowGroup {
+const NAME: &'static str = "AllowGroup";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.AllowGroup".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.AllowGroup".into() }}
     /// Deny (deny) Group access
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -555,6 +699,10 @@ pub mod private_preferences_action {
         #[prost(string, repeated, tag="1")]
         pub group_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+impl ::prost::Name for DenyGroup {
+const NAME: &'static str = "DenyGroup";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction.DenyGroup".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction.DenyGroup".into() }}
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum MessageType {
@@ -572,6 +720,10 @@ pub mod private_preferences_action {
         DenyInboxId(DenyInboxId),
     }
 }
+impl ::prost::Name for PrivatePreferencesAction {
+const NAME: &'static str = "PrivatePreferencesAction";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesAction".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesAction".into() }}
 /// The payload that goes over the wire
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -588,6 +740,10 @@ pub mod private_preferences_payload {
         V1(super::Ciphertext),
     }
 }
+impl ::prost::Name for PrivatePreferencesPayload {
+const NAME: &'static str = "PrivatePreferencesPayload";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.PrivatePreferencesPayload".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.PrivatePreferencesPayload".into() }}
 /// ContentTypeId is used to identify the type of content stored in a Message.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -605,6 +761,10 @@ pub struct ContentTypeId {
     #[prost(uint32, tag="4")]
     pub version_minor: u32,
 }
+impl ::prost::Name for ContentTypeId {
+const NAME: &'static str = "ContentTypeId";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ContentTypeId".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ContentTypeId".into() }}
 /// EncodedContent bundles the content with metadata identifying its type
 /// and parameters required for correct decoding and presentation of the content.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -629,6 +789,10 @@ pub struct EncodedContent {
     #[prost(bytes="vec", tag="4")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for EncodedContent {
+const NAME: &'static str = "EncodedContent";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.EncodedContent".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.EncodedContent".into() }}
 /// SignedContent attaches a signature to EncodedContent.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -644,6 +808,10 @@ pub struct SignedContent {
     #[prost(message, optional, tag="3")]
     pub signature: ::core::option::Option<Signature>,
 }
+impl ::prost::Name for SignedContent {
+const NAME: &'static str = "SignedContent";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedContent".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedContent".into() }}
 /// Recognized compression algorithms
 /// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -699,7 +867,15 @@ pub mod composite {
             Composite(super::super::Composite),
         }
     }
+impl ::prost::Name for Part {
+const NAME: &'static str = "Part";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Composite.Part".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Composite.Part".into() }}
 }
+impl ::prost::Name for Composite {
+const NAME: &'static str = "Composite";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Composite".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Composite".into() }}
 /// LEGACY: User key bundle V1 using PublicKeys.
 /// The PublicKeys MUST be signed.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -708,6 +884,10 @@ pub struct ContactBundleV1 {
     #[prost(message, optional, tag="1")]
     pub key_bundle: ::core::option::Option<PublicKeyBundle>,
 }
+impl ::prost::Name for ContactBundleV1 {
+const NAME: &'static str = "ContactBundleV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ContactBundleV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ContactBundleV1".into() }}
 /// User key bundle V2 using SignedPublicKeys.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -715,6 +895,10 @@ pub struct ContactBundleV2 {
     #[prost(message, optional, tag="1")]
     pub key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
 }
+impl ::prost::Name for ContactBundleV2 {
+const NAME: &'static str = "ContactBundleV2";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ContactBundleV2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ContactBundleV2".into() }}
 /// Versioned ContactBundle
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -733,6 +917,10 @@ pub mod contact_bundle {
         V2(super::ContactBundleV2),
     }
 }
+impl ::prost::Name for ContactBundle {
+const NAME: &'static str = "ContactBundle";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.ContactBundle".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.ContactBundle".into() }}
 /// EciesMessage is a wrapper for ECIES encrypted payloads
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -750,6 +938,10 @@ pub mod ecies_message {
         V1(::prost::alloc::vec::Vec<u8>),
     }
 }
+impl ::prost::Name for EciesMessage {
+const NAME: &'static str = "EciesMessage";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.EciesMessage".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.EciesMessage".into() }}
 /// The message that will be signed by the Client and returned inside the
 /// `action_body` field of the FrameAction message
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -786,6 +978,10 @@ pub struct FrameActionBody {
     #[prost(string, tag="9")]
     pub transaction_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for FrameActionBody {
+const NAME: &'static str = "FrameActionBody";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.FrameActionBody".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.FrameActionBody".into() }}
 /// The outer payload that will be sent as the `messageBytes` in the
 /// `trusted_data` part of the Frames message
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -813,6 +1009,10 @@ pub struct FrameAction {
     #[prost(string, tag="6")]
     pub inbox_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for FrameAction {
+const NAME: &'static str = "FrameAction";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.FrameAction".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.FrameAction".into() }}
 // Message V1
 
 /// Message header is encoded separately as the bytes are also used
@@ -827,6 +1027,10 @@ pub struct MessageHeaderV1 {
     #[prost(uint64, tag="3")]
     pub timestamp: u64,
 }
+impl ::prost::Name for MessageHeaderV1 {
+const NAME: &'static str = "MessageHeaderV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.MessageHeaderV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.MessageHeaderV1".into() }}
 /// Message is the top level protocol element
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -838,6 +1042,10 @@ pub struct MessageV1 {
     #[prost(message, optional, tag="2")]
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
+impl ::prost::Name for MessageV1 {
+const NAME: &'static str = "MessageV1";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.MessageV1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.MessageV1".into() }}
 // Message V2
 
 /// Message header carries information that is not encrypted, and is therefore
@@ -854,6 +1062,10 @@ pub struct MessageHeaderV2 {
     #[prost(string, tag="2")]
     pub topic: ::prost::alloc::string::String,
 }
+impl ::prost::Name for MessageHeaderV2 {
+const NAME: &'static str = "MessageHeaderV2";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.MessageHeaderV2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.MessageHeaderV2".into() }}
 /// Message combines the encoded header with the encrypted payload.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -873,6 +1085,10 @@ pub struct MessageV2 {
     #[prost(bool, optional, tag="4")]
     pub should_push: ::core::option::Option<bool>,
 }
+impl ::prost::Name for MessageV2 {
+const NAME: &'static str = "MessageV2";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.MessageV2".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.MessageV2".into() }}
 /// Versioned Message
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -891,6 +1107,10 @@ pub mod message {
         V2(super::MessageV2),
     }
 }
+impl ::prost::Name for Message {
+const NAME: &'static str = "Message";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.Message".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.Message".into() }}
 /// DecodedMessage represents the decrypted message contents.
 /// DecodedMessage instances are not stored on the network, but
 /// may be serialized and stored by clients
@@ -915,6 +1135,10 @@ pub struct DecodedMessage {
     #[prost(bytes="vec", tag="8")]
     pub content_bytes: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for DecodedMessage {
+const NAME: &'static str = "DecodedMessage";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.DecodedMessage".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.DecodedMessage".into() }}
 /// SignedPayload is a wrapper for a signature and a payload
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -924,6 +1148,10 @@ pub struct SignedPayload {
     #[prost(message, optional, tag="2")]
     pub signature: ::core::option::Option<Signature>,
 }
+impl ::prost::Name for SignedPayload {
+const NAME: &'static str = "SignedPayload";
+const PACKAGE: &'static str = "xmtp.message_contents";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_contents.SignedPayload".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_contents.SignedPayload".into() }}
 /// Encoded file descriptor set for the `xmtp.message_contents` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0xb4, 0x0d, 0x0a, 0x20, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x5f, 0x63, 0x6f, 0x6e,
