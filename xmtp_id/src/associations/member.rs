@@ -34,13 +34,6 @@ pub enum MemberIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum SignerIdentifier {
-    Installation(ident::Installation),
-    Ethereum(ident::Ethereum),
-    Passkey(ident::Passkey),
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RootIdentifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),

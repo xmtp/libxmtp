@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use super::{member::HasMemberKind, PublicIdentifier};
+use super::member::{HasMemberKind, RootIdentifier};
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
@@ -37,7 +37,7 @@ enum SignatureField {
 #[derive(Clone, Debug)]
 pub struct PendingIdentityAction {
     unsigned_action: UnsignedAction,
-    pending_signatures: HashMap<SignatureField, PublicIdentifier>,
+    pending_signatures: HashMap<SignatureField, MemberIdentifier>,
 }
 
 /// The SignatureRequestBuilder is used to collect all of the actions in
@@ -61,15 +61,15 @@ impl SignatureRequestBuilder {
     }
 
     /// Create a new inbox. This method must be called before any other methods or the IdentityUpdate will fail
-    pub fn create_inbox(mut self, signer_identity: PubilcRootIdentifier, nonce: u64) -> Self {
+    pub fn create_inbox(mut self, signer_identity: RootIdentifier, nonce: u64) -> Self {
         let pending_action = PendingIdentityAction {
             unsigned_action: UnsignedAction::CreateInbox(UnsignedCreateInbox {
-                account_identifier: signer_identity,
+                account_identifier: signer_identity.clone(),
                 nonce,
             }),
             pending_signatures: HashMap::from([(
                 SignatureField::InitialAddress,
-                signer_identity.clone(),
+                signer_identity.into(),
             )]),
         };
         // Save the `PendingIdentityAction` for later
@@ -99,13 +99,13 @@ impl SignatureRequestBuilder {
 
     pub fn revoke_association(
         mut self,
-        recovery_address_identifier: MemberIdentifier,
+        recovery_address_signer: MemberIdentifier,
         revoked_member: MemberIdentifier,
     ) -> Self {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier,
+                recovery_address_signer,
             )]),
             unsigned_action: UnsignedAction::RevokeAssociation(UnsignedRevokeAssociation {
                 revoked_member,
@@ -117,16 +117,16 @@ impl SignatureRequestBuilder {
 
     pub fn change_recovery_address(
         mut self,
-        recovery_address_identifier: MemberIdentifier,
-        new_recovery_address: String,
+        recovery_address_signer: MemberIdentifier,
+        new_recovery_identifier: RootIdentifier,
     ) -> Self {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier,
+                recovery_address_signer,
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
-                new_recovery_identifier: new_recovery_address,
+                new_recovery_identifier,
             }),
         });
 
@@ -378,14 +378,14 @@ fn build_action(
                 .get(&SignatureField::RecoveryAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            let recovery_address_signature = signatures
+            let recovery_identifier_signature = signatures
                 .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(UnverifiedAction::ChangeRecoveryAddress(
                 UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature,
+                    recovery_identifier_signature,
                     unsigned_action,
                 },
             ))
@@ -424,7 +424,7 @@ pub(crate) mod tests {
             unverified::UnverifiedRecoverableEcdsaSignature,
             IdentityUpdate,
         },
-        InboxOwner,
+        InboxOwner, WalletTestExt,
     };
 
     use super::*;
@@ -443,10 +443,12 @@ pub(crate) mod tests {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let inbox_id = wallet.get_inbox_id(nonce);
+
+        let root_ident = RootIdentifier::new_ethereum(&account_address);
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(account_address.into(), nonce)
+            .create_inbox(root_ident, nonce)
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -465,13 +467,14 @@ pub(crate) mod tests {
         let installation_key = XmtpInstallationCredential::new();
         let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
-        let existing_member_identifier: MemberIdentifier = account_address.into();
-        let new_member_identifier: MemberIdentifier = (&installation_key).into();
+        let inbox_id = wallet.get_inbox_id(nonce);
+        let root_ident = RootIdentifier::new_ethereum(&account_address);
+        let new_member_identifier =
+            MemberIdentifier::new_installation(installation_key.public_bytes());
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(existing_member_identifier.clone(), nonce)
-            .add_association(new_member_identifier, existing_member_identifier)
+            .create_inbox(root_ident.clone(), nonce)
+            .add_association(new_member_identifier, root_ident.into())
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -492,12 +495,15 @@ pub(crate) mod tests {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
-        let existing_member_identifier: MemberIdentifier = account_address.clone().into();
+        let inbox_id = wallet.get_inbox_id(nonce);
+        let existing_member_identifier = RootIdentifier::new_ethereum(&account_address);
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
-            .revoke_association(existing_member_identifier.clone(), account_address.into())
+            .revoke_association(
+                existing_member_identifier.clone().into(),
+                existing_member_identifier.clone().into(),
+            )
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -517,9 +523,11 @@ pub(crate) mod tests {
     async fn attempt_adding_unknown_signer() {
         let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let root_ident = RootIdentifier::new_ethereum(&account_address);
+        let inbox_id = root_ident.get_inbox_id(nonce).unwrap();
+
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(account_address.into(), nonce)
+            .create_inbox(root_ident, nonce)
             .build();
 
         let rand_wallet = LocalWallet::new(&mut rand::thread_rng());

@@ -5,7 +5,7 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
-use associations::{state::PublicIdentifier, MemberIdentifier};
+use associations::member::RootIdentifier;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
@@ -97,26 +97,15 @@ pub async fn is_smart_contract(
 
 pub trait InboxOwner {
     /// Get address string of the wallet.
-    fn addr_string(&self) -> String;
-    /// Get public identifier of the wallet.
-    fn get_public_identifier(&self) -> PublicIdentifier;
-    /// Get member identifier of the wallet.
-    fn get_member_identifier(&self) -> MemberIdentifier;
+    fn get_address(&self) -> String;
+
     /// Sign text with the wallet.
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 impl InboxOwner for LocalWallet {
-    fn addr_string(&self) -> String {
+    fn get_address(&self) -> String {
         h160addr_to_string(self.address())
-    }
-
-    fn get_public_identifier(&self) -> PublicIdentifier {
-        PublicIdentifier::Ethereum(self.addr_string())
-    }
-
-    fn get_member_identifier(&self) -> MemberIdentifier {
-        MemberIdentifier::Ethereum(self.addr_string())
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
@@ -129,20 +118,26 @@ impl<T> InboxOwner for &T
 where
     T: InboxOwner,
 {
-    fn addr_string(&self) -> String {
-        (**self).addr_string()
-    }
-
-    fn get_public_identifier(&self) -> PublicIdentifier {
-        (**self).get_public_identifier()
-    }
-
-    fn get_member_identifier(&self) -> MemberIdentifier {
-        (**self).get_member_identifier()
+    fn get_address(&self) -> String {
+        (**self).get_address()
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         (**self).sign(text)
+    }
+}
+
+#[cfg(test)]
+pub trait WalletTestExt {
+    fn get_inbox_id(&self, nonce: u64) -> String;
+}
+#[cfg(test)]
+impl WalletTestExt for LocalWallet {
+    fn get_inbox_id(&self, nonce: u64) -> String {
+        let addr = self.get_address();
+        RootIdentifier::new_ethereum(addr)
+            .get_inbox_id(nonce)
+            .unwrap()
     }
 }
 
