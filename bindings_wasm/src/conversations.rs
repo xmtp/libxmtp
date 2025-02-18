@@ -109,7 +109,6 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       include_duplicate_dms: opts.include_duplicate_dms,
       include_sync_groups: opts.include_sync_groups,
       limit: opts.limit,
-      ..Default::default()
     }
   }
 }
@@ -117,6 +116,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 #[wasm_bindgen]
 impl ListConversationsOptions {
   #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     allowed_states: Option<Vec<GroupMembershipState>>,
     consent_states: Option<Vec<ConsentState>>,
