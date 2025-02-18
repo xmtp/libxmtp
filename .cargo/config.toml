@@ -1,5 +1,6 @@
 [target.wasm32-unknown-unknown]
 runner = 'wasm-bindgen-test-runner'
+[target.'cfg(target_os = "macos")'.wasm32-unknown-unknown]
 linker = "wasm-ld"
 
 [env]
