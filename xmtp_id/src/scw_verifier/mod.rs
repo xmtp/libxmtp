@@ -1,18 +1,16 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
-
 use crate::associations::AccountId;
+pub use chain_rpc_verifier::*;
 use ethers::{
     providers::{Http, Provider, ProviderError},
     types::{BlockNumber, Bytes},
 };
+pub use remote_signature_verifier::*;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
 use tracing::info;
 use url::Url;
-
-pub use chain_rpc_verifier::*;
-pub use remote_signature_verifier::*;
 
 static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
@@ -121,6 +119,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct ValidationResponse {
     pub is_valid: bool,
     pub block_number: Option<u64>,
