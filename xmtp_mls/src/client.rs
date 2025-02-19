@@ -41,14 +41,13 @@ use crate::{
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
         refresh_state::EntityKind,
-        wallet_addresses::WalletEntry,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         EncryptedMessageStore, NotFound, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    Fetch, Store, XmtpApi,
+    Fetch, XmtpApi,
 };
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};

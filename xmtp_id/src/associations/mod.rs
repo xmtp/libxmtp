@@ -12,7 +12,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
-pub use self::member::{Member, MemberIdentifier, MemberKind, RootIdentifier};
+pub use self::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, RootIdentifier};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};

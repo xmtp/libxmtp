@@ -128,6 +128,7 @@ diesel::table! {
     wallet_addresses (wallet_address) {
         inbox_id -> Text,
         wallet_address -> Text,
+        wallet_address_kind -> Text,
     }
 }
 

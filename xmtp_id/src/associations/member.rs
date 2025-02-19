@@ -26,7 +26,7 @@ impl std::fmt::Display for MemberKind {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             MemberKind::Installation => write!(f, "installation"),
-            MemberKind::Ethereum => write!(f, "address"),
+            MemberKind::Ethereum => write!(f, "ethereum"),
             MemberKind::Passkey => write!(f, "passkey"),
         }
     }

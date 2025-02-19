@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::schema::wallet_addresses;
 use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_store, Store};
@@ -8,7 +6,8 @@ use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use sqlite_web::dsl::RunQueryDsl;
-use xmtp_id::associations::RootIdentifier;
+use std::collections::HashMap;
+use xmtp_id::associations::{HasMemberKind, RootIdentifier};
 use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
@@ -17,15 +16,7 @@ use xmtp_id::{InboxId, WalletAddress};
 pub struct WalletEntry {
     inbox_id: InboxId,
     wallet_address: WalletAddress,
-}
-
-impl WalletEntry {
-    pub fn new(in_id: InboxId, wallet_address: WalletAddress) -> Self {
-        Self {
-            inbox_id: in_id,
-            wallet_address,
-        }
-    }
+    wallet_address_kind: String,
 }
 
 impl_store!(WalletEntry, wallet_addresses);
@@ -36,14 +27,23 @@ impl DbConnection {
         &self,
         identifiers: &[RootIdentifier],
     ) -> Result<HashMap<WalletAddress, InboxId>, StorageError> {
-        use crate::storage::encrypted_store::schema::wallet_addresses::dsl::{inbox_id, *};
-        let keys: Vec<_> = identifiers.iter().map(|i| format!("{i:?}")).collect();
-        let cached: Vec<WalletEntry> =
-            self.raw_query_read(|conn| wallet_addresses.filter(inbox_id.eq_any(keys)).load(conn))?;
-        Ok(cached
+        use crate::storage::encrypted_store::schema::wallet_addresses::*;
+
+        let mut conditions = wallet_addresses::table.into_boxed();
+
+        for ident in identifiers {
+            let addr = format!("{ident}");
+            let kind = format!("{}", ident.kind());
+            let cond = wallet_address.eq(addr).and(wallet_address_kind.eq(kind));
+            conditions = conditions.or_filter(cond);
+        }
+
+        let result = self
+            .raw_query_read(|conn| conditions.load::<WalletEntry>(conn))?
             .into_iter()
             .map(|entry| (entry.wallet_address, entry.inbox_id))
-            .collect())
+            .collect();
+        Ok(result)
     }
 
     pub fn cache_inbox_id(
@@ -53,7 +53,8 @@ impl DbConnection {
     ) -> Result<(), StorageError> {
         WalletEntry {
             inbox_id: inbox_id.to_string(),
-            wallet_address: format!("{identifier:?}"),
+            wallet_address: format!("{identifier}"),
+            wallet_address_kind: format!("{}", identifier.kind()),
         }
         .store(self)
     }
@@ -74,10 +75,12 @@ pub(crate) mod tests {
             let entry1 = WalletEntry {
                 inbox_id: "test_dup".to_string(),
                 wallet_address: "wallet_dup".to_string(),
+                wallet_address_kind: "eth".to_string(),
             };
             let entry2 = WalletEntry {
                 inbox_id: "test_dup".to_string(),
                 wallet_address: "wallet_dup".to_string(),
+                wallet_address_kind: "eth".to_string(),
             };
             entry1.store(conn).expect("Failed to store wallet");
             let result = entry2.store(conn);
