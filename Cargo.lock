@@ -7506,6 +7506,7 @@ dependencies = [
  "futures",
  "getrandom",
  "gloo-timers 0.3.0",
+ "hex",
  "js-sys",
  "once_cell",
  "parking_lot 0.12.3",

@@ -17,6 +17,7 @@ use crate::time::Expired;
 mod logger;
 mod macros;
 
+pub use logger::InboxIdReplace;
 static INIT: OnceLock<()> = OnceLock::new();
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]

@@ -278,6 +278,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
+        let mut replace = xmtp_common::InboxIdReplace::new();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -286,7 +287,10 @@ mod tests {
         tracing::info!(inbox_id = bo.inbox_id(), installation_id = %bo.installation_id(), "BO={}", bo.inbox_id());
         tracing::info!(inbox_id = alix.inbox_id(), installation_id = %alix.installation_id(), "ALIX={}", alix.inbox_id());
         tracing::info!(inbox_id = caro.inbox_id(), installation_id = %caro.installation_id(), "CARO={}", caro.inbox_id());
-
+        replace.add(caro.inbox_id(), "caro");
+        replace.add(eve.inbox_id(), "eve");
+        replace.add(alix.inbox_id(), "alix");
+        replace.add(bo.inbox_id(), "bo");
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
