@@ -445,7 +445,7 @@ pub(crate) mod tests {
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
 
-        let root_ident = RootIdentifier::new_ethereum(&account_address);
+        let root_ident = RootIdentifier::eth(&account_address).unwrap();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(root_ident, nonce)
@@ -468,9 +468,9 @@ pub(crate) mod tests {
         let account_address = wallet.get_address();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
-        let root_ident = RootIdentifier::new_ethereum(&account_address);
+        let root_ident = RootIdentifier::eth(&account_address).unwrap();
         let new_member_identifier =
-            MemberIdentifier::new_installation(installation_key.public_bytes());
+            MemberIdentifier::installation(installation_key.public_bytes().to_vec());
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(root_ident.clone(), nonce)
@@ -496,7 +496,7 @@ pub(crate) mod tests {
         let account_address = wallet.get_address();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
-        let existing_member_identifier = RootIdentifier::new_ethereum(&account_address);
+        let existing_member_identifier = wallet.root_identifier();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
@@ -523,8 +523,8 @@ pub(crate) mod tests {
     async fn attempt_adding_unknown_signer() {
         let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
         let nonce = 0;
-        let root_ident = RootIdentifier::new_ethereum(&account_address);
-        let inbox_id = root_ident.get_inbox_id(nonce).unwrap();
+        let root_ident = RootIdentifier::eth(&account_address).unwrap();
+        let inbox_id = root_ident.inbox_id(nonce).unwrap();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(root_ident, nonce)

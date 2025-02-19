@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
+use xmtp_proto::xmtp::identity::associations::{IdentifierKind, IdentityUpdate};
 
 use xmtp_proto::ApiError;
 
@@ -36,7 +36,12 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 }
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type AddressToInboxIdMap = HashMap<String, String>;
+type IdentifierToInboxIdMap = HashMap<Identifier, String>;
+#[derive(Hash, PartialEq, Eq)]
+struct Identifier {
+    pub identifier: String,
+    pub identifier_kind: IdentifierKind,
+}
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
@@ -96,27 +101,27 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_inbox_ids(
         &self,
-        account_addresses: Vec<String>,
-    ) -> Result<AddressToInboxIdMap> {
-        tracing::info!(
-            "Getting inbox_ids for account addresses: {:?}",
-            &account_addresses
-        );
+        requests: Vec<GetInboxIdsRequestProto>,
+    ) -> Result<IdentifierToInboxIdMap> {
+        tracing::info!("Getting inbox_ids for account identities: {:?}", &requests);
         let result = self
             .api_client
-            .get_inbox_ids(GetInboxIdsRequest {
-                requests: account_addresses
-                    .into_iter()
-                    .map(|address| GetInboxIdsRequestProto { address })
-                    .collect(),
-            })
+            .get_inbox_ids(GetInboxIdsRequest { requests })
             .await
             .map_err(ApiError::from)?;
 
         Ok(result
             .responses
             .into_iter()
-            .filter_map(|resp| Some((resp.address, resp.inbox_id?)))
+            .filter_map(|resp| {
+                Some((
+                    Identifier {
+                        identifier_kind: resp.identifier_kind(),
+                        identifier: resp.identifier,
+                    },
+                    resp.inbox_id?,
+                ))
+            })
             .collect())
     }
 
@@ -140,16 +145,20 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::ApiClientWrapper;
+    use crate::{identity::Identifier, ApiClientWrapper};
     use std::collections::HashMap;
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        get_identity_updates_response::{
-            IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
+    use xmtp_proto::xmtp::identity::{
+        api::v1::{
+            get_identity_updates_response::{
+                IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
+            },
+            get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+            get_inbox_ids_response::Response as GetInboxIdsResponseItem,
+            GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
         },
-        get_inbox_ids_response::Response as GetInboxIdsResponseItem,
-        GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
+        associations::IdentifierKind,
     };
 
     fn create_identity_update(inbox_id: String) -> UnverifiedIdentityUpdate {
@@ -250,11 +259,12 @@ pub(crate) mod tests {
 
         mock_api
             .expect_get_inbox_ids()
-            .withf(move |req| req.requests.first().unwrap().address.eq(&address_clone))
+            .withf(move |req| req.requests.first().unwrap().identifier.eq(&address_clone))
             .returning(move |_| {
                 Ok(GetInboxIdsResponse {
                     responses: vec![GetInboxIdsResponseItem {
-                        address: address_clone_2.clone(),
+                        identifier: address_clone_2.clone(),
+                        identifier_kind: IdentifierKind::Ethereum as i32,
                         inbox_id: Some(inbox_id_clone.clone()),
                     }],
                 })
@@ -262,11 +272,22 @@ pub(crate) mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
-            .get_inbox_ids(vec![address.clone()])
+            .get_inbox_ids(vec![GetInboxIdsRequestProto {
+                identifier: address.clone(),
+                identifier_kind: IdentifierKind::Ethereum as i32,
+            }])
             .await
             .expect("should work");
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result.get(&address).unwrap(), &inbox_id_clone_2);
+        assert_eq!(
+            result
+                .get(&Identifier {
+                    identifier: address,
+                    identifier_kind: IdentifierKind::Ethereum
+                })
+                .unwrap(),
+            &inbox_id_clone_2
+        );
     }
 }

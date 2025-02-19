@@ -97,7 +97,9 @@ use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_id::associations::RootIdentifier;
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -940,14 +942,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_addresses_to_add: &[String],
+        account_identifiers_to_add: &[RootIdentifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
-        let inbox_id_map = self
-            .client
-            .api()
-            .get_inbox_ids(account_addresses.clone())
-            .await?;
+        let requests = account_identifiers_to_add
+            .into_iter()
+            .map(Into::into)
+            .collect()?;
+        let inbox_id_map = self.client.api().get_inbox_ids(requests).await?;
         let provider = self.mls_provider()?;
         // get current number of users in group
         let member_count = self.members_with_provider(&provider).await?.len();
@@ -955,7 +956,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Err(GroupError::UserLimitExceeded);
         }
 
-        if inbox_id_map.len() != account_addresses.len() {
+        if inbox_id_map.len() != account_identifiers_to_add.len() {
             let found_addresses: HashSet<&String> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_addresses.iter());
             let missing_addresses = found_addresses.difference(&to_add_hashset);
@@ -1022,10 +1023,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members(
         &self,
-        account_addresses_to_remove: &[InboxId],
+        account_addresses_to_remove: &[RootIdentifier],
     ) -> Result<(), GroupError> {
-        let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
-        let inbox_id_map = self.client.api().get_inbox_ids(account_addresses).await?;
+        let account_addresses_to_remove = account_addresses_to_remove
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+        let inbox_id_map = self
+            .client
+            .api()
+            .get_inbox_ids(account_addresses_to_remove)
+            .await?;
 
         let ids = inbox_id_map
             .values()

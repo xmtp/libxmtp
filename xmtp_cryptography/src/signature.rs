@@ -133,7 +133,7 @@ pub enum AddressValidationError {
 }
 
 pub fn sanitize_evm_addresses(
-    account_addresses: &[String],
+    account_addresses: &[impl AsRef<str>],
 ) -> Result<Vec<String>, AddressValidationError> {
     let mut invalid = account_addresses
         .iter()
@@ -142,13 +142,15 @@ pub fn sanitize_evm_addresses(
 
     if invalid.peek().is_some() {
         return Err(AddressValidationError::InvalidAddresses(
-            invalid.map(ToString::to_string).collect::<Vec<_>>(),
+            invalid
+                .map(|addr| addr.as_ref().to_string())
+                .collect::<Vec<_>>(),
         ));
     }
 
     Ok(account_addresses
         .iter()
-        .map(|address| address.to_lowercase())
+        .map(|addr| addr.as_ref().to_lowercase())
         .collect())
 }
 

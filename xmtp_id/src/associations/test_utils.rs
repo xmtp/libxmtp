@@ -38,13 +38,16 @@ pub trait WalletTestExt {
 impl WalletTestExt for LocalWallet {
     fn get_inbox_id(&self, nonce: u64) -> String {
         let addr = self.get_address();
-        RootIdentifier::eth(addr).inbox_id(nonce).unwrap()
+        RootIdentifier::eth(addr)
+            .expect("test eth addr is invalid")
+            .inbox_id(nonce)
+            .unwrap()
     }
     fn member_identifier(&self) -> MemberIdentifier {
         self.root_identifier().into()
     }
     fn root_identifier(&self) -> RootIdentifier {
-        RootIdentifier::eth(self.get_address())
+        RootIdentifier::eth(self.get_address()).expect("test eth addr is invalid")
     }
 }
 
@@ -103,7 +106,8 @@ impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: RootIdentifier::eth(account_address),
+                account_identifier: RootIdentifier::eth(account_address)
+                    .expect("test account address is invalid"),
                 nonce: *nonce,
             },
             UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),

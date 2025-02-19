@@ -90,7 +90,7 @@ impl AssociationState {
 
     pub fn set_recovery_address(&self, recovery_identifier: RootIdentifier) -> Self {
         let mut new_state = self.clone();
-        new_state.recovery_identifier = recovery_identifier.sanitize();
+        new_state.recovery_identifier = recovery_identifier;
 
         new_state
     }
@@ -208,7 +208,6 @@ impl AssociationState {
         nonce: u64,
         chain_id: Option<u64>,
     ) -> Result<Self, AssociationError> {
-        let account_identifier = account_identifier.sanitize();
         let member_identifier: MemberIdentifier = account_identifier.clone().into();
 
         let inbox_id = account_identifier.inbox_id(nonce)?;

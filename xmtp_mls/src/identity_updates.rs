@@ -275,7 +275,7 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
-    pub async fn associate_wallet(
+    pub async fn associate_eth_wallet(
         &self,
         new_wallet_address: String,
     ) -> Result<SignatureRequest, ClientError> {
@@ -646,7 +646,7 @@ pub(crate) mod tests {
         let wallet2 = generate_local_wallet();
 
         let mut request = client
-            .associate_wallet(wallet2.get_address())
+            .associate_eth_wallet(wallet2.get_address())
             .await
             .unwrap();
         add_wallet_signature(&mut request, &wallet2).await;
@@ -708,12 +708,13 @@ pub(crate) mod tests {
     async fn add_association() {
         let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let wallet_2_address = wallet_2.get_address();
+        let wallet_ident = wallet.root_identifier();
+        let wallet2_ident = wallet_2.root_identifier();
+
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut add_association_request = client
-            .associate_wallet(wallet_2_address.clone())
+            .associate_eth_wallet(wallet2_ident.to_string())
             .await
             .unwrap();
 
@@ -726,16 +727,15 @@ pub(crate) mod tests {
 
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
-        let members = association_state
-            .members_by_parent(&MemberIdentifier::Ethereum(wallet_address.clone()));
+        let members = association_state.members_by_parent(&wallet_ident.clone().into());
         // Those members should have timestamps
         for member in members {
             assert!(member.client_timestamp_ns.is_some());
         }
 
         assert_eq!(association_state.members().len(), 3);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state.get(&wallet_2_address.into()).is_some());
+        assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+        assert!(association_state.get(&wallet2_ident.into()).is_some());
     }
 
     #[cfg_attr(not(target_arch = "wasm32"), test)]
@@ -745,8 +745,8 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
-            let wallet_address = wallet.get_public_identifier();
-            let wallet_2_address = wallet_2.get_public_identifier();
+            let wallet_ident = wallet.root_identifier();
+            let wallet2_ident = wallet_2.root_identifier();
             let client = ClientBuilder::new_test_client(&wallet).await;
             let inbox_id = client.inbox_id();
 
@@ -758,16 +758,16 @@ pub(crate) mod tests {
             let association_state = get_association_state(&client, inbox_id).await;
 
             assert_eq!(association_state.members().len(), 2);
-            assert_eq!(association_state.recovery_address(), &wallet_address);
+            assert_eq!(association_state.recovery_identifier(), &wallet_ident);
             assert!(association_state
-                .get(&wallet_address.clone().into())
+                .get(&wallet_ident.clone().into())
                 .is_some());
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
-                .associate_wallet(wallet_2_address.clone())
+                .associate_eth_wallet(format!("{wallet2_ident}"))
                 .await
                 .unwrap();
 
@@ -789,8 +789,8 @@ pub(crate) mod tests {
             assert_logged!("Wrote association", 2);
 
             assert_eq!(association_state.members().len(), 3);
-            assert_eq!(association_state.recovery_address(), &wallet_address);
-            assert!(association_state.get(&wallet_2_address.into()).is_some());
+            assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+            assert!(association_state.get(&wallet2_ident.into()).is_some());
         });
     }
 
@@ -835,7 +835,7 @@ pub(crate) mod tests {
             (client_3, wallet_3),
         ] {
             let mut signature_request: SignatureRequest = client
-                .create_inbox(wallet.get_address(), None)
+                .create_inbox(wallet.root_identifier(), None)
                 .await
                 .unwrap();
             let inbox_id = signature_request.inbox_id().to_string();
@@ -848,7 +848,7 @@ pub(crate) mod tests {
                 .unwrap();
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
-                .associate_wallet(new_wallet.get_address())
+                .associate_eth_wallet(new_wallet.get_address())
                 .await
                 .unwrap();
 
@@ -928,7 +928,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&recovery_wallet).await;
 
         let mut add_wallet_signature_request = client
-            .associate_wallet(second_wallet.get_address())
+            .associate_eth_wallet(second_wallet.get_address())
             .await
             .unwrap();
 

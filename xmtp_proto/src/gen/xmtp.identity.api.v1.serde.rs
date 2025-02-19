@@ -638,12 +638,20 @@ impl serde::Serialize for get_inbox_ids_request::Request {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.address.is_empty() {
+        if !self.identifier.is_empty() {
+            len += 1;
+        }
+        if self.identifier_kind != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetInboxIdsRequest.Request", len)?;
-        if !self.address.is_empty() {
-            struct_ser.serialize_field("address", &self.address)?;
+        if !self.identifier.is_empty() {
+            struct_ser.serialize_field("identifier", &self.identifier)?;
+        }
+        if self.identifier_kind != 0 {
+            let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
+            struct_ser.serialize_field("identifierKind", &v)?;
         }
         struct_ser.end()
     }
@@ -655,12 +663,15 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "address",
+            "identifier",
+            "identifier_kind",
+            "identifierKind",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Address,
+            Identifier,
+            IdentifierKind,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -682,7 +693,8 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
                         E: serde::de::Error,
                     {
                         match value {
-                            "address" => Ok(GeneratedField::Address),
+                            "identifier" => Ok(GeneratedField::Identifier),
+                            "identifierKind" | "identifier_kind" => Ok(GeneratedField::IdentifierKind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -702,19 +714,27 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut address__ = None;
+                let mut identifier__ = None;
+                let mut identifier_kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Address => {
-                            if address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("address"));
+                        GeneratedField::Identifier => {
+                            if identifier__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identifier"));
                             }
-                            address__ = Some(map_.next_value()?);
+                            identifier__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::IdentifierKind => {
+                            if identifier_kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identifierKind"));
+                            }
+                            identifier_kind__ = Some(map_.next_value::<super::super::associations::IdentifierKind>()? as i32);
                         }
                     }
                 }
                 Ok(get_inbox_ids_request::Request {
-                    address: address__.unwrap_or_default(),
+                    identifier: identifier__.unwrap_or_default(),
+                    identifier_kind: identifier_kind__.unwrap_or_default(),
                 })
             }
         }
@@ -820,18 +840,26 @@ impl serde::Serialize for get_inbox_ids_response::Response {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.address.is_empty() {
+        if !self.identifier.is_empty() {
             len += 1;
         }
         if self.inbox_id.is_some() {
             len += 1;
         }
+        if self.identifier_kind != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetInboxIdsResponse.Response", len)?;
-        if !self.address.is_empty() {
-            struct_ser.serialize_field("address", &self.address)?;
+        if !self.identifier.is_empty() {
+            struct_ser.serialize_field("identifier", &self.identifier)?;
         }
         if let Some(v) = self.inbox_id.as_ref() {
             struct_ser.serialize_field("inboxId", v)?;
+        }
+        if self.identifier_kind != 0 {
+            let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
+            struct_ser.serialize_field("identifierKind", &v)?;
         }
         struct_ser.end()
     }
@@ -843,15 +871,18 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "address",
+            "identifier",
             "inbox_id",
             "inboxId",
+            "identifier_kind",
+            "identifierKind",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Address,
+            Identifier,
             InboxId,
+            IdentifierKind,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -873,8 +904,9 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
                         E: serde::de::Error,
                     {
                         match value {
-                            "address" => Ok(GeneratedField::Address),
+                            "identifier" => Ok(GeneratedField::Identifier),
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
+                            "identifierKind" | "identifier_kind" => Ok(GeneratedField::IdentifierKind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -894,15 +926,16 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut address__ = None;
+                let mut identifier__ = None;
                 let mut inbox_id__ = None;
+                let mut identifier_kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Address => {
-                            if address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("address"));
+                        GeneratedField::Identifier => {
+                            if identifier__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identifier"));
                             }
-                            address__ = Some(map_.next_value()?);
+                            identifier__ = Some(map_.next_value()?);
                         }
                         GeneratedField::InboxId => {
                             if inbox_id__.is_some() {
@@ -910,11 +943,18 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
                             }
                             inbox_id__ = map_.next_value()?;
                         }
+                        GeneratedField::IdentifierKind => {
+                            if identifier_kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identifierKind"));
+                            }
+                            identifier_kind__ = Some(map_.next_value::<super::super::associations::IdentifierKind>()? as i32);
+                        }
                     }
                 }
                 Ok(get_inbox_ids_response::Response {
-                    address: address__.unwrap_or_default(),
+                    identifier: identifier__.unwrap_or_default(),
                     inbox_id: inbox_id__,
+                    identifier_kind: identifier_kind__.unwrap_or_default(),
                 })
             }
         }

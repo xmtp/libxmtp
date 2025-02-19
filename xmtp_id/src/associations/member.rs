@@ -5,8 +5,14 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
 };
-use xmtp_cryptography::XmtpInstallationCredential;
-use xmtp_proto::{xmtp::identity::associations::IdentifierKind, ConversionError};
+use xmtp_cryptography::{signature::AddressValidationError, XmtpInstallationCredential};
+use xmtp_proto::{
+    xmtp::identity::{
+        api::v1::get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+        associations::IdentifierKind,
+    },
+    ConversionError,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MemberKind {
@@ -40,11 +46,12 @@ pub enum RootIdentifier {
 }
 
 impl MemberIdentifier {
-    pub fn sanitize(self) -> Self {
-        match self {
-            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()),
+    pub fn sanitize(self) -> Result<Self, AddressValidationError> {
+        let ident = match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
             ident => ident,
-        }
+        };
+        Ok(ident)
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -57,8 +64,8 @@ impl MemberIdentifier {
         Self::Installation(ident::Installation::rand())
     }
 
-    pub fn eth(addr: impl ToString) -> Self {
-        RootIdentifier::eth(addr).into()
+    pub fn eth(addr: impl ToString) -> Result<Self, AddressValidationError> {
+        Ok(RootIdentifier::eth(addr)?.into())
     }
 
     pub fn installation(key: Vec<u8>) -> Self {
@@ -112,14 +119,15 @@ impl RootIdentifier {
         Self::Ethereum(ident::Ethereum::rand())
     }
 
-    pub fn sanitize(self) -> Self {
-        match self {
-            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()),
+    pub fn sanitize(self) -> Result<Self, AddressValidationError> {
+        let ident = match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
             ident => ident,
-        }
+        };
+        Ok(ident)
     }
 
-    pub fn eth(addr: impl ToString) -> Self {
+    pub fn eth(addr: impl ToString) -> Result<Self, AddressValidationError> {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
@@ -250,6 +258,17 @@ impl From<RootIdentifier> for MemberIdentifier {
         }
     }
 }
+impl From<&RootIdentifier> for GetInboxIdsRequestProto {
+    fn from(ident: &RootIdentifier) -> Self {
+        Self {
+            identifier: format!("{ident}"),
+            identifier_kind: {
+                let kind: IdentifierKind = ident.into();
+                kind as i32
+            },
+        }
+    }
+}
 
 /// A Member of Inbox
 #[derive(Clone, Debug, PartialEq)]
@@ -331,17 +350,17 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_identifier_comparisons() {
-        let address_1 = MemberIdentifier::eth("0x123");
-        let address_2 = MemberIdentifier::eth("0x456");
-        let address_1_copy = MemberIdentifier::eth("0x123");
+        let address_1 = MemberIdentifier::rand_ethereum();
+        let address_2 = MemberIdentifier::rand_ethereum();
+        let address_1_copy = MemberIdentifier::rand_ethereum();
 
         assert!(address_1 != address_2);
         assert!(address_1.ne(&address_2));
         assert!(address_1 == address_1_copy);
 
-        let installation_1 = MemberIdentifier::installation([1, 2, 3]);
-        let installation_2 = MemberIdentifier::installation([4, 5, 6]);
-        let installation_1_copy = MemberIdentifier::installation([1, 2, 3]);
+        let installation_1 = MemberIdentifier::installation([1, 2, 3].to_vec());
+        let installation_2 = MemberIdentifier::installation([4, 5, 6].to_vec());
+        let installation_1_copy = MemberIdentifier::installation([1, 2, 3].to_vec());
 
         assert!(installation_1 != installation_2);
         assert!(installation_1.ne(&installation_2));
