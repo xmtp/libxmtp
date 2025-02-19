@@ -223,6 +223,7 @@ where
                 Ok((stream, new_group, Some(1)))
             }
             c => {
+                // should we query for the latest message here instead?
                 if let Some(new) = filters.iter_mut().find(|f| f.group_id == new_group) {
                     new.id_cursor = Some(c as u64);
                 }
