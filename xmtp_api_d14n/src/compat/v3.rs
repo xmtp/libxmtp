@@ -123,7 +123,7 @@ impl<C> XmtpIdentityClient for V3Client<C> {
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         GetInboxIds::builder()
-            .requests(request.requests)
+            .addresses(request.requests.iter().map(|r| r.address.to_string()))
             .build()
             .unwrap()
             .query(&self.client)

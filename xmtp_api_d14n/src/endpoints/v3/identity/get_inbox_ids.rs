@@ -1,16 +1,16 @@
 use derive_builder::Builder;
-use std::borrow::Cow;
 use prost::Message;
+use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesResponse, GetInboxIdsRequest};
 use xmtp_proto::xmtp::identity::api::v1::get_inbox_ids_request::Request;
+use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesResponse, GetInboxIdsRequest};
 use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
 pub struct GetInboxIds {
     #[builder(setter(into))]
-    requests: Vec<Request>
+    addresses: Vec<String>,
 }
 
 impl GetInboxIds {
@@ -31,7 +31,12 @@ impl Endpoint for GetInboxIds {
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
         Ok(GetInboxIdsRequest {
-            requests: self.requests.clone(),
+            requests: self
+                .addresses
+                .iter()
+                .cloned()
+                .map(|i| Request { address: i })
+                .collect(),
         }
         .encode_to_vec())
     }

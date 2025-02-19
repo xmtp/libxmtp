@@ -3,12 +3,15 @@
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
 
+use crate::endpoints::d14n::GetInboxIds;
+use crate::{PublishClientEnvelopes, QueryEnvelopes};
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
-
-use crate::PublishClientEnvelopes;
+use xmtp_proto::v4_utils::{
+    build_group_message_topic, build_key_package_topic, build_welcome_message_topic,
+};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
     PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
@@ -19,6 +22,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
 };
+use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 
 pub struct D14nClient<C, P, E> {
     message_client: C,
@@ -64,7 +68,17 @@ where
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
-        todo!()
+        let topics = request
+            .installation_keys
+            .iter()
+            .map(|key| build_key_package_topic(key.as_slice()))
+            .collect();
+        QueryEnvelopes::builder()
+            .envelopes(topics)
+            .limit(0u32) //todo: do we need to get it as a var in the parent function?
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
     async fn send_group_messages(
         &self,
@@ -90,13 +104,35 @@ where
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        todo!()
+        let query_envelopes = EnvelopesQuery {
+            topics: vec![build_group_message_topic(request.group_id.as_slice())],
+            originator_node_ids: vec![], //todo: set later
+            last_seen: None,             //todo: set later
+        };
+        QueryEnvelopes::builder()
+            .envelopes(query_envelopes)
+            .limit(0u32) //todo: do we need to get it as a var in the parent function?
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        todo!()
+        let query_envelopes = EnvelopesQuery {
+            topics: vec![build_welcome_message_topic(
+                request.installation_key.as_slice(),
+            )],
+            originator_node_ids: vec![], //todo: set later
+            last_seen: None,             //todo: set later
+        };
+        QueryEnvelopes::builder()
+            .envelopes(query_envelopes)
+            .limit(0u32) //todo: do we need to get it as a var in the parent function?
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
 }
 
@@ -131,7 +167,11 @@ where
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
-        todo!()
+        GetInboxIds::builder()
+            .addresses(request.requests.try_collect()?)
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
 
     async fn verify_smart_contract_wallet_signatures(

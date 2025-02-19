@@ -1,8 +1,10 @@
-use std::borrow::Cow;
 use derive_builder::Builder;
+use prost::Message;
+use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::mls::api::v1::{KeyPackageUpload, UploadKeyPackageRequest, FILE_DESCRIPTOR_SET};
-use crate::QueryWelcomeMessagesBuilder;
+use xmtp_proto::xmtp::mls::api::v1::{
+    KeyPackageUpload, UploadKeyPackageRequest, FILE_DESCRIPTOR_SET,
+};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
@@ -30,6 +32,10 @@ impl Endpoint for UploadKeyPackage {
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
-        todo!()
+        Ok(UploadKeyPackageRequest {
+            key_package: self.key_package.clone(),
+            is_inbox_id_credential: self.is_inbox_id_credential.into(),
+        }
+        .encode_to_vec())
     }
 }
