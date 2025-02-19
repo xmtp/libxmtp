@@ -1,42 +1,8 @@
 // copy-paste of https://docs.rs/tracing-forest/latest/src/tracing_forest/printer/pretty.rs.html#62
 // but with slight variations
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::fmt::{self, Write};
 use tracing_forest::printer::Formatter;
 use tracing_forest::tree::{Event, Span, Tree};
-
-static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
-pub struct InboxIdReplace {
-    ids: HashMap<String, String>,
-}
-
-impl InboxIdReplace {
-    pub fn new() -> Self {
-        Self {
-            ids: HashMap::new(),
-        }
-    }
-
-    pub fn add(&mut self, id: &str, name: &str) {
-        self.ids.insert(id.to_string(), name.to_string());
-        let mut ids = REPLACE_IDS.lock();
-        ids.insert(id.to_string(), name.to_string());
-    }
-}
-
-// remove ids for replacement from map on drop
-impl Drop for InboxIdReplace {
-    fn drop(&mut self) {
-        let mut ids = REPLACE_IDS.lock();
-        for (id, _name) in &self.ids {
-            let _ = ids.remove(id.as_str());
-        }
-    }
-}
 
 type IndentVec = Vec<Indent>;
 
@@ -75,7 +41,7 @@ impl Contextual {
         let mut message = String::new();
         if let Some(msg) = event.message() {
             message = message + msg;
-            let ids = REPLACE_IDS.lock();
+            let ids = super::REPLACE_IDS.lock();
             for (id, name) in ids.iter() {
                 message = message.replace(id, name);
             }

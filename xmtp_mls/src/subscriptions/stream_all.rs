@@ -114,6 +114,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -274,8 +275,23 @@ mod tests {
         assert_msg!(stream, "second");
     }
 
+    use std::collections::HashMap;
+    fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
+        let mut counts = HashMap::new();
+
+        // Count occurrences
+        for string in strings {
+            *counts.entry(string).or_insert(0) += 1;
+        }
+
+        // Filter to keep only strings that appear more than once
+        counts.retain(|_, count| *count > 1);
+
+        counts
+    }
+
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
+    // #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
         let mut replace = xmtp_common::InboxIdReplace::new();
@@ -302,20 +318,17 @@ mod tests {
         let provider = bo.store().mls_provider().unwrap();
         let bo_group = bo.sync_welcomes(&provider).await.unwrap()[0].clone();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let mut stream = caro.stream_all_messages(None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
-            let mut sent = 0;
-            for i in 0..2 {
+            for i in 0..10 {
                 let msg = format!("main spam {i}");
                 alix_group_pointer
                     .send_message(msg.as_bytes())
                     .await
                     .unwrap();
-                sent += 1;
-                xmtp_common::time::sleep(core::time::Duration::from_micros(100)).await;
-                tracing::info!("sent {sent}");
+                xmtp_common::time::sleep(Duration::from_micros(100)).await;
             }
         });
 
@@ -325,15 +338,11 @@ mod tests {
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
-            for i in 0..2 {
+            for i in 0..10 {
                 let new_group = eve
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
-                tracing::info!(
-                    "\n\n EVE SENDING {i} to {}\n\n",
-                    hex::encode(&new_group.group_id)
-                );
                 let msg = format!("EVE spam {i} from new group");
                 new_group.send_message(msg.as_bytes()).await.unwrap();
             }
@@ -343,41 +352,45 @@ mod tests {
         // this forces our streams to handle resubscribes while receiving lots of messages
         xmtp_common::spawn(None, async move {
             let bo_group = &bo_group;
-            for i in 0..2 {
+            for i in 0..10 {
                 bo_group
-                    .send_message(format!("msg {i}").as_bytes())
+                    .send_message(format!("bo msg {i}").as_bytes())
                     .await
                     .unwrap();
-                xmtp_common::time::sleep(core::time::Duration::from_millis(50)).await
+                xmtp_common::time::sleep(Duration::from_millis(50)).await
             }
         });
 
         let mut messages = Vec::new();
-        let timeout = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
-        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(timeout), async {
-            futures::pin_mut!(stream);
-            loop {
-                if messages.len() < 6 {
-                    if let Some(Ok(msg)) = stream.next().await {
-                        tracing::info!(
-                            message_id = hex::encode(&msg.id),
-                            sender_inbox_id = msg.sender_inbox_id,
-                            sender_installation_id = hex::encode(&msg.sender_installation_id),
-                            group_id = hex::encode(&msg.group_id),
-                            "GOT MESSAGE {}, text={}",
-                            messages.len(),
-                            String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
-                        );
-                        messages.push(msg)
-                    }
-                } else {
-                    break;
-                }
-            }
-        })
-        .await;
+        let timeout = if cfg!(target_arch = "wasm32") { 10 } else { 10 };
 
-        assert_eq!(messages.len(), 6);
+        loop {
+            tokio::select! {
+                Some(msg) = stream.next() => {
+                    match msg {
+                        Ok(m) => messages.push(m),
+                        Err(e) => {
+                            tracing::error!("error in stream test {e}");
+                        }
+                    }
+                },
+                _ = xmtp_common::time::sleep(Duration::from_secs(timeout)) => break
+
+            }
+        }
+
+        let msgs = &messages
+            .iter()
+            .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
+            .collect::<Vec<String>>();
+        let duplicates = find_duplicates_with_count(&msgs);
+        /*
+        for message in messages.iter() {
+            let m = String::from_utf8_lossy(message.decrypted_message_bytes.as_slice());
+            tracing::info!("{}", m);
+        }*/
+        assert!(duplicates.is_empty());
+        assert_eq!(messages.len(), 30, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
@@ -407,7 +420,7 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(20), async {
+        let _ = xmtp_common::time::timeout(Duration::from_secs(20), async {
             futures::pin_mut!(stream);
             loop {
                 if messages.len() < 5 {
@@ -429,7 +442,6 @@ mod tests {
             }
         })
         .await;
-
         tracing::info!("Total Messages: {}", messages.len());
         assert_eq!(messages.len(), 5);
     }

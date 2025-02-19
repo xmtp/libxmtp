@@ -478,13 +478,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Get the group ID for locking
         let group_id = self.group_id.clone();
 
-        tracing::info!(
-            "TRYING TO LOAD MLS GROUP for group_id={}",
-            hex::encode(&group_id)
-        );
         // Acquire the lock asynchronously
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
-        tracing::info!("LOADING GROUP");
 
         // Load the MLS group
         let mls_group =
@@ -493,7 +488,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .ok_or(StorageError::from(NotFound::GroupById(
                     self.group_id.to_vec(),
                 )))?;
-        tracing::info!("PERFORM OPERATION");
+
         // Perform the operation with the MLS group
         operation(mls_group).await.map_err(Into::into)
     }
@@ -1941,6 +1936,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use crate::groups::scoped_client::ScopedGroupClient;
     use diesel::connection::SimpleConnection;
     use diesel::RunQueryDsl;
     use futures::future::join_all;
@@ -1956,7 +1952,6 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-    use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };

@@ -7,6 +7,7 @@ use diesel::{
     sql_types::Integer,
 };
 use prost::Message;
+use xmtp_common::fmt;
 
 use super::{
     db_connection::DbConnection,
@@ -81,30 +82,40 @@ pub struct StoredGroupIntent {
 
 impl std::fmt::Debug for StoredGroupIntent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "StoredGroupIntent {{")?;
-        write!(f, "id: {} ", self.id)?;
-        write!(f, "kind: {} ", self.kind)?;
-        write!(f, "group_id: {} ", hex::encode(&self.group_id))?;
-        /* write!(f, "data: {} ", hex::encode(&self.data))?; */
-        write!(f, "state: {:?} ", self.state)?;
+        write!(f, "StoredGroupIntent {{ ")?;
+        write!(f, "id: {}, ", self.id)?;
+        write!(f, "kind: {}, ", self.kind)?;
         write!(
             f,
-            "payload_hash: {:?} ",
-            self.payload_hash.as_ref().map(|h| hex::encode(h))
+            "group_id: {}, ",
+            fmt::truncate_hex(&hex::encode(&self.group_id))
         )?;
-        /*write!(
+        write!(f, "data: {}, ", fmt::truncate_hex(hex::encode(&self.data)))?;
+        write!(f, "state: {:?}, ", self.state)?;
+        write!(
             f,
-            "post_commit_data: {:?}",
-            self.post_commit_data.as_ref().map(|d| hex::encode(d))
-        )?;*/
-        write!(f, "publish_attempts: {:?} ", self.publish_attempts)?;
-        /*write!(
+            "payload_hash: {:?}, ",
+            self.payload_hash
+                .as_ref()
+                .map(|h| fmt::truncate_hex(&hex::encode(h)))
+        )?;
+        write!(
             f,
-            "staged_commit: {:?}",
-            self.staged_commit.as_ref().map(|c| hex::encode(c))
-        )?;*/
+            "post_commit_data: {:?}, ",
+            self.post_commit_data
+                .as_ref()
+                .map(|d| fmt::truncate_hex(hex::encode(d)))
+        )?;
+        write!(f, "publish_attempts: {:?}, ", self.publish_attempts)?;
+        write!(
+            f,
+            "staged_commit: {:?}, ",
+            self.staged_commit
+                .as_ref()
+                .map(|c| fmt::truncate_hex(hex::encode(c)))
+        )?;
         write!(f, "published_in_epoch: {:?} ", self.published_in_epoch)?;
-        write!(f, "StoredGroupIntent }}")?;
+        write!(f, " }}")?;
         Ok(())
     }
 }

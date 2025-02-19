@@ -19,7 +19,7 @@ pub mod verified_key_package_v2;
 pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::Mutex as TokioMutex;
 
@@ -83,9 +83,6 @@ impl GroupCommitLock {
 pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
-
-// Static instance of `GroupCommitLock`
-// pub static MLS_COMMIT_LOCK: LazyLock<GroupCommitLock> = LazyLock::new(GroupCommitLock::new);
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {

@@ -718,7 +718,6 @@ pub mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn cooldowns_apply_to_concurrent_fns() {
-        xmtp_common::logger();
         let mut mock_api = MockApiClient::new();
         let group_id = vec![1, 2, 3];
 

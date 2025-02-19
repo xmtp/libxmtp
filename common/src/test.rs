@@ -7,6 +7,10 @@ use rand::{
 use std::{future::Future, sync::OnceLock};
 use xmtp_cryptography::utils as crypto_utils;
 
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
@@ -17,8 +21,38 @@ use crate::time::Expired;
 mod logger;
 mod macros;
 
-pub use logger::InboxIdReplace;
 static INIT: OnceLock<()> = OnceLock::new();
+
+static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
+pub struct InboxIdReplace {
+    ids: HashMap<String, String>,
+}
+
+impl InboxIdReplace {
+    pub fn new() -> Self {
+        Self {
+            ids: HashMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, id: &str, name: &str) {
+        self.ids.insert(id.to_string(), name.to_string());
+        let mut ids = REPLACE_IDS.lock();
+        ids.insert(id.to_string(), name.to_string());
+    }
+}
+
+// remove ids for replacement from map on drop
+impl Drop for InboxIdReplace {
+    fn drop(&mut self) {
+        let mut ids = REPLACE_IDS.lock();
+        for (id, _name) in &self.ids {
+            let _ = ids.remove(id.as_str());
+        }
+    }
+}
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tracing_subscriber::{
@@ -69,7 +103,13 @@ where
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
                             if field.name() == "message" {
-                                write!(writer, "{:?}", value)?;
+                                let mut message = format!("{:?}", value);
+                                let ids = REPLACE_IDS.lock();
+                                for (id, name) in ids.iter() {
+                                    message = message.replace(id, name);
+                                }
+
+                                write!(writer, "{}", message)?;
                             }
                             Ok(())
                         })
@@ -101,8 +141,8 @@ pub fn logger() {
 
     INIT.get_or_init(|| {
         let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::TRACE.into())
-            .parse_lossy("debug");
+            // .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
+            .parse_lossy("xmtp_mls::subscriptions=debug,xmtp_mls::groups=info");
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())

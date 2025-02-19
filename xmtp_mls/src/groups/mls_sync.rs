@@ -203,7 +203,6 @@ where
     // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        tracing::info!("RECEIVING");
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 
@@ -1116,12 +1115,10 @@ where
 
     #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn receive(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        tracing::info!("RECEIVING");
         let messages = self
             .client
             .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
-        tracing::info!("CONTINUING TO PROCESS");
         self.process_messages(messages, provider).await?;
         Ok(())
     }

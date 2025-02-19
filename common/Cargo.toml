@@ -15,7 +15,6 @@ tracing.workspace = true
 web-time.workspace = true
 xmtp_cryptography.workspace = true
 
-hex = { workspace = true, optional = true }
 # optional
 once_cell = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
@@ -52,7 +51,6 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 parking_lot.workspace = true
 once_cell.workspace = true
-hex.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
@@ -78,7 +76,6 @@ test-utils = [
   "dep:console_error_panic_hook",
   "dep:tracing-forest",
   "dep:once_cell",
-  "dep:hex",
 ]
 bench = [
   "test-utils",
