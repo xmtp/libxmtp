@@ -1948,6 +1948,7 @@ pub(crate) mod tests {
     use xmtp_common::time::now_ns;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::RootIdentifier;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -2752,11 +2753,11 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let unconnected_wallet_address = generate_local_wallet().get_address();
+        let unconnected_ident = RootIdentifier::rand_ethereum();
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
-        let result = group.add_members(&[unconnected_wallet_address]).await;
+        let result = group.add_members(&[unconnected_ident]).await;
 
         assert!(result.is_err());
     }

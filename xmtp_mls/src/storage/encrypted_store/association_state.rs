@@ -124,7 +124,7 @@ pub(crate) mod tests {
     async fn test_batch_read() {
         with_connection(|conn| {
             let association_state = AssociationState::new(
-                RootIdentifier::eth("0x1234567890abcdef1234567890abcdef12345678"),
+                RootIdentifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap(),
                 0,
                 None,
             )
@@ -139,7 +139,7 @@ pub(crate) mod tests {
             .unwrap();
 
             let association_state_2 = AssociationState::new(
-                RootIdentifier::eth("0x4567890abcdef1234567890abcdef12345678123"),
+                RootIdentifier::eth("0x4567890abcdef1234567890abcdef12345678123").unwrap(),
                 2,
                 None,
             )
