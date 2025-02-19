@@ -15,7 +15,7 @@ use xmtp_mls::groups::{
   intents::PermissionUpdateType as XmtpPermissionUpdateType,
   members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
-use xmtp_mls::storage::group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs};
+use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
@@ -199,7 +199,7 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
       ConversationType::Group => None,
-      ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
+      ConversationType::Dm => None,
       ConversationType::Sync => None,
     };
 
