@@ -1,6 +1,10 @@
 use crate::endpoints::v3::{
     GetIdentityUpdatesV2, GetInboxIds, PublishIdentityUpdate, VerifySmartContractWalletSignatures,
 };
+use crate::{
+    FetchKeyPackages, QueryGroupMessages, QueryWelcomeMessages, SendGroupMessages,
+    SendWelcomeMessages, UploadKeyPackage,
+};
 use xmtp_proto::api_client::{XmtpApiClient, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::{ApiError, Query};
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -27,37 +31,63 @@ impl<C> XmtpMlsClient for V3Client<C> {
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        UploadKeyPackage::builder()
+            .key_package(request.key_package.unwrap())
+            .is_inbox_id_credential(request.is_inbox_id_credential)
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
-        todo!()
+        FetchKeyPackages::builder()
+            .installation_keys(request.installation_keys)
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
     async fn send_group_messages(
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        SendGroupMessages::builder()
+            .messages(request.messages)
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
     async fn send_welcome_messages(
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        SendWelcomeMessages::builder()
+            .messages(request.messages)
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        todo!()
+        QueryGroupMessages::builder()
+            .group_id(request.group_id)
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        todo!()
+        QueryWelcomeMessages::builder()
+            .installation_key(request.installation_key)
+            .paging_info(request.paging_info.unwrap())
+            .build()
+            .unwrap()
+            .query(&self.client)
     }
 }
 

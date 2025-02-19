@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
 pub struct PublishIdentityUpdate {
-    #[builder(setter(into))]
+    #[builder(setter(strip_option))]
     pub identity_update: Option<IdentityUpdate>,
 }
 

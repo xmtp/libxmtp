@@ -2,38 +2,49 @@
 
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
+
+use xmtp_api_grpc::GrpcError;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::traits::ApiError;
 use xmtp_proto::traits::Client;
+use xmtp_proto::traits::{ApiError, Query};
 
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
     PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use xmtp_proto::XmtpApiError;
-use xmtp_proto::{
-    xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
-    xmtp::message_api::v1::{
-        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
-    },
-    xmtp::mls::api::v1::{
-        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
-    },
+use xmtp_proto::xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+    QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+};
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+use crate::endpoints::d14n::GetInboxIds;
+use crate::{
+    GetIdentityUpdatesV2, PublishClientEnvelopes, PublishIdentityUpdate,
+    VerifySmartContractWalletSignatures,
 };
 
-use crate::endpoints::{GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
 pub struct D14nClient<C, P, E> {
     message_client: C,
     payer_client: P,
     _marker: E,
 }
+
+trait TryCollect: IntoIterator {
+    fn try_collect<U, E>(self) -> Result<Vec<U>, E>
+    where
+        Self: Sized,
+        Self::Item: TryInto<U, Error = E>,
+        E: From<E>,
+    {
+        self.into_iter().map(|item| item.try_into().map_err(E::from)).collect()
+    }
+}
+
+// Implement the trait for all iterators
+impl<T> TryCollect for T where T: IntoIterator {}
 
 #[async_trait::async_trait]
 impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
@@ -47,7 +58,11 @@ where
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        PublishClientEnvelopes::builder()
+            .envelopes(request.try_collect()?)
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
     }
     async fn fetch_key_packages(
         &self,
@@ -59,13 +74,21 @@ where
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        PublishClientEnvelopes::builder()
+            .envelopes(request.messages.try_collect()?)
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
     }
     async fn send_welcome_messages(
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        todo!()
+        PublishClientEnvelopes::builder()
+            .envelopes(request.messages.try_collect()?)
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
     }
     async fn query_group_messages(
         &self,
@@ -94,27 +117,44 @@ where
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
-        todo!()
+        PublishIdentityUpdate::builder()
+            .identity_update(request.identity_update.unwrap())
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
     }
 
     async fn get_identity_updates_v2(
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Self::Error> {
-        todo!()
+        GetIdentityUpdatesV2::builder()
+            .requests(request.requests)
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
 
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
-        todo!()
+        GetInboxIds::builder()
+            //isn't better instead of having the list of addresses we have the same var as inside the request?
+            .addresses(request.requests.iter().map(|r| r.address.to_string()))
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
 
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        todo!()
+        VerifySmartContractWalletSignatures::builder()
+            .signatures(request.signatures)
+            .build()
+            .unwrap()
+            .query(&self.message_client)
     }
 }
