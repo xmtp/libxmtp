@@ -321,17 +321,12 @@ where
         conn: &DbConnection,
         identifiers: &[RootIdentifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
+        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
         let mut new_inbox_ids = HashMap::default();
 
         let missing: Vec<_> = identifiers
             .iter()
-            .filter(|ident| {
-                let key = format!("{ident:?}");
-                !cached_inbox_ids
-                    .iter()
-                    .any(|cached| cached.wallet_address == key)
-            })
+            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident:?}")))
             .collect();
 
         if !missing.is_empty() {
@@ -339,17 +334,12 @@ where
             new_inbox_ids = self.api_client.get_inbox_ids(identifiers).await?;
         }
 
-        let mut cached_iter = cached_inbox_ids.into_iter().peekable();
         let inbox_ids = identifiers
             .iter()
             .map(|ident| {
-                // Check the cache iter
-                if let Some(cached_inbox_id) = cached_iter.peek() {
-                    let cache_key = format!("{ident:?}");
-                    if cached_inbox_id.wallet_address == cache_key {
-                        let inbox_id = cached_iter.next().expect("Just peeked for it.").inbox_id;
-                        return Some(inbox_id);
-                    }
+                let cache_key = format!("{ident:?}");
+                if let Some(inbox_id) = cached_inbox_ids.remove(&cache_key) {
+                    return Some(inbox_id);
                 }
                 if let Some(inbox_id) = new_inbox_ids.remove(&ident.into()) {
                     return Some(inbox_id);

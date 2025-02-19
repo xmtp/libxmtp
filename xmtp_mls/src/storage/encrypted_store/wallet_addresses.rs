@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::schema::wallet_addresses;
 use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_store};
@@ -33,10 +35,15 @@ impl DbConnection {
     pub fn fetch_cached_inbox_ids(
         &self,
         identifiers: &[RootIdentifier],
-    ) -> Result<Vec<WalletEntry>, StorageError> {
+    ) -> Result<HashMap<WalletAddress, InboxId>, StorageError> {
         use crate::storage::encrypted_store::schema::wallet_addresses::dsl::{inbox_id, *};
         let keys: Vec<_> = identifiers.iter().map(|i| format!("{i:?}")).collect();
-        Ok(self.raw_query_read(|conn| wallet_addresses.filter(inbox_id.eq_any(keys)).load(conn))?)
+        let cached: Vec<WalletEntry> =
+            self.raw_query_read(|conn| wallet_addresses.filter(inbox_id.eq_any(keys)).load(conn))?;
+        Ok(cached
+            .into_iter()
+            .map(|entry| (entry.wallet_address, entry.inbox_id))
+            .collect())
     }
 }
 
