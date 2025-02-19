@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/wasm-bindings",
-  "version": "0.0.14",
+  "version": "0.0.16",
   "type": "module",
   "license": "MIT",
   "description": "WASM bindings for the libXMTP rust library",
@@ -27,10 +27,11 @@
     "build": "yarn clean && yarn build:web && yarn build:copy && yarn clean:release",
     "build:web": "cargo xtask build BindingsWasm --out-dir ./dist --plain -- --release",
     "build:copy": "node scripts/copyFiles.js",
+    "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
     "clean:release": "rm -f ./dist/package.json",
     "clean": "rm -rf ./dist",
     "lint": "yarn lint:clippy && yarn lint:fmt",
-    "lint:clippy": "cargo clippy --all-features --target wasm32-unknown-unknown --no-deps -- -Dwarnings",
+    "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"

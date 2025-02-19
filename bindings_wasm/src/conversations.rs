@@ -5,15 +5,18 @@ use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
+use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::conversation::MessageDisappearingSettings;
+use crate::consent_state::ConsentState;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{client::RustXmtpClient, conversation::Conversation};
+
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -76,47 +79,99 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 pub struct ListConversationsOptions {
   #[wasm_bindgen(js_name = allowedStates)]
   pub allowed_states: Option<Vec<GroupMembershipState>>,
+  #[wasm_bindgen(js_name = consentStates)]
+  pub consent_states: Option<Vec<ConsentState>>,
   #[wasm_bindgen(js_name = conversationType)]
   pub conversation_type: Option<ConversationType>,
   #[wasm_bindgen(js_name = createdAfterNs)]
   pub created_after_ns: Option<i64>,
   #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
+  #[wasm_bindgen(js_name = includeDuplicateDms)]
+  pub include_duplicate_dms: bool,
+  #[wasm_bindgen(js_name = includeSyncGroups)]
+  pub include_sync_groups: bool,
   pub limit: Option<i64>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
-    GroupQueryArgs::default()
-      .maybe_allowed_states(
-        opts
-          .allowed_states
-          .map(|states| states.into_iter().map(From::from).collect()),
-      )
-      .maybe_conversation_type(opts.conversation_type.map(Into::into))
-      .maybe_created_after_ns(opts.created_after_ns)
-      .maybe_created_before_ns(opts.created_before_ns)
-      .maybe_limit(opts.limit)
+    GroupQueryArgs {
+      allowed_states: opts
+        .allowed_states
+        .map(|states| states.into_iter().map(From::from).collect()),
+      consent_states: opts
+        .consent_states
+        .map(|states| states.into_iter().map(From::from).collect()),
+      conversation_type: opts.conversation_type.map(Into::into),
+      created_after_ns: opts.created_after_ns,
+      created_before_ns: opts.created_before_ns,
+      include_duplicate_dms: opts.include_duplicate_dms,
+      include_sync_groups: opts.include_sync_groups,
+      limit: opts.limit,
+    }
   }
 }
 
 #[wasm_bindgen]
 impl ListConversationsOptions {
   #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     allowed_states: Option<Vec<GroupMembershipState>>,
+    consent_states: Option<Vec<ConsentState>>,
     conversation_type: Option<ConversationType>,
     created_after_ns: Option<i64>,
     created_before_ns: Option<i64>,
+    include_duplicate_dms: bool,
+    include_sync_groups: bool,
     limit: Option<i64>,
   ) -> Self {
     Self {
       allowed_states,
+      consent_states,
       conversation_type,
       created_after_ns,
       created_before_ns,
+      include_duplicate_dms,
+      include_sync_groups,
       limit,
     }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  #[wasm_bindgen(js_name = fromNs)]
+  pub from_ns: i64,
+  #[wasm_bindgen(js_name = inNs)]
+  pub in_ns: i64,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
+  fn from(value: XmtpMessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+#[wasm_bindgen]
+impl MessageDisappearingSettings {
+  #[wasm_bindgen(constructor)]
+  pub fn new(from_ns: i64, in_ns: i64) -> Self {
+    Self { from_ns, in_ns }
   }
 }
 
@@ -216,6 +271,24 @@ impl From<XmtpHmacKey> for HmacKey {
   }
 }
 
+#[wasm_bindgen(getter_with_clone)]
+pub struct ConversationListItem {
+  pub conversation: Conversation,
+  #[wasm_bindgen(js_name = lastMessage)]
+  pub last_message: Option<Message>,
+}
+
+#[wasm_bindgen]
+impl ConversationListItem {
+  #[wasm_bindgen(constructor)]
+  pub fn new(conversation: Conversation, last_message: Option<Message>) -> Self {
+    Self {
+      conversation,
+      last_message,
+    }
+  }
+}
+
 #[wasm_bindgen]
 pub struct Conversations {
   inner_client: Arc<RustXmtpClient>,
@@ -296,6 +369,73 @@ impl Conversations {
     Ok(convo.into())
   }
 
+  #[wasm_bindgen(js_name = createGroupByInboxIds)]
+  pub async fn create_group_by_inbox_ids(
+    &self,
+    inbox_ids: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation, JsError> {
+    let options = options.unwrap_or(CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      custom_permission_policy_set: None,
+      message_disappearing_settings: None,
+    });
+
+    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
+      if options.custom_permission_policy_set.is_none() {
+        return Err(JsError::new("CustomPolicy must include policy set"));
+      }
+    } else if options.custom_permission_policy_set.is_some() {
+      return Err(JsError::new("Only CustomPolicy may specify a policy set"));
+    }
+
+    let metadata_options = options.clone().into_group_metadata_options();
+
+    let group_permissions = match options.permissions {
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::AdminOnly) => {
+        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::CustomPolicy) => {
+        if let Some(policy_set) = options.custom_permission_policy_set {
+          Some(
+            policy_set
+              .try_into()
+              .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+          )
+        } else {
+          None
+        }
+      }
+      _ => None,
+    };
+
+    let convo = if inbox_ids.is_empty() {
+      let group = self
+        .inner_client
+        .create_group(group_permissions, metadata_options)
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      group
+    } else {
+      self
+        .inner_client
+        .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+        .await
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+    };
+
+    Ok(convo.into())
+  }
+
   #[wasm_bindgen(js_name = createDm)]
   pub async fn find_or_create_dm(
     &self,
@@ -306,6 +446,24 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(
         account_address,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(convo.into())
+  }
+
+  #[wasm_bindgen(js_name = createDmByInboxId)]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation, JsError> {
+    let convo = self
+      .inner_client
+      .find_or_create_dm_by_inbox_id(
+        inbox_id,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await
@@ -368,15 +526,20 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = syncAllConversations)]
-  pub async fn sync_all_conversations(&self) -> Result<usize, JsError> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize, JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, None)
+      .sync_all_welcomes_and_groups(&provider, consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -387,14 +550,13 @@ impl Conversations {
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .find_groups(opts.unwrap_or_default().into())
+      .list_conversations(opts.unwrap_or_default().into())
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(Conversation::new(
-          self.inner_client.clone(),
-          group.group_id,
-          group.created_at_ns,
+        JsValue::from(ConversationListItem::new(
+          group.group.into(),
+          group.last_message.map(|m| m.into()),
         ))
       })
       .collect();
