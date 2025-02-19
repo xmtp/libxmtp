@@ -150,19 +150,18 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
-        let account_identifier =
-            RootIdentifier::new_ethereum("0x1234567890abcdef1234567890abcdef12345678");
+        let account_identifier = RootIdentifier::eth("0x1234567890abcdef1234567890abcdef12345678");
 
         let client_timestamp_ns: u64 = 12;
         let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
         let new_recovery_identifier =
-            RootIdentifier::new_ethereum("0x7890abcdef1234567890abcdef12345678123456");
+            RootIdentifier::eth("0x7890abcdef1234567890abcdef12345678123456");
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,
             account_identifier: account_identifier.clone(),
         };
-        let inbox_id = account_identifier.get_inbox_id(create_inbox.nonce).unwrap();
+        let inbox_id = account_identifier.inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
             new_member_identifier: MemberIdentifier::new_ethereum(&new_member_address),

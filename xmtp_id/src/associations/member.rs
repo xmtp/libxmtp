@@ -58,7 +58,7 @@ impl MemberIdentifier {
     }
 
     pub fn new_ethereum(addr: impl ToString) -> Self {
-        RootIdentifier::new_ethereum(addr).into()
+        RootIdentifier::eth(addr).into()
     }
 
     pub fn new_installation(key: impl Into<Vec<u8>>) -> Self {
@@ -119,7 +119,7 @@ impl RootIdentifier {
         }
     }
 
-    pub fn new_ethereum(addr: impl ToString) -> Self {
+    pub fn eth(addr: impl ToString) -> Self {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
@@ -132,25 +132,21 @@ impl RootIdentifier {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
                 Self::Ethereum(ident::Ethereum(ident.to_string()))
             }
-            IdentifierKind::Passkey => Self::Passkey(ident::Passkey(
-                hex::decode(ident)
-                    .map_err(|_| ConversionError::InvalidPublicKey {
+            IdentifierKind::Passkey => {
+                Self::Passkey(ident::Passkey(hex::decode(ident).map_err(|_| {
+                    ConversionError::InvalidPublicKey {
                         description: "passkey",
                         value: None,
-                    })?
-                    .try_into()
-                    .map_err(|val| ConversionError::InvalidPublicKey {
-                        description: "passkey",
-                        value: Some(hex::encode(val)),
-                    })?,
-            )),
+                    }
+                })?))
+            }
         };
         Ok(root_ident)
     }
 
     /// Get the generated inbox_id for this public identifier.
     /// The same public identifier will always give the same inbox_id.
-    pub fn get_inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
+    pub fn inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
         if !self.is_valid_address() {
             return Err(AssociationError::InvalidAccountAddress);
         }

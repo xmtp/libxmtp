@@ -693,7 +693,7 @@ pub(crate) mod tests {
     fn test_round_trip_unverified() {
         let account_identifier = RootIdentifier::rand_ethereum();
         let nonce = rand_u64();
-        let inbox_id = account_identifier.get_inbox_id(nonce).unwrap();
+        let inbox_id = account_identifier.inbox_id(nonce).unwrap();
         let client_timestamp_ns = rand_u64();
         let signature_bytes = rand_vec::<32>();
 

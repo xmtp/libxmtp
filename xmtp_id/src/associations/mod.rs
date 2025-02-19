@@ -12,7 +12,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
-pub use self::member::{Member, MemberIdentifier, MemberKind};
+pub use self::member::{Member, MemberIdentifier, MemberKind, RootIdentifier};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
@@ -128,7 +128,7 @@ pub(crate) mod tests {
         let create_request = CreateInbox::default();
         let inbox_id = create_request
             .account_identifier
-            .get_inbox_id(create_request.nonce)
+            .inbox_id(create_request.nonce)
             .unwrap();
 
         let identity_update =
@@ -164,7 +164,7 @@ pub(crate) mod tests {
         let create_request = CreateInbox::default();
         let inbox_id = create_request
             .account_identifier
-            .get_inbox_id(create_request.nonce)
+            .inbox_id(create_request.nonce)
             .unwrap();
 
         let account_address = create_request.account_identifier.clone();
@@ -215,7 +215,7 @@ pub(crate) mod tests {
     fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_identifier.clone();
-        let inbox_id = account_address.get_inbox_id(create_action.nonce).unwrap();
+        let inbox_id = account_address.inbox_id(create_action.nonce).unwrap();
         let new_member_identifier = MemberIdentifier::rand_installation();
         let add_action = AddAssociation {
             existing_member_signature: VerifiedSignature::new(
@@ -261,7 +261,7 @@ pub(crate) mod tests {
                 None,
             ),
         };
-        let inbox_id = member_identifier.get_inbox_id(0).unwrap();
+        let inbox_id = member_identifier.inbox_id(0).unwrap();
         let state = get_state(vec![IdentityUpdate::new_test(
             vec![Action::CreateInbox(create_action)],
             inbox_id.clone(),
@@ -402,7 +402,7 @@ pub(crate) mod tests {
         let create_inbox = CreateInbox::default();
         let inbox_id = create_inbox
             .account_identifier
-            .get_inbox_id(create_inbox.nonce)
+            .inbox_id(create_inbox.nonce)
             .unwrap();
 
         let create_request = Action::CreateInbox(create_inbox);
@@ -673,7 +673,7 @@ pub(crate) mod tests {
             account_identifier: signer.clone(),
         };
 
-        let inbox_id = signer.get_inbox_id(0).unwrap();
+        let inbox_id = signer.inbox_id(0).unwrap();
         let initial_state = get_state(vec![IdentityUpdate::new_test(
             vec![Action::CreateInbox(action)],
             inbox_id,

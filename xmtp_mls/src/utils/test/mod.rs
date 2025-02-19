@@ -11,9 +11,9 @@ use tokio::sync::Notify;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{
-        generate_inbox_id,
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+        RootIdentifier,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
@@ -147,11 +147,12 @@ where
     A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
+    let ident = RootIdentifier::eth(owner.get_address());
+    let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = Client::builder(IdentityStrategy::new(
         inbox_id,
-        owner.get_public_identifier(),
+        owner.get_address(),
         nonce,
         None,
     ));
@@ -183,11 +184,12 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_public_identifier(), &nonce).unwrap();
+    let ident = RootIdentifier::eth(owner.get_address());
+    let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let mut builder = Client::builder(IdentityStrategy::new(
         inbox_id,
-        owner.get_public_identifier(),
+        owner.get_address(),
         nonce,
         None,
     ))

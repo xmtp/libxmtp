@@ -38,15 +38,13 @@ pub trait WalletTestExt {
 impl WalletTestExt for LocalWallet {
     fn get_inbox_id(&self, nonce: u64) -> String {
         let addr = self.get_address();
-        RootIdentifier::new_ethereum(addr)
-            .get_inbox_id(nonce)
-            .unwrap()
+        RootIdentifier::eth(addr).inbox_id(nonce).unwrap()
     }
     fn member_identifier(&self) -> MemberIdentifier {
         self.root_identifier().into()
     }
     fn root_identifier(&self) -> RootIdentifier {
-        RootIdentifier::new_ethereum(self.get_address())
+        RootIdentifier::eth(self.get_address())
     }
 }
 
@@ -105,7 +103,7 @@ impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: RootIdentifier::new_ethereum(account_address),
+                account_identifier: RootIdentifier::eth(account_address),
                 nonce: *nonce,
             },
             UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),

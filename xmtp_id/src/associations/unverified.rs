@@ -424,7 +424,7 @@ mod tests {
         let account_identifier = RootIdentifier::rand_ethereum();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
-            inbox_id: account_identifier.get_inbox_id(nonce).unwrap(),
+            inbox_id: account_identifier.inbox_id(nonce).unwrap(),
             client_timestamp_ns: 10,
             actions: vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action: UnsignedCreateInbox {

@@ -12,7 +12,7 @@ use prost::Message;
 use thiserror::Error;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_id::InboxId;
+use xmtp_id::{associations::MemberIdentifier, InboxId};
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::{
@@ -357,7 +357,9 @@ impl ValidatedCommit {
                 .map_err(InstallationDiffError::from)?;
 
             if inbox_state
-                .get(&participant.installation_id.into())
+                .get(&MemberIdentifier::new_installation(
+                    participant.installation_id,
+                ))
                 .is_none()
             {
                 return Err(CommitValidationError::InboxValidationFailed(

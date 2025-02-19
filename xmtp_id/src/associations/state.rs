@@ -211,7 +211,7 @@ impl AssociationState {
         let account_identifier = account_identifier.sanitize();
         let member_identifier: MemberIdentifier = account_identifier.clone().into();
 
-        let inbox_id = account_identifier.get_inbox_id(nonce)?;
+        let inbox_id = account_identifier.inbox_id(nonce)?;
         let new_member = Member::new(member_identifier.clone(), None, None, chain_id);
         Ok(Self {
             members: HashMap::from_iter([(member_identifier, new_member)]),
