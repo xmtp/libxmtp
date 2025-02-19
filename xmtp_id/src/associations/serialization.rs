@@ -1,6 +1,6 @@
 use super::{
     ident::{self, Passkey},
-    member::{Member, RootIdentifier},
+    member::{HasMemberKind, Member, RootIdentifier},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -312,12 +312,17 @@ impl From<UnverifiedAction> for IdentityActionProto {
     }
 }
 
-impl From<RootIdentifier> for IdentifierKind {
-    fn from(ident: RootIdentifier) -> Self {
+impl From<&RootIdentifier> for IdentifierKind {
+    fn from(ident: &RootIdentifier) -> Self {
         match ident {
             RootIdentifier::Ethereum(_) => IdentifierKind::Ethereum,
             RootIdentifier::Passkey(_) => IdentifierKind::Passkey,
         }
+    }
+}
+impl From<RootIdentifier> for IdentifierKind {
+    fn from(ident: RootIdentifier) -> Self {
+        (&ident).into()
     }
 }
 
@@ -385,21 +390,17 @@ impl From<SmartContractWalletValidationResponseProto> for ValidationResponse {
     }
 }
 
-impl TryFrom<MemberIdentifierKindProto> for MemberIdentifier {
-    type Error = DeserializationError;
-    fn try_from(proto: MemberIdentifierKindProto) -> Result<Self, Self::Error> {
-        let ident = match proto {
+impl From<MemberIdentifierKindProto> for MemberIdentifier {
+    fn from(proto: MemberIdentifierKindProto) -> Self {
+        match proto {
             MemberIdentifierKindProto::EthereumAddress(address) => {
                 Self::Ethereum(ident::Ethereum(address))
             }
             MemberIdentifierKindProto::InstallationPublicKey(public_key) => {
                 Self::Installation(ident::Installation(public_key))
             }
-            MemberIdentifierKindProto::PasskeyPublicKey(passkey) => {
-                Self::Passkey(passkey.try_into()?)
-            }
-        };
-        Ok(ident)
+            MemberIdentifierKindProto::PasskeyPublicKey(key) => Self::Passkey(ident::Passkey(key)),
+        }
     }
 }
 
@@ -462,14 +463,9 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => Ok(
                 MemberIdentifier::Installation(ident::Installation(public_key)),
             ),
-            Some(MemberIdentifierKindProto::PasskeyPublicKey(key)) => Ok(
-                MemberIdentifier::Passkey(ident::Passkey(key.try_into().map_err(|key| {
-                    ConversionError::InvalidPublicKey {
-                        description: "passkey",
-                        value: Some(hex::encode(key)),
-                    }
-                })?)),
-            ),
+            Some(MemberIdentifierKindProto::PasskeyPublicKey(key)) => {
+                Ok(MemberIdentifier::Passkey(ident::Passkey(key)))
+            }
             None => Err(ConversionError::Missing {
                 item: "member_identifier",
                 r#type: std::any::type_name::<MemberIdentifierKindProto>(),
@@ -489,10 +485,13 @@ impl From<AssociationState> for AssociationStateProto {
             })
             .collect();
 
+        let kind: IdentifierKind = (&state.recovery_identifier).into();
+
         AssociationStateProto {
             inbox_id: state.inbox_id,
             members,
-            recovery_identifier: state.recovery_identifier,
+            recovery_identifier: state.recovery_identifier.to_string(),
+            recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
         }
     }
@@ -502,6 +501,11 @@ impl TryFrom<AssociationStateProto> for AssociationState {
     type Error = ConversionError;
 
     fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
+        let recovery_identifier = RootIdentifier::from_proto(
+            &proto.recovery_identifier,
+            proto.recovery_identifier_kind(),
+        )?;
+
         let members = proto
             .members
             .into_iter()
@@ -523,10 +527,11 @@ impl TryFrom<AssociationStateProto> for AssociationState {
                 Ok((key, value))
             })
             .collect::<Result<HashMap<MemberIdentifier, Member>, ConversionError>>()?;
+
         Ok(AssociationState {
             inbox_id: proto.inbox_id,
             members,
-            recovery_identifier: proto.recovery_identifier,
+            recovery_identifier,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
         })
     }
@@ -679,17 +684,16 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::hashes::generate_inbox_id;
-    use xmtp_common::{rand_hexstring, rand_u64, rand_vec};
+    use xmtp_common::{rand_u64, rand_vec};
 
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip_unverified() {
-        let account_address = rand_hexstring();
+        let account_identifier = RootIdentifier::rand_ethereum();
         let nonce = rand_u64();
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let inbox_id = account_identifier.get_inbox_id(nonce).unwrap();
         let client_timestamp_ns = rand_u64();
         let signature_bytes = rand_vec::<32>();
 
@@ -703,7 +707,7 @@ pub(crate) mod tests {
                     ),
                     unsigned_action: UnsignedCreateInbox {
                         nonce,
-                        account_address,
+                        account_identifier,
                     },
                 }),
                 UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
@@ -712,15 +716,15 @@ pub(crate) mod tests {
                         4, 5, 6,
                     ]),
                     unsigned_action: UnsignedAddAssociation {
-                        new_member_identifier: rand_hexstring().into(),
+                        new_member_identifier: MemberIdentifier::rand_ethereum(),
                     },
                 }),
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                        7, 8, 9,
-                    ]),
+                    recovery_identifier_signature: UnverifiedSignature::new_recoverable_ecdsa(
+                        vec![7, 8, 9],
+                    ),
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_identifier: rand_hexstring(),
+                        new_recovery_identifier: RootIdentifier::rand_ethereum(),
                     },
                 }),
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
@@ -728,7 +732,7 @@ pub(crate) mod tests {
                         vec![10, 11, 12],
                     ),
                     unsigned_action: UnsignedRevokeAssociation {
-                        revoked_member: rand_hexstring().into(),
+                        revoked_member: MemberIdentifier::rand_ethereum(),
                     },
                 }),
             ],

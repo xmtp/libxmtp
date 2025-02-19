@@ -45,7 +45,7 @@ pub mod test_defaults {
         verified_signature::VerifiedSignature,
     };
     use super::{member::RootIdentifier, *};
-    use xmtp_common::{rand_hexstring, rand_u64, rand_vec};
+    use xmtp_common::{rand_u64, rand_vec};
 
     impl IdentityUpdate {
         pub fn new_test(actions: Vec<Action>, inbox_id: String) -> Self {

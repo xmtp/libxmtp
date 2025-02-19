@@ -419,12 +419,12 @@ pub(crate) mod tests {
             get_state,
             test_utils::{
                 add_installation_key_signature, add_wallet_signature,
-                MockSmartContractSignatureVerifier,
+                MockSmartContractSignatureVerifier, WalletTestExt,
             },
             unverified::UnverifiedRecoverableEcdsaSignature,
             IdentityUpdate,
         },
-        InboxOwner, WalletTestExt,
+        InboxOwner,
     };
 
     use super::*;
