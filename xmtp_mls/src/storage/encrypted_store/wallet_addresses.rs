@@ -1,11 +1,12 @@
 use super::schema::wallet_addresses;
 use crate::storage::{DbConnection, StorageError};
-use crate::{impl_fetch, impl_fetch_list_with_key, impl_store, FetchListWithKey};
+use crate::{impl_fetch, impl_store};
 use diesel::prelude::*;
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use sqlite_web::dsl::RunQueryDsl;
+use xmtp_id::associations::RootIdentifier;
 use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
@@ -27,14 +28,15 @@ impl WalletEntry {
 
 impl_store!(WalletEntry, wallet_addresses);
 impl_fetch!(WalletEntry, wallet_addresses);
-impl_fetch_list_with_key!(WalletEntry, wallet_addresses, InboxId, inbox_id);
 
 impl DbConnection {
-    pub fn fetch_wallets_list_with_key(
+    pub fn fetch_cached_inbox_ids(
         &self,
-        keys: &[InboxId],
+        identifiers: &[RootIdentifier],
     ) -> Result<Vec<WalletEntry>, StorageError> {
-        self.fetch_list_with_key(keys)
+        use crate::storage::encrypted_store::schema::wallet_addresses::dsl::{inbox_id, *};
+        let keys: Vec<_> = identifiers.iter().map(|i| format!("{i:?}")).collect();
+        Ok(self.raw_query_read(|conn| wallet_addresses.filter(inbox_id.eq_any(keys)).load(conn))?)
     }
 }
 
@@ -105,7 +107,7 @@ pub(crate) mod tests {
             // Fetch wallets with inbox_ids "fetch_test1" and "fetch_test2"
             let inbox_ids = vec!["fetch_test1".to_string(), "fetch_test2".to_string()];
             let fetched_wallets: Vec<WalletEntry> =
-                conn.fetch_list_with_key(&inbox_ids).unwrap_or_default();
+                conn.load_cached_inbox_ids(&inbox_ids).unwrap_or_default();
 
             // Verify that 3 entries are fetched (2 from "fetch_test1" and 1 from "fetch_test2")
             assert_eq!(
@@ -172,7 +174,7 @@ pub(crate) mod tests {
             // Fetch wallets with inbox_ids "test1" and "test3"
             let inbox_ids = vec!["test1".to_string(), "test3".to_string()];
             let stored_wallets: Vec<WalletEntry> =
-                conn.fetch_list_with_key(&inbox_ids).unwrap_or_default();
+                conn.load_cached_inbox_ids(&inbox_ids).unwrap_or_default();
 
             // Verify that 3 entries are fetched (2 from "test1" and 1 from "test3")
             assert_eq!(

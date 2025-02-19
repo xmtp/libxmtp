@@ -1,6 +1,6 @@
 use super::{
-    ident::{self, Passkey},
-    member::{HasMemberKind, Member, RootIdentifier},
+    ident,
+    member::{Member, RootIdentifier},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -21,7 +21,7 @@ use prost::{DecodeError, Message};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_cryptography::signature::sanitize_evm_addresses;
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
@@ -79,6 +79,8 @@ pub enum DeserializationError {
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
     #[error("Unable to deserialize")]
     Bincode,
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {

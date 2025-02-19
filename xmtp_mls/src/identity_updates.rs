@@ -303,7 +303,7 @@ where
     }
 
     /// Revoke the given wallets from the association state for the client's inbox
-    pub async fn revoke_identity(
+    pub async fn revoke_identities(
         &self,
         wallets_to_revoke: Vec<RootIdentifier>,
     ) -> Result<SignatureRequest, ClientError> {
@@ -645,7 +645,7 @@ pub(crate) mod tests {
         let wallet2 = generate_local_wallet();
 
         let mut request = client
-            .associate_identifier(wallet2.root_identifier())
+            .associate_identity(wallet2.root_identifier())
             .await
             .unwrap();
         add_wallet_signature(&mut request, &wallet2).await;
@@ -713,7 +713,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut add_association_request = client
-            .associate_identifier(wallet2_ident.to_string())
+            .associate_identity(wallet2_ident.clone())
             .await
             .unwrap();
 
@@ -744,8 +744,6 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
-            let wallet_ident = wallet.root_identifier();
-            let wallet2_ident = wallet_2.root_identifier();
             let client = ClientBuilder::new_test_client(&wallet).await;
             let inbox_id = client.inbox_id();
 
@@ -757,16 +755,19 @@ pub(crate) mod tests {
             let association_state = get_association_state(&client, inbox_id).await;
 
             assert_eq!(association_state.members().len(), 2);
-            assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+            assert_eq!(
+                association_state.recovery_identifier(),
+                &wallet.root_identifier()
+            );
             assert!(association_state
-                .get(&wallet_ident.clone().into())
+                .get(&wallet.root_identifier().into())
                 .is_some());
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
-                .associate_eth_wallet(format!("{wallet2_ident}"))
+                .associate_identity(wallet_2.root_identifier())
                 .await
                 .unwrap();
 
@@ -788,8 +789,11 @@ pub(crate) mod tests {
             assert_logged!("Wrote association", 2);
 
             assert_eq!(association_state.members().len(), 3);
-            assert_eq!(association_state.recovery_identifier(), &wallet_ident);
-            assert!(association_state.get(&wallet2_ident.into()).is_some());
+            assert_eq!(
+                association_state.recovery_identifier(),
+                &wallet.root_identifier()
+            );
+            assert!(association_state.get(&wallet_2.root_identifier()).is_some());
         });
     }
 
@@ -847,7 +851,7 @@ pub(crate) mod tests {
                 .unwrap();
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
-                .associate_eth_wallet(new_wallet.get_address())
+                .associate_identity(new_wallet.root_identifier())
                 .await
                 .unwrap();
 
@@ -927,7 +931,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&recovery_wallet).await;
 
         let mut add_wallet_signature_request = client
-            .associate_eth_wallet(second_wallet.get_address())
+            .associate_identity(second_wallet.root_identifier())
             .await
             .unwrap();
 
@@ -952,7 +956,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_wallets(vec![second_wallet.root_identifier().into()])
+            .revoke_identity(vec![second_wallet.root_identifier().into()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
@@ -970,7 +974,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_address()])
+            .get_inbox_ids(vec![second_wallet.root_identifier().into()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 0);

@@ -1,4 +1,4 @@
-use super::{ident, AssociationError};
+use super::{ident, AssociationError, DeserializationError};
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest, Sha256};
 use std::{
@@ -282,6 +282,20 @@ impl From<&RootIdentifier> for ApiIdentifier {
 impl From<RootIdentifier> for ApiIdentifier {
     fn from(ident: RootIdentifier) -> Self {
         (&ident).into()
+    }
+}
+impl TryFrom<ApiIdentifier> for RootIdentifier {
+    type Error = DeserializationError;
+    fn try_from(ident: ApiIdentifier) -> Result<Self, Self::Error> {
+        let ident = match ident.identifier_kind {
+            IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
+                RootIdentifier::eth(ident.identifier)?
+            }
+            IdentifierKind::Passkey => RootIdentifier::Passkey(ident::Passkey(
+                hex::decode(ident.identifier).map_err(|_| DeserializationError::InvalidPasskey)?,
+            )),
+        };
+        Ok(ident)
     }
 }
 

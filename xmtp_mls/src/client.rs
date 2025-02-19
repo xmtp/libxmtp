@@ -14,7 +14,7 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, MemberIdentifier, SignatureError,
+        AssociationError, AssociationState, MemberIdentifier, RootIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
@@ -303,64 +303,60 @@ where
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given address
-    pub async fn find_inbox_id_from_address(
+    pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
-        address: String,
+        address: RootIdentifier,
     ) -> Result<Option<String>, ClientError> {
-        let results = self.find_inbox_ids_from_addresses(conn, &[address]).await?;
+        let results = self
+            .find_inbox_ids_from_identifiers(conn, &[address])
+            .await?;
         Ok(results.into_iter().next().flatten())
     }
 
     /// Calls the server to look up the `inbox_id`s` associated with a list of addresses.
     /// If no `inbox_id` is found, returns None.
-    pub(crate) async fn find_inbox_ids_from_addresses(
+    pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
         conn: &DbConnection,
-        addresses: &[String],
+        identifiers: &[RootIdentifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let sanitized_addresses = sanitize_evm_addresses(addresses)?;
+        let cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
+        let mut new_inbox_ids = HashMap::default();
 
-        let local_results: Vec<WalletEntry> =
-            conn.fetch_wallets_list_with_key(&sanitized_addresses)?;
-
-        let mut results: HashMap<String, String> = local_results
-            .into_iter()
-            .map(|entry| (entry.wallet_address, entry.inbox_id))
-            .collect();
-
-        let missing_addresses: Vec<String> = sanitized_addresses
+        let missing: Vec<_> = identifiers
             .iter()
-            .filter(|address| !results.contains_key(*address))
-            .cloned()
+            .filter(|ident| {
+                let key = format!("{ident:?}");
+                !cached_inbox_ids
+                    .iter()
+                    .any(|cached| cached.wallet_address == key)
+            })
             .collect();
 
-        if missing_addresses.is_empty() {
-            let inbox_ids: Vec<Option<String>> = sanitized_addresses
-                .iter()
-                .map(|address| results.remove(address))
-                .collect();
-            return Ok(inbox_ids);
+        if !missing.is_empty() {
+            let identifiers = identifiers.iter().map(Into::into).collect();
+            new_inbox_ids = self.api_client.get_inbox_ids(identifiers).await?;
         }
 
-        let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
-
-        for (address, inbox_id) in web_results {
-            results
-                .insert(address.clone(), inbox_id.clone())
-                .unwrap_or_default();
-            let new_entry = WalletEntry {
-                inbox_id: InboxId::from(inbox_id),
-                wallet_address: address,
-            };
-            new_entry.store(conn).ok();
-        }
-
-        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+        let mut cached_iter = cached_inbox_ids.into_iter().peekable();
+        let inbox_ids = identifiers
             .iter()
-            .map(|address| results.remove(address))
+            .map(|ident| {
+                // Check the cache iter
+                if let Some(cached_inbox_id) = cached_iter.peek() {
+                    let cache_key = format!("{ident:?}");
+                    if cached_inbox_id.wallet_address == cache_key {
+                        let inbox_id = cached_iter.next().expect("Just peeked for it.").inbox_id;
+                        return Some(inbox_id);
+                    }
+                }
+                if let Some(inbox_id) = new_inbox_ids.remove(&ident.into()) {
+                    return Some(inbox_id);
+                }
+                None
+            })
             .collect();
-
         Ok(inbox_ids)
     }
 
