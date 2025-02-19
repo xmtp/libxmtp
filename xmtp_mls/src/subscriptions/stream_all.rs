@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
-    // #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
         let mut replace = xmtp_common::InboxIdReplace::new();

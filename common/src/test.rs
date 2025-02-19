@@ -43,7 +43,7 @@ impl InboxIdReplace {
 impl Drop for InboxIdReplace {
     fn drop(&mut self) {
         let mut ids = REPLACE_IDS.lock();
-        for id in &self.ids.keys() {
+        for id in self.ids.keys() {
             let _ = ids.remove(id.as_str());
         }
     }
