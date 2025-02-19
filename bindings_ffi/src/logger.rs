@@ -13,12 +13,16 @@ mod android {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
+        use tracing_subscriber::EnvFilter;
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
         vec![
             paranoid_android::layer(env!("CARGO_PKG_NAME"))
                 .with_thread_names(true)
-                .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG),
-            tracing_android_trace::AndroidTraceAsyncLayer::new().with_filter(api_calls_filter),
+                .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+                .boxed(),
+            tracing_android_trace::AndroidTraceAsyncLayer::new()
+                .with_filter(api_calls_filter)
+                .boxed(),
         ]
     }
 }

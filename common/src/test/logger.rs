@@ -40,7 +40,7 @@ impl Contextual {
     fn format_event(event: &Event, writer: &mut String) -> fmt::Result {
         let mut message = String::new();
         if let Some(msg) = event.message() {
-            message = message + msg;
+            message += msg;
             let ids = super::REPLACE_IDS.lock();
             for (id, name) in ids.iter() {
                 message = message.replace(id, name);

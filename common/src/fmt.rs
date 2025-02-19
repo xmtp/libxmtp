@@ -5,9 +5,8 @@ pub fn truncate_hex(hex_string: impl AsRef<str>) -> String {
         return String::new();
     }
 
-    // Determine if string has 0x prefix
-    let hex_value = if hex_string.starts_with("0x") {
-        &hex_string[2..]
+    let hex_value = if let Some(hex_value) = hex_string.strip_prefix("0x") {
+        hex_value
     } else {
         hex_string
     };

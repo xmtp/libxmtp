@@ -26,17 +26,12 @@ static INIT: OnceLock<()> = OnceLock::new();
 static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
+#[derive(Default)]
 pub struct InboxIdReplace {
     ids: HashMap<String, String>,
 }
 
 impl InboxIdReplace {
-    pub fn new() -> Self {
-        Self {
-            ids: HashMap::new(),
-        }
-    }
-
     pub fn add(&mut self, id: &str, name: &str) {
         self.ids.insert(id.to_string(), name.to_string());
         let mut ids = REPLACE_IDS.lock();
@@ -48,7 +43,7 @@ impl InboxIdReplace {
 impl Drop for InboxIdReplace {
     fn drop(&mut self) {
         let mut ids = REPLACE_IDS.lock();
-        for (id, _name) in &self.ids {
+        for id in &self.ids.keys() {
             let _ = ids.remove(id.as_str());
         }
     }
