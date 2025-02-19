@@ -146,7 +146,7 @@ where
         Ok(result.messages.into_iter().next())
     }
 
-    #[tracing::instrument(level = "debug", skip(self), fields(installation_id = hex::encode(&installation_id)))]
+    #[tracing::instrument(level = "debug", skip(self), fields(installation_id = hex::encode(installation_id)))]
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,

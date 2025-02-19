@@ -111,7 +111,7 @@ where
     fn on_bytes(bytes: bytes::Bytes, remaining: &mut Vec<u8>) -> Result<Vec<R>, HttpClientError> {
         let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
         remaining.clear();
-        let de = Deserializer::from_slice(&bytes);
+        let de = Deserializer::from_slice(bytes);
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
         let mut items = Vec::new();
         while let Some(item) = deser_stream.next() {
