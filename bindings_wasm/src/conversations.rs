@@ -143,12 +143,23 @@ impl ListConversationsOptions {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct MessageDisappearingSettings {
+  #[wasm_bindgen(js_name = fromNs)]
   pub from_ns: i64,
+  #[wasm_bindgen(js_name = inNs)]
   pub in_ns: i64,
 }
 
 impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
   fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
+  fn from(value: XmtpMessageDisappearingSettings) -> Self {
     Self {
       from_ns: value.from_ns,
       in_ns: value.in_ns,
