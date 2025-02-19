@@ -3,12 +3,12 @@
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
 
-use xmtp_api_grpc::GrpcError;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
 
+use crate::PublishClientEnvelopes;
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
     PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
@@ -18,12 +18,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
-};
-use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-use crate::endpoints::d14n::GetInboxIds;
-use crate::{
-    GetIdentityUpdatesV2, PublishClientEnvelopes, PublishIdentityUpdate,
-    VerifySmartContractWalletSignatures,
 };
 
 pub struct D14nClient<C, P, E> {
@@ -39,7 +33,9 @@ trait TryCollect: IntoIterator {
         Self::Item: TryInto<U, Error = E>,
         E: From<E>,
     {
-        self.into_iter().map(|item| item.try_into().map_err(E::from)).collect()
+        self.into_iter()
+            .map(|item| item.try_into().map_err(E::from))
+            .collect()
     }
 }
 
@@ -117,8 +113,8 @@ where
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
-        PublishIdentityUpdate::builder()
-            .identity_update(request.identity_update.unwrap())
+        PublishClientEnvelopes::builder()
+            .envelopes(request.identity_update.try_collect()?)
             .build()
             .unwrap()
             .query(&self.payer_client)
@@ -128,33 +124,20 @@ where
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Self::Error> {
-        GetIdentityUpdatesV2::builder()
-            .requests(request.requests)
-            .build()
-            .unwrap()
-            .query(&self.message_client)
+        todo!()
     }
 
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
-        GetInboxIds::builder()
-            //isn't better instead of having the list of addresses we have the same var as inside the request?
-            .addresses(request.requests.iter().map(|r| r.address.to_string()))
-            .build()
-            .unwrap()
-            .query(&self.message_client)
+        todo!()
     }
 
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        VerifySmartContractWalletSignatures::builder()
-            .signatures(request.signatures)
-            .build()
-            .unwrap()
-            .query(&self.message_client)
+        todo!()
     }
 }
