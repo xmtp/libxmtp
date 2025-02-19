@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::schema::wallet_addresses;
 use crate::storage::{DbConnection, StorageError};
-use crate::{impl_fetch, impl_store};
+use crate::{impl_fetch, impl_store, Store};
 use diesel::prelude::*;
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,8 @@ use xmtp_id::{InboxId, WalletAddress};
 #[diesel(table_name = wallet_addresses)]
 #[diesel()]
 pub struct WalletEntry {
-    pub inbox_id: InboxId,
-    pub wallet_address: WalletAddress,
+    inbox_id: InboxId,
+    wallet_address: WalletAddress,
 }
 
 impl WalletEntry {
@@ -45,10 +45,24 @@ impl DbConnection {
             .map(|entry| (entry.wallet_address, entry.inbox_id))
             .collect())
     }
+
+    pub fn cache_inbox_id(
+        &self,
+        identifier: &RootIdentifier,
+        inbox_id: impl ToString,
+    ) -> Result<(), StorageError> {
+        WalletEntry {
+            inbox_id: inbox_id.to_string(),
+            wallet_address: format!("{identifier:?}"),
+        }
+        .store(self)
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use xmtp_id::associations::RootIdentifier;
+
     use crate::storage::wallet_addresses::WalletEntry;
     use crate::{storage::encrypted_store::tests::with_connection, FetchListWithKey, Store};
 
@@ -155,58 +169,20 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_store_wallet_addresses() {
         with_connection(|conn| {
-            let new_entry1 = WalletEntry {
-                inbox_id: "test1".to_string(),
-                wallet_address: "wallet1".to_string(),
-            };
-            let new_entry2 = WalletEntry {
-                inbox_id: "test1".to_string(),
-                wallet_address: "wallet2".to_string(),
-            };
-            let new_entry3 = WalletEntry {
-                inbox_id: "test3".to_string(),
-                wallet_address: "wallet3".to_string(),
-            };
-            let new_entry4 = WalletEntry {
-                inbox_id: "test4".to_string(),
-                wallet_address: "wallet4".to_string(),
-            };
+            let ident1 = RootIdentifier::rand_ethereum();
+            let ident1_inbox = ident1.inbox_id(0).unwrap();
+            let ident2 = RootIdentifier::rand_ethereum();
 
-            // Store each wallet
-            new_entry1.store(conn).unwrap();
-            new_entry2.store(conn).unwrap();
-            new_entry3.store(conn).unwrap();
-            new_entry4.store(conn).unwrap();
+            conn.cache_inbox_id(&ident1, &ident1_inbox).unwrap();
+            let idents = &[ident1, ident2];
+            let stored_wallets = conn.fetch_cached_inbox_ids(idents).unwrap();
 
-            // Fetch wallets with inbox_ids "test1" and "test3"
-            let inbox_ids = vec!["test1".to_string(), "test3".to_string()];
-            let stored_wallets: Vec<WalletEntry> =
-                conn.load_cached_inbox_ids(&inbox_ids).unwrap_or_default();
+            // Verify that 1 entries are fetched
+            assert_eq!(stored_wallets.len(), 1);
 
-            // Verify that 3 entries are fetched (2 from "test1" and 1 from "test3")
-            assert_eq!(
-                stored_wallets.len(),
-                3,
-                "Expected 3 wallets with inbox_ids 'test1' and 'test3', found {}",
-                stored_wallets.len()
-            );
-
-            let fetched_addresses: Vec<String> = stored_wallets
-                .iter()
-                .map(|w| w.wallet_address.clone())
-                .collect();
-            assert!(
-                fetched_addresses.contains(&"wallet1".to_string()),
-                "wallet1 not found in fetched results"
-            );
-            assert!(
-                fetched_addresses.contains(&"wallet2".to_string()),
-                "wallet2 not found in fetched results"
-            );
-            assert!(
-                fetched_addresses.contains(&"wallet3".to_string()),
-                "wallet3 not found in fetched results"
-            );
+            // Verify it's the correct inbox_id
+            let cached_inbox_id = stored_wallets.get(&format!("{:?}", idents[0])).unwrap();
+            assert_eq!(*cached_inbox_id, ident1_inbox);
         })
         .await;
     }
