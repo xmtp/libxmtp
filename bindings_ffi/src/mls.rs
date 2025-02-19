@@ -2643,7 +2643,7 @@ mod tests {
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
         fn get_address(&self) -> String {
-            self.wallet.get_public_identifier()
+            self.wallet.get_address()
         }
 
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
@@ -3055,7 +3055,7 @@ mod tests {
 
         // Now, add the second wallet to the client
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_public_identifier();
+        let new_account_address = wallet_to_add.get_address();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -3122,7 +3122,7 @@ mod tests {
         // Now, add the second wallet to the client
 
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_public_identifier();
+        let new_account_address = wallet_to_add.get_address();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -6332,7 +6332,7 @@ mod tests {
         let wallet_a = generate_local_wallet();
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_public_identifier(), &1).unwrap();
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6340,7 +6340,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_public_identifier(),
+            wallet_a.get_address(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6355,7 +6355,7 @@ mod tests {
 
         // Step 4: Associate wallet B to inbox A
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_public_identifier())
+            .add_wallet(&wallet_b.get_address())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6377,7 +6377,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            wallet_b.get_public_identifier(),
+            wallet_b.get_address(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6396,7 +6396,7 @@ mod tests {
         let bo_dm = bo
             .conversations()
             .find_or_create_dm(
-                wallet_a.get_public_identifier().clone(),
+                wallet_a.get_address().clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -6435,8 +6435,7 @@ mod tests {
         assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
-        let client_b_inbox_id =
-            generate_inbox_id(&wallet_b.get_public_identifier(), &nonce).unwrap();
+        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &nonce).unwrap();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6444,7 +6443,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            wallet_b.get_public_identifier(),
+            wallet_b.get_address(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6469,7 +6468,7 @@ mod tests {
     async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
         // Step 1: Wallet A creates a new client with inbox_id A
         let wallet_a = generate_local_wallet();
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_public_identifier(), &1).unwrap();
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6477,7 +6476,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_public_identifier(),
+            wallet_a.get_address(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6489,7 +6488,7 @@ mod tests {
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
-        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_public_identifier(), &1).unwrap();
+        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &1).unwrap();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6497,7 +6496,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_public_identifier(),
+            wallet_b.get_address(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6515,7 +6514,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_public_identifier(),
+            wallet_b.get_address(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6525,7 +6524,7 @@ mod tests {
 
         // Step 4: Client A adds association to wallet B
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_public_identifier())
+            .add_wallet(&wallet_b.get_address())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6544,7 +6543,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_public_identifier(),
+            wallet_b.get_address(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),

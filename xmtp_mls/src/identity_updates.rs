@@ -945,7 +945,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_public_identifier()])
+            .get_inbox_ids(vec![second_wallet.get_address()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 1);
@@ -953,7 +953,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_wallets(vec![second_wallet.get_public_identifier()])
+            .revoke_wallets(vec![second_wallet.get_address()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
@@ -971,7 +971,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_public_identifier()])
+            .get_inbox_ids(vec![second_wallet.get_address()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 0);
