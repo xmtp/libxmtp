@@ -377,22 +377,6 @@ mod tests {
         })
         .await;
 
-        tracing::info!("Total Messages: {}", messages.len());
-        tracing::info!("--------------------------");
-        tracing::info!("PUBLISHED");
-        tracing::info!("--------------------------");
-        let published = crate::PUBLISHED.lock();
-        let processed = crate::PROCESSED.lock();
-        for i in published.iter() {
-            tracing::info!("{:?}", i);
-        }
-        tracing::info!("--------------------------");
-        tracing::info!("PROCESSED");
-        tracing::info!("--------------------------");
-
-        for (cursor, i) in processed.iter() {
-            tracing::info!("cursor = {}, Intent={:?}", cursor, i);
-        }
         assert_eq!(messages.len(), 6);
     }
 

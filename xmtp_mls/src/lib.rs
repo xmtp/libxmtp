@@ -26,14 +26,6 @@ use tokio::sync::Mutex as TokioMutex;
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
 
-#[cfg(test)]
-pub static PUBLISHED: once_cell::sync::Lazy<Mutex<Vec<storage::group_intent::StoredGroupIntent>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
-#[cfg(test)]
-pub static PROCESSED: once_cell::sync::Lazy<
-    Mutex<Vec<(u64, storage::group_intent::StoredGroupIntent)>>,
-> = once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
-
 /// A manager for group-specific semaphores
 #[derive(Debug)]
 pub struct GroupCommitLock {
@@ -93,7 +85,7 @@ pub struct MlsGroupGuard {
 }
 
 // Static instance of `GroupCommitLock`
-pub static MLS_COMMIT_LOCK: LazyLock<GroupCommitLock> = LazyLock::new(GroupCommitLock::new);
+// pub static MLS_COMMIT_LOCK: LazyLock<GroupCommitLock> = LazyLock::new(GroupCommitLock::new);
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {

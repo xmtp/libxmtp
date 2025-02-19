@@ -112,7 +112,6 @@ where
 
             id_cursor = Some(paging_info.id_cursor);
         }
-
         Ok(out)
     }
 

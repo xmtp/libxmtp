@@ -45,6 +45,7 @@ use crate::storage::{
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
+use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
@@ -67,7 +68,7 @@ use crate::{
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    Store, MLS_COMMIT_LOCK,
+    Store,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
@@ -281,6 +282,7 @@ pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     pub client: Arc<C>,
+    mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -309,6 +311,7 @@ impl<C> Clone for MlsGroup<C> {
             created_at_ns: self.created_at_ns,
             client: self.client.clone(),
             mutex: self.mutex.clone(),
+            mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
 }
@@ -415,11 +418,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         created_at_ns: i64,
     ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
+        let context = client.context();
         Self {
             group_id: group_id.clone(),
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             client,
+            mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
@@ -447,7 +452,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock synchronously using blocking_lock
-        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone());
+        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -478,7 +483,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             hex::encode(&group_id)
         );
         // Acquire the lock asynchronously
-        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
         tracing::info!("LOADING GROUP");
 
         // Load the MLS group

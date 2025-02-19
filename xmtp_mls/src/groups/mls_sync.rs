@@ -493,11 +493,6 @@ where
             intent.kind,
             message_epoch
         );
-        #[cfg(test)]
-        {
-            let mut w = crate::PROCESSED.lock();
-            w.push((*cursor, intent.clone()));
-        }
 
         if let Some((staged_commit, validated_commit)) = commit {
             tracing::info!(
@@ -1280,11 +1275,6 @@ where
                             intent.id,
                             intent.kind
                         );
-                        #[cfg(test)]
-                        {
-                            let mut w = crate::PUBLISHED.lock();
-                            w.push(intent.clone());
-                        }
                         if has_staged_commit {
                             tracing::info!("Commit sent. Stopping further publishes for this round");
                             return Ok(());
