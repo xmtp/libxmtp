@@ -4,6 +4,7 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::group::ConversationType;
 
 use crate::client::RustXmtpClient;
+use crate::conversations::MessageDisappearingSettings;
 use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
@@ -557,6 +558,55 @@ impl Conversation {
       )
       .await
       .map_err(Into::into)
+  }
+
+  #[wasm_bindgen(js_name = updateMessageDisappearingSettings)]
+  pub async fn update_message_disappearing_settings(
+    &self,
+    settings: MessageDisappearingSettings,
+  ) -> Result<(), JsError> {
+    self
+      .to_mls_group()
+      .update_conversation_message_disappearing_settings(settings.into())
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = removeMessageDisappearingSettings)]
+  pub async fn remove_message_disappearing_settings(&self) -> Result<(), JsError> {
+    self
+      .to_mls_group()
+      .remove_conversation_message_disappearing_settings()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  pub fn message_disappearing_settings(
+    &self,
+  ) -> Result<Option<MessageDisappearingSettings>, JsError> {
+    let settings = self
+      .inner_client
+      .group_disappearing_settings(self.group_id.clone())
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    match settings {
+      Some(s) => Ok(Some(s.into())),
+      None => Ok(None),
+    }
+  }
+
+  #[wasm_bindgen(js_name = isMessageDisappearingEnabled)]
+  pub fn is_message_disappearing_enabled(&self) -> Result<bool, JsError> {
+    self.message_disappearing_settings().map(|settings| {
+      settings
+        .as_ref()
+        .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+    })
   }
 }
 
