@@ -75,7 +75,7 @@ impl Client {
   pub async fn revoke_wallet_signature_text(&self, wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client()
-      .revoke_wallets(vec![wallet_address.to_lowercase()])
+      .revoke_eth_wallets(vec![wallet_address.to_lowercase()])
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();

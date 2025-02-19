@@ -49,7 +49,7 @@ impl VerifiedSignature {
         let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
 
         Ok(Self::new(
-            MemberIdentifier::new_ethereum(address),
+            MemberIdentifier::eth(address),
             SignatureKind::Erc191,
             normalized_signature_bytes.to_vec(),
             None,
@@ -93,7 +93,7 @@ impl VerifiedSignature {
             signature_bytes.try_into()?,
         )?;
         Ok(Self::new(
-            MemberIdentifier::new_installation(verifying_key.as_bytes().to_vec()),
+            MemberIdentifier::installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
             None,
@@ -114,12 +114,12 @@ impl VerifiedSignature {
         let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
         let address = h160addr_to_string(public_key_to_address(&public_key));
 
-        if MemberIdentifier::new_ethereum(address) != verified_legacy_signature.signer {
+        if MemberIdentifier::eth(address) != verified_legacy_signature.signer {
             return Err(SignatureError::Invalid);
         }
 
         Ok(Self::new(
-            MemberIdentifier::new_ethereum(signed_public_key.account_address),
+            MemberIdentifier::eth(signed_public_key.account_address),
             SignatureKind::LegacyDelegated,
             // Must use the wallet signature bytes, since those are the ones we care about making unique.
             // This protects against using the legacy key more than once in the Identity Update Log
@@ -150,7 +150,7 @@ impl VerifiedSignature {
             *block_number = response.block_number;
 
             Ok(Self::new(
-                MemberIdentifier::new_ethereum(account_id.get_account_address()),
+                MemberIdentifier::eth(account_id.get_account_address()),
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
                 Some(account_id.get_chain_id_u64()?),
@@ -378,10 +378,7 @@ mod tests {
         )
         .await
         .expect("should validate");
-        assert_eq!(
-            verified_sig.signer,
-            MemberIdentifier::new_ethereum(account_address)
-        );
+        assert_eq!(verified_sig.signer, MemberIdentifier::eth(account_address));
         assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
         assert_eq!(verified_sig.raw_bytes, signature_bytes);
         assert_eq!(verified_sig.chain_id, Some(chain_id));

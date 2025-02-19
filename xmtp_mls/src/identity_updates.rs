@@ -10,12 +10,12 @@ use xmtp_id::{
     associations::{
         apply_update,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, get_state,
+        get_state,
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
         AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
-        InstallationKeyContext, MemberIdentifier, SignatureError,
+        InstallationKeyContext, MemberIdentifier, RootIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     AsIdRef, InboxIdRef,
@@ -240,20 +240,19 @@ where
     /// If no nonce is provided, use 0
     pub async fn create_inbox(
         &self,
-        wallet_address: String,
+        root_identifier: RootIdentifier,
         maybe_nonce: Option<u64>,
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
-        let inbox_id = generate_inbox_id(&wallet_address, &nonce)?;
+        let inbox_id = root_identifier.inbox_id(nonce)?;
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let member_identifier: MemberIdentifier = wallet_address.to_lowercase().into();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder
-            .create_inbox(member_identifier.clone(), nonce)
+            .create_inbox(root_identifier.clone(), nonce)
             .add_association(
-                installation_public_key.as_bytes().to_vec().into(),
-                member_identifier,
+                MemberIdentifier::installation(installation_public_key.as_bytes().to_vec()),
+                root_identifier.into(),
             )
             .build();
 
@@ -284,7 +283,7 @@ where
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let new_member_identifier = MemberIdentifier::Ethereum(new_wallet_address);
+        let new_member_identifier = MemberIdentifier::eth(new_wallet_address);
 
         let mut signature_request = builder
             .add_association(new_member_identifier, installation_public_key.into())
@@ -305,7 +304,7 @@ where
     }
 
     /// Revoke the given wallets from the association state for the client's inbox
-    pub async fn revoke_wallets(
+    pub async fn revoke_eth_wallets(
         &self,
         wallets_to_revoke: Vec<String>,
     ) -> Result<SignatureRequest, ClientError> {
@@ -321,8 +320,8 @@ where
 
         for wallet in wallets_to_revoke {
             builder = builder.revoke_association(
-                current_state.recovery_address().clone().into(),
-                wallet.into(),
+                current_state.recovery_identifier().clone().into(),
+                MemberIdentifier::eth(wallet),
             )
         }
 
@@ -348,8 +347,8 @@ where
 
         for installation_id in installation_ids {
             builder = builder.revoke_association(
-                current_state.recovery_address().clone().into(),
-                installation_id.into(),
+                current_state.recovery_identifier().clone().into(),
+                MemberIdentifier::installation(installation_id),
             )
         }
 
@@ -592,8 +591,9 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{
-            builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
-            MemberIdentifier,
+            builder::SignatureRequest,
+            test_utils::{add_wallet_signature, WalletTestExt},
+            AssociationState, MemberIdentifier,
         },
         scw_verifier::SmartContractSignatureVerifier,
         InboxOwner,
@@ -667,7 +667,7 @@ pub(crate) mod tests {
         let is_member = is_member_of_association_state(
             api_client,
             client.inbox_id(),
-            &MemberIdentifier::Ethereum(wallet2.get_address()),
+            &MemberIdentifier::eth(wallet2.get_address()),
             None,
         )
         .await
@@ -680,11 +680,11 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
-        let wallet_address = wallet.get_address();
+        let wallet_ident = wallet.root_identifier();
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut signature_request: SignatureRequest = client
-            .create_inbox(wallet_address.clone(), None)
+            .create_inbox(wallet_ident.clone(), None)
             .await
             .unwrap();
         let inbox_id = signature_request.inbox_id().to_string();
@@ -699,8 +699,8 @@ pub(crate) mod tests {
         let association_state = get_association_state(&client, &inbox_id).await;
 
         assert_eq!(association_state.members().len(), 2);
-        assert_eq!(association_state.recovery_address(), &wallet_address);
-        assert!(association_state.get(&wallet_address.into()).is_some())
+        assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+        assert!(association_state.get(&wallet_ident.into()).is_some())
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

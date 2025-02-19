@@ -523,7 +523,7 @@ impl FfiXmtpClient {
         } = self;
 
         let signature_request = inner_client
-            .revoke_wallets(vec![wallet_address.into()])
+            .revoke_eth_wallets(vec![wallet_address.into()])
             .await?;
         let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {

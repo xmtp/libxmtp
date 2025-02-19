@@ -357,9 +357,7 @@ impl ValidatedCommit {
                 .map_err(InstallationDiffError::from)?;
 
             if inbox_state
-                .get(&MemberIdentifier::new_installation(
-                    participant.installation_id,
-                ))
+                .get(&MemberIdentifier::installation(participant.installation_id))
                 .is_none()
             {
                 return Err(CommitValidationError::InboxValidationFailed(

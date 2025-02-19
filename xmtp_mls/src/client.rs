@@ -14,7 +14,7 @@ use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationErro
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, SignatureError,
+        AssociationError, AssociationState, MemberIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
@@ -1021,8 +1021,9 @@ where
     ) -> Result<InboxId, ClientError> {
         let inbox_id = parse_credential(credential)?;
         let association_state = self.get_latest_association_state(conn, &inbox_id).await?;
+        let ident = MemberIdentifier::installation(installation_pub_key);
 
-        match association_state.get(&installation_pub_key.clone().into()) {
+        match association_state.get(&ident) {
             Some(_) => Ok(inbox_id),
             None => Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
         }
@@ -1200,7 +1201,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_public_identifier())
+                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_address())
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())

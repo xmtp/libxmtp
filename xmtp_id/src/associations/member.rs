@@ -57,12 +57,12 @@ impl MemberIdentifier {
         Self::Installation(ident::Installation::rand())
     }
 
-    pub fn new_ethereum(addr: impl ToString) -> Self {
+    pub fn eth(addr: impl ToString) -> Self {
         RootIdentifier::eth(addr).into()
     }
 
-    pub fn new_installation(key: impl Into<Vec<u8>>) -> Self {
-        Self::Installation(ident::Installation(key.into()))
+    pub fn installation(key: Vec<u8>) -> Self {
+        Self::Installation(ident::Installation(key))
     }
 
     /// Get the value for [`MemberIdentifier::Installation`] variant.
@@ -331,17 +331,17 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_identifier_comparisons() {
-        let address_1 = MemberIdentifier::new_ethereum("0x123");
-        let address_2 = MemberIdentifier::new_ethereum("0x456");
-        let address_1_copy = MemberIdentifier::new_ethereum("0x123");
+        let address_1 = MemberIdentifier::eth("0x123");
+        let address_2 = MemberIdentifier::eth("0x456");
+        let address_1_copy = MemberIdentifier::eth("0x123");
 
         assert!(address_1 != address_2);
         assert!(address_1.ne(&address_2));
         assert!(address_1 == address_1_copy);
 
-        let installation_1 = MemberIdentifier::new_installation([1, 2, 3]);
-        let installation_2 = MemberIdentifier::new_installation([4, 5, 6]);
-        let installation_1_copy = MemberIdentifier::new_installation([1, 2, 3]);
+        let installation_1 = MemberIdentifier::installation([1, 2, 3]);
+        let installation_2 = MemberIdentifier::installation([4, 5, 6]);
+        let installation_1_copy = MemberIdentifier::installation([1, 2, 3]);
 
         assert!(installation_1 != installation_2);
         assert!(installation_1.ne(&installation_2));

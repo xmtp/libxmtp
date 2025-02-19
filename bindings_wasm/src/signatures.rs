@@ -82,7 +82,7 @@ impl Client {
   ) -> Result<String, JsError> {
     let signature_request = self
       .inner_client()
-      .revoke_wallets(vec![wallet_address.to_lowercase()])
+      .revoke_eth_wallets(vec![wallet_address.to_lowercase()])
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();

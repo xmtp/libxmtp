@@ -164,19 +164,19 @@ pub(crate) mod tests {
         let inbox_id = account_identifier.inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::new_ethereum(&new_member_address),
+            new_member_identifier: MemberIdentifier::eth(&new_member_address),
         };
 
         let add_installation = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::new_installation(new_installation_id.clone()),
+            new_member_identifier: MemberIdentifier::installation(new_installation_id.clone()),
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::new_ethereum(new_member_address).into(),
+            revoked_member: MemberIdentifier::eth(new_member_address).into(),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::new_installation(new_installation_id.clone()),
+            revoked_member: MemberIdentifier::installation(new_installation_id.clone()),
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {
