@@ -67,7 +67,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(&group_id)))]
     pub async fn query_group_messages(
         &self,
         group_id: Vec<u8>,
@@ -116,6 +116,7 @@ where
     }
 
     /// Query for the latest message on a group
+    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(group_id)))]
     pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
         &self,
         group_id: Id,
@@ -145,7 +146,7 @@ where
         Ok(result.messages.into_iter().next())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(installation_id = hex::encode(&installation_id)))]
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
@@ -200,7 +201,7 @@ where
     /// New InboxID clients should set `is_inbox_id_credential` to true.
     /// V3 clients should have `is_inbox_id_credential` to `false`.
     /// Not indicating your client version will result in validation failure.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn upload_key_package(
         &self,
         key_package: Vec<u8>,
@@ -225,7 +226,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
@@ -265,7 +266,7 @@ where
         Ok(mapping)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn send_welcome_messages(&self, messages: &[WelcomeMessageInput]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
@@ -283,7 +284,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn send_group_messages(&self, group_messages: Vec<GroupMessageInput>) -> Result<()> {
         tracing::debug!(
             inbox_id = self.inbox_id,

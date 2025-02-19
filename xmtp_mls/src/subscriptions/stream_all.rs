@@ -322,7 +322,7 @@ mod tests {
 
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
-            for i in 0..10 {
+            for i in 0..15 {
                 let msg = format!("main spam {i}");
                 alix_group_pointer
                     .send_message(msg.as_bytes())
@@ -338,7 +338,7 @@ mod tests {
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
-            for i in 0..10 {
+            for i in 0..15 {
                 let new_group = eve
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
@@ -352,7 +352,7 @@ mod tests {
         // this forces our streams to handle resubscribes while receiving lots of messages
         xmtp_common::spawn(None, async move {
             let bo_group = &bo_group;
-            for i in 0..10 {
+            for i in 0..15 {
                 bo_group
                     .send_message(format!("bo msg {i}").as_bytes())
                     .await
@@ -362,7 +362,13 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let timeout = if cfg!(target_arch = "wasm32") { 10 } else { 10 };
+        let timeout = if cfg!(target_arch = "wasm32") {
+            15
+        } else if cfg!(feature = "http-api") {
+            10
+        } else {
+            5
+        };
 
         loop {
             tokio::select! {
@@ -390,7 +396,7 @@ mod tests {
             tracing::info!("{}", m);
         }*/
         assert!(duplicates.is_empty());
-        assert_eq!(messages.len(), 30, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
+        assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
