@@ -1,5 +1,14 @@
 # @xmtp/wasm-bindings
 
+## 0.0.16
+
+- Added `isMessageDisappearingEnabled` method to `Conversation`
+- Added `messageDisappearingSettings` method to `Conversation`
+- Added `removeMessageDisappearingSettings` method to `Conversation`
+- Added `messageDisappearingSettings` method to `Conversation`
+- Updated JS names for `MessageDisappearingSettings` fields
+- Removed automatic filtering of DM group messages
+
 ## 0.0.15
 
 - Added `consent_states`, `include_sync_groups`, and `include_duplicate_dms` to `ListConversationsOptions`
