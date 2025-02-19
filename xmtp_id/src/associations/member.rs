@@ -5,6 +5,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
 };
+use xmtp_api::identity::Identifier as ApiIdentifier;
 use xmtp_cryptography::{signature::AddressValidationError, XmtpInstallationCredential};
 use xmtp_proto::{
     xmtp::identity::{
@@ -267,6 +268,20 @@ impl From<&RootIdentifier> for GetInboxIdsRequestProto {
                 kind as i32
             },
         }
+    }
+}
+
+impl From<&RootIdentifier> for ApiIdentifier {
+    fn from(ident: &RootIdentifier) -> Self {
+        Self {
+            identifier: format!("{ident}"),
+            identifier_kind: ident.into(),
+        }
+    }
+}
+impl From<RootIdentifier> for ApiIdentifier {
+    fn from(ident: RootIdentifier) -> Self {
+        (&ident).into()
     }
 }
 

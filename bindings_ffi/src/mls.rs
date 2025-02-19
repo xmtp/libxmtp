@@ -10,7 +10,9 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
-use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
+use xmtp_id::associations::{
+    verify_signed_with_public_context, DeserializationError, RootIdentifier,
+};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -514,9 +516,9 @@ impl FfiXmtpClient {
     }
 
     /// Revokes or removes an identity from the existing client
-    pub async fn revoke_wallet(
+    pub async fn revoke_identifier(
         &self,
-        wallet_address: &str,
+        identifier: &RootIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let Self {
             ref inner_client, ..

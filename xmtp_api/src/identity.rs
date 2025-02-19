@@ -37,8 +37,8 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
 type IdentifierToInboxIdMap = HashMap<Identifier, String>;
-#[derive(Hash, PartialEq, Eq)]
-struct Identifier {
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub struct Identifier {
     pub identifier: String,
     pub identifier_kind: IdentifierKind,
 }
@@ -99,11 +99,15 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn get_inbox_ids(
-        &self,
-        requests: Vec<GetInboxIdsRequestProto>,
-    ) -> Result<IdentifierToInboxIdMap> {
+    pub async fn get_inbox_ids(&self, requests: Vec<Identifier>) -> Result<IdentifierToInboxIdMap> {
         tracing::info!("Getting inbox_ids for account identities: {:?}", &requests);
+        let requests = requests
+            .into_iter()
+            .map(|r| GetInboxIdsRequestProto {
+                identifier: r.identifier,
+                identifier_kind: r.identifier_kind as i32,
+            })
+            .collect();
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest { requests })
@@ -154,7 +158,6 @@ pub(crate) mod tests {
             get_identity_updates_response::{
                 IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
             },
-            get_inbox_ids_request::Request as GetInboxIdsRequestProto,
             get_inbox_ids_response::Response as GetInboxIdsResponseItem,
             GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
         },
@@ -272,9 +275,9 @@ pub(crate) mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
-            .get_inbox_ids(vec![GetInboxIdsRequestProto {
+            .get_inbox_ids(vec![Identifier {
                 identifier: address.clone(),
-                identifier_kind: IdentifierKind::Ethereum as i32,
+                identifier_kind: IdentifierKind::Ethereum,
             }])
             .await
             .expect("should work");

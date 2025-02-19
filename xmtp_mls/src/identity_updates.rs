@@ -275,18 +275,17 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
-    pub async fn associate_eth_wallet(
+    pub async fn associate_identity(
         &self,
-        new_wallet_address: String,
+        new_identifier: RootIdentifier,
     ) -> Result<SignatureRequest, ClientError> {
         tracing::info!("Associating new wallet with inbox_id {}", self.inbox_id());
         let inbox_id = self.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
         let installation_public_key = self.identity().installation_keys.verifying_key();
-        let new_member_identifier = MemberIdentifier::eth(new_wallet_address);
 
         let mut signature_request = builder
-            .add_association(new_member_identifier, installation_public_key.into())
+            .add_association(new_identifier.into(), installation_public_key.into())
             .build();
 
         let signature = self
@@ -304,9 +303,9 @@ where
     }
 
     /// Revoke the given wallets from the association state for the client's inbox
-    pub async fn revoke_eth_wallets(
+    pub async fn revoke_identity(
         &self,
-        wallets_to_revoke: Vec<String>,
+        wallets_to_revoke: Vec<RootIdentifier>,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.inbox_id();
         let current_state = retry_async!(
@@ -318,10 +317,10 @@ where
         )?;
         let mut builder = SignatureRequestBuilder::new(inbox_id);
 
-        for wallet in wallets_to_revoke {
+        for ident in wallets_to_revoke {
             builder = builder.revoke_association(
                 current_state.recovery_identifier().clone().into(),
-                MemberIdentifier::eth(wallet),
+                ident.into(),
             )
         }
 
@@ -646,7 +645,7 @@ pub(crate) mod tests {
         let wallet2 = generate_local_wallet();
 
         let mut request = client
-            .associate_eth_wallet(wallet2.get_address())
+            .associate_identifier(wallet2.root_identifier())
             .await
             .unwrap();
         add_wallet_signature(&mut request, &wallet2).await;
@@ -667,7 +666,7 @@ pub(crate) mod tests {
         let is_member = is_member_of_association_state(
             api_client,
             client.inbox_id(),
-            &MemberIdentifier::eth(wallet2.get_address()),
+            &MemberIdentifier::eth(wallet2.get_address()).unwrap(),
             None,
         )
         .await
@@ -714,7 +713,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut add_association_request = client
-            .associate_eth_wallet(wallet2_ident.to_string())
+            .associate_identifier(wallet2_ident.to_string())
             .await
             .unwrap();
 
@@ -945,7 +944,7 @@ pub(crate) mod tests {
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
             .api_client
-            .get_inbox_ids(vec![second_wallet.get_address()])
+            .get_inbox_ids(vec![second_wallet.root_identifier().into()])
             .await
             .unwrap();
         assert_eq!(inbox_ids.len(), 1);
@@ -953,7 +952,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_wallets(vec![second_wallet.get_address()])
+            .revoke_wallets(vec![second_wallet.root_identifier().into()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;

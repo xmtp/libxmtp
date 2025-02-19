@@ -29,14 +29,17 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
+use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
+use xmtp_id::associations::{
+    AssociationError, InstallationKeyContext, PublicContext, RootIdentifier,
+};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, sign_with_legacy_key, MemberIdentifier,
+        sign_with_legacy_key, MemberIdentifier,
     },
     InboxId, InboxIdRef,
 };
@@ -132,6 +135,7 @@ impl IdentityStrategy {
                 nonce,
                 legacy_signed_private_key,
             } => {
+                let identifier = RootIdentifier::eth(address)?;
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
                         installation_id =
@@ -150,7 +154,7 @@ impl IdentityStrategy {
                 } else {
                     Identity::new(
                         inbox_id,
-                        address,
+                        identifier,
                         nonce,
                         legacy_signed_private_key,
                         api_client,
@@ -220,6 +224,8 @@ pub enum IdentityError {
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
     ApiClient(#[from] xmtp_api::Error),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
 }
 
 impl RetryableError for IdentityError {
@@ -268,7 +274,7 @@ impl Identity {
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
-        address: String,
+        identifier: RootIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -276,11 +282,11 @@ impl Identity {
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
-        let address = address.to_lowercase();
-        let inbox_ids = api_client.get_inbox_ids(vec![address.clone()]).await?;
-        let associated_inbox_id = inbox_ids.get(&address);
+        let inbox_ids = api_client
+            .get_inbox_ids(vec![identifier.clone().into()])
+            .await?;
+        let associated_inbox_id = inbox_ids.get(&(&identifier).into());
         let installation_keys = XmtpInstallationCredential::new();
-        let member_identifier: MemberIdentifier = address.clone().to_lowercase().into();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
             // If an inbox is associated with address, we'd use it to create Identity and ignore the nonce.
@@ -291,8 +297,8 @@ impl Identity {
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder
                 .add_association(
-                    installation_keys.public_slice().to_vec().into(),
-                    member_identifier,
+                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
+                    identifier.clone().into(),
                 )
                 .build();
 
@@ -325,18 +331,18 @@ impl Identity {
                 ));
             }
             // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            let generated_inbox_id = generate_inbox_id(&address, &nonce)?;
+            let generated_inbox_id = identifier.inbox_id(nonce)?;
             if inbox_id != generated_inbox_id {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(member_identifier.clone(), nonce);
+            builder = builder.create_inbox(identifier.clone().into(), nonce);
             let mut signature_request = builder
                 .add_association(
-                    installation_keys.public_slice().to_vec().into(),
-                    member_identifier,
+                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
+                    identifier.clone().into(),
                 )
                 .build();
 
@@ -381,19 +387,19 @@ impl Identity {
 
             Ok(identity)
         } else {
-            let generated_inbox_id = generate_inbox_id(&address, &nonce)?;
+            let generated_inbox_id = identifier.inbox_id(nonce)?;
             if inbox_id != generated_inbox_id {
                 return Err(IdentityError::NewIdentity(
                     "Inbox ID doesn't match nonce & address".to_string(),
                 ));
             }
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(member_identifier.clone(), nonce);
+            builder = builder.create_inbox(identifier.clone(), nonce);
 
             let mut signature_request = builder
                 .add_association(
-                    installation_keys.public_slice().to_vec().into(),
-                    member_identifier,
+                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
+                    identifier.clone().into(),
                 )
                 .build();
 
