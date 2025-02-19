@@ -81,6 +81,20 @@ impl From<Consent> for StoredConsentRecord {
   }
 }
 
+impl From<StoredConsentRecord> for Consent {
+  fn from(value: StoredConsentRecord) -> Self {
+    Self {
+      entity: value.entity,
+      entity_type: match value.entity_type {
+        XmtpConsentType::Address => ConsentEntityType::Address,
+        XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
+        XmtpConsentType::InboxId => ConsentEntityType::InboxId,
+      },
+      state: value.state.into(),
+    }
+  }
+}
+
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(js_name = setConsentStates)]

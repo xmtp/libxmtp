@@ -1,3 +1,4 @@
+use crate::consent_state::Consent;
 use crate::conversation::Conversation;
 use crate::messages::Message;
 use std::{cell::RefCell, rc::Rc};
@@ -17,6 +18,9 @@ extern "C" {
   /// Js Fn to call on an item
   #[wasm_bindgen(structural, method)]
   pub fn on_message(this: &StreamCallback, item: Message);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_consent_update(this: &StreamCallback, item: Consent);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_conversation(this: &StreamCallback, item: Conversation);
