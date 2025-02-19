@@ -17,19 +17,28 @@ pub mod utils;
 pub mod verified_key_package_v2;
 
 pub use client::{Client, Network};
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Mutex as TokioMutex;
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
+
+#[cfg(test)]
+pub static PUBLISHED: once_cell::sync::Lazy<Mutex<Vec<storage::group_intent::StoredGroupIntent>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
+#[cfg(test)]
+pub static PROCESSED: once_cell::sync::Lazy<
+    Mutex<Vec<(u64, storage::group_intent::StoredGroupIntent)>>,
+> = once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
 
 /// A manager for group-specific semaphores
 #[derive(Debug)]
 pub struct GroupCommitLock {
     // Storage for group-specific semaphores
-    locks: Mutex<HashMap<Vec<u8>, Arc<Semaphore>>>,
+    locks: Mutex<HashMap<Vec<u8>, Arc<TokioMutex<()>>>>,
 }
 
 impl Default for GroupCommitLock {
@@ -46,65 +55,41 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
-        let semaphore = {
-            match self.locks.lock() {
-                Ok(mut locks) => locks
-                    .entry(group_id)
-                    .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                    .clone(),
-                Err(err) => {
-                    eprintln!("Failed to lock the mutex: {}", err);
-                    return Err(GroupError::LockUnavailable);
-                }
-            }
+    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<MlsGroupGuard, GroupError> {
+        let lock = {
+            let mut locks = self.locks.lock();
+            locks
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(TokioMutex::new(())))
+                .clone()
         };
 
-        let semaphore_clone = semaphore.clone();
-        let permit = match semaphore.acquire_owned().await {
-            Ok(permit) => permit,
-            Err(err) => {
-                eprintln!("Failed to acquire semaphore permit: {}", err);
-                return Err(GroupError::LockFailedToAcquire);
-            }
-        };
-        Ok(SemaphoreGuard {
-            _permit: permit,
-            _semaphore: semaphore_clone,
+        Ok(MlsGroupGuard {
+            _permit: lock.lock_owned().await,
         })
     }
 
     /// Get or create a semaphore for a specific group and acquire it synchronously
-    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<SemaphoreGuard, GroupError> {
-        let semaphore = {
-            match self.locks.lock() {
-                Ok(mut locks) => locks
-                    .entry(group_id)
-                    .or_insert_with(|| Arc::new(Semaphore::new(1)))
-                    .clone(),
-                Err(err) => {
-                    eprintln!("Failed to lock the mutex: {}", err);
-                    return Err(GroupError::LockUnavailable);
-                }
-            }
+    pub fn get_lock_sync(&self, group_id: Vec<u8>) -> Result<MlsGroupGuard, GroupError> {
+        let lock = {
+            let mut locks = self.locks.lock();
+            locks
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(TokioMutex::new(())))
+                .clone()
         };
 
         // Synchronously acquire the permit
-        let permit = semaphore
-            .clone()
-            .try_acquire_owned()
+        let permit = lock
+            .try_lock_owned()
             .map_err(|_| GroupError::LockUnavailable)?;
-        Ok(SemaphoreGuard {
-            _permit: permit,
-            _semaphore: semaphore, // semaphore is now valid because we cloned it earlier
-        })
+        Ok(MlsGroupGuard { _permit: permit })
     }
 }
 
 /// A guard that releases the semaphore when dropped
-pub struct SemaphoreGuard {
-    _permit: OwnedSemaphorePermit,
-    _semaphore: Arc<Semaphore>,
+pub struct MlsGroupGuard {
+    _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
 // Static instance of `GroupCommitLock`

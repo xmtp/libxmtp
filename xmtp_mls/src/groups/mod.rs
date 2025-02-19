@@ -459,7 +459,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -473,8 +473,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Get the group ID for locking
         let group_id = self.group_id.clone();
 
+        tracing::info!(
+            "TRYING TO LOAD MLS GROUP for group_id={}",
+            hex::encode(&group_id)
+        );
         // Acquire the lock asynchronously
         let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        tracing::info!("LOADING GROUP");
 
         // Load the MLS group
         let mls_group =
@@ -483,7 +488,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .ok_or(StorageError::from(NotFound::GroupById(
                     self.group_id.to_vec(),
                 )))?;
-
+        tracing::info!("PERFORM OPERATION");
         // Perform the operation with the MLS group
         operation(mls_group).await.map_err(Into::into)
     }
@@ -599,6 +604,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
@@ -769,6 +775,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Send a message on this users XMTP [`Client`].
+    #[tracing::instrument(skip_all, level = "debug")]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await

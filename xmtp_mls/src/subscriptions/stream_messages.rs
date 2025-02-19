@@ -520,14 +520,15 @@ where
             self.msg.group_id.clone(),
             self.msg.created_ns as i64,
         );
-        let epoch = group.epoch(&self.provider).await.unwrap_or(0);
+        tracing::info!("recovery sync");
+        // let epoch = group.epoch(&self.provider).await.unwrap_or(0);
         tracing::debug!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
-            epoch = epoch,
-            "attempting recovery sync epoch={}",
-            epoch
+            // epoch = epoch,
+            "attempting recovery sync",
+            // epoch
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
@@ -545,8 +546,9 @@ where
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful. epoch = {}",
-                epoch
+                "recovery sync triggered by streamed message successful. epoch = {} for group = {}",
+                epoch,
+                hex::encode(&self.msg.group_id)
             )
         }
     }

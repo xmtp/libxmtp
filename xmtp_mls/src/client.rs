@@ -807,6 +807,11 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
+        tracing::info!(
+            "querying group messages from cursor = {}, group = {}",
+            id_cursor,
+            hex::encode(group_id)
+        );
 
         let messages = self
             .api_client

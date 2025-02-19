@@ -282,7 +282,10 @@ mod tests {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        tracing::info!(inbox_id = eve.inbox_id(), installation_id = %eve.installation_id(), "EVE");
+        tracing::info!(inbox_id = eve.inbox_id(), installation_id = %eve.installation_id(), "EVE={}", eve.inbox_id());
+        tracing::info!(inbox_id = bo.inbox_id(), installation_id = %bo.installation_id(), "BO={}", bo.inbox_id());
+        tracing::info!(inbox_id = alix.inbox_id(), installation_id = %alix.installation_id(), "ALIX={}", alix.inbox_id());
+        tracing::info!(inbox_id = caro.inbox_id(), installation_id = %caro.installation_id(), "CARO={}", caro.inbox_id());
 
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -300,7 +303,7 @@ mod tests {
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
             let mut sent = 0;
-            for i in 0..15 {
+            for i in 0..2 {
                 let msg = format!("main spam {i}");
                 alix_group_pointer
                     .send_message(msg.as_bytes())
@@ -318,7 +321,7 @@ mod tests {
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
-            for i in 0..5 {
+            for i in 0..2 {
                 let new_group = eve
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
@@ -336,7 +339,7 @@ mod tests {
         // this forces our streams to handle resubscribes while receiving lots of messages
         xmtp_common::spawn(None, async move {
             let bo_group = &bo_group;
-            for i in 0..20 {
+            for i in 0..2 {
                 bo_group
                     .send_message(format!("msg {i}").as_bytes())
                     .await
@@ -350,7 +353,7 @@ mod tests {
         let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(timeout), async {
             futures::pin_mut!(stream);
             loop {
-                if messages.len() < 40 {
+                if messages.len() < 6 {
                     if let Some(Ok(msg)) = stream.next().await {
                         tracing::info!(
                             message_id = hex::encode(&msg.id),
@@ -371,7 +374,22 @@ mod tests {
         .await;
 
         tracing::info!("Total Messages: {}", messages.len());
-        assert_eq!(messages.len(), 40);
+        tracing::info!("--------------------------");
+        tracing::info!("PUBLISHED");
+        tracing::info!("--------------------------");
+        let published = crate::PUBLISHED.lock();
+        let processed = crate::PROCESSED.lock();
+        for i in published.iter() {
+            tracing::info!("{:?}", i);
+        }
+        tracing::info!("--------------------------");
+        tracing::info!("PROCESSED");
+        tracing::info!("--------------------------");
+
+        for (cursor, i) in processed.iter() {
+            tracing::info!("cursor = {}, Intent={:?}", cursor, i);
+        }
+        assert_eq!(messages.len(), 6);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]

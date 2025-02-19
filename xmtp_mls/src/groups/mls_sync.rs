@@ -203,6 +203,7 @@ where
     // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        tracing::info!("RECEIVING");
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 
@@ -485,13 +486,18 @@ where
             cursor,
             intent.id,
             intent.kind = %intent.kind,
-            "[{}]-[{}] processing own message for intent {} / {:?}, message_epoch: {}",
+            "[{}]-[{}] processing own message for intent {} / {}, message_epoch: {}",
             self.context().inbox_id(),
             hex::encode(self.group_id.clone()),
             intent.id,
             intent.kind,
             message_epoch
         );
+        #[cfg(test)]
+        {
+            let mut w = crate::PROCESSED.lock();
+            w.push((*cursor, intent.clone()));
+        }
 
         if let Some((staged_commit, validated_commit)) = commit {
             tracing::info!(
@@ -836,6 +842,7 @@ where
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
+    #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1112,12 +1119,14 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn receive(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        tracing::info!("RECEIVING");
         let messages = self
             .client
             .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
+        tracing::info!("CONTINUING TO PROCESS");
         self.process_messages(messages, provider).await?;
         Ok(())
     }
@@ -1271,6 +1280,11 @@ where
                             intent.id,
                             intent.kind
                         );
+                        #[cfg(test)]
+                        {
+                            let mut w = crate::PUBLISHED.lock();
+                            w.push(intent.clone());
+                        }
                         if has_staged_commit {
                             tracing::info!("Commit sent. Stopping further publishes for this round");
                             return Ok(());
@@ -1529,7 +1543,6 @@ where
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
-                        tracing::info!("INBOX ID = {}", inbox_id);
                         match (
                             latest_sequence_id_map.get(inbox_id as &str),
                             existing_group_membership.get(inbox_id),

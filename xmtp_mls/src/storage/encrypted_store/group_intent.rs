@@ -63,7 +63,7 @@ pub enum IntentState {
     Error = 4,
 }
 
-#[derive(Queryable, Identifiable, Debug, PartialEq, Clone)]
+#[derive(Queryable, Identifiable, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
 #[diesel(primary_key(id))]
 pub struct StoredGroupIntent {
@@ -77,6 +77,36 @@ pub struct StoredGroupIntent {
     pub publish_attempts: i32,
     pub staged_commit: Option<Vec<u8>>,
     pub published_in_epoch: Option<i64>,
+}
+
+impl std::fmt::Debug for StoredGroupIntent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StoredGroupIntent {{")?;
+        write!(f, "id: {} ", self.id)?;
+        write!(f, "kind: {} ", self.kind)?;
+        write!(f, "group_id: {} ", hex::encode(&self.group_id))?;
+        /* write!(f, "data: {} ", hex::encode(&self.data))?; */
+        write!(f, "state: {:?} ", self.state)?;
+        write!(
+            f,
+            "payload_hash: {:?} ",
+            self.payload_hash.as_ref().map(|h| hex::encode(h))
+        )?;
+        /*write!(
+            f,
+            "post_commit_data: {:?}",
+            self.post_commit_data.as_ref().map(|d| hex::encode(d))
+        )?;*/
+        write!(f, "publish_attempts: {:?} ", self.publish_attempts)?;
+        /*write!(
+            f,
+            "staged_commit: {:?}",
+            self.staged_commit.as_ref().map(|c| hex::encode(c))
+        )?;*/
+        write!(f, "published_in_epoch: {:?} ", self.published_in_epoch)?;
+        write!(f, "StoredGroupIntent }}")?;
+        Ok(())
+    }
 }
 
 impl StoredGroupIntent {
