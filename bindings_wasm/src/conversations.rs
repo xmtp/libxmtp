@@ -675,7 +675,7 @@ impl Conversations {
   }
 
   #[wasm_bindgen(js_name = "streamConsent")]
-  pub fn stream_preferences_with_callback(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+  pub fn stream_preferences(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
     let stream_closer =
       RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
         match message {
