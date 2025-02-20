@@ -15,7 +15,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::RootIdentifier;
+use xmtp_id::associations::{ident, RootIdentifier};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -37,14 +37,26 @@ impl StoredConsentRecord {
         entity_type: ConsentType,
         state: ConsentState,
         entity: String,
-        identity_type: Option<IdentityKind>,
+        identity_kind: Option<IdentityKind>,
     ) -> Self {
         Self {
             entity_type,
             state,
             entity,
-            identity_kind: identity_type,
+            identity_kind,
         }
+    }
+
+    pub fn root_identifier(&self) -> Option<RootIdentifier> {
+        let identity_kind = &self.identity_kind?;
+        let entity = &self.entity;
+        let ident = match identity_kind {
+            IdentityKind::Ethereum => RootIdentifier::Ethereum(ident::Ethereum(entity.clone())),
+            IdentityKind::Passkey => {
+                RootIdentifier::Passkey(ident::Passkey(hex::decode(entity).ok()?))
+            }
+        };
+        Some(ident)
     }
 }
 

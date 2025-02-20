@@ -401,8 +401,8 @@ where
         let mut record_indices = Vec::new();
 
         for (index, record) in records.iter().enumerate() {
-            if record.entity_type == ConsentType::Identity {
-                addresses_to_lookup.push(record.entity.clone());
+            if let Some(ident) = record.root_identifier() {
+                addresses_to_lookup.push(ident);
                 record_indices.push(index);
             }
         }

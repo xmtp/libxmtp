@@ -27,4 +27,4 @@ WHERE consent_type = 3;
 -- Add a constraint so that the kind must be present if the type is "Identity"
 ALTER TABLE consent_records
 ADD CONSTRAINT chk_identity_kind_not_null
-CHECK ((consent_type = 3 AND identity_kind IS NOT NULL) OR consent_type != 3);
+CHECK ((consent_type = 3 AND identity_kind IS NOT NULL) OR (consent_type != 3 AND identity_kind IS NULL));

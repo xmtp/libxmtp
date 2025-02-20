@@ -37,7 +37,7 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
 type IdentifierToInboxIdMap = HashMap<Identifier, String>;
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct Identifier {
     pub identifier: String,
     pub identifier_kind: IdentifierKind,

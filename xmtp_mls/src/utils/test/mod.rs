@@ -8,6 +8,7 @@ use std::{
     },
 };
 use tokio::sync::Notify;
+use xmtp_api::Identifier;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{
@@ -147,7 +148,7 @@ where
     A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
-    let ident = RootIdentifier::eth(owner.get_address());
+    let ident = RootIdentifier::eth(owner.get_address()).unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = Client::builder(IdentityStrategy::new(
@@ -184,7 +185,7 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
-    let ident = RootIdentifier::eth(owner.get_address());
+    let ident = RootIdentifier::eth(owner.get_address()).unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let mut builder = Client::builder(IdentityStrategy::new(
@@ -240,13 +241,14 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn is_registered(&self, address: &String) -> bool {
+    pub async fn is_registered(&self, identifier: &RootIdentifier) -> bool {
+        let identifier: Identifier = identifier.into();
         let ids = self
             .api_client
-            .get_inbox_ids(vec![address.clone()])
+            .get_inbox_ids(vec![identifier.clone()])
             .await
             .unwrap();
-        ids.contains_key(address)
+        ids.contains_key(&identifier)
     }
 }
 

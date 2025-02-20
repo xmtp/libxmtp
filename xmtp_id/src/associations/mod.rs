@@ -1,6 +1,6 @@
 mod association_log;
 pub mod builder;
-mod ident;
+pub mod ident;
 pub(super) mod member;
 pub(super) mod serialization;
 pub mod signature;
