@@ -110,7 +110,7 @@ mod tests {
     async fn test_can_deserialize_between_versions() {
         let consent_record = StoredConsentRecord {
             entity: "hello there".to_string(),
-            entity_type: ConsentType::Address,
+            entity_type: ConsentType::Identity,
             state: ConsentState::Allowed,
         };
         let update = UserPreferenceUpdate::ConsentUpdate(consent_record);

@@ -52,7 +52,7 @@ impl TryFrom<ConsentTypeSave> for ConsentType {
     type Error = DeserializationError;
     fn try_from(value: ConsentTypeSave) -> Result<Self, Self::Error> {
         Ok(match value {
-            ConsentTypeSave::Address => Self::Address,
+            ConsentTypeSave::Address => Self::Identity,
             ConsentTypeSave::InboxId => Self::InboxId,
             ConsentTypeSave::ConversationId => Self::ConversationId,
             ConsentTypeSave::Unspecified => {
@@ -89,7 +89,7 @@ impl From<StoredConsentRecord> for ConsentSave {
 impl From<ConsentType> for ConsentTypeSave {
     fn from(value: ConsentType) -> Self {
         match value {
-            ConsentType::Address => Self::Address,
+            ConsentType::Identity => Self::Address,
             ConsentType::InboxId => Self::InboxId,
             ConsentType::ConversationId => Self::ConversationId,
         }

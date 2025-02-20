@@ -1492,7 +1492,7 @@ impl From<StoredConsentRecord> for FfiConsent {
         FfiConsent {
             entity: value.entity,
             entity_type: match value.entity_type {
-                ConsentType::Address => FfiConsentEntityType::Address,
+                ConsentType::Identity => FfiConsentEntityType::Address,
                 ConsentType::ConversationId => FfiConsentEntityType::ConversationId,
                 ConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
@@ -1571,7 +1571,7 @@ impl From<FfiConsentEntityType> for ConsentType {
         match entity_type {
             FfiConsentEntityType::ConversationId => ConsentType::ConversationId,
             FfiConsentEntityType::InboxId => ConsentType::InboxId,
-            FfiConsentEntityType::Address => ConsentType::Address,
+            FfiConsentEntityType::Address => ConsentType::Identity,
         }
     }
 }

@@ -27,14 +27,22 @@ pub struct StoredConsentRecord {
     pub state: ConsentState,
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
+    // If entity_type is set to "Identity", what kind of identity is it?
+    pub identity_kind: Option<IdentityKind>,
 }
 
 impl StoredConsentRecord {
-    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
+    pub fn new(
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
+        identity_type: Option<IdentityKind>,
+    ) -> Self {
         Self {
             entity_type,
             state,
             entity,
+            identity_kind: identity_type,
         }
     }
 }
@@ -137,8 +145,8 @@ pub enum ConsentType {
     ConversationId = 1,
     /// Consent is for an inbox
     InboxId = 2,
-    /// Consent is for an address
-    Address = 3,
+    /// Consent is for an identity
+    Identity = 3,
 }
 
 impl ToSql<Integer, Sqlite> for ConsentType
@@ -157,9 +165,41 @@ where
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
-            1 => Ok(ConsentType::ConversationId),
-            2 => Ok(ConsentType::InboxId),
-            3 => Ok(ConsentType::Address),
+            1 => Ok(Self::ConversationId),
+            2 => Ok(Self::InboxId),
+            3 => Ok(Self::Identity),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+/// Type of identity stored
+pub enum IdentityKind {
+    Ethereum = 1,
+    Passkey = 2,
+}
+
+impl ToSql<Integer, Sqlite> for IdentityKind
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for IdentityKind
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(Self::Ethereum),
+            2 => Ok(Self::Passkey),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -210,27 +250,16 @@ mod tests {
 
     use super::*;
 
-    fn generate_consent_record(
-        entity_type: ConsentType,
-        state: ConsentState,
-        entity: String,
-    ) -> StoredConsentRecord {
-        StoredConsentRecord {
-            entity_type,
-            state,
-            entity,
-        }
-    }
-
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
-            let consent_record = generate_consent_record(
+            let consent_record = StoredConsentRecord::new(
                 ConsentType::InboxId,
                 ConsentState::Allowed,
                 inbox_id.to_string(),
+                None,
             );
             let consent_record_entity = consent_record.entity.clone();
 
@@ -264,10 +293,11 @@ mod tests {
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
 
-            let conflict = generate_consent_record(
+            let conflict = StoredConsentRecord::new(
                 ConsentType::InboxId,
                 ConsentState::Allowed,
                 inbox_id.to_string(),
+                None,
             );
 
             let existing = conn

@@ -401,14 +401,14 @@ where
         let mut record_indices = Vec::new();
 
         for (index, record) in records.iter().enumerate() {
-            if record.entity_type == ConsentType::Address {
+            if record.entity_type == ConsentType::Identity {
                 addresses_to_lookup.push(record.entity.clone());
                 record_indices.push(index);
             }
         }
 
         let inbox_ids = self
-            .find_inbox_ids_from_addresses(&conn, &addresses_to_lookup)
+            .find_inbox_ids_from_identifiers(&conn, &addresses_to_lookup)
             .await?;
 
         for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
@@ -418,6 +418,7 @@ where
                     ConsentType::InboxId,
                     record.state,
                     inbox_id,
+                    None,
                 ));
             }
         }
@@ -445,7 +446,7 @@ where
         entity: String,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
-        let record = if entity_type == ConsentType::Address {
+        let record = if entity_type == ConsentType::Identity {
             if let Some(inbox_id) = self
                 .find_inbox_id_from_address(&conn, entity.clone())
                 .await?
@@ -1493,7 +1494,7 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let record = StoredConsentRecord::new(
-            ConsentType::Address,
+            ConsentType::Identity,
             ConsentState::Denied,
             bo_wallet.get_address(),
         );
@@ -1503,7 +1504,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let address_consent = alix
-            .get_consent_state(ConsentType::Address, bo_wallet.get_address())
+            .get_consent_state(ConsentType::Identity, bo_wallet.get_address())
             .await
             .unwrap();
 

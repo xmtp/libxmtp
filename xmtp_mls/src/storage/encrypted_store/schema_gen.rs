@@ -15,6 +15,7 @@ diesel::table! {
         entity_type -> Integer,
         state -> Integer,
         entity -> Text,
+        identity_kind -> Nullable<Integer>,
     }
 }
 
@@ -125,10 +126,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    wallet_addresses (wallet_address) {
+    identity_cache (identity, identity_kind) {
         inbox_id -> Text,
-        wallet_address -> Text,
-        wallet_address_kind -> Text,
+        identity -> Text,
+        identity_kind -> Integer,
     }
 }
 
@@ -148,6 +149,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_value,
     refresh_state,
     user_preferences,
-    wallet_addresses,
+    identity_cache,
     conversation_list
 );
