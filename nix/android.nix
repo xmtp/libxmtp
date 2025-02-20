@@ -16,7 +16,7 @@ let
   inherit (androidComposition) androidsdk;
 
   android = {
-    platforms = [ "34" ];
+    platforms = [ "33" "34" ];
     platformTools = "33.0.3";
     buildTools = [ "30.0.3" ];
   };
@@ -41,19 +41,30 @@ let
     platformVersions = android.platforms;
     platformToolsVersion = android.platformTools;
     buildToolsVersions = android.buildTools;
+    emulatorVersion = "34.1.9";
+    systemImageTypes = [ "google_apis_playstore" "default" ];
+    abiVersions = [ "x86_64" ];
     includeNDK = true;
+    includeEmulator = true;
+    includeSystemImages = true;
   };
 
   # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
   androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
   androidComposition = androidenv.composeAndroidPackages sdkArgs;
-
+  androidEmulator = androidenv.emulateApp {
+    name = "libxmtp-emulator-34";
+    platformVersion = "34";
+    abiVersion = "x86_64"; # armeabi-v7a, mips, x86_64
+    systemImageType = "default";
+  };
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
   ANDROID_HOME = androidHome;
   ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
   ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
+  EMULATOR = "${androidEmulator}";
 
   # Packages available to flake while building the environment
   nativeBuildInputs = [ pkg-config ];
@@ -64,6 +75,7 @@ mkShell {
     androidsdk
     jdk17
     cargo-ndk
+    androidEmulator
 
     # System Libraries
     sqlite

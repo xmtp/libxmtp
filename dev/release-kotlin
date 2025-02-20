@@ -7,7 +7,15 @@ WHITE='\033[0;97m'
 
 NC='\033[0m' # No Color
 
+WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
+WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
+BINDINGS_MANIFEST="$WORKSPACE_PATH/bindings_ffi/Cargo.toml"
+BINDINGS_PATH="$(dirname $BINDINGS_MANIFEST)"
+TARGET_DIR="$WORKSPACE_PATH/target"
+
+PROJECT_NAME="xmtpv3"
 XMTP_ANDROID="${1:-$(realpath ../xmtp-android)}"
+
 if [ ! -d $XMTP_ANDROID ]; then
   echo -e "${RED}xmtp-android directory not detected${NC}"
   echo -e "${RED}Ensure directory exists.${NC}"
@@ -32,6 +40,37 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
   fi
 fi
 
+
+echo "gen kotlin artifacts from xmtpv3 bindings..."
+cd $WORKSPACE_PATH
+nix develop .#android --command cargo build --release -p xmtpv3
+rm -f $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt
+nix develop .#android --command cargo run --bin ffi-uniffi-bindgen \
+  --manifest-path $BINDINGS_MANIFEST \
+  --features uniffi/cli --release -- \
+  generate \
+  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --language kotlin
+
+cd $BINDINGS_PATH
+make libxmtp-version
+cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
+
+# 1) Replace `return "xmtpv3"` with `return "uniffi_xmtpv3"`
+# 2) Replace `value.forEach { (k, v) ->` with `value.iterator().forEach { (k, v) ->`
+#    in the file xmtpv3.kt
+sed -i '' \
+    -e 's/return "xmtpv3"/return "uniffi_xmtpv3"/' \
+    -e 's/value\.forEach { (k, v) ->/value.iterator().forEach { (k, v) ->/g' \
+    "$BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt"
+
+echo "Replacements done in $XMTP_ANDROID/library/src/main/java/xmtpv3.kt"
+
+cp $BINDINGS_PATH/src/uniffi/xmtpv3/xmtpv3.kt $XMTP_ANDROID/library/src/main/java/xmtpv3.kt
+cp $BINDINGS_PATH/src/uniffi/xmtpv3/libxmtp-version.txt $XMTP_ANDROID/library/src/main/java/libxmtp-version.txt
+
+cd $WORKSPACE_PATH
+
 LIBRARY_NAME="libxmtpv3"
 TARGET_NAME="libuniffi_xmtpv3"
 
@@ -41,7 +80,6 @@ nix develop .#android --command cargo ndk -o bindings_ffi/jniLibs/ --manifest-pa
   -t i686-linux-android \
   -t armv7-linux-androideabi \
   -- build --release
-
 
 for arch in arm64-v8a armeabi-v7a x86 x86_64; do
   mv "./bindings_ffi/jniLibs/$arch/$LIBRARY_NAME.so" "./bindings_ffi/jniLibs/$arch/$TARGET_NAME.so"
