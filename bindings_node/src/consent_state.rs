@@ -50,6 +50,16 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
+impl From<XmtpConsentType> for ConsentEntityType {
+  fn from(entity_type: XmtpConsentType) -> Self {
+    match entity_type {
+      XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
+      XmtpConsentType::InboxId => ConsentEntityType::InboxId,
+      XmtpConsentType::Address => ConsentEntityType::Address,
+    }
+  }
+}
+
 #[napi(object)]
 pub struct Consent {
   pub entity_type: ConsentEntityType,
@@ -59,6 +69,16 @@ pub struct Consent {
 
 impl From<Consent> for StoredConsentRecord {
   fn from(consent: Consent) -> Self {
+    Self {
+      entity_type: consent.entity_type.into(),
+      state: consent.state.into(),
+      entity: consent.entity,
+    }
+  }
+}
+
+impl From<StoredConsentRecord> for Consent {
+  fn from(consent: StoredConsentRecord) -> Self {
     Self {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),

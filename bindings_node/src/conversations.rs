@@ -15,7 +15,7 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::consent_state::ConsentState;
+use crate::consent_state::{Consent, ConsentState};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -602,5 +602,31 @@ impl Conversations {
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
   pub fn stream_all_dm_messages(&self, callback: JsFunction) -> Result<StreamCloser> {
     self.stream_all_messages(callback, Some(ConversationType::Dm))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  pub fn stream_consent(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
+      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
+    let stream_closer =
+      RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
+        tracing::trace!(inbox_id, "[received] calling tsfn callback");
+        match message {
+          Ok(message) => {
+            let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
+            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            tsfn.call(
+              Err(Error::from(ErrorWrapper::from(e))),
+              ThreadsafeFunctionCallMode::Blocking,
+            );
+          }
+        }
+      });
+
+    Ok(StreamCloser::new(stream_closer))
   }
 }
