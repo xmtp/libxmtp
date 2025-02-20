@@ -326,7 +326,11 @@ where
 
     pub fn stream_consent_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
+            + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -346,7 +350,11 @@ where
 
     pub fn stream_preferences_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
+            + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
