@@ -157,6 +157,7 @@ xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
+once_cell.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

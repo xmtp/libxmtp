@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     pin::Pin,
     task::{ready, Context, Poll},
@@ -97,7 +97,6 @@ pin_project! {
         #[pin] state: State<'a, Subscription>,
         client: &'a C,
         group_list: HashMap<GroupId, MessagePosition>,
-        drained: VecDeque<Option<Result<GroupMessage>>>,
     }
 }
 
@@ -132,7 +131,7 @@ where
 
         let mut group_list = group_list
             .into_iter()
-            .map(|group_id| (group_id, 1u64))
+            .map(|group_id| (group_id, 0u64))
             .collect::<HashMap<GroupId, u64>>();
 
         let cursors = group_list
@@ -164,7 +163,7 @@ where
             .inspect(|(group_id, cursor)| {
                 tracing::debug!(
                     "subscribed to group {} at {}",
-                    hex::encode(group_id),
+                    xmtp_common::fmt::truncate_hex(hex::encode(group_id)),
                     cursor
                 )
             })
@@ -177,7 +176,6 @@ where
             client,
             state: Default::default(),
             group_list: group_list.into_iter().map(|(g, c)| (g, c.into())).collect(),
-            drained: VecDeque::new(),
         })
     }
 
@@ -224,41 +222,15 @@ where
                 let stream = client.api().subscribe_group_messages(filters).await?;
                 Ok((stream, new_group, Some(1)))
             }
-            _ => {
-                let msg = client
-                    .api()
-                    .query_latest_group_message(new_group.as_slice())
-                    .await?;
-
-                let mut cursor = None;
-                if let Some(m) = msg {
-                    let m = extract_message_v1(m.clone())?;
-                    if let Some(new) = filters.iter_mut().find(|f| f.group_id == new_group) {
-                        new.id_cursor = Some(m.id);
-                        cursor = Some(m.id);
-                    }
+            c => {
+                // should we query for the latest message here instead?
+                if let Some(new) = filters.iter_mut().find(|f| f.group_id == new_group) {
+                    new.id_cursor = Some(c as u64);
                 }
                 let stream = client.api().subscribe_group_messages(filters).await?;
-                Ok((stream, new_group, cursor))
+                Ok((stream, new_group, Some(c as u64)))
             }
         }
-    }
-
-    // needed mainly for slower connections when we may receive messages
-    // in between a switch.
-    pub(super) fn drain(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> VecDeque<Option<Result<GroupMessage>>> {
-        let mut drained = VecDeque::new();
-        let mut this = self.as_mut().project();
-        while let Poll::Ready(msg) = this.inner.as_mut().poll_next(cx) {
-            drained.push_back(msg.map(|v| {
-                v.map_err(xmtp_proto::ApiError::from)
-                    .map_err(SubscribeError::from)
-            }));
-        }
-        drained
     }
 }
 
@@ -276,14 +248,6 @@ where
 
         match this.state.as_mut().project() {
             Waiting => {
-                if let Some(envelope) = this.drained.pop_front().flatten() {
-                    let future = ProcessMessageFuture::new(*this.client, envelope?)?;
-                    let future = future.process();
-                    this.state.set(State::Processing {
-                        future: FutureWrapper::new(future),
-                    });
-                    return self.try_update_state(cx);
-                }
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
                     let future = ProcessMessageFuture::new(
                         *this.client,
@@ -306,9 +270,7 @@ where
                 if let Some(c) = cursor {
                     this.set_cursor(group.as_slice(), c)
                 };
-                let drained = self.as_mut().drain(cx);
                 let mut this = self.as_mut().project();
-                this.drained.extend(drained);
                 this.inner.set(stream);
                 if let Some(cursor) = this.group_list.get(group.as_slice()) {
                     tracing::debug!(
@@ -413,8 +375,9 @@ where
             inbox_id = self.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id,
-            "[{}]  is about to process streamed envelope cursor_id=[{}]",
+            "[{}]  is about to process streamed envelope for group {} cursor_id=[{}]",
             self.inbox_id(),
+            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
             &cursor_id
         );
 
@@ -526,7 +489,8 @@ where
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
             epoch = epoch,
-            "attempting recovery sync epoch={}",
+            "attempting recovery sync for group {} in epoch {}",
+            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
             epoch
         );
         // Swallow errors here, since another process may have successfully saved the message
@@ -545,8 +509,9 @@ where
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful. epoch = {}",
-                epoch
+                "recovery sync triggered by streamed message successful. epoch = {} for group = {}",
+                epoch,
+                hex::encode(&self.msg.group_id)
             )
         }
     }

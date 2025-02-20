@@ -53,7 +53,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(len = filters.len()))]
     pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
@@ -93,7 +93,7 @@ where
         Ok(res)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(len = account_addresses.len()))]
     pub async fn get_inbox_ids(
         &self,
         account_addresses: Vec<String>,
@@ -120,7 +120,7 @@ where
             .collect())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,

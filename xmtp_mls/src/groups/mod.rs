@@ -45,6 +45,7 @@ use crate::storage::{
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
+use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
@@ -67,7 +68,7 @@ use crate::{
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    Store, MLS_COMMIT_LOCK,
+    Store,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
@@ -281,6 +282,7 @@ pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
     pub client: Arc<C>,
+    mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
 
@@ -309,6 +311,7 @@ impl<C> Clone for MlsGroup<C> {
             created_at_ns: self.created_at_ns,
             client: self.client.clone(),
             mutex: self.mutex.clone(),
+            mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
 }
@@ -415,11 +418,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         created_at_ns: i64,
     ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
+        let context = client.context();
         Self {
             group_id: group_id.clone(),
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             client,
+            mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
@@ -447,7 +452,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock synchronously using blocking_lock
-        let _lock = MLS_COMMIT_LOCK.get_lock_sync(group_id.clone());
+        let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
@@ -459,7 +464,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -474,7 +479,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let group_id = self.group_id.clone();
 
         // Acquire the lock asynchronously
-        let _lock = MLS_COMMIT_LOCK.get_lock_async(group_id.clone()).await;
+        let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
         let mls_group =
@@ -599,6 +604,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a group from a decrypted and decoded welcome message
     // If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
@@ -769,6 +775,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// Send a message on this users XMTP [`Client`].
+    #[tracing::instrument(skip_all, level = "debug")]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let provider = self.mls_provider()?;
         self.send_message_with_provider(message, &provider).await
@@ -1929,6 +1936,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use crate::groups::scoped_client::ScopedGroupClient;
     use diesel::connection::SimpleConnection;
     use diesel::RunQueryDsl;
     use futures::future::join_all;
@@ -1944,7 +1952,6 @@ pub(crate) mod tests {
 
     use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-    use crate::groups::scoped_client::ScopedGroupClient;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };

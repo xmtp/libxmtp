@@ -38,8 +38,14 @@ impl Contextual {
     }
 
     fn format_event(event: &Event, writer: &mut String) -> fmt::Result {
-        if let Some(message) = event.message() {
-            writer.write_str(message)?;
+        let mut message = String::new();
+        if let Some(msg) = event.message() {
+            message += msg;
+            let ids = super::REPLACE_IDS.lock();
+            for (id, name) in ids.iter() {
+                message = message.replace(id, name);
+            }
+            writer.write_str(&message)?;
         }
         /*
                     for field in event.fields().iter() {
