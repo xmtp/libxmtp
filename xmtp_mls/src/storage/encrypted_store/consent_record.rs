@@ -41,6 +41,20 @@ impl StoredConsentRecord {
         }
     }
 
+    pub fn entity(&self) -> Result<ConsentEntity, StorageError> {
+        let entity = match self.entity_type {
+            StoredConsentType::ConversationId => {
+                ConsentEntity::ConversationId(hex::decode(&self.entity)?)
+            }
+            StoredConsentType::InboxId => ConsentEntity::InboxId(self.entity.clone()),
+            StoredConsentType::Identity => ConsentEntity::Identity(
+                self.root_identifier()
+                    .expect("Field is required in database when type is set to identity"),
+            ),
+        };
+        Ok(entity)
+    }
+
     pub fn root_identifier(&self) -> Option<RootIdentifier> {
         let identity_kind = &self.identity_kind?;
         let entity = &self.entity;
@@ -53,20 +67,6 @@ impl StoredConsentRecord {
             }
         };
         Some(ident)
-    }
-
-    pub fn entity(&self) -> Result<ConsentEntity, StorageError> {
-        let entity = match self.entity_type {
-            StoredConsentType::ConversationId => {
-                ConsentEntity::ConversationId(self.entity.to_string())
-            }
-            StoredConsentType::Identity => ConsentEntity::Identity(
-                self.root_identifier()
-                    .expect("Field is required in database when type is set to identity"),
-            ),
-            StoredConsentType::InboxId => ConsentEntity::InboxId(hex::decode(&self.entity)?),
-        };
-        Ok(entity)
     }
 }
 
@@ -160,15 +160,15 @@ impl DbConnection {
 }
 
 pub enum ConsentEntity {
-    ConversationId(String),
-    InboxId(Vec<u8>),
+    ConversationId(Vec<u8>),
+    InboxId(String),
     Identity(RootIdentifier),
 }
 
 impl ConsentEntity {
     fn id(&self) -> String {
         match self {
-            Self::ConversationId(id) => id.to_string(),
+            Self::ConversationId(id) => hex::encode(id),
             Self::InboxId(id) => hex::encode(id),
             Self::Identity(ident) => format!("{ident}"),
         }
@@ -317,9 +317,9 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn insert_and_read() {
         with_connection(|conn| {
-            let inbox_id = b"inbox_1";
+            let inbox_id = "inbox_1";
             let consent_record = StoredConsentRecord::new(
-                ConsentEntity::InboxId(inbox_id.to_vec()),
+                ConsentEntity::InboxId(inbox_id.to_string()),
                 ConsentState::Allowed,
             );
             let consent_record_entity = consent_record.entity.clone();
@@ -349,13 +349,13 @@ mod tests {
             assert_eq!(result.len(), 1);
 
             let consent_record = conn
-                .get_consent_record(&ConsentEntity::InboxId(inbox_id.to_vec()))
+                .get_consent_record(&ConsentEntity::InboxId(inbox_id.to_string()))
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
 
             let conflict = StoredConsentRecord::new(
-                ConsentEntity::InboxId(inbox_id.to_vec()),
+                ConsentEntity::InboxId(inbox_id.to_string()),
                 ConsentState::Allowed,
             );
 

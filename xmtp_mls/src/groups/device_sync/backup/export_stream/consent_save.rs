@@ -1,13 +1,13 @@
 use super::*;
 use crate::storage::{
-    consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
+    consent_record::{ConsentState, StoredConsentRecord, StoredConsentType, StoredIdentityKind},
     schema::consent_records,
 };
 use diesel::prelude::*;
 use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
-    consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
+    consent_backup::{ConsentIdentityKindSave, ConsentSave, ConsentStateSave, ConsentTypeSave},
 };
 
 impl BackupRecordProvider for ConsentSave {
@@ -41,10 +41,16 @@ impl TryFrom<ConsentSave> for StoredConsentRecord {
     fn try_from(value: ConsentSave) -> Result<Self, Self::Error> {
         let entity_type = value.entity_type().try_into()?;
         let state = value.state().try_into()?;
+        let mut identity_kind = None;
+        if value.identity_kind.is_some() {
+            identity_kind = Some(value.identity_kind().try_into()?);
+        }
+
         Ok(Self {
             entity_type,
             state,
             entity: value.entity,
+            identity_kind,
         })
     }
 }
@@ -74,15 +80,37 @@ impl TryFrom<ConsentStateSave> for ConsentState {
         })
     }
 }
-
+impl TryFrom<ConsentIdentityKindSave> for StoredIdentityKind {
+    type Error = DeserializationError;
+    fn try_from(value: ConsentIdentityKindSave) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ConsentIdentityKindSave::Ethereum => Self::Ethereum,
+            ConsentIdentityKindSave::Passkey => Self::Passkey,
+            ConsentIdentityKindSave::Unspecified => {
+                return Err(DeserializationError::Unspecified("kind"))
+            }
+        })
+    }
+}
+impl From<StoredIdentityKind> for ConsentIdentityKindSave {
+    fn from(kind: StoredIdentityKind) -> Self {
+        match kind {
+            StoredIdentityKind::Ethereum => Self::Ethereum,
+            StoredIdentityKind::Passkey => Self::Passkey,
+        }
+    }
+}
 impl From<StoredConsentRecord> for ConsentSave {
     fn from(value: StoredConsentRecord) -> Self {
         let entity_type: ConsentTypeSave = value.entity_type.into();
         let state: ConsentStateSave = value.state.into();
+        let identity_kind: Option<ConsentIdentityKindSave> =
+            value.identity_kind.map(|kind| kind.into());
         Self {
             entity_type: entity_type as i32,
             state: state as i32,
             entity: value.entity,
+            identity_kind: identity_kind.map(|k| k as i32),
         }
     }
 }

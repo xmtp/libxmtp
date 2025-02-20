@@ -665,7 +665,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         storage::{
-            consent_record::StoredConsentType,
+            consent_record::{ConsentEntity, StoredConsentType},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
         Fetch, Store,
@@ -1001,24 +1001,18 @@ pub(crate) mod tests {
             test_group_4.store(conn).unwrap();
 
             let test_group_1_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
+                ConsentEntity::ConversationId(test_group_1.id.clone()),
                 ConsentState::Allowed,
-                hex::encode(test_group_1.id.clone()),
-                None,
             );
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
+                ConsentEntity::ConversationId(test_group_2.id.clone()),
                 ConsentState::Denied,
-                hex::encode(test_group_2.id.clone()),
-                None,
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
+                ConsentEntity::ConversationId(test_group_3.id.clone()),
                 ConsentState::Allowed,
-                hex::encode(test_group_3.id.clone()),
-                None,
             );
             test_group_3_consent.store(conn).unwrap();
 

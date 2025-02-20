@@ -33,14 +33,14 @@ pub(crate) mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentState, StoredConsentType},
+        storage::consent_record::{ConsentEntity, ConsentState},
     };
     use xmtp_common::{
         assert_ok,
         time::{Duration, Instant},
     };
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
+    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     #[cfg_attr(target_family = "wasm", ignore)]
@@ -55,9 +55,8 @@ pub(crate) mod tests {
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
         let consent_record = StoredConsentRecord::new(
-            StoredConsentType::Identity,
+            ConsentEntity::Identity(alix_wallet.root_identifier()),
             ConsentState::Allowed,
-            alix_wallet.get_address(),
         );
 
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
@@ -125,21 +124,20 @@ pub(crate) mod tests {
 
         // Ensure bo is not consented with amal_b
         let mut bo_consent_with_amal_b = amal_b_conn
-            .get_consent_record(bo_wallet.get_address(), StoredConsentType::Identity)
+            .get_consent_record(&ConsentEntity::Identity(bo_wallet.root_identifier()))
             .unwrap();
         assert!(bo_consent_with_amal_b.is_none());
 
         // Consent with bo on the amal_a installation
         amal_a
             .set_consent_states(&[StoredConsentRecord::new(
-                StoredConsentType::Identity,
+                ConsentEntity::Identity(bo_wallet.root_identifier()),
                 ConsentState::Allowed,
-                bo_wallet.get_address(),
             )])
             .await
             .unwrap();
         assert!(amal_a_conn
-            .get_consent_record(bo_wallet.get_address(), StoredConsentType::Identity)
+            .get_consent_record(&ConsentEntity::Identity(bo_wallet.root_identifier()))
             .unwrap()
             .is_some());
         let amal_a_subscription = amal_a.local_events().subscribe();
@@ -149,7 +147,7 @@ pub(crate) mod tests {
         while bo_consent_with_amal_b.is_none() {
             assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
             bo_consent_with_amal_b = amal_b_conn
-                .get_consent_record(bo_wallet.get_address(), StoredConsentType::Identity)
+                .get_consent_record(&ConsentEntity::Identity(bo_wallet.root_identifier()))
                 .unwrap();
 
             if start.elapsed() > Duration::from_secs(1) {

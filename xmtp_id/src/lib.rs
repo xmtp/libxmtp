@@ -5,7 +5,6 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
-use associations::member::RootIdentifier;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},

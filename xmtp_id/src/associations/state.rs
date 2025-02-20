@@ -5,7 +5,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::{Debug, Display},
+    fmt::Debug,
 };
 
 use super::{

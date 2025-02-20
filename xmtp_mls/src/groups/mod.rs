@@ -39,6 +39,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
+use crate::storage::consent_record::ConsentEntity;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -58,7 +59,7 @@ use crate::{
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
-        consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
+        consent_record::{ConsentState, StoredConsentRecord},
         db_connection::DbConnection,
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
@@ -96,10 +97,9 @@ use tokio::sync::Mutex;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::associations::RootIdentifier;
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -957,7 +957,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
 
         if inbox_id_map.len() != account_identifiers_to_add.len() {
-            let found_addresses: HashSet<&String> = inbox_id_map.keys().collect();
+            let found_addresses: HashSet<_> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_addresses.iter());
             let missing_addresses = found_addresses.difference(&to_add_hashset);
             return Err(GroupError::AddressNotFound(
@@ -1380,10 +1380,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context().store().conn()?;
-        let record = conn.get_consent_record(
-            hex::encode(self.group_id.clone()),
-            StoredConsentType::ConversationId,
-        )?;
+        let record =
+            conn.get_consent_record(ConsentEntity::ConversationId(self.group_id.clone()))?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -1394,11 +1392,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
 
-        let consent_record = StoredConsentRecord::new(
-            StoredConsentType::ConversationId,
-            state,
-            hex::encode(self.group_id.clone()),
-        );
+        let consent_record =
+            StoredConsentRecord::new(ConsentEntity::ConversationId(self.group_id.clone()), state);
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()

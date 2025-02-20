@@ -175,7 +175,7 @@ impl DbConnection {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::storage::consent_record::{ConsentState, StoredConsentType, StoredConsentRecord};
+    use crate::storage::consent_record::{ConsentEntity, ConsentState, StoredConsentRecord};
     use crate::storage::group::tests::{
         generate_dm, generate_group, generate_group_with_created_at,
     };
@@ -327,24 +327,18 @@ pub(crate) mod tests {
             test_group_4.store(conn).unwrap();
 
             let test_group_1_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
+                ConsentEntity::ConversationId(test_group_1.id.clone()),
                 ConsentState::Allowed,
-                hex::encode(test_group_1.id.clone()),
-                None,
             );
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
-                ConsentState::Denied,
-                hex::encode(test_group_2.id.clone()),
-                None,
+                ConsentEntity::ConversationId(test_group_2.id.clone()),
+                ConsentState::Allowed,
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = StoredConsentRecord::new(
-                StoredConsentType::ConversationId,
+                ConsentEntity::ConversationId(test_group_3.id.clone()),
                 ConsentState::Allowed,
-                hex::encode(test_group_3.id.clone()),
-                None,
             );
             test_group_3_consent.store(conn).unwrap();
 
