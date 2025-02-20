@@ -20,6 +20,7 @@ use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[napi]
 #[derive(Debug)]
@@ -100,6 +101,31 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
         .map(|vec| vec.into_iter().map(Into::into).collect()),
       include_duplicate_dms: opts.include_duplicate_dms,
       ..Default::default()
+    }
+  }
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  pub from_ns: i64,
+  pub in_ns: i64,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
+  fn from(value: XmtpMessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
     }
   }
 }
