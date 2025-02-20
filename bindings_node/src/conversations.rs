@@ -78,27 +78,29 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 }
 
 #[napi(object)]
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ListConversationsOptions {
   pub allowed_states: Option<Vec<GroupMembershipState>>,
+  pub consent_states: Option<Vec<ConsentState>>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
+  pub include_duplicate_dms: bool,
   pub limit: Option<i64>,
   pub conversation_type: Option<ConversationType>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
-    GroupQueryArgs::default()
-      .maybe_allowed_states(
-        opts
-          .allowed_states
-          .map(|states| states.into_iter().map(From::from).collect()),
-      )
-      .maybe_conversation_type(opts.conversation_type.map(|ct| ct.into()))
-      .maybe_created_after_ns(opts.created_after_ns)
-      .maybe_created_before_ns(opts.created_before_ns)
-      .maybe_limit(opts.limit)
+    GroupQueryArgs {
+      created_before_ns: opts.created_before_ns,
+      created_after_ns: opts.created_after_ns,
+      limit: opts.limit,
+      consent_states: opts
+        .consent_states
+        .map(|vec| vec.into_iter().map(Into::into).collect()),
+      include_duplicate_dms: opts.include_duplicate_dms,
+      ..Default::default()
+    }
   }
 }
 
