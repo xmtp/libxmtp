@@ -448,7 +448,7 @@ where
         let conn = self.store().conn()?;
         let record = if entity_type == ConsentType::Identity {
             if let Some(inbox_id) = self
-                .find_inbox_id_from_address(&conn, entity.clone())
+                .find_inbox_id_from_identifier(&conn, entity.clone())
                 .await?
             {
                 conn.get_consent_record(inbox_id, ConsentType::InboxId)?

@@ -8,20 +8,20 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use sqlite_web::dsl::RunQueryDsl;
 use std::collections::HashMap;
-use xmtp_id::associations::{HasMemberKind, RootIdentifier};
+use xmtp_id::associations::RootIdentifier;
 use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = identity_cache)]
 #[diesel()]
-pub struct WalletEntry {
+pub struct IdentityCache {
     inbox_id: InboxId,
     identity: String,
     identity_kind: IdentityKind,
 }
 
-impl_store!(WalletEntry, identity_cache);
-impl_fetch!(WalletEntry, identity_cache);
+impl_store!(IdentityCache, identity_cache);
+impl_fetch!(IdentityCache, identity_cache);
 
 impl DbConnection {
     pub fn fetch_cached_inbox_ids(
@@ -34,13 +34,13 @@ impl DbConnection {
 
         for ident in identifiers {
             let addr = format!("{ident}");
-            let kind = format!("{}", ident.kind());
+            let kind: IdentityKind = ident.into();
             let cond = identity.eq(addr).and(identity_kind.eq(kind));
             conditions = conditions.or_filter(cond);
         }
 
         let result = self
-            .raw_query_read(|conn| conditions.load::<WalletEntry>(conn))?
+            .raw_query_read(|conn| conditions.load::<IdentityCache>(conn))?
             .into_iter()
             .map(|entry| (entry.identity, entry.inbox_id))
             .collect();
@@ -52,10 +52,10 @@ impl DbConnection {
         identifier: &RootIdentifier,
         inbox_id: impl ToString,
     ) -> Result<(), StorageError> {
-        WalletEntry {
+        IdentityCache {
             inbox_id: inbox_id.to_string(),
             identity: format!("{identifier}"),
-            identity_kind: format!("{}", identifier.kind()),
+            identity_kind: identifier.into(),
         }
         .store(self)
     }
@@ -63,25 +63,27 @@ impl DbConnection {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::IdentityCache;
+    use crate::{
+        storage::{consent_record::IdentityKind, encrypted_store::tests::with_connection},
+        Store,
+    };
     use xmtp_id::associations::RootIdentifier;
-
-    use crate::storage::identity_cache::WalletEntry;
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_store_duplicated_wallets() {
         with_connection(|conn| {
-            let entry1 = WalletEntry {
+            let entry1 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
-                wallet_address: "wallet_dup".to_string(),
-                identity_kind: "eth".to_string(),
+                identity: "wallet_dup".to_string(),
+                identity_kind: IdentityKind::Ethereum,
             };
-            let entry2 = WalletEntry {
+            let entry2 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
-                wallet_address: "wallet_dup".to_string(),
-                identity_kind: "eth".to_string(),
+                identity: "wallet_dup".to_string(),
+                identity_kind: IdentityKind::Ethereum,
             };
             entry1.store(conn).expect("Failed to store wallet");
             let result = entry2.store(conn);

@@ -18,6 +18,7 @@ pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
+pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
@@ -29,7 +30,6 @@ mod schema_gen;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
 pub mod user_preferences;
-pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
 pub(super) mod wasm;
 

@@ -15,6 +15,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_id::associations::RootIdentifier;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -201,6 +202,15 @@ where
             1 => Ok(Self::Ethereum),
             2 => Ok(Self::Passkey),
             x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+impl From<&RootIdentifier> for IdentityKind {
+    fn from(ident: &RootIdentifier) -> Self {
+        match ident {
+            RootIdentifier::Ethereum(_) => Self::Ethereum,
+            RootIdentifier::Passkey(_) => Self::Passkey,
         }
     }
 }
