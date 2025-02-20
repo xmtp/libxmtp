@@ -10,7 +10,8 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::consent_state::ConsentState;
+use crate::consent_state::{ConsentState, Consent};
+use crate::user_preferences::UserPreference;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -666,7 +667,19 @@ impl Conversations {
     let stream_closer =
       RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
         match message {
-          Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
+          Ok(m) => callback.on_consent_update(m.into_iter().map(Consent::from).collect()),
+          Err(e) => callback.on_error(JsError::from(e)),
+        }
+      });
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[wasm_bindgen(js_name = "streamConsent")]
+  pub fn stream_preferences_with_callback(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let stream_closer =
+      RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
+        match message {
+          Ok(m) => callback.on_user_preference_update(m.into_iter().map(UserPreference::from).collect()),
           Err(e) => callback.on_error(JsError::from(e)),
         }
       });
