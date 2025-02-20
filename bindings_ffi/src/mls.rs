@@ -49,7 +49,7 @@ use xmtp_mls::{
     },
     identity::IdentityStrategy,
     storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
         group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -1492,9 +1492,9 @@ impl From<StoredConsentRecord> for FfiConsent {
         FfiConsent {
             entity: value.entity,
             entity_type: match value.entity_type {
-                ConsentType::Identity => FfiConsentEntityType::Address,
-                ConsentType::ConversationId => FfiConsentEntityType::ConversationId,
-                ConsentType::InboxId => FfiConsentEntityType::InboxId,
+                StoredConsentType::Identity => FfiConsentEntityType::Address,
+                StoredConsentType::ConversationId => FfiConsentEntityType::ConversationId,
+                StoredConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
             state: value.state.into(),
         }
@@ -1566,12 +1566,12 @@ pub enum FfiConsentEntityType {
     Address,
 }
 
-impl From<FfiConsentEntityType> for ConsentType {
+impl From<FfiConsentEntityType> for StoredConsentType {
     fn from(entity_type: FfiConsentEntityType) -> Self {
         match entity_type {
-            FfiConsentEntityType::ConversationId => ConsentType::ConversationId,
-            FfiConsentEntityType::InboxId => ConsentType::InboxId,
-            FfiConsentEntityType::Address => ConsentType::Identity,
+            FfiConsentEntityType::ConversationId => StoredConsentType::ConversationId,
+            FfiConsentEntityType::InboxId => StoredConsentType::InboxId,
+            FfiConsentEntityType::Address => StoredConsentType::Identity,
         }
     }
 }

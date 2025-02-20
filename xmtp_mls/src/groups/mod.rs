@@ -58,7 +58,7 @@ use crate::{
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{ConversationType, GroupMembershipState, StoredGroup},
         group_intent::IntentKind,
@@ -1382,7 +1382,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let conn = self.context().store().conn()?;
         let record = conn.get_consent_record(
             hex::encode(self.group_id.clone()),
-            ConsentType::ConversationId,
+            StoredConsentType::ConversationId,
         )?;
 
         match record {
@@ -1395,7 +1395,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let conn = self.context().store().conn()?;
 
         let consent_record = StoredConsentRecord::new(
-            ConsentType::ConversationId,
+            StoredConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );

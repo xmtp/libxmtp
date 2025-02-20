@@ -25,8 +25,10 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-use crate::groups::{ConversationListItem, DMMetadataOptions};
+use crate::{
+    groups::group_mutable_metadata::MessageDisappearingSettings,
+    storage::consent_record::StoredIdentityKind,
+};
 use crate::{
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
@@ -36,7 +38,7 @@ use crate::{
     identity_updates::{load_identity_updates, IdentityUpdateError},
     mutex_registry::MutexRegistry,
     storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
         db_connection::DbConnection,
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
@@ -48,6 +50,10 @@ use crate::{
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, XmtpApi,
+};
+use crate::{
+    groups::{ConversationListItem, DMMetadataOptions},
+    storage::consent_record::ConsentEntity,
 };
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
@@ -415,7 +421,7 @@ where
             if let Some(inbox_id) = inbox_id_opt {
                 let record = &records[record_indices[i]];
                 new_records.push(StoredConsentRecord::new(
-                    ConsentType::InboxId,
+                    StoredConsentType::InboxId,
                     record.state,
                     inbox_id,
                     None,
@@ -442,16 +448,15 @@ where
     /// Get the consent state for a given entity
     pub async fn get_consent_state(
         &self,
-        entity_type: ConsentType,
-        entity: String,
+        entity: ConsentEntity,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
-        let record = if entity_type == ConsentType::Identity {
+        let record = if entity_type == StoredConsentType::Identity {
             if let Some(inbox_id) = self
                 .find_inbox_id_from_identifier(&conn, entity.clone())
                 .await?
             {
-                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
+                conn.get_consent_record(inbox_id, StoredConsentType::InboxId)?
             } else {
                 conn.get_consent_record(entity, entity_type)?
             }
@@ -1062,7 +1067,7 @@ pub(crate) mod tests {
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{
-            consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+            consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
             group::GroupQueryArgs,
             group_message::MsgQueryArgs,
             schema::identity_updates,
@@ -1494,17 +1499,17 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let record = StoredConsentRecord::new(
-            ConsentType::Identity,
+            StoredConsentType::Identity,
             ConsentState::Denied,
             bo_wallet.get_address(),
         );
         alix.set_consent_states(&[record]).await.unwrap();
         let inbox_consent = alix
-            .get_consent_state(ConsentType::InboxId, bo.inbox_id().to_string())
+            .get_consent_state(StoredConsentType::InboxId, bo.inbox_id().to_string())
             .await
             .unwrap();
         let address_consent = alix
-            .get_consent_state(ConsentType::Identity, bo_wallet.get_address())
+            .get_consent_state(StoredConsentType::Identity, bo_wallet.get_address())
             .await
             .unwrap();
 

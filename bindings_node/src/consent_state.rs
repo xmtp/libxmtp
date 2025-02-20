@@ -1,7 +1,7 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_mls::storage::consent_record::{
-  ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
+  ConsentState as XmtpConsentState, StoredConsentRecord, StoredConsentType as XmtpConsentType,
 };
 
 use crate::{client::Client, ErrorWrapper};

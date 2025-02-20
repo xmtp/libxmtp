@@ -1,6 +1,6 @@
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{
-  ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
+  ConsentState as XmtpConsentState, StoredConsentType as XmtpConsentType, StoredConsentRecord,
 };
 
 use crate::{client::Client, conversation::Conversation};

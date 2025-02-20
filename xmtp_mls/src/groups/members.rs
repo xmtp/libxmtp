@@ -4,7 +4,7 @@ use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, Sc
 
 use crate::storage::{
     association_state::StoredAssociationState,
-    consent_record::{ConsentState, ConsentType},
+    consent_record::{ConsentState, StoredConsentType},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
@@ -101,7 +101,7 @@ where
                 };
 
                 let consent =
-                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+                    conn.get_consent_record(inbox_id_str.clone(), StoredConsentType::InboxId)?;
 
                 Ok(GroupMember {
                     inbox_id: inbox_id_str.clone(),

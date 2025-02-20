@@ -1,4 +1,4 @@
-use super::consent_record::IdentityKind;
+use super::consent_record::StoredIdentityKind;
 use super::schema::identity_cache;
 use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_store, Store};
@@ -17,7 +17,7 @@ use xmtp_id::{InboxId, WalletAddress};
 pub struct IdentityCache {
     inbox_id: InboxId,
     identity: String,
-    identity_kind: IdentityKind,
+    identity_kind: StoredIdentityKind,
 }
 
 impl_store!(IdentityCache, identity_cache);
@@ -34,7 +34,7 @@ impl DbConnection {
 
         for ident in identifiers {
             let addr = format!("{ident}");
-            let kind: IdentityKind = ident.into();
+            let kind: StoredIdentityKind = ident.into();
             let cond = identity.eq(addr).and(identity_kind.eq(kind));
             conditions = conditions.or_filter(cond);
         }
@@ -65,7 +65,7 @@ impl DbConnection {
 pub(crate) mod tests {
     use super::IdentityCache;
     use crate::{
-        storage::{consent_record::IdentityKind, encrypted_store::tests::with_connection},
+        storage::{consent_record::StoredIdentityKind, encrypted_store::tests::with_connection},
         Store,
     };
     use xmtp_id::associations::RootIdentifier;
@@ -78,12 +78,12 @@ pub(crate) mod tests {
             let entry1 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
                 identity: "wallet_dup".to_string(),
-                identity_kind: IdentityKind::Ethereum,
+                identity_kind: StoredIdentityKind::Ethereum,
             };
             let entry2 = IdentityCache {
                 inbox_id: "test_dup".to_string(),
                 identity: "wallet_dup".to_string(),
-                identity_kind: IdentityKind::Ethereum,
+                identity_kind: StoredIdentityKind::Ethereum,
             };
             entry1.store(conn).expect("Failed to store wallet");
             let result = entry2.store(conn);

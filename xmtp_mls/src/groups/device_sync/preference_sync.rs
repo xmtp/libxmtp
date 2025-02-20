@@ -94,7 +94,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentState, ConsentType},
+        storage::consent_record::{ConsentState, StoredConsentType},
     };
     use crypto_utils::generate_local_wallet;
     use wasm_bindgen_test::wasm_bindgen_test;
@@ -110,7 +110,7 @@ mod tests {
     async fn test_can_deserialize_between_versions() {
         let consent_record = StoredConsentRecord {
             entity: "hello there".to_string(),
-            entity_type: ConsentType::Identity,
+            entity_type: StoredConsentType::Identity,
             state: ConsentState::Allowed,
         };
         let update = UserPreferenceUpdate::ConsentUpdate(consent_record);

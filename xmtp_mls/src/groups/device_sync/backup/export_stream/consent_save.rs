@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::{
-    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
     schema::consent_records,
 };
 use diesel::prelude::*;
@@ -48,7 +48,7 @@ impl TryFrom<ConsentSave> for StoredConsentRecord {
         })
     }
 }
-impl TryFrom<ConsentTypeSave> for ConsentType {
+impl TryFrom<ConsentTypeSave> for StoredConsentType {
     type Error = DeserializationError;
     fn try_from(value: ConsentTypeSave) -> Result<Self, Self::Error> {
         Ok(match value {
@@ -86,12 +86,12 @@ impl From<StoredConsentRecord> for ConsentSave {
         }
     }
 }
-impl From<ConsentType> for ConsentTypeSave {
-    fn from(value: ConsentType) -> Self {
+impl From<StoredConsentType> for ConsentTypeSave {
+    fn from(value: StoredConsentType) -> Self {
         match value {
-            ConsentType::Identity => Self::Address,
-            ConsentType::InboxId => Self::InboxId,
-            ConsentType::ConversationId => Self::ConversationId,
+            StoredConsentType::Identity => Self::Address,
+            StoredConsentType::InboxId => Self::InboxId,
+            StoredConsentType::ConversationId => Self::ConversationId,
         }
     }
 }
