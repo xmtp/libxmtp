@@ -7,6 +7,7 @@ use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::JsFunction;
 use napi_derive::napi;
+// use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
@@ -144,6 +145,22 @@ impl From<XmtpHmacKey> for HmacKey {
     }
   }
 }
+
+// #[napi(object)]
+// pub struct UserPreferenceUpdate {
+//   pub hmac_key_update: Vec<u8>,
+// }
+
+// impl TryFrom<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
+//   fn try_from(value: XmtpUserPreferenceUpdate) -> Result<Self, Error> {
+//     match value {
+//       XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => Ok(Self {
+//         hmac_key_update: key,
+//       }),
+//       _ => Error::from_reason("Only HmacKeyUpdate is supported"),
+//     }
+//   }
+// }
 
 #[napi(object)]
 pub struct ConversationListItem {
@@ -629,4 +646,33 @@ impl Conversations {
 
     Ok(StreamCloser::new(stream_closer))
   }
+
+  //   #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  //   pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
+  //     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+  //     let tsfn: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ErrorStrategy::CalleeHandled> =
+  //       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+  //     let inbox_id = self.inner_client.inbox_id().to_string();
+  //     let stream_closer =
+  //       RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
+  //         tracing::trace!(inbox_id, "[received] calling tsfn callback");
+  //         match message {
+  //           Ok(message) => {
+  //             let msg: Vec<UserPreferenceUpdate> = message
+  //               .into_iter()
+  //               .filter_map(|v| v.try_into().ok())
+  //               .collect();
+  //             tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+  //           }
+  //           Err(e) => {
+  //             tsfn.call(
+  //               Err(Error::from(ErrorWrapper::from(e))),
+  //               ThreadsafeFunctionCallMode::Blocking,
+  //             );
+  //           }
+  //         }
+  //       });
+
+  //     Ok(StreamCloser::new(stream_closer))
+  //   }
 }
