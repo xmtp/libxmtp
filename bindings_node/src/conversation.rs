@@ -12,10 +12,7 @@ use xmtp_mls::{
     intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
-  storage::{
-    group::ConversationType,
-    group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs},
-  },
+  storage::{group::ConversationType, group_message::MsgQueryArgs},
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -173,7 +170,7 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
-      ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
+      ConversationType::Dm => None,
       ConversationType::Sync => None,
     };
     let opts = MsgQueryArgs {
