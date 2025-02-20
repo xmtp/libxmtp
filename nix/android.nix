@@ -4,6 +4,7 @@
 , stdenv
 , pkg-config
 , kotlin
+, ktlint
 , jdk17
 , cargo-ndk
 , sqlite
@@ -72,6 +73,7 @@ mkShell {
   buildInputs = [
     rust-toolchain
     kotlin
+    ktlint
     androidsdk
     jdk17
     cargo-ndk
