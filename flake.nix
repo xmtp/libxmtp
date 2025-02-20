@@ -1,15 +1,14 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
-
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
     };
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
-    libxmtp-util.url = "github:insipx/libxmtp-util.nix";
+    mkshell-util.url = "github:insipx/mkShell-util.nix";
   };
 
   nixConfig = {
@@ -17,12 +16,13 @@
     extra-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, libxmtp-util, ... }:
+  outputs = inputs@{ flake-parts, fenix, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       perSystem = { pkgs, system, ... }:
         let
-          mkShellWrappers = pkgs: libxmtp-util callPackage pkgs;
+          util = import inputs.mkshell-util;
+          mkShellWrappers = pkgs: util callPackage pkgs;
           callPackage = pkgs: pkgs.lib.callPackageWith ((mkShellWrappers pkgs) // pkgs);
           pkgConfig = {
             inherit system;
