@@ -146,6 +146,12 @@ impl From<XmtpHmacKey> for HmacKey {
 }
 
 #[napi(object)]
+pub struct ConversationListItem {
+  pub conversation: Conversation,
+  pub last_message: Option<Message>,
+}
+
+#[napi(object)]
 #[derive(Clone)]
 pub struct CreateGroupOptions {
   pub permissions: Option<GroupPermissionsOptions>,
@@ -454,20 +460,28 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
-    let convo_list: Vec<Conversation> = self
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
+    let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .find_groups(opts.unwrap_or_default().into())
+      .list_conversations(opts.unwrap_or_default().into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
-      .map(Conversation::from)
+      .map(|conversation_item| ConversationListItem {
+        conversation: conversation_item.group.into(),
+        last_message: conversation_item
+          .last_message
+          .map(|stored_message| stored_message.into()),
+      })
       .collect();
 
     Ok(convo_list)
   }
 
   #[napi]
-  pub fn list_groups(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_groups(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<ConversationListItem>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Group),
       ..opts.unwrap_or_default()
@@ -475,7 +489,10 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_dms(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<ConversationListItem>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()
