@@ -19,6 +19,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 use crate::{
   client::RustXmtpClient,
   consent_state::ConsentState,
+  conversations::MessageDisappearingSettings,
   encoded_content::EncodedContent,
   message::{ListMessagesOptions, Message},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
@@ -649,5 +650,61 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
+  }
+
+  #[napi]
+  pub async fn update_message_disappearing_settings(
+    &self,
+    settings: MessageDisappearingSettings,
+  ) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_conversation_message_disappearing_settings(settings.into())
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn remove_message_disappearing_settings(&self) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .remove_conversation_message_disappearing_settings()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
+    let settings = self
+      .inner_client
+      .group_disappearing_settings(self.group_id.clone())
+      .map_err(ErrorWrapper::from)?;
+
+    match settings {
+      Some(s) => Ok(Some(s.into())),
+      None => Ok(None),
+    }
+  }
+
+  #[napi]
+  pub fn is_message_disappearing_enabled(&self) -> Result<bool> {
+    self.message_disappearing_settings().map(|settings| {
+      settings
+        .as_ref()
+        .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+    })
   }
 }
