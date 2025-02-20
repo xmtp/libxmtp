@@ -9,6 +9,7 @@ pub use crate::inbox_owner::SigningError;
 use inbox_owner::FfiInboxOwner;
 pub use mls::*;
 use std::error::Error;
+use xmtp_cryptography::signature::AddressValidationError;
 
 extern crate tracing as log;
 
@@ -64,6 +65,8 @@ pub enum GenericError {
     ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
     #[error(transparent)]
     Grpc(#[from] xmtp_api_grpc::GrpcError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

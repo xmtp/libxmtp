@@ -12,7 +12,7 @@ use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::associations::{
-    verify_signed_with_public_context, DeserializationError, RootIdentifier,
+    ident, verify_signed_with_public_context, DeserializationError, RootIdentifier,
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -200,7 +200,7 @@ pub fn generate_inbox_id(
     Ok(ident.inbox_id(nonce)?)
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Hash, PartialEq, Eq)]
 pub enum FfiRootIdentifier {
     Ethereum(String),
     Passkey(Vec<u8>),
@@ -214,6 +214,14 @@ impl TryFrom<FfiRootIdentifier> for RootIdentifier {
             FfiRootIdentifier::Passkey(key) => Self::passkey(key),
         };
         Ok(ident)
+    }
+}
+impl From<RootIdentifier> for FfiRootIdentifier {
+    fn from(ident: RootIdentifier) -> Self {
+        match ident {
+            RootIdentifier::Ethereum(ident::Ethereum(addr)) => Self::Ethereum(addr),
+            RootIdentifier::Passkey(ident::Passkey(key)) => Self::Passkey(key),
+        }
     }
 }
 
@@ -324,11 +332,22 @@ impl FfiXmtpClient {
 
     pub async fn can_message(
         &self,
-        account_addresses: Vec<String>,
-    ) -> Result<HashMap<String, bool>, GenericError> {
+        account_identifiers: Vec<FfiRootIdentifier>,
+    ) -> Result<HashMap<FfiRootIdentifier, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: HashMap<String, bool> = inner.can_message(&account_addresses).await?;
+        let account_identifiers: Result<Vec<RootIdentifier>, _> = account_identifiers
+            .into_iter()
+            .map(|ident| ident.try_into())
+            .collect();
+        let account_identifiers = account_identifiers?;
+
+        let results = inner
+            .can_message(&account_identifiers)
+            .await?
+            .into_iter()
+            .map(|(ident, can_msg)| (ident.into(), can_msg))
+            .collect();
 
         Ok(results)
     }
@@ -345,10 +364,15 @@ impl FfiXmtpClient {
         Ok(self.inner_client.reconnect_db()?)
     }
 
-    pub async fn find_inbox_id(&self, address: String) -> Result<Option<String>, GenericError> {
+    pub async fn find_inbox_id(
+        &self,
+        identifier: FfiRootIdentifier,
+    ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = self.inner_client.store().conn()?;
-        let result = inner.find_inbox_id_from_address(&conn, address).await?;
+        let result = inner
+            .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
+            .await?;
         Ok(result)
     }
 
@@ -510,13 +534,13 @@ impl FfiXmtpClient {
     }
 
     /// Adds a wallet address to the existing client
-    pub async fn add_wallet(
+    pub async fn add_identity(
         &self,
-        new_wallet_address: &str,
+        new_identity: FfiRootIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .associate_eth_wallet(new_wallet_address.into())
+            .associate_identity(new_identity.try_into()?)
             .await?;
         let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
@@ -540,16 +564,16 @@ impl FfiXmtpClient {
     }
 
     /// Revokes or removes an identity from the existing client
-    pub async fn revoke_identifier(
+    pub async fn revoke_identity(
         &self,
-        identifier: &RootIdentifier,
+        identifier: FfiRootIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let Self {
             ref inner_client, ..
         } = self;
 
         let signature_request = inner_client
-            .revoke_eth_wallets(vec![wallet_address.into()])
+            .revoke_identities(vec![identifier.try_into()?])
             .await?;
         let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
@@ -733,9 +757,9 @@ impl From<HmacKey> for FfiHmacKey {
 #[derive(uniffi::Record)]
 pub struct FfiInboxState {
     pub inbox_id: String,
-    pub recovery_address: String,
+    pub recovery_identity: FfiRootIdentifier,
     pub installations: Vec<FfiInstallation>,
-    pub account_addresses: Vec<String>,
+    pub account_identities: Vec<FfiRootIdentifier>,
 }
 
 #[derive(uniffi::Record)]
@@ -754,20 +778,26 @@ impl From<AssociationState> for FfiInboxState {
     fn from(state: AssociationState) -> Self {
         Self {
             inbox_id: state.inbox_id().to_string(),
-            recovery_address: state.recovery_address().to_string(),
+            recovery_identity: state.recovery_identifier().clone().into(),
             installations: state
                 .members()
                 .into_iter()
                 .filter_map(|m| match m.identifier {
                     MemberIdentifier::Ethereum(_) => None,
                     MemberIdentifier::Passkey(_) => None,
-                    MemberIdentifier::Installation(inst) => Some(FfiInstallation {
-                        id: inst,
-                        client_timestamp_ns: m.client_timestamp_ns,
-                    }),
+                    MemberIdentifier::Installation(ident::Installation(id)) => {
+                        Some(FfiInstallation {
+                            id,
+                            client_timestamp_ns: m.client_timestamp_ns,
+                        })
+                    }
                 })
                 .collect(),
-            account_addresses: state.root_identifiers(),
+            account_identities: state
+                .root_identifiers()
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -1026,12 +1056,22 @@ impl From<&FfiMetadataField> for MetadataField {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        account_addresses: Vec<String>,
+        account_identities: Vec<FfiRootIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
+        let account_identities: Result<Vec<RootIdentifier>, _> = account_identities
+            .into_iter()
+            .map(|ident| ident.try_into())
+            .collect();
+        let account_identities = account_identities?;
+
         log::info!(
             "creating group with account addresses: {}",
-            account_addresses.join(", ")
+            account_identities
+                .iter()
+                .map(|ident| format!("{ident:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
