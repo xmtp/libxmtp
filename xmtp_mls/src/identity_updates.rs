@@ -793,7 +793,9 @@ pub(crate) mod tests {
                 association_state.recovery_identifier(),
                 &wallet.root_identifier()
             );
-            assert!(association_state.get(&wallet_2.root_identifier()).is_some());
+            assert!(association_state
+                .get(&wallet_2.member_identifier())
+                .is_some());
         });
     }
 
@@ -956,7 +958,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_identity(vec![second_wallet.root_identifier().into()])
+            .revoke_identities(vec![second_wallet.root_identifier().into()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;

@@ -311,10 +311,10 @@ where
     pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
-        address: RootIdentifier,
+        identifier: RootIdentifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
-            .find_inbox_ids_from_identifiers(conn, &[address])
+            .find_inbox_ids_from_identifiers(conn, &[identifier])
             .await?;
         Ok(results.into_iter().next().flatten())
     }
@@ -421,10 +421,8 @@ where
             if let Some(inbox_id) = inbox_id_opt {
                 let record = &records[record_indices[i]];
                 new_records.push(StoredConsentRecord::new(
-                    StoredConsentType::InboxId,
+                    ConsentEntity::InboxId(inbox_id),
                     record.state,
-                    inbox_id,
-                    None,
                 ));
             }
         }
@@ -448,26 +446,26 @@ where
     /// Get the consent state for a given entity
     pub async fn get_consent_state(
         &self,
-        entity: ConsentEntity,
+        mut entity: ConsentEntity,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
-        let record = if entity_type == StoredConsentType::Identity {
+
+        // Swap out external identity for inbox_id if we can
+        if let ConsentEntity::Identity(ident) = &entity {
             if let Some(inbox_id) = self
-                .find_inbox_id_from_identifier(&conn, entity.clone())
+                .find_inbox_id_from_identifier(&conn, ident.clone())
                 .await?
             {
-                conn.get_consent_record(inbox_id, StoredConsentType::InboxId)?
-            } else {
-                conn.get_consent_record(entity, entity_type)?
+                entity = ConsentEntity::InboxId(inbox_id);
             }
-        } else {
-            conn.get_consent_record(entity, entity_type)?
-        };
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
         }
+
+        let state = conn
+            .get_consent_record(&entity)?
+            .map(|consent| consent.state)
+            .unwrap_or(ConsentState::Unknown);
+
+        Ok(state)
     }
 
     /// Gets a reference to the client's store
@@ -520,14 +518,14 @@ where
     /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
-        account_addresses: &[String],
+        account_identifiers: &[RootIdentifier],
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
-        group.add_members(account_addresses).await?;
+        group.add_members(account_identifiers).await?;
 
         Ok(group)
     }
@@ -578,18 +576,18 @@ where
     /// Find or create a Direct Message with the default settings
     pub async fn find_or_create_dm(
         &self,
-        account_address: String,
+        account_identifier: RootIdentifier,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("finding or creating dm with address: {}", account_address);
+        tracing::info!("finding or creating dm with address: {account_identifier}");
         let provider = self.mls_provider()?;
         let inbox_id = match self
-            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
+            .find_inbox_id_from_identifier(provider.conn_ref(), account_identifier.clone())
             .await?
         {
             Some(id) => id,
             None => {
-                return Err(NotFound::InboxIdForAddress(account_address).into());
+                return Err(NotFound::InboxIdForAddress(account_identifier.to_string()).into());
             }
         };
 
@@ -1029,23 +1027,27 @@ where
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
-        account_addresses: &[String],
-    ) -> Result<HashMap<String, bool>, ClientError> {
-        let account_addresses = sanitize_evm_addresses(account_addresses)?;
-        let inbox_id_map = self
+        account_identifiers: &[RootIdentifier],
+    ) -> Result<HashMap<RootIdentifier, bool>, ClientError> {
+        let requests = account_identifiers.iter().map(Into::into).collect();
+
+        // Get the identities that are on the network, set those to true
+        let mut can_message: HashMap<RootIdentifier, bool> = self
             .api_client
-            .get_inbox_ids(account_addresses.clone())
-            .await?;
+            .get_inbox_ids(requests)
+            .await?
+            .into_iter()
+            .filter_map(|(ident, _)| Some((ident.try_into().ok()?, true)))
+            .collect();
 
-        let results = account_addresses
-            .iter()
-            .map(|address| {
-                let result = inbox_id_map.get(address).map(|_| true).unwrap_or(false);
-                (address.clone(), result)
-            })
-            .collect::<HashMap<String, bool>>();
+        // Fill in the rest with false
+        for ident in account_identifiers {
+            if !can_message.contains_key(ident) {
+                can_message.insert(ident.clone(), false);
+            }
+        }
 
-        Ok(results)
+        Ok(can_message)
     }
 }
 
