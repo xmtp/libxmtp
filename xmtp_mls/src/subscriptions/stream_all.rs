@@ -117,7 +117,7 @@ mod tests {
 
     use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
+    use xmtp_id::{associations::test_utils::WalletTestExt, InboxOwner};
 
     use crate::groups::DMMetadataOptions;
     use futures::StreamExt;
@@ -145,7 +145,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(caro_wallet.get_address(), DMMetadataOptions::default())
+            .find_or_create_dm(caro_wallet.root_identifier(), DMMetadataOptions::default())
             .await
             .unwrap();
 

@@ -1,34 +1,6 @@
-use futures::stream::{self, FuturesUnordered, StreamExt};
-use openmls::prelude::tls_codec::Error as TlsCodecError;
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
-use thiserror::Error;
-use tokio::sync::broadcast;
-
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::{
-    associations::{
-        builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, MemberIdentifier, RootIdentifier, SignatureError,
-    },
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    InboxId, InboxIdRef,
-};
-
-use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
-
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
-
-use crate::{
-    groups::group_mutable_metadata::MessageDisappearingSettings,
-    storage::consent_record::StoredIdentityKind,
-};
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::{
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
@@ -38,7 +10,7 @@ use crate::{
     identity_updates::{load_identity_updates, IdentityUpdateError},
     mutex_registry::MutexRegistry,
     storage::{
-        consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
+        consent_record::{ConsentState, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
         group_message::StoredGroupMessage,
@@ -55,8 +27,29 @@ use crate::{
     groups::{ConversationListItem, DMMetadataOptions},
     storage::consent_record::ConsentEntity,
 };
+use futures::stream::{self, FuturesUnordered, StreamExt};
+use openmls::prelude::tls_codec::Error as TlsCodecError;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
+use thiserror::Error;
+use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
+use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_id::{
+    associations::{
+        builder::{SignatureRequest, SignatureRequestError},
+        AssociationError, AssociationState, MemberIdentifier, RootIdentifier, SignatureError,
+    },
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
+    InboxId, InboxIdRef,
+};
+use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -1059,17 +1052,19 @@ pub(crate) mod tests {
     use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;
+    use crate::storage::consent_record::ConsentEntity;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{
-            consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
+            consent_record::{ConsentState, StoredConsentRecord},
             group::GroupQueryArgs,
             group_message::MsgQueryArgs,
             schema::identity_updates,
@@ -1194,7 +1189,10 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_address())
+                .find_inbox_id_from_identifier(
+                    &client.store().conn().unwrap(),
+                    wallet.root_identifier()
+                )
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())
@@ -1501,17 +1499,16 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let record = StoredConsentRecord::new(
-            StoredConsentType::Identity,
+            ConsentEntity::Identity(bo_wallet.root_identifier()),
             ConsentState::Denied,
-            bo_wallet.get_address(),
         );
         alix.set_consent_states(&[record]).await.unwrap();
         let inbox_consent = alix
-            .get_consent_state(StoredConsentType::InboxId, bo.inbox_id().to_string())
+            .get_consent_state(ConsentEntity::InboxId(bo.inbox_id().to_string()))
             .await
             .unwrap();
         let address_consent = alix
-            .get_consent_state(StoredConsentType::Identity, bo_wallet.get_address())
+            .get_consent_state(ConsentEntity::Identity(bo_wallet.root_identifier()))
             .await
             .unwrap();
 
@@ -1570,7 +1567,7 @@ pub(crate) mod tests {
         assert!(bo_original_from_db.is_ok());
 
         alix.create_group_with_members(
-            &[bo_wallet.get_address()],
+            &[bo_wallet.root_identifier()],
             None,
             GroupMetadataOptions::default(),
         )
@@ -1602,7 +1599,7 @@ pub(crate) mod tests {
         assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(
-            &[bo_wallet.get_address()],
+            &[bo_wallet.root_identifier()],
             None,
             GroupMetadataOptions::default(),
         )
