@@ -90,10 +90,12 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
+use xmtp_api::Identifier;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
@@ -942,13 +944,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_identifiers_to_add: &[RootIdentifier],
+        account_addresses: &[RootIdentifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        let requests = account_identifiers_to_add
+        // Fetch the associated inbox_ids
+        let requests = account_addresses.iter().map(Into::into).collect();
+        let inbox_id_map: HashMap<RootIdentifier, String> = self
+            .client
+            .api()
+            .get_inbox_ids(requests)
+            .await?
             .into_iter()
-            .map(Into::into)
-            .collect()?;
-        let inbox_id_map = self.client.api().get_inbox_ids(requests).await?;
+            .filter_map(|(k, v)| Some((k.try_into().ok()?, v)))
+            .collect();
+
         let provider = self.mls_provider()?;
         // get current number of users in group
         let member_count = self.members_with_provider(&provider).await?.len();
@@ -956,12 +964,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Err(GroupError::UserLimitExceeded);
         }
 
-        if inbox_id_map.len() != account_identifiers_to_add.len() {
-            let found_addresses: HashSet<_> = inbox_id_map.keys().collect();
+        if inbox_id_map.len() != account_addresses.len() {
+            let found_addresses: HashSet<&RootIdentifier> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_addresses.iter());
+
             let missing_addresses = found_addresses.difference(&to_add_hashset);
             return Err(GroupError::AddressNotFound(
-                missing_addresses.into_iter().cloned().cloned().collect(),
+                missing_addresses
+                    .into_iter()
+                    .map(|ident| format!("{ident}"))
+                    .collect(),
             ));
         }
 
