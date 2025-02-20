@@ -88,6 +88,18 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
         .await
     }
 
+    pub async fn new_test_client_dev(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+        )
+        .await
+    }
+
     pub async fn new_test_client_with_history(
         owner: &impl InboxOwner,
         history_sync_url: &str,

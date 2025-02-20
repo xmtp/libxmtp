@@ -21,6 +21,8 @@ pub use stream_handles::*;
 
 pub mod time;
 
+pub mod fmt;
+
 use rand::{
     distributions::{Alphanumeric, DistString},
     RngCore,

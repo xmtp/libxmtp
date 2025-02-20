@@ -114,6 +114,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -274,37 +275,60 @@ mod tests {
         assert_msg!(stream, "second");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    use std::collections::HashMap;
+    fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
+        let mut counts = HashMap::new();
+
+        // Count occurrences
+        for string in strings {
+            *counts.entry(string).or_insert(0) += 1;
+        }
+
+        // Filter to keep only strings that appear more than once
+        counts.retain(|_, count| *count > 1);
+
+        counts
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
+        let mut replace = xmtp_common::InboxIdReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        tracing::info!(inbox_id = eve.inbox_id(), installation_id = %eve.installation_id(), "EVE");
-
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        tracing::info!(inbox_id = eve.inbox_id(), installation_id = %eve.installation_id(), "EVE={}", eve.inbox_id());
+        tracing::info!(inbox_id = bo.inbox_id(), installation_id = %bo.installation_id(), "BO={}", bo.inbox_id());
+        tracing::info!(inbox_id = alix.inbox_id(), installation_id = %alix.installation_id(), "ALIX={}", alix.inbox_id());
+        tracing::info!(inbox_id = caro.inbox_id(), installation_id = %caro.installation_id(), "CARO={}", caro.inbox_id());
+        replace.add(caro.inbox_id(), "caro");
+        replace.add(eve.inbox_id(), "eve");
+        replace.add(alix.inbox_id(), "alix");
+        replace.add(bo.inbox_id(), "bo");
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
         alix_group
-            .add_members_by_inbox_id(&[caro.inbox_id()])
+            .add_members_by_inbox_id(&[caro.inbox_id(), bo.inbox_id()])
             .await
             .unwrap();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let provider = bo.store().mls_provider().unwrap();
+        let bo_group = bo.sync_welcomes(&provider).await.unwrap()[0].clone();
+
+        let mut stream = caro.stream_all_messages(None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
-            let mut sent = 0;
             for i in 0..15 {
                 let msg = format!("main spam {i}");
                 alix_group_pointer
                     .send_message(msg.as_bytes())
                     .await
                     .unwrap();
-                sent += 1;
-                xmtp_common::time::sleep(core::time::Duration::from_micros(100)).await;
-                tracing::info!("sent {sent}");
+                xmtp_common::time::sleep(Duration::from_micros(100)).await;
             }
         });
 
@@ -314,54 +338,71 @@ mod tests {
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
-            for i in 0..5 {
+            for i in 0..15 {
                 let new_group = eve
                     .create_group(None, GroupMetadataOptions::default())
                     .unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
-                tracing::info!(
-                    "\n\n EVE SENDING {i} to {}\n\n",
-                    hex::encode(&new_group.group_id)
-                );
                 let msg = format!("EVE spam {i} from new group");
                 new_group.send_message(msg.as_bytes()).await.unwrap();
             }
         });
 
-        let mut messages = Vec::new();
-        let timeout = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
-        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(timeout), async {
-            futures::pin_mut!(stream);
-            loop {
-                if messages.len() < 20 {
-                    if let Some(Ok(msg)) = stream.next().await {
-                        tracing::info!(
-                            message_id = hex::encode(&msg.id),
-                            sender_inbox_id = msg.sender_inbox_id,
-                            sender_installation_id = hex::encode(&msg.sender_installation_id),
-                            group_id = hex::encode(&msg.group_id),
-                            "GOT MESSAGE {}, text={}",
-                            messages.len(),
-                            String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
-                        );
-                        messages.push(msg)
-                    }
-                } else {
-                    break;
-                }
+        // Bo will try to break our stream by sending lots of messages
+        // this forces our streams to handle resubscribes while receiving lots of messages
+        xmtp_common::spawn(None, async move {
+            let bo_group = &bo_group;
+            for i in 0..15 {
+                bo_group
+                    .send_message(format!("bo msg {i}").as_bytes())
+                    .await
+                    .unwrap();
+                xmtp_common::time::sleep(Duration::from_millis(50)).await
             }
-        })
-        .await;
+        });
 
-        tracing::info!("Total Messages: {}", messages.len());
-        assert_eq!(messages.len(), 20);
+        let mut messages = Vec::new();
+        let timeout = if cfg!(target_arch = "wasm32") {
+            15
+        } else if cfg!(feature = "http-api") {
+            10
+        } else {
+            5
+        };
+
+        loop {
+            tokio::select! {
+                Some(msg) = stream.next() => {
+                    match msg {
+                        Ok(m) => messages.push(m),
+                        Err(e) => {
+                            tracing::error!("error in stream test {e}");
+                        }
+                    }
+                },
+                _ = xmtp_common::time::sleep(Duration::from_secs(timeout)) => break
+
+            }
+        }
+
+        let msgs = &messages
+            .iter()
+            .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
+            .collect::<Vec<String>>();
+        let duplicates = find_duplicates_with_count(msgs);
+        /*
+        for message in messages.iter() {
+            let m = String::from_utf8_lossy(message.decrypted_message_bytes.as_slice());
+            tracing::info!("{}", m);
+        }*/
+        assert!(duplicates.is_empty());
+        assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        tracing::info!(inbox_id = hale.inbox_id(), "HALE");
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();
@@ -384,7 +425,7 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let _ = xmtp_common::time::timeout(core::time::Duration::from_secs(20), async {
+        let _ = xmtp_common::time::timeout(Duration::from_secs(20), async {
             futures::pin_mut!(stream);
             loop {
                 if messages.len() < 5 {
@@ -406,7 +447,6 @@ mod tests {
             }
         })
         .await;
-
         tracing::info!("Total Messages: {}", messages.len());
         assert_eq!(messages.len(), 5);
     }

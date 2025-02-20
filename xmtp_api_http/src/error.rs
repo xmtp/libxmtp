@@ -163,7 +163,7 @@ pub enum HttpClientError {
     HeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)]
     HeaderName(#[from] reqwest::header::InvalidHeaderName),
-    #[error(transparent)]
+    #[error("error deserializing json response {0}")]
     Json(#[from] serde_json::Error),
 }
 
