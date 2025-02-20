@@ -236,6 +236,75 @@ impl Conversations {
     Ok(convo.into())
   }
 
+  #[napi]
+  pub async fn create_group_by_inbox_id(
+    &self,
+    inbox_ids: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation> {
+    let options = options.unwrap_or(CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      custom_permission_policy_set: None,
+      message_disappearing_settings: None,
+    });
+
+    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
+      if options.custom_permission_policy_set.is_none() {
+        return Err(Error::from_reason("CustomPolicy must include policy set"));
+      }
+    } else if options.custom_permission_policy_set.is_some() {
+      return Err(Error::from_reason(
+        "Only CustomPolicy may specify a policy set",
+      ));
+    }
+
+    let metadata_options = options.clone().into_group_metadata_options();
+
+    let group_permissions = match options.permissions {
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::AdminOnly) => {
+        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::CustomPolicy) => {
+        if let Some(policy_set) = options.custom_permission_policy_set {
+          Some(
+            policy_set
+              .try_into()
+              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
+          )
+        } else {
+          None
+        }
+      }
+      _ => None,
+    };
+
+    let convo = if inbox_ids.is_empty() {
+      let group = self
+        .inner_client
+        .create_group(group_permissions, metadata_options)
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+    } else {
+      self
+        .inner_client
+        .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+    };
+
+    Ok(convo.into())
+  }
+
   #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(
     &self,
@@ -246,6 +315,24 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(
         account_address,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(convo.into())
+  }
+
+  #[napi(js_name = "createDmByInboxId")]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation> {
+    let convo = self
+      .inner_client
+      .find_or_create_dm_by_inbox_id(
+        inbox_id,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await
