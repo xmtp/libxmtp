@@ -1,8 +1,7 @@
+use crate::{client::Client, identity::RootIdentifier};
 use js_sys::Uint8Array;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
-
-use crate::client::Client;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -29,11 +28,11 @@ impl Installation {
 pub struct InboxState {
   #[wasm_bindgen(js_name = inboxId)]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = recoveryAddress)]
-  pub recovery_address: String,
+  #[wasm_bindgen(js_name = recoveryIdentifier)]
+  pub recovery_identifier: RootIdentifier,
   pub installations: Vec<Installation>,
   #[wasm_bindgen(js_name = accountAddresses)]
-  pub account_addresses: Vec<String>,
+  pub account_identifiers: Vec<RootIdentifier>,
 }
 
 #[wasm_bindgen]
@@ -41,15 +40,15 @@ impl InboxState {
   #[wasm_bindgen(constructor)]
   pub fn new(
     inbox_id: String,
-    recovery_address: String,
+    recovery_identifier: RootIdentifier,
     installations: Vec<Installation>,
-    account_addresses: Vec<String>,
+    account_identifiers: Vec<RootIdentifier>,
   ) -> Self {
     Self {
       inbox_id,
-      recovery_address,
+      recovery_identifier,
       installations,
-      account_addresses,
+      account_identifiers,
     }
   }
 }
@@ -58,20 +57,24 @@ impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
     Self {
       inbox_id: state.inbox_id().to_string(),
-      recovery_address: state.recovery_address().to_string(),
+      recovery_identifier: state.recovery_identifier().into(),
       installations: state
         .members()
         .into_iter()
         .filter_map(|m| match m.identifier {
-          MemberIdentifier::Ethereum(_) => None,
           MemberIdentifier::Installation(inst) => Some(Installation {
             bytes: Uint8Array::from(inst.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns,
             id: hex::encode(inst),
           }),
+          _ => None,
         })
         .collect(),
-      account_addresses: state.account_addresses(),
+      account_identifiers: state
+        .root_identifiers()
+        .into_iter()
+        .map(Into::into)
+        .collect(),
     }
   }
 }

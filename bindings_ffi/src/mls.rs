@@ -4,12 +4,13 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{strategies, ApiClientWrapper, Identifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
+use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::associations::{
     verify_signed_with_public_context, DeserializationError, RootIdentifier,
 };
@@ -17,7 +18,6 @@ use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
-        generate_inbox_id as xmtp_id_generate_inbox_id,
         unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
         AccountId, AssociationState, MemberIdentifier,
     },
@@ -49,7 +49,7 @@ use xmtp_mls::{
     },
     identity::IdentityStrategy,
     storage::{
-        consent_record::{ConsentState, StoredConsentType, StoredConsentRecord},
+        consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
         group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -173,24 +173,48 @@ pub async fn create_client(
 
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn get_inbox_id_for_address(
+pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
-    account_address: String,
+    account_identifier: FfiRootIdentifier,
 ) -> Result<Option<String>, GenericError> {
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let account_identifier: RootIdentifier = account_identifier.try_into()?;
+    let api_identifier: Identifier = account_identifier.into();
+
     let results = api
-        .get_inbox_ids(vec![account_address.clone()])
+        .get_inbox_ids(vec![api_identifier.clone()])
         .await
         .map_err(GenericError::from_error)?;
 
-    Ok(results.get(&account_address).cloned())
+    Ok(results.get(&api_identifier).cloned())
 }
 
 #[allow(unused)]
 #[uniffi::export]
-pub fn generate_inbox_id(account_address: String, nonce: u64) -> Result<String, GenericError> {
-    Ok(xmtp_id_generate_inbox_id(&account_address, &nonce)?)
+pub fn generate_inbox_id(
+    account_identifier: FfiRootIdentifier,
+    nonce: u64,
+) -> Result<String, GenericError> {
+    let ident: RootIdentifier = account_identifier.try_into()?;
+    Ok(ident.inbox_id(nonce)?)
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiRootIdentifier {
+    Ethereum(String),
+    Passkey(Vec<u8>),
+}
+
+impl TryFrom<FfiRootIdentifier> for RootIdentifier {
+    type Error = AddressValidationError;
+    fn try_from(ident: FfiRootIdentifier) -> Result<Self, Self::Error> {
+        let ident = match ident {
+            FfiRootIdentifier::Ethereum(addr) => Self::eth(addr)?,
+            FfiRootIdentifier::Passkey(key) => Self::passkey(key),
+        };
+        Ok(ident)
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -743,7 +767,7 @@ impl From<AssociationState> for FfiInboxState {
                     }),
                 })
                 .collect(),
-            account_addresses: state.account_addresses(),
+            account_addresses: state.root_identifiers(),
         }
     }
 }

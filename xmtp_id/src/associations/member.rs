@@ -15,23 +15,6 @@ use xmtp_proto::{
     ConversionError,
 };
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum MemberKind {
-    Installation,
-    Ethereum,
-    Passkey,
-}
-
-impl std::fmt::Display for MemberKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            MemberKind::Installation => write!(f, "installation"),
-            MemberKind::Ethereum => write!(f, "ethereum"),
-            MemberKind::Passkey => write!(f, "passkey"),
-        }
-    }
-}
-
 /// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum MemberIdentifier {
@@ -132,6 +115,10 @@ impl RootIdentifier {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
+    pub fn passkey(key: Vec<u8>) -> Self {
+        Self::Passkey(ident::Passkey(key))
+    }
+
     pub fn from_proto(
         ident: impl AsRef<str>,
         kind: IdentifierKind,
@@ -173,6 +160,23 @@ impl RootIdentifier {
                     && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
             }
             _ => true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MemberKind {
+    Installation,
+    Ethereum,
+    Passkey,
+}
+
+impl Display for MemberKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            MemberKind::Installation => write!(f, "installation"),
+            MemberKind::Ethereum => write!(f, "ethereum"),
+            MemberKind::Passkey => write!(f, "passkey"),
         }
     }
 }

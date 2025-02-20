@@ -1,7 +1,6 @@
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_http::XmtpHttpApiClient;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 
 #[wasm_bindgen(js_name = getInboxIdForAddress)]
 pub async fn get_inbox_id_for_address(

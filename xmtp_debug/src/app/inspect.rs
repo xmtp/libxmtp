@@ -42,7 +42,7 @@ impl Inspect {
                     .await?;
                 info!(
                     inbox_id = state.inbox_id(),
-                    account_addresses = state.account_addresses().as_value(),
+                    account_addresses = state.root_identifiers().as_value(),
                     installations = state
                         .installation_ids()
                         .into_iter()

@@ -9,12 +9,14 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_id::associations::RootIdentifier as XmtpRootIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
+use crate::identity::RootIdentifier;
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
@@ -210,12 +212,24 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = canMessage)]
-  pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<JsValue, JsError> {
-    let results: HashMap<String, bool> = self
+  pub async fn can_message(
+    &self,
+    account_identifiers: Vec<RootIdentifier>,
+  ) -> Result<JsValue, JsError> {
+    let account_identifiers: Result<Vec<XmtpRootIdentifier>, JsError> = account_identifiers
+      .into_iter()
+      .map(|ident| ident.try_into())
+      .collect();
+    let account_identifiers = account_identifiers?;
+
+    let results: HashMap<RootIdentifier, bool> = self
       .inner_client
-      .can_message(&account_addresses)
+      .can_message(&account_identifiers)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .into_iter()
+      .map(|(ident, can_msg)| (ident.into(), can_msg))
+      .collect();
 
     Ok(crate::to_value(&results)?)
   }
@@ -271,7 +285,10 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = findInboxIdByAddress)]
-  pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>, JsError> {
+  pub async fn find_inbox_id_by_identifier(
+    &self,
+    identifier: RootIdentifier,
+  ) -> Result<Option<String>, JsError> {
     let conn = self
       .inner_client
       .store()
@@ -279,7 +296,7 @@ impl Client {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_address(&conn, address)
+      .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

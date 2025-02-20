@@ -138,11 +138,12 @@ impl AssociationState {
             .collect()
     }
 
-    pub fn account_addresses(&self) -> Vec<String> {
+    pub fn root_identifiers(&self) -> Vec<RootIdentifier> {
         self.members_by_kind(MemberKind::Ethereum)
             .into_iter()
             .filter_map(|member| match member.identifier {
-                MemberIdentifier::Ethereum(ident::Ethereum(addr)) => Some(addr),
+                MemberIdentifier::Ethereum(eth) => Some(RootIdentifier::Ethereum(eth)),
+                MemberIdentifier::Passkey(pk) => Some(RootIdentifier::Passkey(pk)),
                 _ => None,
             })
             .collect()
