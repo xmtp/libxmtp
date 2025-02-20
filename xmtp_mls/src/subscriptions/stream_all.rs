@@ -294,7 +294,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
-        let mut replace = xmtp_common::InboxIdReplace::new();
+        let mut replace = xmtp_common::InboxIdReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -389,7 +389,7 @@ mod tests {
             .iter()
             .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
             .collect::<Vec<String>>();
-        let duplicates = find_duplicates_with_count(&msgs);
+        let duplicates = find_duplicates_with_count(msgs);
         /*
         for message in messages.iter() {
             let m = String::from_utf8_lossy(message.decrypted_message_bytes.as_slice());
@@ -403,7 +403,6 @@ mod tests {
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        tracing::info!(inbox_id = hale.inbox_id(), "HALE");
         let stream = caro.stream_all_messages(None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();

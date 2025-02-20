@@ -88,7 +88,7 @@ impl std::fmt::Debug for StoredGroupIntent {
         write!(
             f,
             "group_id: {}, ",
-            fmt::truncate_hex(&hex::encode(&self.group_id))
+            fmt::truncate_hex(hex::encode(&self.group_id))
         )?;
         write!(f, "data: {}, ", fmt::truncate_hex(hex::encode(&self.data)))?;
         write!(f, "state: {:?}, ", self.state)?;
@@ -97,7 +97,7 @@ impl std::fmt::Debug for StoredGroupIntent {
             "payload_hash: {:?}, ",
             self.payload_hash
                 .as_ref()
-                .map(|h| fmt::truncate_hex(&hex::encode(h)))
+                .map(|h| fmt::truncate_hex(hex::encode(h)))
         )?;
         write!(
             f,

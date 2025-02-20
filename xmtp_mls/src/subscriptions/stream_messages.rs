@@ -163,7 +163,7 @@ where
             .inspect(|(group_id, cursor)| {
                 tracing::debug!(
                     "subscribed to group {} at {}",
-                    xmtp_common::fmt::truncate_hex(&hex::encode(group_id)),
+                    xmtp_common::fmt::truncate_hex(hex::encode(group_id)),
                     cursor
                 )
             })
@@ -377,7 +377,7 @@ where
             cursor_id,
             "[{}]  is about to process streamed envelope for group {} cursor_id=[{}]",
             self.inbox_id(),
-            xmtp_common::fmt::truncate_hex(&hex::encode(&self.msg.group_id)),
+            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
             &cursor_id
         );
 
