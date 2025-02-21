@@ -43,3 +43,35 @@ impl Endpoint for GetInboxIds {
         .encode_to_vec())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use xmtp_api_grpc::grpc_client::GrpcClient;
+    use xmtp_api_grpc::LOCALHOST_ADDRESS;
+    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::xmtp::xmtpv4::message_api::{GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET};
+    use crate::d14n::GetInboxIds;
+
+    #[test]
+    fn test_file_descriptor() {
+        let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
+        println!("{}", pnq);
+    }
+
+    #[tokio::test]
+    async fn test_get_inbox_ids() {
+        let mut client = GrpcClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_tls(false);
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = client.build().await.unwrap();
+
+        let endpoint = GetInboxIds::builder()
+            .addresses(vec!["".to_string()])
+            .build()
+            .unwrap();
+
+        // let result: GetInboxIdsResponse = endpoint.query(&client).await.unwrap();
+        // assert_eq!(result.responses.len(), 0);
+    }
+}

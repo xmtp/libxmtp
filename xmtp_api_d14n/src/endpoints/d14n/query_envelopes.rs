@@ -80,3 +80,43 @@ impl Endpoint for QueryEnvelopes {
         .encode_to_vec())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::QueryEnvelopes;
+    use xmtp_api_grpc::grpc_client::GrpcClient;
+    use xmtp_api_grpc::LOCALHOST_ADDRESS;
+    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::traits::Query;
+    use xmtp_proto::xmtp::xmtpv4::message_api::{
+        EnvelopesQuery, QueryEnvelopesRequest, QueryEnvelopesResponse, FILE_DESCRIPTOR_SET,
+    };
+
+    #[test]
+    fn test_file_descriptor() {
+        let pnq = crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET);
+        println!("{}", pnq);
+    }
+
+    #[tokio::test]
+    async fn test_get_inbox_ids() {
+        let mut client = GrpcClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_tls(false);
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = client.build().await.unwrap();
+
+        let endpoint = QueryEnvelopes::builder()
+            .envelopes(EnvelopesQuery {
+                topics: vec![vec![]],
+                originator_node_ids: vec![],
+                last_seen: None,
+            })
+            .limit(0u32)
+            .build()
+            .unwrap();
+
+        let result: QueryEnvelopesResponse = endpoint.query(&client).await.unwrap();
+        assert_eq!(result.envelopes.len(), 0);
+    }
+}
