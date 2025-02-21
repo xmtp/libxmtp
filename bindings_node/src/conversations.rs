@@ -4,10 +4,12 @@ use std::sync::Arc;
 use std::vec;
 
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::{
+  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+};
 use napi::JsFunction;
 use napi_derive::napi;
-// use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
@@ -21,6 +23,7 @@ use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use serde::{Deserialize, Serialize};
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[napi]
@@ -146,26 +149,54 @@ impl From<XmtpHmacKey> for HmacKey {
   }
 }
 
-// #[napi(object)]
-// pub struct UserPreferenceUpdate {
-//   pub hmac_key_update: Vec<u8>,
-// }
+// TODO: Napi-rs 3.0.0 will support structured enums
+// alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
+// PR: https://github.com/napi-rs/napi-rs/pull/2222
+// Issue: https://github.com/napi-rs/napi-rs/issues/507
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Tag<T> {
+  V(T),
+}
 
-// impl TryFrom<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
-//   fn try_from(value: XmtpUserPreferenceUpdate) -> Result<Self, Error> {
-//     match value {
-//       XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => Ok(Self {
-//         hmac_key_update: key,
-//       }),
-//       _ => Error::from_reason("Only HmacKeyUpdate is supported"),
-//     }
-//   }
-// }
+#[derive(Serialize, Deserialize)]
+pub enum UserPreferenceUpdate {
+  ConsentUpdate { consent: Consent },
+  HmacKeyUpdate { key: Vec<u8> },
+}
 
-#[napi(object)]
+impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
+  fn from(value: XmtpUserPreferenceUpdate) -> Self {
+    match value {
+      XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => {
+        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
+      }
+      XmtpUserPreferenceUpdate::ConsentUpdate(consent) => {
+        Tag::V(UserPreferenceUpdate::ConsentUpdate {
+          consent: Consent::from(consent),
+        })
+      }
+    }
+  }
+}
+
+#[napi]
 pub struct ConversationListItem {
-  pub conversation: Conversation,
-  pub last_message: Option<Message>,
+  conversation: Conversation,
+  last_message: Option<Message>,
+}
+
+#[napi]
+impl ConversationListItem {
+  #[napi(getter)]
+  pub fn conversation(&self) -> Conversation {
+    self.conversation.clone()
+  }
+
+  #[napi(getter)]
+  pub fn last_message(&self) -> Option<Message> {
+    self.last_message.clone()
+  }
 }
 
 #[napi(object)]
@@ -647,32 +678,44 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  //   #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
-  //   pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
-  //     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-  //     let tsfn: ThreadsafeFunction<Vec<UserPreferenceUpdate>, ErrorStrategy::CalleeHandled> =
-  //       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-  //     let inbox_id = self.inner_client.inbox_id().to_string();
-  //     let stream_closer =
-  //       RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
-  //         tracing::trace!(inbox_id, "[received] calling tsfn callback");
-  //         match message {
-  //           Ok(message) => {
-  //             let msg: Vec<UserPreferenceUpdate> = message
-  //               .into_iter()
-  //               .filter_map(|v| v.try_into().ok())
-  //               .collect();
-  //             tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
-  //           }
-  //           Err(e) => {
-  //             tsfn.call(
-  //               Err(Error::from(ErrorWrapper::from(e))),
-  //               ThreadsafeFunctionCallMode::Blocking,
-  //             );
-  //           }
-  //         }
-  //       });
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
+      callback.create_threadsafe_function(
+        0,
+        |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
+          let env = ctx.env;
+          Ok(
+            ctx
+              .value
+              .into_iter()
+              .map(|v| env.to_js_value(&v))
+              .collect::<Result<Vec<napi::JsUnknown>, _>>()?,
+          )
+        },
+      )?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
+    let stream_closer =
+      RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
+        tracing::trace!(inbox_id, "[received] calling tsfn callback");
+        match message {
+          Ok(message) => {
+            let msg: Vec<Tag<UserPreferenceUpdate>> = message
+              .into_iter()
+              .map(|p| Tag::<UserPreferenceUpdate>::from(p))
+              .collect();
+            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            tsfn.call(
+              Err(Error::from(ErrorWrapper::from(e))),
+              ThreadsafeFunctionCallMode::Blocking,
+            );
+          }
+        }
+      });
 
-  //     Ok(StreamCloser::new(stream_closer))
-  //   }
+    Ok(StreamCloser::new(stream_closer))
+  }
 }
