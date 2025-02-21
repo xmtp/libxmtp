@@ -18,6 +18,7 @@ napi = { version = "2.16.16", default-features = false, features = [
 ] }
 napi-derive = "2.16.6"
 prost.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = [
@@ -33,7 +34,6 @@ xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-serde.workspace = true
 
 [build-dependencies]
 napi-build = "2.0.1"
