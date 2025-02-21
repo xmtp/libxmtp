@@ -203,7 +203,7 @@ impl EncryptedConnection {
     }
 
     /// Output the corect order of PRAGMAS to instantiate a connection
-    fn pragmas(&self) -> impl Display {
+    fn pragmas(&self) -> impl Display + use<> {
         let Self { key, salt } = self;
 
         if let Some(s) = salt {

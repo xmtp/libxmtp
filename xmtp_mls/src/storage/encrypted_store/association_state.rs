@@ -1,14 +1,14 @@
 use diesel::prelude::*;
 use prost::Message;
-use xmtp_id::{associations::AssociationState, InboxId};
-use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
+use xmtp_id::{InboxId, associations::AssociationState};
 use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use super::{
-    schema::association_state::{self, dsl},
     DbConnection,
+    schema::association_state::{self, dsl},
 };
-use crate::{impl_fetch, impl_store_or_ignore, storage::StorageError, Fetch, StoreOrIgnore};
+use crate::{Fetch, StoreOrIgnore, impl_fetch, impl_store_or_ignore, storage::StorageError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -159,11 +159,12 @@ pub(crate) mod tests {
             assert_eq!(first_association_state.len(), 1);
             assert_eq!(&first_association_state[0].inbox_id(), &inbox_id);
 
-            let both_association_states = StoredAssociationState::batch_read_from_cache(
-                conn,
-                vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
-            )
-            .unwrap();
+            let both_association_states =
+                StoredAssociationState::batch_read_from_cache(conn, vec![
+                    (inbox_id.to_string(), 1),
+                    (inbox_id_2.to_string(), 2),
+                ])
+                .unwrap();
 
             assert_eq!(both_association_states.len(), 2);
 

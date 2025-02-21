@@ -118,7 +118,7 @@ pub trait XmtpApiClient {
     ) -> Result<PublishResponse, Self::Error>;
 
     async fn subscribe(&self, request: SubscribeRequest)
-        -> Result<Self::Subscription, Self::Error>;
+    -> Result<Self::Subscription, Self::Error>;
 
     async fn subscribe2(
         &self,
@@ -184,7 +184,7 @@ where
 pub trait XmtpMlsClient {
     type Error: crate::XmtpApiError + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
-        -> Result<(), Self::Error>;
+    -> Result<(), Self::Error>;
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,

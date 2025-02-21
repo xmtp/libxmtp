@@ -4,8 +4,8 @@ use xmtp_proto::xmtp::message_api::v1::{AuthData, Token};
 use xmtp_proto::xmtp::message_contents::private_key_bundle::Version;
 use xmtp_proto::xmtp::message_contents::signature::{EcdsaCompact, Union as SignatureUnion};
 use xmtp_proto::xmtp::message_contents::{
-    private_key::Union as PrivateKeyUnion, PrivateKeyBundle, PrivateKeyBundleV1, PublicKey,
-    Signature,
+    PrivateKeyBundle, PrivateKeyBundleV1, PublicKey, Signature,
+    private_key::Union as PrivateKeyUnion,
 };
 use xmtp_v2::k256_helper::sign_keccak_256;
 

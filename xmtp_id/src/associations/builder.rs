@@ -9,6 +9,7 @@ use thiserror::Error;
 use xmtp_common::time::now_ns;
 
 use super::{
+    MemberIdentifier, MemberKind, SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
@@ -20,7 +21,6 @@ use super::{
         UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
-    MemberIdentifier, MemberKind, SignatureError,
 };
 
 /// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
@@ -414,17 +414,16 @@ pub(crate) mod tests {
     use xmtp_cryptography::XmtpInstallationCredential;
 
     use crate::{
+        InboxOwner,
         associations::{
-            get_state,
+            IdentityUpdate, get_state,
             hashes::generate_inbox_id,
             test_utils::{
-                add_installation_key_signature, add_wallet_signature,
-                MockSmartContractSignatureVerifier,
+                MockSmartContractSignatureVerifier, add_installation_key_signature,
+                add_wallet_signature,
             },
             unverified::UnverifiedRecoverableEcdsaSignature,
-            IdentityUpdate,
         },
-        InboxOwner,
     };
 
     use super::*;

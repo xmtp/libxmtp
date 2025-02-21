@@ -10,15 +10,15 @@ use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use tonic::{Request, Streaming, metadata::MetadataValue, transport::Channel};
 
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
 use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient, XmtpMlsStreams};
 
 use crate::{
-    grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription},
     Error,
+    grpc_api_helper::{GrpcMutableSubscription, Subscription, create_tls_channel},
 };
 use crate::{GroupMessageStream, WelcomeMessageStream};
 use crate::{GrpcBuilderError, GrpcError};
@@ -30,8 +30,8 @@ use xmtp_proto::v4_utils::{
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::xmtp::mls::api::v1::{
-    fetch_key_packages_response, group_message, group_message_input, welcome_message,
-    welcome_message_input, GroupMessage, WelcomeMessage,
+    GroupMessage, WelcomeMessage, fetch_key_packages_response, group_message, group_message_input,
+    welcome_message, welcome_message_input,
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
@@ -41,15 +41,17 @@ use xmtp_proto::xmtp::xmtpv4::message_api::replication_api_client::ReplicationAp
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, PublishPayerEnvelopesRequest, QueryEnvelopesRequest,
 };
-use xmtp_proto::xmtp::xmtpv4::payer_api::payer_api_client::PayerApiClient;
 use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
+use xmtp_proto::xmtp::xmtpv4::payer_api::payer_api_client::PayerApiClient;
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
     xmtp::identity::api::v1::{
-        get_inbox_ids_response, GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+        GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
         GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        get_inbox_ids_response,
     },
     xmtp::message_api::v1::{
         BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
@@ -62,9 +64,8 @@ use xmtp_proto::{
         SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
     xmtp::xmtpv4::message_api::{
-        get_inbox_ids_request, GetInboxIdsRequest as GetInboxIdsRequestV4,
+        GetInboxIdsRequest as GetInboxIdsRequestV4, get_inbox_ids_request,
     },
-    ApiEndpoint,
 };
 
 #[derive(Debug, Clone)]

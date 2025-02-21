@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
-    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse,
+    GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
 };
 
 #[derive(Debug, Builder, Default)]

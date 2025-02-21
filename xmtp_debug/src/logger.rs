@@ -7,12 +7,12 @@ use owo_colors::OwoColorize;
 use tracing::Dispatch;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::{EnvFilter, prelude::*};
 use tracing_subscriber::{
-    fmt::{format, format::Writer, time, FmtContext, FormatEvent, FormatFields},
-    registry::LookupSpan,
     Layer,
+    fmt::{FmtContext, FormatEvent, FormatFields, format, format::Writer, time},
+    registry::LookupSpan,
 };
-use tracing_subscriber::{prelude::*, EnvFilter};
 
 use crate::args::LogOptions;
 

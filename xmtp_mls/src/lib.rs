@@ -20,7 +20,7 @@ pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
+use storage::{DuplicateItem, StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use tokio::sync::Mutex as TokioMutex;
 
 pub use xmtp_id::InboxOwner;

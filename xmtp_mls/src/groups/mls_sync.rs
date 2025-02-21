@@ -1,46 +1,46 @@
 use super::{
-    build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
-    build_extensions_for_permissions_update, build_group_membership_extension,
+    GroupError, HmacKey, MlsGroup, ScopedGroupClient, build_extensions_for_admin_lists_update,
+    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
+    build_group_membership_extension,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::{extract_group_membership, CommitValidationError},
-    GroupError, HmacKey, MlsGroup, ScopedGroupClient,
+    validated_commit::{CommitValidationError, extract_group_membership},
 };
 use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
-use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
+use crate::storage::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
-use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
+    Delete, Fetch, StoreOrIgnore,
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
+        device_sync::{DeviceSyncContent, preference_sync::UserPreferenceUpdate},
         intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
-    hpke::{encrypt_welcome, HpkeError},
-    identity::{parse_credential, IdentityError},
+    hpke::{HpkeError, encrypt_welcome},
+    identity::{IdentityError, parse_credential},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
+        ProviderTransactions, StorageError,
         db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+        group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
         group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         serialization::{db_deserialize, db_serialize},
         sql_key_store,
         user_preferences::StoredUserPreferences,
-        ProviderTransactions, StorageError,
     },
     subscriptions::{LocalEvents, SyncMessage},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
-    Delete, Fetch, StoreOrIgnore,
 };
+use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -50,40 +50,40 @@ use openmls::{
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     prelude::{
-        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
+        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
     },
     treesync::LeafNodeParameters,
 };
 use openmls::{framing::WireFormat, prelude::BasicCredentialError};
-use openmls_traits::{signatures::Signer, OpenMlsProvider};
-use prost::bytes::Bytes;
+use openmls_traits::{OpenMlsProvider, signatures::Signer};
 use prost::Message;
+use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
-    mem::{discriminant, Discriminant},
+    mem::{Discriminant, discriminant},
     ops::RangeInclusive,
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_common::{retry_async, Retry, RetryableError};
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
-        welcome_message_input::{
-            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
-        },
         GroupMessage, GroupMessageInput, WelcomeMessageInput,
+        group_message::{V1 as GroupMessageV1, Version as GroupMessageVersion},
+        group_message_input::{V1 as GroupMessageInputV1, Version as GroupMessageInputVersion},
+        welcome_message_input::{
+            V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion,
+        },
     },
     message_contents::{
-        plaintext_envelope::{v2::MessageType, Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
+        plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
 
@@ -493,21 +493,33 @@ where
             message_epoch
         );
 
-        if let Some((staged_commit, validated_commit)) = commit {
-            tracing::info!(
-                "[{}] merging pending commit for intent {}",
-                self.context().inbox_id(),
-                intent.id
-            );
-            if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
-                tracing::error!("error merging commit: {err}");
-                return Ok(IntentState::ToPublish);
-            } else {
-                // If no error committing the change, write a transcript message
-                self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
+        match commit {
+            Some((staged_commit, validated_commit)) => {
+                tracing::info!(
+                    "[{}] merging pending commit for intent {}",
+                    self.context().inbox_id(),
+                    intent.id
+                );
+                match mls_group.merge_staged_commit(&provider, staged_commit) {
+                    Err(err) => {
+                        tracing::error!("error merging commit: {err}");
+                        return Ok(IntentState::ToPublish);
+                    }
+                    _ => {
+                        // If no error committing the change, write a transcript message
+                        self.save_transcript_message(
+                            conn,
+                            validated_commit,
+                            envelope_timestamp_ns,
+                        )?;
+                    }
+                }
             }
-        } else if let Some(id) = intent.message_id()? {
-            conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+            _ => {
+                if let Some(id) = intent.message_id()? {
+                    conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+                }
+            }
         }
 
         Ok(IntentState::Committed)
@@ -1138,7 +1150,10 @@ where
             self.context().inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
-            validated_commit.metadata_changes.metadata_field_changes.len(),
+            validated_commit
+                .metadata_changes
+                .metadata_field_changes
+                .len(),
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();

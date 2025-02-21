@@ -5,7 +5,7 @@ use prost::Message;
 
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::ReactionV2, ContentTypeId, EncodedContent,
+    ContentTypeId, EncodedContent, content_types::ReactionV2,
 };
 
 pub struct ReactionCodec {}

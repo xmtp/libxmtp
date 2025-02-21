@@ -1,16 +1,16 @@
 use std::{ops::Deref, sync::Arc};
 
 use napi::{
+  JsFunction,
   bindgen_prelude::{Result, Uint8Array},
   threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsFunction,
 };
 use xmtp_mls::{
   groups::{
-    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    MlsGroup, UpdateAdminListType, group_metadata::GroupMetadata as XmtpGroupMetadata,
     group_mutable_metadata::MetadataField as XmtpMetadataField,
     intents::PermissionUpdateType as XmtpPermissionUpdateType,
-    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+    members::PermissionLevel as XmtpPermissionLevel,
   },
   storage::{
     group::ConversationType,
@@ -20,13 +20,13 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
+  ErrorWrapper,
   client::RustXmtpClient,
   consent_state::ConsentState,
   encoded_content::EncodedContent,
   message::{ListMessagesOptions, Message},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
-  ErrorWrapper,
 };
 use prost::Message as ProstMessage;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;

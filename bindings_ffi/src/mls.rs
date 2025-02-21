@@ -4,26 +4,26 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
+use xmtp_content_types::ContentCodec;
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_content_types::ContentCodec;
-use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
+use xmtp_id::associations::{DeserializationError, verify_signed_with_public_context};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
+    InboxId,
     associations::{
+        AccountId, AssociationState, MemberIdentifier,
         builder::SignatureRequest,
         generate_inbox_id as xmtp_id_generate_inbox_id,
         unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
-        AccountId, AssociationState, MemberIdentifier,
     },
-    InboxId,
 };
+use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
@@ -34,6 +34,7 @@ use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReac
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
+        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
         group_metadata::GroupMetadata,
         group_mutable_metadata::MetadataField,
         group_permissions::{
@@ -43,14 +44,13 @@ use xmtp_mls::{
         },
         intents::{PermissionPolicyOption, PermissionUpdateType},
         members::PermissionLevel,
-        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
     storage::{
+        EncryptedMessageStore, EncryptionKey, StorageOption,
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     subscriptions::SubscribeError,
 };
@@ -518,9 +518,7 @@ impl FfiXmtpClient {
         &self,
         wallet_address: &str,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let Self {
-            ref inner_client, ..
-        } = self;
+        let Self { inner_client, .. } = self;
 
         let signature_request = inner_client
             .revoke_wallets(vec![wallet_address.into()])
@@ -686,7 +684,7 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
             BackupElementSelection::Unspecified => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
-                ))
+                ));
             }
             BackupElementSelection::Consent => Self::Consent,
             BackupElementSelection::Messages => Self::Messages,
@@ -2428,9 +2426,9 @@ pub struct FfiStreamCloser {
 impl FfiStreamCloser {
     pub fn new(
         stream_handle: impl StreamHandle<StreamOutput = Result<(), SubscribeError>>
-            + Send
-            + Sync
-            + 'static,
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
@@ -2449,8 +2447,8 @@ impl FfiStreamCloser {
 
     /// End the stream and asynchronously wait for it to shutdown
     pub async fn end_and_wait(&self) -> Result<(), GenericError> {
-        use xmtp_common::StreamHandleError::*;
         use GenericError::Generic;
+        use xmtp_common::StreamHandleError::*;
 
         if self.abort_handle.is_finished() {
             return Ok(());
@@ -2458,18 +2456,19 @@ impl FfiStreamCloser {
 
         let mut stream_handle = self.stream_handle.lock().await;
         let stream_handle = stream_handle.take();
-        if let Some(mut h) = stream_handle {
-            match h.end_and_wait().await {
+        match stream_handle {
+            Some(mut h) => match h.end_and_wait().await {
                 Err(Cancelled) => Ok(()),
                 Err(Panicked(msg)) => Err(Generic { err: msg }),
                 Err(e) => Err(Generic {
                     err: format!("error joining task {}", e),
                 }),
                 Ok(t) => t.map_err(|e| Generic { err: e.to_string() }),
+            },
+            _ => {
+                log::warn!("subscription already closed");
+                Ok(())
             }
-        } else {
-            log::warn!("subscription already closed");
-            Ok(())
         }
     }
 
@@ -2578,28 +2577,27 @@ impl FfiGroupPermissions {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
-        FfiPreferenceUpdate, FfiXmtpClient,
+        FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
+        FfiPreferenceUpdate, FfiXmtpClient, create_client,
     };
     use crate::{
-        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
-        FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
-        FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
-        FfiRemoteAttachmentInfo, FfiSubscribeError,
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError, connect_to_backend,
+        decode_multi_remote_attachment, decode_reaction, encode_multi_remote_attachment,
+        encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError,
     };
     use ethers::utils::hex;
     use prost::Message;
     use std::{
         collections::HashMap,
         sync::{
-            atomic::{AtomicU32, Ordering},
             Arc, Mutex,
+            atomic::{AtomicU32, Ordering},
         },
     };
     use tokio::{sync::Notify, time::error::Elapsed};
@@ -2607,11 +2605,11 @@ mod tests {
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
-        attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
-        group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
-        reaction::ReactionCodec, read_receipt::ReadReceiptCodec,
-        remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec, ContentCodec,
+        ContentCodec, attachment::AttachmentCodec, bytes_to_encoded_content,
+        encoded_content_to_bytes, group_updated::GroupUpdatedCodec,
+        membership_change::GroupMembershipChangeCodec, reaction::ReactionCodec,
+        read_receipt::ReadReceiptCodec, remote_attachment::RemoteAttachmentCodec,
+        reply::ReplyCodec, text::TextCodec, transaction_reference::TransactionReferenceCodec,
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
@@ -2619,13 +2617,13 @@ mod tests {
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
-        groups::{scoped_client::LocalScopedGroupClient, GroupError},
-        storage::EncryptionKey,
         InboxOwner,
+        groups::{GroupError, scoped_client::LocalScopedGroupClient},
+        storage::EncryptionKey,
     };
     use xmtp_proto::xmtp::mls::message_contents::{
-        content_types::{ReactionAction, ReactionSchema, ReactionV2},
         ContentTypeId, EncodedContent,
+        content_types::{ReactionAction, ReactionSchema, ReactionV2},
     };
 
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
@@ -3295,19 +3293,16 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(
-                vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
-                    group_name: Some("Group Name".to_string()),
-                    group_image_url_square: Some("url".to_string()),
-                    group_description: Some("group description".to_string()),
-                    custom_permission_policy_set: None,
-                    message_disappearing_settings: Some(
-                        conversation_message_disappearing_settings.clone(),
-                    ),
-                },
-            )
+            .create_group(vec![bola.account_address.clone()], FfiCreateGroupOptions {
+                permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                group_name: Some("Group Name".to_string()),
+                group_image_url_square: Some("url".to_string()),
+                group_description: Some("group description".to_string()),
+                custom_permission_policy_set: None,
+                message_disappearing_settings: Some(
+                    conversation_message_disappearing_settings.clone(),
+                ),
+            })
             .await
             .unwrap();
 
@@ -3417,13 +3412,15 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        assert!(alix_2_groups
-            .first()
-            .unwrap()
-            .conversation
-            .update_group_name("test 2".to_string())
-            .await
-            .is_err());
+        assert!(
+            alix_2_groups
+                .first()
+                .unwrap()
+                .conversation
+                .update_group_name("test 2".to_string())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -3499,13 +3496,15 @@ mod tests {
             .list(FfiListConversationsOptions::default())
             .unwrap();
 
-        assert!(alix_2_groups
-            .first()
-            .unwrap()
-            .conversation
-            .update_group_name("test 2".to_string())
-            .await
-            .is_err());
+        assert!(
+            alix_2_groups
+                .first()
+                .unwrap()
+                .conversation
+                .update_group_name("test 2".to_string())
+                .await
+                .is_err()
+        );
     }
 
     // Looks like this test might be a separate issue
@@ -4870,7 +4869,7 @@ mod tests {
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
-                                                        //
+        //
         amal_group.send(b"hello3".to_vec()).await.unwrap();
         //TODO: could verify with a log message
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -5250,9 +5249,11 @@ mod tests {
             group_from_db.unwrap().message_disappear_in_ns.unwrap(),
             disappearing_settings.in_ns
         );
-        assert!(alix_group
-            .is_conversation_message_disappearing_enabled()
-            .unwrap());
+        assert!(
+            alix_group
+                .is_conversation_message_disappearing_enabled()
+                .unwrap()
+        );
 
         bola.conversations()
             .sync_all_conversations(None)
@@ -5275,9 +5276,11 @@ mod tests {
             bola_group_from_db.unwrap().message_disappear_in_ns.unwrap(),
             disappearing_settings.in_ns
         );
-        assert!(alix_group
-            .is_conversation_message_disappearing_enabled()
-            .unwrap());
+        assert!(
+            alix_group
+                .is_conversation_message_disappearing_enabled()
+                .unwrap()
+        );
 
         // Step 5: Send additional messages
         for msg in &["Msg 2 from group", "Msg 3 from group", "Msg 4 from group"] {
@@ -5315,9 +5318,11 @@ mod tests {
                 .unwrap(),
             0
         );
-        assert!(!alix_group
-            .is_conversation_message_disappearing_enabled()
-            .unwrap());
+        assert!(
+            !alix_group
+                .is_conversation_message_disappearing_enabled()
+                .unwrap()
+        );
 
         assert_eq!(group_from_db.unwrap().message_disappear_in_ns.unwrap(), 0);
 
@@ -5345,17 +5350,14 @@ mod tests {
         // Step 1: Create a group
         let alix_group = alix
             .conversations()
-            .create_group(
-                vec![bola.account_address.clone()],
-                FfiCreateGroupOptions {
-                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
-                    group_name: Some("Group Name".to_string()),
-                    group_image_url_square: Some("url".to_string()),
-                    group_description: Some("group description".to_string()),
-                    custom_permission_policy_set: None,
-                    message_disappearing_settings: Some(disappearing_settings.clone()),
-                },
-            )
+            .create_group(vec![bola.account_address.clone()], FfiCreateGroupOptions {
+                permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                group_name: Some("Group Name".to_string()),
+                group_image_url_square: Some("url".to_string()),
+                group_description: Some("group description".to_string()),
+                custom_permission_policy_set: None,
+                message_disappearing_settings: Some(disappearing_settings.clone()),
+            })
             .await
             .unwrap();
 
@@ -5384,9 +5386,11 @@ mod tests {
                 .unwrap(),
             disappearing_settings.from_ns
         );
-        assert!(alix_group
-            .is_conversation_message_disappearing_enabled()
-            .unwrap());
+        assert!(
+            alix_group
+                .is_conversation_message_disappearing_enabled()
+                .unwrap()
+        );
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
@@ -5436,9 +5440,11 @@ mod tests {
                 .unwrap(),
             disappearing_settings.from_ns
         );
-        assert!(alix_group
-            .is_conversation_message_disappearing_enabled()
-            .unwrap());
+        assert!(
+            alix_group
+                .is_conversation_message_disappearing_enabled()
+                .unwrap()
+        );
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let alix_messages = alix_group
             .find_messages(FfiListMessagesOptions::default())
@@ -6234,16 +6240,19 @@ mod tests {
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
 
-        if let Some(member) = alix_group
+        match alix_group
             .list_members()
             .await
             .unwrap()
             .iter()
             .find(|&m| m.inbox_id == bo.inbox_id())
         {
-            assert_eq!(member.consent_state, FfiConsentState::Allowed);
-        } else {
-            panic!("Error: No member found with the given inbox_id.");
+            Some(member) => {
+                assert_eq!(member.consent_state, FfiConsentState::Allowed);
+            }
+            _ => {
+                panic!("Error: No member found with the given inbox_id.");
+            }
         }
     }
 

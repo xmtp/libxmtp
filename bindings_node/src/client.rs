@@ -1,7 +1,7 @@
+use crate::ErrorWrapper;
 use crate::conversations::Conversations;
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
-use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
@@ -12,10 +12,10 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;

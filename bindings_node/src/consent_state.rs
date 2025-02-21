@@ -4,7 +4,7 @@ use xmtp_mls::storage::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
 
-use crate::{client::Client, ErrorWrapper};
+use crate::{ErrorWrapper, client::Client};
 
 #[napi]
 pub enum ConsentState {

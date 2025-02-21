@@ -3,7 +3,7 @@
 /// Optionally pass a message as the second argument.
 #[macro_export]
 macro_rules! optify {
-    ( $e: expr ) => {
+    ( $e: expr_2021 ) => {
         match $e {
             Ok(v) => Some(v),
             Err(e) => {
@@ -12,7 +12,7 @@ macro_rules! optify {
             }
         }
     };
-    ( $e: expr, $msg: tt ) => {
+    ( $e: expr_2021, $msg: tt ) => {
         match $e {
             Ok(v) => Some(v),
             Err(e) => {

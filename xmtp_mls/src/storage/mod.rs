@@ -34,7 +34,7 @@ pub async fn init_sqlite() {}
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use diesel::{connection::LoadConnection, deserialize::FromSqlRow, sql_query, RunQueryDsl};
+    use diesel::{RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow, sql_query};
     impl DbConnection {
         /// Create a new table and register triggers for tracking column updates
         pub fn register_triggers(&self) {

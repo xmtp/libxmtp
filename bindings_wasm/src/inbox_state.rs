@@ -1,5 +1,5 @@
 use js_sys::Uint8Array;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
 use crate::client::Client;

@@ -18,10 +18,10 @@ pub use self::group_permissions::PreconfiguredPolicies;
 use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
-    group_metadata::{extract_group_metadata, DmMembers},
+    group_metadata::{DmMembers, extract_group_metadata},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+        GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
     },
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
@@ -35,18 +35,19 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
+use crate::GroupCommitLock;
 use crate::groups::group_mutable_metadata::{
-    extract_group_mutable_metadata, MessageDisappearingSettings,
+    MessageDisappearingSettings, extract_group_mutable_metadata,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::{
+    NotFound, ProviderTransactions, StorageError,
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
     refresh_state::EntityKind,
-    NotFound, ProviderTransactions, StorageError,
 };
-use crate::GroupCommitLock;
 use crate::{
+    Store,
     client::{ClientError, XmtpMlsLocalContext},
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
@@ -55,7 +56,7 @@ use crate::{
     },
     hpke::HpkeError,
     identity::IdentityError,
-    identity_updates::{load_identity_updates, InstallationDiffError},
+    identity_updates::{InstallationDiffError, load_identity_updates},
     intents::ProcessIntentError,
     storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
     storage::{
@@ -68,7 +69,6 @@ use crate::{
     },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    Store,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
@@ -97,14 +97,14 @@ use tokio::sync::Mutex;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_cryptography::signature::{AddressValidationError, sanitize_evm_addresses};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
+        EncodedContent, PlaintextEnvelope,
         content_types::ReactionV2,
         plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -401,14 +401,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_id: Vec<u8>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(Self, StoredGroup), GroupError> {
-        if let Some(group) = provider.conn_ref().find_group(&group_id)? {
-            Ok((
+        match provider.conn_ref().find_group(&group_id)? {
+            Some(group) => Ok((
                 Self::new_from_arc(Arc::new(client), group_id, group.created_at_ns),
                 group,
-            ))
-        } else {
-            tracing::error!("Failed to validate existence of group");
-            Err(NotFound::GroupById(group_id).into())
+            )),
+            _ => {
+                tracing::error!("Failed to validate existence of group");
+                Err(NotFound::GroupById(group_id).into())
+            }
         }
     }
 
@@ -1937,20 +1938,20 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use crate::groups::scoped_client::ScopedGroupClient;
-    use diesel::connection::SimpleConnection;
     use diesel::RunQueryDsl;
+    use diesel::connection::SimpleConnection;
     use futures::future::join_all;
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
-    use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
+    use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-    use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
+    use super::{DMMetadataOptions, MlsGroup, group_permissions::PolicySet};
     use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -1958,17 +1959,18 @@ pub(crate) mod tests {
     use crate::storage::group::StoredGroup;
     use crate::storage::schema::groups;
     use crate::{
+        InboxOwner,
         builder::ClientBuilder,
         groups::{
-            build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
-            build_protected_metadata_extension,
+            DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies,
+            UpdateAdminListType, build_dm_protected_metadata_extension,
+            build_mutable_metadata_extension_default, build_protected_metadata_extension,
             group_metadata::GroupMetadata,
             group_mutable_metadata::MetadataField,
             intents::{PermissionPolicyOption, PermissionUpdateType},
             members::{GroupMember, PermissionLevel},
             mls_sync::GroupMessageProcessingError,
-            validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
-            PreconfiguredPolicies, UpdateAdminListType,
+            validate_dm_group,
         },
         storage::{
             consent_record::ConsentState,
@@ -1978,7 +1980,6 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner,
     };
     use xmtp_common::StreamHandle as _;
 
@@ -2907,9 +2908,11 @@ pub(crate) mod tests {
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
-        assert!(!bola_group
-            .is_active(&bola_group.mls_provider().unwrap())
-            .unwrap())
+        assert!(
+            !bola_group
+                .is_active(&bola_group.mls_provider().unwrap())
+                .unwrap()
+        )
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -2934,18 +2937,22 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 2);
-        assert!(amal_group
-            .members()
-            .await
-            .unwrap()
-            .iter()
-            .all(|m| m.inbox_id != bola.inbox_id()));
-        assert!(amal_group
-            .members()
-            .await
-            .unwrap()
-            .iter()
-            .any(|m| m.inbox_id == charlie.inbox_id()));
+        assert!(
+            amal_group
+                .members()
+                .await
+                .unwrap()
+                .iter()
+                .all(|m| m.inbox_id != bola.inbox_id())
+        );
+        assert!(
+            amal_group
+                .members()
+                .await
+                .unwrap()
+                .iter()
+                .any(|m| m.inbox_id == charlie.inbox_id())
+        );
 
         amal_group.sync().await.expect("sync failed");
 
@@ -3083,10 +3090,12 @@ pub(crate) mod tests {
 
         let bola_group = receive_group_invite(&bola).await;
         bola_group.sync().await.unwrap();
-        assert!(bola_group
-            .add_members_by_inbox_id(&[charlie.inbox_id()])
-            .await
-            .is_err(),);
+        assert!(
+            bola_group
+                .add_members_by_inbox_id(&[charlie.inbox_id()])
+                .await
+                .is_err(),
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -3097,17 +3106,14 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(
-                None,
-                GroupMetadataOptions {
-                    name: Some("Group Name".to_string()),
-                    image_url_square: Some("url".to_string()),
-                    description: Some("group description".to_string()),
-                    message_disappearing_settings: Some(
-                        expected_group_message_disappearing_settings.clone(),
-                    ),
-                },
-            )
+            .create_group(None, GroupMetadataOptions {
+                name: Some("Group Name".to_string()),
+                image_url_square: Some("url".to_string()),
+                description: Some("group description".to_string()),
+                message_disappearing_settings: Some(
+                    expected_group_message_disappearing_settings.clone(),
+                ),
+            })
             .unwrap();
 
         let binding = amal_group
@@ -3169,10 +3175,12 @@ pub(crate) mod tests {
         amal_group.add_members(&clients).await.unwrap();
         let bola_wallet = generate_local_wallet();
         ClientBuilder::new_test_client(&bola_wallet).await;
-        assert!(amal_group
-            .add_members_by_inbox_id(&[bola_wallet.get_address()])
-            .await
-            .is_err(),);
+        assert!(
+            amal_group
+                .add_members_by_inbox_id(&[bola_wallet.get_address()])
+                .await
+                .is_err(),
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -3191,11 +3199,13 @@ pub(crate) mod tests {
             .mutable_metadata(&amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(group_mutable_metadata.attributes.len().eq(&3));
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty());
+        assert!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap()
+                .is_empty()
+        );
 
         // Add bola to the group
         amal_group
@@ -3213,11 +3223,13 @@ pub(crate) mod tests {
         let group_mutable_metadata = bola_group
             .mutable_metadata(&bola_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty());
+        assert!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap()
+                .is_empty()
+        );
 
         // Update group name
         amal_group
@@ -3348,11 +3360,13 @@ pub(crate) mod tests {
         let group_mutable_metadata = amal_group
             .mutable_metadata(&amal_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupImageUrlSquare.to_string())
-            .unwrap()
-            .is_empty());
+        assert!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::GroupImageUrlSquare.to_string())
+                .unwrap()
+                .is_empty()
+        );
 
         // Update group name
         amal_group
@@ -3450,11 +3464,13 @@ pub(crate) mod tests {
         let group_mutable_metadata = amal_group
             .mutable_metadata(&amal_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty());
+        assert!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap()
+                .is_empty()
+        );
 
         // Add bola to the group
         amal_group
@@ -3471,11 +3487,13 @@ pub(crate) mod tests {
         let group_mutable_metadata = bola_group
             .mutable_metadata(&bola_group.mls_provider().unwrap())
             .unwrap();
-        assert!(group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty());
+        assert!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::GroupName.to_string())
+                .unwrap()
+                .is_empty()
+        );
 
         // Update group name
         amal_group
@@ -3586,10 +3604,12 @@ pub(crate) mod tests {
                 .len(),
             1
         );
-        assert!(bola_group
-            .admin_list(&bola_group.mls_provider().unwrap())
-            .unwrap()
-            .contains(&bola.inbox_id().to_string()));
+        assert!(
+            bola_group
+                .admin_list(&bola_group.mls_provider().unwrap())
+                .unwrap()
+                .contains(&bola.inbox_id().to_string())
+        );
 
         // Verify that bola can now add caro because they are an admin
         bola_group
@@ -3623,10 +3643,12 @@ pub(crate) mod tests {
                 .len(),
             0
         );
-        assert!(!bola_group
-            .admin_list(&bola_group.mls_provider().unwrap())
-            .unwrap()
-            .contains(&bola.inbox_id().to_string()));
+        assert!(
+            !bola_group
+                .admin_list(&bola_group.mls_provider().unwrap())
+                .unwrap()
+                .contains(&bola.inbox_id().to_string())
+        );
 
         // Verify that bola can not add charlie because they are not an admin
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -3699,10 +3721,12 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 2);
-        assert!(bola_group
-            .super_admin_list(&provider)
-            .unwrap()
-            .contains(&bola.inbox_id().to_string()));
+        assert!(
+            bola_group
+                .super_admin_list(&provider)
+                .unwrap()
+                .contains(&bola.inbox_id().to_string())
+        );
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that bola can now add caro as an admin
@@ -3713,10 +3737,12 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.admin_list(&provider).unwrap().len(), 1);
-        assert!(bola_group
-            .admin_list(&provider)
-            .unwrap()
-            .contains(&caro.inbox_id().to_string()));
+        assert!(
+            bola_group
+                .admin_list(&provider)
+                .unwrap()
+                .contains(&caro.inbox_id().to_string())
+        );
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that no one can remove a super admin from a group
@@ -3736,10 +3762,12 @@ pub(crate) mod tests {
         bola_group.sync().await.unwrap();
         let provider = bola_group.mls_provider().unwrap();
         assert_eq!(bola_group.super_admin_list(&provider).unwrap().len(), 1);
-        assert!(!bola_group
-            .super_admin_list(&provider)
-            .unwrap()
-            .contains(&bola.inbox_id().to_string()));
+        assert!(
+            !bola_group
+                .super_admin_list(&provider)
+                .unwrap()
+                .contains(&bola.inbox_id().to_string())
+        );
         drop(provider); // allow connection to be re-added to pool
 
         // Verify that amal can NOT remove themself as a super admin because they are the only remaining
@@ -4012,10 +4040,13 @@ pub(crate) mod tests {
         let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
-        if let Err(e) = &result {
-            eprintln!("Error adding member: {:?}", e);
-        } else {
-            panic!("Expected error adding member");
+        match &result {
+            Err(e) => {
+                eprintln!("Error adding member: {:?}", e);
+            }
+            _ => {
+                panic!("Expected error adding member");
+            }
         }
 
         // Step 4: Bola attempts to update permissions but fails because they are not a super admin
@@ -4026,10 +4057,13 @@ pub(crate) mod tests {
                 None,
             )
             .await;
-        if let Err(e) = &result {
-            eprintln!("Error updating permissions: {:?}", e);
-        } else {
-            panic!("Expected error updating permissions");
+        match &result {
+            Err(e) => {
+                eprintln!("Error updating permissions: {:?}", e);
+            }
+            _ => {
+                panic!("Expected error updating permissions");
+            }
         }
 
         // Step 5: Amal updates group permissions so that all members can add
@@ -4097,30 +4131,24 @@ pub(crate) mod tests {
                 .map(|m| m.id)
                 .collect::<Vec<Vec<u8>>>()
         );
-        assert_eq!(
-            text,
-            vec![
-                "test one".to_string(),
-                "test two".to_string(),
-                "test three".to_string(),
-                "test four".to_string(),
-            ]
-        );
+        assert_eq!(text, vec![
+            "test one".to_string(),
+            "test two".to_string(),
+            "test three".to_string(),
+            "test four".to_string(),
+        ]);
 
         let delivery = messages
             .iter()
             .cloned()
             .map(|m| m.delivery_status)
             .collect::<Vec<DeliveryStatus>>();
-        assert_eq!(
-            delivery,
-            vec![
-                DeliveryStatus::Unpublished,
-                DeliveryStatus::Unpublished,
-                DeliveryStatus::Unpublished,
-                DeliveryStatus::Unpublished,
-            ]
-        );
+        assert_eq!(delivery, vec![
+            DeliveryStatus::Unpublished,
+            DeliveryStatus::Unpublished,
+            DeliveryStatus::Unpublished,
+            DeliveryStatus::Unpublished,
+        ]);
 
         amal_group.publish_messages().await.unwrap();
         bola_group.sync().await.unwrap();
@@ -4131,15 +4159,12 @@ pub(crate) mod tests {
             .cloned()
             .map(|m| m.delivery_status)
             .collect::<Vec<DeliveryStatus>>();
-        assert_eq!(
-            delivery,
-            vec![
-                DeliveryStatus::Published,
-                DeliveryStatus::Published,
-                DeliveryStatus::Published,
-                DeliveryStatus::Published,
-            ]
-        );
+        assert_eq!(delivery, vec![
+            DeliveryStatus::Published,
+            DeliveryStatus::Published,
+            DeliveryStatus::Published,
+            DeliveryStatus::Published,
+        ]);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
@@ -4254,13 +4279,17 @@ pub(crate) mod tests {
             .unwrap();
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
-        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 1);
-            assert!(errors.iter().any(|err| err
-                .to_string()
-                .contains("cannot start a transaction within a transaction")));
-        } else {
-            panic!("Expected error")
+        match process_result.err() {
+            Some(GroupError::ReceiveErrors(errors)) => {
+                assert_eq!(errors.len(), 1);
+                assert!(errors.iter().any(|err| {
+                    err.to_string()
+                        .contains("cannot start a transaction within a transaction")
+                }));
+            }
+            _ => {
+                panic!("Expected error")
+            }
         }
     }
 
@@ -4309,9 +4338,11 @@ pub(crate) mod tests {
         };
 
         assert_eq!(errors.len(), 2);
-        assert!(errors
-            .iter()
-            .any(|err| err.to_string().contains("already processed")));
+        assert!(
+            errors
+                .iter()
+                .any(|err| err.to_string().contains("already processed"))
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
@@ -4377,12 +4408,16 @@ pub(crate) mod tests {
         let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
-        assert!(alix1_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
-        assert!(alix2_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+        assert!(
+            alix1_messages
+                .iter()
+                .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes())
+        );
+        assert!(
+            alix2_messages
+                .iter()
+                .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes())
+        );
     }
 
     // Create a membership update intent, but don't sync it yet
@@ -4485,12 +4520,16 @@ pub(crate) mod tests {
         let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(alix1_messages.len(), alix2_messages.len());
 
-        assert!(alix1_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes()));
-        assert!(alix2_messages
-            .iter()
-            .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
+        assert!(
+            alix1_messages
+                .iter()
+                .any(|m| m.decrypted_message_bytes == "hi from alix2".as_bytes())
+        );
+        assert!(
+            alix2_messages
+                .iter()
+                .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes())
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
@@ -4680,11 +4719,13 @@ pub(crate) mod tests {
             DMMetadataOptions::default(),
         )
         .unwrap();
-        assert!(valid_dm_group
-            .load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group| {
-                validate_dm_group(&client, &mls_group, added_by_inbox)
-            })
-            .is_ok());
+        assert!(
+            valid_dm_group
+                .load_mls_group_with_lock(client.mls_provider().unwrap(), |mls_group| {
+                    validate_dm_group(&client, &mls_group, added_by_inbox)
+                })
+                .is_ok()
+        );
 
         // Test case 2: Invalid conversation type
         let invalid_protected_metadata =

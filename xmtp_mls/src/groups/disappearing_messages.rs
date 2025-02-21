@@ -1,6 +1,6 @@
+use crate::Client;
 use crate::client::ClientError;
 use crate::storage::StorageError;
-use crate::Client;
 use futures::StreamExt;
 use std::time::Duration;
 use thiserror::Error;

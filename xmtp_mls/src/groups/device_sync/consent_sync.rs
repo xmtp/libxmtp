@@ -138,10 +138,12 @@ pub(crate) mod tests {
             )])
             .await
             .unwrap();
-        assert!(amal_a_conn
-            .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
-            .unwrap()
-            .is_some());
+        assert!(
+            amal_a_conn
+                .get_consent_record(bo_wallet.get_address(), ConsentType::Address)
+                .unwrap()
+                .is_some()
+        );
         let amal_a_subscription = amal_a.local_events().subscribe();
 
         // Wait for the consent to get streamed to the amal_b

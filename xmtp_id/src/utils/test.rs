@@ -2,7 +2,7 @@
 
 use ethers::{
     contract::abigen,
-    core::k256::{elliptic_curve::SecretKey, Secp256k1},
+    core::k256::{Secp256k1, elliptic_curve::SecretKey},
     middleware::SignerMiddleware,
     providers::{Http, Provider},
     signers::LocalWallet,

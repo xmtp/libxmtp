@@ -1,11 +1,11 @@
+use crate::storage::StorageError;
 /// Native SQLite connection using SqlCipher
 use crate::storage::encrypted_store::DbConnectionPrivate;
-use crate::storage::StorageError;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
+    Connection,
     connection::{AnsiTransactionManager, SimpleConnection},
     r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
-    Connection,
 };
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
 
-use super::{sqlcipher_connection::EncryptedConnection, EncryptionKey, StorageOption, XmtpDb};
+use super::{EncryptionKey, StorageOption, XmtpDb, sqlcipher_connection::EncryptedConnection};
 
 trait XmtpConnection:
     ValidatedConnection
@@ -176,10 +176,9 @@ impl XmtpDb for NativeDb {
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
-        if let Some(c) = &self.customizer {
-            c.validate(opts)
-        } else {
-            Ok(())
+        match &self.customizer {
+            Some(c) => c.validate(opts),
+            _ => Ok(()),
         }
     }
 

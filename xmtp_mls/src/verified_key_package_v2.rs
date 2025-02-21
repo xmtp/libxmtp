@@ -1,8 +1,8 @@
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential},
+    credentials::{BasicCredential, errors::BasicCredentialError},
     prelude::{
-        tls_codec::{Deserialize, Error as TlsCodecError},
         KeyPackage, KeyPackageIn, KeyPackageVerifyError,
+        tls_codec::{Deserialize, Error as TlsCodecError},
     },
 };
 use openmls_rust_crypto::RustCrypto;

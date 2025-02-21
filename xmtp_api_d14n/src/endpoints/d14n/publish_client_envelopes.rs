@@ -3,8 +3,8 @@ use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 use xmtp_proto::xmtp::xmtpv4::payer_api::FILE_DESCRIPTOR_SET;
+use xmtp_proto::xmtp::xmtpv4::payer_api::PublishClientEnvelopesRequest;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]

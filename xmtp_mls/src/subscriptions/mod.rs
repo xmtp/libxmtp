@@ -15,18 +15,18 @@ mod stream_conversations;
 pub(crate) mod stream_messages;
 
 use crate::{
+    Client, XmtpApi,
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
-        GroupError, MlsGroup,
+        GroupError, MlsGroup, device_sync::preference_sync::UserPreferenceUpdate,
+        mls_sync::GroupMessageProcessingError,
     },
     storage::{
-        consent_record::StoredConsentRecord, group::ConversationType,
-        group_message::StoredGroupMessage, NotFound, StorageError,
+        NotFound, StorageError, consent_record::StoredConsentRecord, group::ConversationType,
+        group_message::StoredGroupMessage,
     },
-    Client, XmtpApi,
 };
 use thiserror::Error;
-use xmtp_common::{retryable, RetryableError, StreamHandle};
+use xmtp_common::{RetryableError, StreamHandle, retryable};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -269,8 +269,8 @@ where
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
         #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>) + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
@@ -306,8 +306,8 @@ where
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
@@ -378,7 +378,7 @@ pub(crate) mod tests {
     /// ```
     #[macro_export]
     macro_rules! assert_msg {
-        ($stream:expr, $expected:expr) => {
+        ($stream:expr_2021, $expected:expr_2021) => {
             assert_eq!(
                 String::from_utf8_lossy(
                     $stream
@@ -402,14 +402,16 @@ pub(crate) mod tests {
     /// ```
     #[macro_export]
     macro_rules! assert_msg_exists {
-        ($stream:expr) => {
-            assert!(!$stream
-                .next()
-                .await
-                .unwrap()
-                .unwrap()
-                .decrypted_message_bytes
-                .is_empty());
+        ($stream:expr_2021) => {
+            assert!(
+                !$stream
+                    .next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .decrypted_message_bytes
+                    .is_empty()
+            );
         };
     }
 }

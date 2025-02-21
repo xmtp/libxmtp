@@ -24,8 +24,8 @@ pub mod time;
 pub mod fmt;
 
 use rand::{
-    distributions::{Alphanumeric, DistString},
     RngCore,
+    distributions::{Alphanumeric, DistString},
 };
 use xmtp_cryptography::utils as crypto_utils;
 

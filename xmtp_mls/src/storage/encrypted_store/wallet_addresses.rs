@@ -1,6 +1,6 @@
 use super::schema::wallet_addresses;
 use crate::storage::{DbConnection, StorageError};
-use crate::{impl_fetch, impl_fetch_list_with_key, impl_store, FetchListWithKey};
+use crate::{FetchListWithKey, impl_fetch, impl_fetch_list_with_key, impl_store};
 use diesel::prelude::*;
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ impl DbConnection {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::storage::wallet_addresses::WalletEntry;
-    use crate::{storage::encrypted_store::tests::with_connection, FetchListWithKey, Store};
+    use crate::{FetchListWithKey, Store, storage::encrypted_store::tests::with_connection};
 
     // Test storing a single wallet
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -1,23 +1,23 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
     Client, XmtpOpenMlsProvider,
+    groups::{MlsGroup, scoped_client::ScopedGroupClient},
+    storage::{NotFound, group::ConversationType, refresh_state::EntityKind},
 };
-use futures::{prelude::stream::Select, Stream};
+use futures::{Stream, prelude::stream::Select};
 use pin_project_lite::pin_project;
 use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{retry_async, FutureWrapper, Retry};
+use xmtp_common::{FutureWrapper, Retry, retry_async};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
+    api_client::{XmtpMlsStreams, trait_impls::XmtpApi},
+    xmtp::mls::api::v1::{WelcomeMessage, welcome_message},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -210,8 +210,8 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll::*;
         use ProcessProject::*;
+        use std::task::Poll::*;
 
         let this = self.as_mut().project();
         let state = this.state.project();
@@ -395,9 +395,7 @@ where
         let id = *id as i64;
 
         let Self {
-            client,
-            provider,
-            ..
+            client, provider, ..
         } = self;
         tracing::info!(
             installation_id = hex::encode(installation_key),

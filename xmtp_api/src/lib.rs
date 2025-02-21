@@ -8,8 +8,8 @@ pub mod test_utils;
 use std::sync::Arc;
 
 use xmtp_common::{ExponentialBackoff, Retry, RetryableError};
-pub use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::ApiError;
+pub use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 pub use identity::*;
 pub use mls::*;

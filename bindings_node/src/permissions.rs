@@ -2,6 +2,7 @@ use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::collections::HashMap;
 use xmtp_mls::groups::{
+  PreconfiguredPolicies,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
   group_permissions::{
     BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
@@ -9,7 +10,6 @@ use xmtp_mls::groups::{
     PolicySet,
   },
   intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
-  PreconfiguredPolicies,
 };
 
 #[napi]

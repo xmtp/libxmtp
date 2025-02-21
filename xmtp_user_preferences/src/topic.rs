@@ -1,4 +1,4 @@
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 use xmtp_v2::{encryption::hkdf, hashes::sha256};
 

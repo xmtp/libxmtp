@@ -4,29 +4,28 @@ use crate::storage::{
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{retry_async, retryable, Retry, RetryableError};
+use xmtp_common::{Retry, RetryableError, retry_async, retryable};
 use xmtp_cryptography::CredentialSign;
 use xmtp_id::{
+    AsIdRef, InboxIdRef,
     associations::{
-        apply_update,
+        AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
+        InstallationKeyContext, MemberIdentifier, SignatureError, apply_update,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         generate_inbox_id, get_state,
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
-        AssociationError, AssociationState, AssociationStateDiff, IdentityAction, IdentityUpdate,
-        InstallationKeyContext, MemberIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    AsIdRef, InboxIdRef,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
+    Client, XmtpApi,
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
     storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-    Client, XmtpApi,
 };
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
@@ -591,20 +590,20 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
+        InboxOwner,
         associations::{
-            builder::SignatureRequest, test_utils::add_wallet_signature, AssociationState,
-            MemberIdentifier,
+            AssociationState, MemberIdentifier, builder::SignatureRequest,
+            test_utils::add_wallet_signature,
         },
         scw_verifier::SmartContractSignatureVerifier,
-        InboxOwner,
     };
 
     use crate::{
+        Client, XmtpApi,
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
         utils::test::FullXmtpClient,
-        Client, XmtpApi,
     };
     use xmtp_common::rand_vec;
 
@@ -759,9 +758,11 @@ pub(crate) mod tests {
 
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(association_state.recovery_address(), &wallet_address);
-            assert!(association_state
-                .get(&wallet_address.clone().into())
-                .is_some());
+            assert!(
+                association_state
+                    .get(&wallet_address.clone().into())
+                    .is_some()
+            );
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
@@ -911,13 +912,17 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(installation_diff.added_installations.len(), 1);
-        assert!(installation_diff
-            .added_installations
-            .contains(&client_3_installation_key.to_vec()),);
+        assert!(
+            installation_diff
+                .added_installations
+                .contains(&client_3_installation_key.to_vec()),
+        );
         assert_eq!(installation_diff.removed_installations.len(), 1);
-        assert!(installation_diff
-            .removed_installations
-            .contains(&client_2_installation_key.to_vec()));
+        assert!(
+            installation_diff
+                .removed_installations
+                .contains(&client_2_installation_key.to_vec())
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

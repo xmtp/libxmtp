@@ -1,6 +1,6 @@
 [package]
 default-run = "xmtp_cli"
-edition = "2021"
+edition = "2024"
 keywords = ["xmtp", "messaging", "web3", "group-chat"]
 license.workspace = true
 name = "xmtp_cli"

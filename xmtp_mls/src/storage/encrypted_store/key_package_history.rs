@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 
-use super::{db_connection::DbConnection, schema::key_package_history, StorageError};
-use crate::{impl_store_or_ignore, StoreOrIgnore};
+use super::{StorageError, db_connection::DbConnection, schema::key_package_history};
+use crate::{StoreOrIgnore, impl_store_or_ignore};
 use xmtp_common::time::now_ns;
 
 #[derive(Insertable, Debug, Clone)]

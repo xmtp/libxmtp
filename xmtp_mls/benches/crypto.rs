@@ -1,7 +1,7 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use xmtp_mls::configuration::CIPHERSUITE;
 use xmtp_mls::utils::bench::re_export::encrypt_welcome;
 

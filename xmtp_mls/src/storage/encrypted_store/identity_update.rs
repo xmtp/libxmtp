@@ -11,7 +11,7 @@ use diesel::{dsl::max, prelude::*};
 #[cfg(target_arch = "wasm32")]
 use sqlite_web::dsl::RunQueryDsl;
 
-use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
+use xmtp_id::associations::{AssociationError, unverified::UnverifiedIdentityUpdate};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -134,7 +134,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, storage::encrypted_store::tests::with_connection};
     use xmtp_common::{rand_time, rand_vec};
 
     use super::*;

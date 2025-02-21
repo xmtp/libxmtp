@@ -2,7 +2,7 @@ use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_id::associations::{AssociationState, MemberIdentifier};
 
-use crate::{client::Client, ErrorWrapper};
+use crate::{ErrorWrapper, client::Client};
 
 #[napi(object)]
 pub struct Installation {

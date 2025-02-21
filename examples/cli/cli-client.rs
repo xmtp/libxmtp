@@ -14,7 +14,7 @@ use crate::serializable::{SerializableGroup, SerializableMessage};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
 use debug::DebugCommands;
-use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
+use ethers::signers::{LocalWallet, MnemonicBuilder, coins_bip39::English};
 use futures::future::join_all;
 use owo_colors::OwoColorize;
 use prost::Message;
@@ -22,41 +22,41 @@ use serializable::maybe_get_text;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::Dispatch;
-use tracing_subscriber::field::MakeExt;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::field::MakeExt;
 use tracing_subscriber::{
+    Registry,
     fmt::{format, time},
     layer::SubscriberExt,
     prelude::*,
-    Registry,
 };
 use valuable::Valuable;
 use xmtp_api_grpc::replication_client::ClientV4;
-use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, Error as GrpcError};
+use xmtp_api_grpc::{Error as GrpcError, grpc_api_helper::Client as ClientV3};
 use xmtp_common::time::now_ns;
-use xmtp_content_types::{text::TextCodec, ContentCodec};
+use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
-use xmtp_id::associations::{generate_inbox_id, AssociationError, AssociationState, MemberKind};
+use xmtp_id::associations::{AssociationError, AssociationState, MemberKind, generate_inbox_id};
+use xmtp_mls::XmtpApi;
+use xmtp_mls::groups::GroupError;
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
-use xmtp_mls::groups::GroupError;
 use xmtp_mls::storage::group::GroupQueryArgs;
 use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
-use xmtp_mls::XmtpApi;
 use xmtp_mls::{
+    InboxOwner,
     builder::ClientBuilderError,
     client::ClientError,
-    groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
+    groups::{GroupMetadataOptions, device_sync::MessageHistoryUrls},
     identity::IdentityStrategy,
     storage::{
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
-        StorageOption,
+        EncryptedMessageStore, EncryptionKey, StorageError, StorageOption,
+        group_message::StoredGroupMessage,
     },
-    InboxOwner,
 };
 use xmtp_proto::api_client::BoxableXmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;

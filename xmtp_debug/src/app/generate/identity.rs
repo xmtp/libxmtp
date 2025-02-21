@@ -4,7 +4,7 @@ use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
 use crate::args;
 
-use color_eyre::eyre::{self, bail, Result};
+use color_eyre::eyre::{self, Result, bail};
 use indicatif::{ProgressBar, ProgressStyle};
 
 /// Identity Generation

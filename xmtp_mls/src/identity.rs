@@ -1,44 +1,45 @@
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
+use crate::storage::ProviderTransactions;
 use crate::storage::db_connection::DbConnection;
 use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use crate::storage::ProviderTransactions;
+use crate::storage::sql_key_store::{KEY_PACKAGE_REFERENCES, SqlKeyStore, SqlKeyStoreError};
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
-    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
     Fetch, Store, XmtpApi,
+    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
+    storage::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider},
 };
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
+    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
     key_packages::KeyPackage,
     messages::proposals::ProposalType,
-    prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
+    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
 };
+use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
-use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{
-        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        generate_inbox_id, sign_with_legacy_key, MemberIdentifier,
-    },
     InboxId, InboxIdRef,
+    associations::{
+        MemberIdentifier,
+        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
+        generate_inbox_id, sign_with_legacy_key,
+    },
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -131,8 +132,8 @@ impl IdentityStrategy {
                 address,
                 nonce,
                 legacy_signed_private_key,
-            } => {
-                if let Some(stored_identity) = stored_identity {
+            } => match stored_identity {
+                Some(stored_identity) => {
                     tracing::debug!(
                         installation_id =
                             hex::encode(stored_identity.installation_keys.public_bytes()),
@@ -147,7 +148,8 @@ impl IdentityStrategy {
                     }
 
                     Ok(stored_identity)
-                } else {
+                }
+                _ => {
                     Identity::new(
                         inbox_id,
                         address,
@@ -159,7 +161,7 @@ impl IdentityStrategy {
                     )
                     .await
                 }
-            }
+            },
             #[cfg(test)]
             ExternalIdentity(identity) => Ok(identity),
         }

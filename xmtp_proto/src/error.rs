@@ -24,10 +24,9 @@ impl RetryableError for ApiError {
     }
 
     fn needs_cooldown(&self) -> bool {
-        if let Some(code) = self.inner.code() {
-            code == Code::ResourceExhausted
-        } else {
-            false
+        match self.inner.code() {
+            Some(code) => code == Code::ResourceExhausted,
+            _ => false,
         }
     }
 }

@@ -1,4 +1,4 @@
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::storage::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };

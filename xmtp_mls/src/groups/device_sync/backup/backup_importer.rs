@@ -1,19 +1,19 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
+    Store, XmtpOpenMlsProvider,
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
-        consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection,
+        DbConnection, consent_record::StoredConsentRecord, group::StoredGroup,
+        group_message::StoredGroupMessage,
     },
-    Store, XmtpOpenMlsProvider,
 };
-use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
+use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;

@@ -1,5 +1,5 @@
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
-use k256::{ecdsa::signature::DigestVerifier, PublicKey};
+use k256::{PublicKey, ecdsa::signature::DigestVerifier};
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
+    credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
     group::{MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::Proposal,
@@ -10,36 +10,36 @@ use openmls::{
 };
 use prost::Message;
 use thiserror::Error;
+use xmtp_id::InboxId;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_id::InboxId;
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
         GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
     },
 };
 
 use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
-    storage::{db_connection::DbConnection, StorageError},
+    storage::{StorageError, db_connection::DbConnection},
 };
 use xmtp_common::{retry::RetryableError, retryable};
 
 use super::{
+    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+    ScopedGroupClient,
     group_membership::{GroupMembership, MembershipDiff},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
-        find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
-        MetadataField,
+        GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
+        find_mutable_metadata_extension,
     },
     group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+        GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
     },
-    ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
-    MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -118,7 +118,9 @@ impl std::fmt::Debug for CommitParticipant {
             is_admin,
             is_super_admin,
         } = self;
-        write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
+        write!(
+            f,
+            "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
             inbox_id,
             hex::encode(installation_id),
             is_creator,

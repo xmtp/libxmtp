@@ -76,7 +76,7 @@ impl TryFrom<GroupMembershipStateSave> for GroupMembershipState {
             GroupMembershipStateSave::Pending => Self::Pending,
             GroupMembershipStateSave::Rejected => Self::Rejected,
             GroupMembershipStateSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("group_membership_state"))
+                return Err(DeserializationError::Unspecified("group_membership_state"));
             }
         };
         Ok(membership_state)
@@ -91,7 +91,7 @@ impl TryFrom<ConversationTypeSave> for ConversationType {
             ConversationTypeSave::Group => Self::Group,
             ConversationTypeSave::Sync => Self::Sync,
             ConversationTypeSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("conversation_type"))
+                return Err(DeserializationError::Unspecified("conversation_type"));
             }
         };
         Ok(conversation_type)

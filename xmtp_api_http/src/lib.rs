@@ -18,6 +18,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 };
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{XmtpMlsClient, XmtpMlsStreams},
     xmtp::mls::api::v1::{
         FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
@@ -25,7 +26,6 @@ use xmtp_proto::{
         SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
         SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
-    ApiEndpoint,
 };
 
 use crate::constants::ApiEndpoints;
@@ -428,11 +428,13 @@ pub mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .as_ref()
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("invalid identity"));
+        assert!(
+            result
+                .as_ref()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid identity")
+        );
     }
 }

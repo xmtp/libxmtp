@@ -7,24 +7,24 @@ use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::ApiError;
 use xmtp_proto::traits::Client;
 
+use xmtp_proto::XmtpApiError;
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
     PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use xmtp_proto::XmtpApiError;
 use xmtp_proto::{
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
-        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+        QueryRequest, QueryResponse, SubscribeRequest, message_api_client::MessageApiClient,
     },
     xmtp::mls::api::v1::{
-        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        mls_api_client::MlsApiClient as ProtoMlsApiClient,
     },
 };
 

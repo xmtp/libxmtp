@@ -1,14 +1,14 @@
 use crate::{
-    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
-    subscriptions::LocalEvents, Store,
+    Store, groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
+    subscriptions::LocalEvents,
 };
 
 use super::{
-    schema::user_preferences::{self, dsl},
     DbConnection,
+    schema::user_preferences::{self, dsl},
 };
 use diesel::prelude::*;
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use tokio::sync::broadcast::Sender;
 
 #[derive(Identifiable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default)]

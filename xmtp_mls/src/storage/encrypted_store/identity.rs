@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicBool;
 
-use crate::storage::{encrypted_store::schema::identity, StorageError};
+use crate::storage::{StorageError, encrypted_store::schema::identity};
 use diesel::prelude::*;
 use xmtp_id::InboxId;
 

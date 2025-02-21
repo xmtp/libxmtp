@@ -1,8 +1,8 @@
 use super::*;
+use crate::XmtpApi;
 use crate::storage::group::GroupQueryArgs;
 use crate::storage::group_message::MsgQueryArgs;
-use crate::XmtpApi;
-use crate::{storage::group::StoredGroup, Client};
+use crate::{Client, storage::group::StoredGroup};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -52,7 +52,7 @@ pub(crate) mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
-        utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
+        utils::test::{HISTORY_SYNC_URL, wait_for_min_intents},
     };
     use xmtp_common::{assert_ok, wait_for_some};
     use xmtp_cryptography::utils::generate_local_wallet;

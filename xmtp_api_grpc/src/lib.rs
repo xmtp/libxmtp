@@ -247,12 +247,9 @@ pub mod tests {
         let env = test_envelope(topic.to_string());
 
         let _result = client
-            .publish(
-                "".to_string(),
-                PublishRequest {
-                    envelopes: vec![env],
-                },
-            )
+            .publish("".to_string(), PublishRequest {
+                envelopes: vec![env],
+            })
             .await
             .unwrap();
 
@@ -285,12 +282,9 @@ pub mod tests {
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
             client
-                .publish(
-                    "".to_string(),
-                    PublishRequest {
-                        envelopes: vec![test_envelope(topic.to_string())],
-                    },
-                )
+                .publish("".to_string(), PublishRequest {
+                    envelopes: vec![test_envelope(topic.to_string())],
+                })
                 .await
                 .unwrap();
 
@@ -346,12 +340,9 @@ pub mod tests {
         // Publish an envelope to the topic of the stream
         let env = test_envelope(topic.to_string());
         client
-            .publish(
-                "".to_string(),
-                PublishRequest {
-                    envelopes: vec![env],
-                },
-            )
+            .publish("".to_string(), PublishRequest {
+                envelopes: vec![env],
+            })
             .await
             .unwrap();
 
@@ -372,12 +363,9 @@ pub mod tests {
         // Publish an envelope to the new topic
         let env_2 = test_envelope(topic_2.to_string());
         client
-            .publish(
-                "".to_string(),
-                PublishRequest {
-                    envelopes: vec![env_2],
-                },
-            )
+            .publish("".to_string(), PublishRequest {
+                envelopes: vec![env_2],
+            })
             .await
             .unwrap();
 
@@ -390,16 +378,13 @@ pub mod tests {
         let auth_token = get_auth_token();
         let dev_client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
         dev_client
-            .publish(
-                auth_token,
-                PublishRequest {
-                    envelopes: vec![Envelope {
-                        content_topic: "/xmtp/0/foo/2".to_string(),
-                        timestamp_ns: 3,
-                        message: vec![1, 2, 3],
-                    }],
-                },
-            )
+            .publish(auth_token, PublishRequest {
+                envelopes: vec![Envelope {
+                    content_topic: "/xmtp/0/foo/2".to_string(),
+                    timestamp_ns: 3,
+                    message: vec![1, 2, 3],
+                }],
+            })
             .await
             .unwrap();
     }
@@ -419,12 +404,9 @@ pub mod tests {
                 .unwrap();
 
             client
-                .publish(
-                    auth_token.to_string(),
-                    PublishRequest {
-                        envelopes: vec![test_envelope(topic.to_string())],
-                    },
-                )
+                .publish(auth_token.to_string(), PublishRequest {
+                    envelopes: vec![test_envelope(topic.to_string())],
+                })
                 .await
                 .unwrap();
 
@@ -438,12 +420,9 @@ pub mod tests {
 
             tokio::time::sleep(std::time::Duration::from_secs(50)).await;
             client
-                .publish(
-                    auth_token.to_string(),
-                    PublishRequest {
-                        envelopes: vec![test_envelope(topic.to_string())],
-                    },
-                )
+                .publish(auth_token.to_string(), PublishRequest {
+                    envelopes: vec![test_envelope(topic.to_string())],
+                })
                 .await
                 .unwrap();
 

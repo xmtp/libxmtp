@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::storage::group::ConversationType;
 
 use crate::client::RustXmtpClient;
@@ -11,10 +11,10 @@ use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use xmtp_mls::groups::{
-  group_metadata::GroupMetadata as XmtpGroupMetadata,
+  MlsGroup, UpdateAdminListType, group_metadata::GroupMetadata as XmtpGroupMetadata,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
   intents::PermissionUpdateType as XmtpPermissionUpdateType,
-  members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+  members::PermissionLevel as XmtpPermissionLevel,
 };
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;

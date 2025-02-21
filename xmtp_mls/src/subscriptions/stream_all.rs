@@ -1,26 +1,26 @@
 use std::{
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use crate::subscriptions::stream_messages::MessagesApiSubscription;
 use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    Client,
+    groups::{MlsGroup, scoped_client::ScopedGroupClient},
     storage::{
         group::{ConversationType, GroupQueryArgs},
         group_message::StoredGroupMessage,
     },
     types::GroupId,
-    Client,
 };
 use futures::stream::Stream;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+use xmtp_proto::api_client::{XmtpMlsStreams, trait_impls::XmtpApi};
 
 use super::{
+    Result, SubscribeError,
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
-    Result, SubscribeError,
 };
 use pin_project_lite::pin_project;
 
@@ -396,7 +396,11 @@ mod tests {
             tracing::info!("{}", m);
         }*/
         assert!(duplicates.is_empty());
-        assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
+        assert_eq!(
+            messages.len(),
+            45,
+            "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient."
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]

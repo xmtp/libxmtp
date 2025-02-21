@@ -7,11 +7,11 @@ use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_id::scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier};
 
 use crate::{
+    StorageError, XmtpApi, XmtpOpenMlsProvider,
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     storage::EncryptedMessageStore,
-    StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::Retry;
@@ -110,12 +110,13 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(conn);
-        let identity = if let Some(identity) = identity {
-            identity
-        } else {
-            identity_strategy
-                .initialize_identity(&api, &provider, &scw_verifier)
-                .await?
+        let identity = match identity {
+            Some(identity) => identity,
+            _ => {
+                identity_strategy
+                    .initialize_identity(&api, &provider, &scw_verifier)
+                    .await?
+            }
         };
 
         debug!(
@@ -221,42 +222,42 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use std::sync::atomic::AtomicBool;
 
+    use crate::XmtpApi;
     use crate::builder::ClientBuilderError;
     use crate::identity::IdentityError;
     use crate::utils::test::TestClient;
-    use crate::XmtpApi;
-    use crate::{identity::Identity, storage::identity::StoredIdentity, Store};
-    use xmtp_api::test_utils::*;
+    use crate::{Store, identity::Identity, storage::identity::StoredIdentity};
     use xmtp_api::ApiClientWrapper;
-    use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
+    use xmtp_api::test_utils::*;
+    use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
     use xmtp_common::rand_u64;
-    use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_cryptography::utils::{generate_local_wallet, rng};
+    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::associations::generate_inbox_id;
     use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
-    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::xmtp::identity::api::v1::{
-        get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
+        GetInboxIdsResponse, get_inbox_ids_response::Response as GetInboxIdsResponseItem,
     };
     use xmtp_proto::xmtp::message_contents::signature::WalletEcdsaCompact;
     use xmtp_proto::xmtp::message_contents::signed_private_key::{Secp256k1, Union};
     use xmtp_proto::xmtp::message_contents::unsigned_public_key::{self, Secp256k1Uncompressed};
     use xmtp_proto::xmtp::message_contents::{
-        signature, Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey,
+        Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey, signature,
     };
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
-        storage::{EncryptedMessageStore, StorageOption},
         Client, InboxOwner,
+        storage::{EncryptedMessageStore, StorageOption},
     };
 
     async fn register_client<C: XmtpApi, V: SmartContractSignatureVerifier>(
@@ -432,14 +433,17 @@ pub(crate) mod tests {
                 .build()
                 .await;
 
-            if let Some(err_string) = test_case.err {
-                assert!(result.is_err());
-                assert!(matches!(
-                    result,
-                    Err(ClientBuilderError::Identity(IdentityError::NewIdentity(err))) if err == err_string
-                ));
-            } else {
-                assert!(result.is_ok());
+            match test_case.err {
+                Some(err_string) => {
+                    assert!(result.is_err());
+                    assert!(matches!(
+                        result,
+                        Err(ClientBuilderError::Identity(IdentityError::NewIdentity(err))) if err == err_string
+                    ));
+                }
+                _ => {
+                    assert!(result.is_ok());
+                }
             }
         }
     }
@@ -595,12 +599,14 @@ pub(crate) mod tests {
         let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
 
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
-        assert!(dbg!(
-            identity
-                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
-                .await
-        )
-        .is_ok());
+        assert!(
+            dbg!(
+                identity
+                    .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
+                    .await
+            )
+            .is_ok()
+        );
     }
 
     // Use a stored identity as long as the inbox_id matches the one provided.
@@ -634,10 +640,12 @@ pub(crate) mod tests {
         stored.store(&store.conn().unwrap()).unwrap();
         let wrapper = ApiClientWrapper::new(mock_api.into(), retry());
         let identity = IdentityStrategy::new(inbox_id.clone(), address, nonce, None);
-        assert!(identity
-            .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
-            .await
-            .is_ok());
+        assert!(
+            identity
+                .initialize_identity(&wrapper, &store.mls_provider().unwrap(), &scw_verifier)
+                .await
+                .is_ok()
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

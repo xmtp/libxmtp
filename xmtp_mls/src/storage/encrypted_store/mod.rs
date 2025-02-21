@@ -44,9 +44,9 @@ pub use sqlcipher_connection::EncryptedConnection;
 #[cfg(target_arch = "wasm32")]
 pub use self::wasm::SqliteConnection;
 #[cfg(target_arch = "wasm32")]
-pub use sqlite_web::{connection::WasmSqliteConnection as RawDbConnection, WasmSqlite as Sqlite};
+pub use sqlite_web::{WasmSqlite as Sqlite, connection::WasmSqliteConnection as RawDbConnection};
 
-use super::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, StorageError};
+use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProviderPrivate};
 use crate::Store;
 use db_connection::DbConnectionPrivate;
 use diesel::{
@@ -56,7 +56,7 @@ use diesel::{
     result::Error,
     sql_query,
 };
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -421,11 +421,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
+        Fetch, Store,
         storage::{
             group::{GroupMembershipState, StoredGroup},
             identity::StoredIdentity,
         },
-        Fetch, Store,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 

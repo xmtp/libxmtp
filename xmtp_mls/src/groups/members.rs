@@ -1,6 +1,6 @@
 use xmtp_id::InboxId;
 
-use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
+use super::{GroupError, MlsGroup, ScopedGroupClient, validated_commit::extract_group_membership};
 
 use crate::storage::{
     association_state::StoredAssociationState,

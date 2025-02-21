@@ -94,7 +94,7 @@ where
 
 #[macro_export]
 macro_rules! traced_test {
-    ( $f:expr ) => {{
+    ( $f:expr_2021 ) => {{
         use tracing_subscriber::fmt;
         use $crate::traced_test::TestWriter;
 
@@ -129,7 +129,7 @@ macro_rules! traced_test {
 /// and only with tokio's `current` runtime.
 #[macro_export]
 macro_rules! assert_logged {
-    ( $search:expr , $occurrences:expr ) => {
+    ( $search:expr_2021 , $occurrences:expr_2021 ) => {
         $crate::traced_test::LOG_BUFFER.with(|buf| {
             let lines = {
                 buf.flush();

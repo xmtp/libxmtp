@@ -9,13 +9,13 @@ use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 use xmtp_v2::{hashes, k256_helper};
 
 use tokio::{
-    sync::{mpsc, Mutex},
+    sync::{Mutex, mpsc},
     task::{AbortHandle, JoinHandle},
 };
 use xmtp_api_grpc::grpc_api_helper::{Client as GrpcClient, GrpcMutableSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
-    cursor::Cursor as InnerCursor, BatchQueryRequest, Cursor, Envelope, PublishRequest,
-    QueryRequest, SortDirection,
+    BatchQueryRequest, Cursor, Envelope, PublishRequest, QueryRequest, SortDirection,
+    cursor::Cursor as InnerCursor,
 };
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -556,8 +556,8 @@ pub fn verify_k256_sha256(
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicU32, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
     };
     use tokio::sync::Notify;
 
@@ -565,11 +565,11 @@ mod tests {
     use xmtp_proto::api_client::Envelope;
 
     use crate::{
-        v2::{
-            create_v2_client, FfiEnvelope, FfiPublishRequest, FfiV2SubscribeRequest,
-            FfiV2Subscription,
-        },
         GenericError,
+        v2::{
+            FfiEnvelope, FfiPublishRequest, FfiV2SubscribeRequest, FfiV2Subscription,
+            create_v2_client,
+        },
     };
 
     use super::FfiV2SubscriptionCallback;

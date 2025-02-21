@@ -9,7 +9,7 @@ use xmtp_cryptography::{
     XmtpInstallationCredential,
 };
 use xmtp_proto::xmtp::message_contents::{
-    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+    SignedPrivateKey as LegacySignedPrivateKeyProto, signed_private_key,
 };
 
 use super::{

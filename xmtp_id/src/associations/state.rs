@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    hashes::generate_inbox_id, member::Member, AssociationError, MemberIdentifier, MemberKind,
+    AssociationError, MemberIdentifier, MemberKind, hashes::generate_inbox_id, member::Member,
 };
 use crate::InboxIdRef;
 

@@ -1,14 +1,14 @@
 use crate::flags;
 use color_eyre::{
     eyre::Result,
-    owo_colors::{colors::*, OwoColorize},
+    owo_colors::{OwoColorize, colors::*},
 };
 use spinach::Spinner;
 use std::fs;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 pub const BINDINGS_WASM: &str = "bindings_wasm";
 
@@ -32,13 +32,12 @@ pub fn build(extra_args: &[String], flags: flags::Build) -> Result<()> {
     };
 
     drop(text_update);
-    if let Some(sp) = sp_running {
-        match res {
+    match sp_running {
+        Some(sp) => match res {
             Ok(_) => sp.text("Wasm build success").success(),
             Err(e) => sp.text(&format!("{}", e)).failure(),
-        }
-    } else {
-        res?
+        },
+        _ => res?,
     }
 
     Ok(())
@@ -114,7 +113,10 @@ pub fn step_wasm_bindgen_build<T>(
     // TODO: Check for wasm-bindgen on `PATH`
     let sh = Shell::new()?;
     let _env = sh.push_env("RUSTFLAGS", crate::WASM_RUSTFLAGS);
-    let cmd = cmd!(sh, "wasm-bindgen {wasm_path} --out-dir {pkg_directory} --typescript --target web --split-linked-modules");
+    let cmd = cmd!(
+        sh,
+        "wasm-bindgen {wasm_path} --out-dir {pkg_directory} --typescript --target web --split-linked-modules"
+    );
     pretty_print(cmd, f)?;
     Ok(())
 }

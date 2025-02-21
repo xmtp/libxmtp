@@ -39,7 +39,7 @@ impl Endpoint for FetchKeyPackages {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_api_grpc::{grpc_client::GrpcClient, LOCALHOST_ADDRESS};
+    use xmtp_api_grpc::{LOCALHOST_ADDRESS, grpc_client::GrpcClient};
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
 

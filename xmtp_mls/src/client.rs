@@ -3,39 +3,41 @@ use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_cryptography::signature::{AddressValidationError, sanitize_evm_addresses};
 use xmtp_id::{
+    InboxId, InboxIdRef,
     associations::{
-        builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, SignatureError,
+        builder::{SignatureRequest, SignatureRequestError},
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    InboxId, InboxIdRef,
 };
 
-use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
+use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage, welcome_message};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::{groups::group_mutable_metadata::MessageDisappearingSettings, GroupCommitLock};
 use crate::{
+    Fetch, Store, XmtpApi,
     groups::{
+        GroupError, GroupMetadataOptions, MlsGroup,
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
-        group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
+        group_permissions::PolicySet,
     },
-    identity::{parse_credential, Identity, IdentityError},
-    identity_updates::{load_identity_updates, IdentityUpdateError},
+    identity::{Identity, IdentityError, parse_credential},
+    identity_updates::{IdentityUpdateError, load_identity_updates},
     mutex_registry::MutexRegistry,
     storage::{
+        EncryptedMessageStore, NotFound, StorageError,
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         db_connection::DbConnection,
         group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
@@ -43,15 +45,14 @@ use crate::{
         refresh_state::EntityKind,
         wallet_addresses::WalletEntry,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        EncryptedMessageStore, NotFound, StorageError,
     },
     subscriptions::{LocalEventError, LocalEvents},
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    Fetch, Store, XmtpApi,
 };
+use crate::{GroupCommitLock, groups::group_mutable_metadata::MessageDisappearingSettings};
 use xmtp_api::ApiClientWrapper;
-use xmtp_common::{retry_async, retryable, Retry};
+use xmtp_common::{Retry, retry_async, retryable};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -467,13 +468,12 @@ where
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
         let record = if entity_type == ConsentType::Address {
-            if let Some(inbox_id) = self
+            match self
                 .find_inbox_id_from_address(&conn, entity.clone())
                 .await?
             {
-                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
-            } else {
-                conn.get_consent_record(entity, entity_type)?
+                Some(inbox_id) => conn.get_consent_record(inbox_id, ConsentType::InboxId)?,
+                _ => conn.get_consent_record(entity, entity_type)?,
             }
         } else {
             conn.get_consent_record(entity, entity_type)?
@@ -1071,11 +1071,12 @@ pub(crate) mod tests {
     use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
+    use xmtp_id::{InboxOwner, scw_verifier::SmartContractSignatureVerifier};
 
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;
     use crate::{
+        XmtpApi,
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
@@ -1086,7 +1087,6 @@ pub(crate) mod tests {
             group_message::MsgQueryArgs,
             schema::identity_updates,
         },
-        XmtpApi,
     };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1500,10 +1500,9 @@ pub(crate) mod tests {
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message
         assert_eq!(bola_messages.len(), 2);
-        assert_eq!(
-            bola_messages.get(1).unwrap().decrypted_message_bytes,
-            vec![1, 2, 3]
-        )
+        assert_eq!(bola_messages.get(1).unwrap().decrypted_message_bytes, vec![
+            1, 2, 3
+        ])
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

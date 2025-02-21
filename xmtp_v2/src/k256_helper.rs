@@ -1,9 +1,9 @@
 use k256::{
-    ecdsa::{signature::Verifier, RecoveryId, Signature, SigningKey, VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
     PublicKey, SecretKey,
+    ecdsa::{RecoveryId, Signature, SigningKey, VerifyingKey, signature::Verifier},
+    elliptic_curve::sec1::ToEncodedPoint,
 };
-use sha2::{digest::Update, Digest, Sha256};
+use sha2::{Digest, Sha256, digest::Update};
 use sha3::Keccak256;
 
 /// diffie_hellman - compute the shared secret between a secret key and a public key

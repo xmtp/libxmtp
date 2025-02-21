@@ -13,7 +13,7 @@ use ethers::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError, h160addr_to_string};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -40,8 +40,8 @@ pub type InboxId = String;
 pub type WalletAddress = String;
 
 use crate::associations::unverified::UnverifiedIdentityUpdate;
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 
 #[derive(Clone)]
 pub struct InboxUpdate {
@@ -166,9 +166,11 @@ mod tests {
                     .await
                     .unwrap()
             );
-            assert!(is_smart_contract(factory.address(), anvil.endpoint(), None)
-                .await
-                .unwrap());
+            assert!(
+                is_smart_contract(factory.address(), anvil.endpoint(), None)
+                    .await
+                    .unwrap()
+            );
         })
         .await;
     }

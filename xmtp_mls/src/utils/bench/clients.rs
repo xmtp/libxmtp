@@ -1,13 +1,13 @@
-use crate::utils::test::{TestClient as TestApiClient, HISTORY_SYNC_URL};
+use crate::utils::test::{HISTORY_SYNC_URL, TestClient as TestApiClient};
 use crate::{client::Client, identity::IdentityStrategy};
 use ethers::signers::LocalWallet;
 use xmtp_id::{
+    InboxOwner,
     associations::{
         builder::SignatureRequest,
         generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
-    InboxOwner,
 };
 use xmtp_proto::api_client::XmtpTestClient;
 
