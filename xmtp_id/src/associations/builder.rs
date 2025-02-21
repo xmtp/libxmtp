@@ -441,14 +441,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let account_address = wallet.get_address();
+        let account_ident = wallet.get_identifier().unwrap();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
 
-        let root_ident = RootIdentifier::eth(&account_address).unwrap();
-
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(root_ident, nonce)
+            .create_inbox(account_ident, nonce)
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -465,7 +463,7 @@ pub(crate) mod tests {
     async fn create_and_add_identity() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let installation_key = XmtpInstallationCredential::new();
-        let account_address = wallet.get_address();
+        let account_address = wallet.get_identifier().unwrap();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
         let root_ident = RootIdentifier::eth(&account_address).unwrap();
@@ -493,7 +491,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let account_address = wallet.get_address();
+        let account_address = wallet.get_identifier().unwrap();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
         let existing_member_identifier = wallet.root_identifier();

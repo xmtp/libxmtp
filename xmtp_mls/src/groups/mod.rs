@@ -99,7 +99,7 @@ use xmtp_api::Identifier;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
-use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::RootIdentifier;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -162,7 +162,7 @@ pub enum GroupError {
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error(transparent)]
-    AddressValidation(#[from] AddressValidationError),
+    AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     LocalEvent(#[from] LocalEventError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
@@ -3195,7 +3195,7 @@ pub(crate) mod tests {
         let bola_wallet = generate_local_wallet();
         ClientBuilder::new_test_client(&bola_wallet).await;
         assert!(amal_group
-            .add_members_by_inbox_id(&[bola_wallet.get_address()])
+            .add_members_by_inbox_id(&[bola_wallet.get_inbox_id(0)])
             .await
             .is_err(),);
     }

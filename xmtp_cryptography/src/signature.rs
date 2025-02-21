@@ -1,6 +1,7 @@
 use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
 use ethers::core::types::{self as ethers_types, H160};
 use ethers::types::Address;
+use hex::FromHexError;
 pub use k256::ecdsa::{RecoveryId, SigningKey};
 use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
@@ -127,21 +128,23 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
 }
 
 #[derive(Debug, Error)]
-pub enum AddressValidationError {
+pub enum IdentifierValidationError {
     #[error("invalid addresses: {0:?}")]
     InvalidAddresses(Vec<String>),
+    #[error("address is invalid hex address")]
+    HexDecode(#[from] FromHexError),
 }
 
 pub fn sanitize_evm_addresses(
     account_addresses: &[impl AsRef<str>],
-) -> Result<Vec<String>, AddressValidationError> {
+) -> Result<Vec<String>, IdentifierValidationError> {
     let mut invalid = account_addresses
         .iter()
         .filter(|a| !is_valid_ethereum_address(a))
         .peekable();
 
     if invalid.peek().is_some() {
-        return Err(AddressValidationError::InvalidAddresses(
+        return Err(IdentifierValidationError::InvalidAddresses(
             invalid
                 .map(|addr| addr.as_ref().to_string())
                 .collect::<Vec<_>>(),

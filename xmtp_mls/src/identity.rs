@@ -29,7 +29,7 @@ use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
-use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{
@@ -63,7 +63,7 @@ pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound {
         inbox_id: InboxId,
-        address: String,
+        identifier: RootIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
     },
@@ -88,13 +88,13 @@ impl IdentityStrategy {
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(
         inbox_id: InboxId,
-        address: String,
+        identifier: RootIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
     ) -> Self {
         Self::CreateIfNotFound {
             inbox_id,
-            address,
+            identifier,
             nonce,
             legacy_signed_private_key,
         }
@@ -131,11 +131,10 @@ impl IdentityStrategy {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
             CreateIfNotFound {
                 inbox_id,
-                address,
+                identifier,
                 nonce,
                 legacy_signed_private_key,
             } => {
-                let identifier = RootIdentifier::eth(address)?;
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
                         installation_id =
@@ -225,7 +224,7 @@ pub enum IdentityError {
     #[error(transparent)]
     ApiClient(#[from] xmtp_api::Error),
     #[error(transparent)]
-    AddressValidation(#[from] AddressValidationError),
+    AddressValidation(#[from] IdentifierValidationError),
 }
 
 impl RetryableError for IdentityError {

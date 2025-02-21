@@ -592,10 +592,9 @@ pub(crate) mod tests {
         associations::{
             builder::SignatureRequest,
             test_utils::{add_wallet_signature, WalletTestExt},
-            AssociationState, MemberIdentifier,
+            AssociationState,
         },
         scw_verifier::SmartContractSignatureVerifier,
-        InboxOwner,
     };
 
     use crate::{
@@ -666,7 +665,7 @@ pub(crate) mod tests {
         let is_member = is_member_of_association_state(
             api_client,
             client.inbox_id(),
-            &MemberIdentifier::eth(wallet2.get_address()).unwrap(),
+            &wallet2.member_identifier(),
             None,
         )
         .await

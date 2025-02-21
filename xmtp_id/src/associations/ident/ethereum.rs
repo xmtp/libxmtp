@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Ethereum(pub String);
@@ -11,7 +11,7 @@ impl Ethereum {
         Self(xmtp_common::rand_hexstring())
     }
 
-    pub fn sanitize(self) -> Result<Self, AddressValidationError> {
+    pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
         let mut sanitized = sanitize_evm_addresses(&[self.0])?;
         Ok(Self(sanitized.pop().expect("Always should be one")))
     }

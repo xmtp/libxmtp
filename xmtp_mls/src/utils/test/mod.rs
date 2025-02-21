@@ -148,15 +148,10 @@ where
     A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
-    let ident = RootIdentifier::eth(owner.get_address()).unwrap();
+    let ident = owner.get_identifier().unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let client = Client::builder(IdentityStrategy::new(
-        inbox_id,
-        owner.get_address(),
-        nonce,
-        None,
-    ));
+    let client = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None));
 
     let client = client
         .temp_store()
@@ -185,19 +180,14 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
-    let ident = RootIdentifier::eth(owner.get_address()).unwrap();
+    let ident = owner.get_identifier().unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let mut builder = Client::builder(IdentityStrategy::new(
-        inbox_id,
-        owner.get_address(),
-        nonce,
-        None,
-    ))
-    .temp_store()
-    .await
-    .api_client(api_client)
-    .with_scw_verifier(scw_verifier);
+    let mut builder = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
+        .temp_store()
+        .await
+        .api_client(api_client)
+        .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
         builder = builder.history_sync_url(history_sync_url);

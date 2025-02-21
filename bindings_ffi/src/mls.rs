@@ -10,7 +10,7 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
-use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, RootIdentifier,
 };
@@ -30,6 +30,7 @@ use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
+use xmtp_mls::storage::consent_record::ConsentEntity;
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
@@ -114,7 +115,7 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
-    account_address: String,
+    account_identifier: FfiRootIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
@@ -145,7 +146,7 @@ pub async fn create_client(
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
-        account_address.clone(),
+        account_identifier.clone(),
         nonce,
         legacy_signed_private_key_proto,
     );
@@ -167,7 +168,7 @@ pub async fn create_client(
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
-        account_address,
+        account_identifier,
     }))
 }
 
@@ -200,14 +201,14 @@ pub fn generate_inbox_id(
     Ok(ident.inbox_id(nonce)?)
 }
 
-#[derive(uniffi::Enum, Hash, PartialEq, Eq)]
+#[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
 pub enum FfiRootIdentifier {
     Ethereum(String),
     Passkey(Vec<u8>),
 }
 
 impl TryFrom<FfiRootIdentifier> for RootIdentifier {
-    type Error = AddressValidationError;
+    type Error = IdentifierValidationError;
     fn try_from(ident: FfiRootIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident {
             FfiRootIdentifier::Ethereum(addr) => Self::eth(addr)?,
@@ -293,7 +294,7 @@ impl FfiSignatureRequest {
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
     #[allow(dead_code)]
-    account_address: String,
+    account_identifier: FfiRootIdentifier,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -435,9 +436,11 @@ impl FfiXmtpClient {
         &self,
         entity_type: FfiConsentEntityType,
         entity: String,
+        identity_kind: Option<FfiConsentIdentityKind>,
     ) -> Result<FfiConsentState, GenericError> {
         let inner = self.inner_client.as_ref();
-        let result = inner.get_consent_state(entity_type.into(), entity).await?;
+        let consent_entity = entity_type.consent_entity(entity, identity_kind)?;
+        let result = inner.get_consent_state(consent_entity).await?;
 
         Ok(result.into())
     }
@@ -1105,7 +1108,7 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = if account_addresses.is_empty() {
+        let convo = if account_identities.is_empty() {
             let group = self
                 .inner_client
                 .create_group(group_permissions, metadata_options)?;
@@ -1113,7 +1116,7 @@ impl FfiConversations {
             group
         } else {
             self.inner_client
-                .create_group_with_members(&account_addresses, group_permissions, metadata_options)
+                .create_group_with_members(&account_identities, group_permissions, metadata_options)
                 .await?
         };
 
@@ -1178,12 +1181,13 @@ impl FfiConversations {
 
     pub async fn find_or_create_dm(
         &self,
-        account_address: String,
+        target_identity: FfiRootIdentifier,
         opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        log::info!("creating dm with target address: {}", account_address);
+        let target_identity = target_identity.try_into()?;
+        log::info!("creating dm with target address: {target_identity:?}",);
         self.inner_client
-            .find_or_create_dm(account_address, opts.into_dm_metadata_options())
+            .find_or_create_dm(target_identity, opts.into_dm_metadata_options())
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1552,15 +1556,16 @@ impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
 }
 
 impl From<StoredConsentRecord> for FfiConsent {
-    fn from(value: StoredConsentRecord) -> Self {
+    fn from(consent: StoredConsentRecord) -> Self {
         FfiConsent {
-            entity: value.entity,
-            entity_type: match value.entity_type {
-                StoredConsentType::Identity => FfiConsentEntityType::Address,
+            entity: consent.entity,
+            entity_type: match consent.entity_type {
+                StoredConsentType::Identity => FfiConsentEntityType::Identity,
                 StoredConsentType::ConversationId => FfiConsentEntityType::ConversationId,
                 StoredConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
-            state: value.state.into(),
+            state: consent.state.into(),
+            identity_kind: consent.identity_kind.map(Into::into),
         }
     }
 }
@@ -1627,7 +1632,41 @@ impl From<FfiDeviceSyncKind> for DeviceSyncKind {
 pub enum FfiConsentEntityType {
     ConversationId,
     InboxId,
-    Address,
+    Identity,
+}
+
+impl FfiConsentEntityType {
+    fn consent_entity(
+        self,
+        entity: String,
+        identity_kind: Option<FfiConsentIdentityKind>,
+    ) -> Result<ConsentEntity, GenericError> {
+        let entity = match self {
+            Self::ConversationId => {
+                ConsentEntity::ConversationId(hex::decode(entity).map_err(|_| {
+                    GenericError::Generic {
+                        err: "Consent: Invalid conversation id".to_string(),
+                    }
+                })?)
+            }
+            Self::InboxId => ConsentEntity::InboxId(entity),
+            Self::Identity => match identity_kind {
+                None => {
+                    return Err(GenericError::Generic {
+                        err: "Consent: identity kind is required when entity type is identity."
+                            .to_string(),
+                    })
+                }
+                Some(FfiConsentIdentityKind::Ethereum) => {
+                    ConsentEntity::Identity(RootIdentifier::eth(entity)?)
+                }
+                Some(FfiConsentIdentityKind::Passkey) => {
+                    ConsentEntity::Identity(RootIdentifier::passkey_str(&entity)?)
+                }
+            },
+        };
+        Ok(entity)
+    }
 }
 
 impl From<FfiConsentEntityType> for StoredConsentType {
@@ -1635,9 +1674,15 @@ impl From<FfiConsentEntityType> for StoredConsentType {
         match entity_type {
             FfiConsentEntityType::ConversationId => StoredConsentType::ConversationId,
             FfiConsentEntityType::InboxId => StoredConsentType::InboxId,
-            FfiConsentEntityType::Address => StoredConsentType::Identity,
+            FfiConsentEntityType::Identity => StoredConsentType::Identity,
         }
     }
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiConsentIdentityKind {
+    Ethereum,
+    Passkey,
 }
 
 #[derive(uniffi::Enum, Clone)]
@@ -2464,6 +2509,7 @@ pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
     pub entity: String,
+    pub identity_kind: Option<FfiConsentIdentityKind>,
 }
 
 impl From<FfiConsent> for StoredConsentRecord {
@@ -2472,6 +2518,7 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
+            identity_kind: consent.identity_kind.map(Into::into),
         }
     }
 }
@@ -2644,12 +2691,12 @@ mod tests {
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
-        FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
-        FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
+        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind,
+        FfiConsentState, FfiContentType, FfiConversation, FfiConversationCallback,
+        FfiConversationMessageKind, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection,
+        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
+        FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
+        FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
         FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
         FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
@@ -2709,7 +2756,7 @@ mod tests {
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
         fn get_address(&self) -> String {
-            self.wallet.get_address()
+            self.wallet.get_identifier()
         }
 
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
@@ -3121,7 +3168,7 @@ mod tests {
 
         // Now, add the second wallet to the client
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_address();
+        let new_account_address = wallet_to_add.get_identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -3188,7 +3235,7 @@ mod tests {
         // Now, add the second wallet to the client
 
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_address();
+        let new_account_address = wallet_to_add.get_identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -6115,6 +6162,7 @@ mod tests {
                 entity: bo.account_address.clone(),
                 entity_type: FfiConsentEntityType::Address,
                 state: FfiConsentState::Allowed,
+                identity_kind: None,
             }])
             .await
             .unwrap();
@@ -6204,6 +6252,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
+            identity_kind: None,
         }])
         .await
         .unwrap();
@@ -6240,6 +6289,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_dm.id()),
+            identity_kind: None,
         }])
         .await
         .unwrap();
@@ -6283,13 +6333,14 @@ mod tests {
             .unwrap();
         alix.set_consent_states(vec![FfiConsent {
             state: FfiConsentState::Allowed,
-            entity_type: FfiConsentEntityType::Address,
-            entity: bo.account_address.clone(),
+            entity_type: FfiConsentEntityType::Identity,
+            entity: format!("{}", bo.account_identifier.into()),
+            identity_kind: Some(FfiConsentIdentityKind::Ethereum),
         }])
         .await
         .unwrap();
         let bo_consent = alix
-            .get_consent_state(FfiConsentEntityType::Address, bo.account_address.clone())
+            .get_consent_state(FfiConsentEntityType::Identity, bo.account_identifier, None)
             .await
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
@@ -6398,7 +6449,7 @@ mod tests {
         let wallet_a = generate_local_wallet();
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_identifier(), &1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6406,7 +6457,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_address(),
+            wallet_a.get_identifier(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6421,7 +6472,7 @@ mod tests {
 
         // Step 4: Associate wallet B to inbox A
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_address())
+            .add_wallet(&wallet_b.get_identifier())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6443,7 +6494,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            wallet_b.get_address(),
+            wallet_b.get_identifier(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6462,7 +6513,7 @@ mod tests {
         let bo_dm = bo
             .conversations()
             .find_or_create_dm(
-                wallet_a.get_address().clone(),
+                wallet_a.get_identifier().clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -6501,7 +6552,7 @@ mod tests {
         assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
-        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &nonce).unwrap();
+        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_identifier(), &nonce).unwrap();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6509,7 +6560,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            wallet_b.get_address(),
+            wallet_b.get_identifier(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6534,7 +6585,7 @@ mod tests {
     async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
         // Step 1: Wallet A creates a new client with inbox_id A
         let wallet_a = generate_local_wallet();
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_identifier(), &1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6542,7 +6593,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_address(),
+            wallet_a.get_identifier(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6554,7 +6605,7 @@ mod tests {
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
-        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &1).unwrap();
+        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_identifier(), &1).unwrap();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6562,7 +6613,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            wallet_b.get_identifier(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6580,7 +6631,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            wallet_b.get_identifier(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6590,7 +6641,7 @@ mod tests {
 
         // Step 4: Client A adds association to wallet B
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_address())
+            .add_wallet(&wallet_b.get_identifier())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6609,7 +6660,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            wallet_b.get_identifier(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),

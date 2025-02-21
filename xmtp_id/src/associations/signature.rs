@@ -41,7 +41,7 @@ pub enum SignatureError {
     #[error("Signature validation failed")]
     Invalid,
     #[error(transparent)]
-    AddressValidationError(#[from] xmtp_cryptography::signature::AddressValidationError),
+    AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
     #[error("Invalid account address")]
     InvalidAccountAddress(#[from] rustc_hex::FromHexError),
     #[error(transparent)]

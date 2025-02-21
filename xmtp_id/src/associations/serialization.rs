@@ -21,7 +21,7 @@ use prost::{DecodeError, Message};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
@@ -80,7 +80,7 @@ pub enum DeserializationError {
     #[error("Unable to deserialize")]
     Bincode,
     #[error(transparent)]
-    AddressValidation(#[from] AddressValidationError),
+    AddressValidation(#[from] IdentifierValidationError),
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {

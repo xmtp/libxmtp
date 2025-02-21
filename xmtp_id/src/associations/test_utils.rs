@@ -37,17 +37,13 @@ pub trait WalletTestExt {
 
 impl WalletTestExt for LocalWallet {
     fn get_inbox_id(&self, nonce: u64) -> String {
-        let addr = self.get_address();
-        RootIdentifier::eth(addr)
-            .expect("test eth addr is invalid")
-            .inbox_id(nonce)
-            .unwrap()
+        self.root_identifier().inbox_id(nonce).unwrap()
     }
     fn member_identifier(&self) -> MemberIdentifier {
         self.root_identifier().into()
     }
     fn root_identifier(&self) -> RootIdentifier {
-        RootIdentifier::eth(self.get_address()).expect("test eth addr is invalid")
+        self.get_identifier().unwrap()
     }
 }
 

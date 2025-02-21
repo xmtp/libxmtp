@@ -40,7 +40,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
-use xmtp_cryptography::signature::AddressValidationError;
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -63,7 +63,7 @@ pub enum Network {
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]
-    AddressValidation(#[from] AddressValidationError),
+    AddressValidation(#[from] IdentifierValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),
     #[error("storage error: {0}")]
@@ -569,18 +569,18 @@ where
     /// Find or create a Direct Message with the default settings
     pub async fn find_or_create_dm(
         &self,
-        account_identifier: RootIdentifier,
+        target_identity: RootIdentifier,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("finding or creating dm with address: {account_identifier}");
+        tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider()?;
         let inbox_id = match self
-            .find_inbox_id_from_identifier(provider.conn_ref(), account_identifier.clone())
+            .find_inbox_id_from_identifier(provider.conn_ref(), target_identity.clone())
             .await?
         {
             Some(id) => id,
             None => {
-                return Err(NotFound::InboxIdForAddress(account_identifier.to_string()).into());
+                return Err(NotFound::InboxIdForAddress(target_identity.to_string()).into());
             }
         };
 
@@ -1011,10 +1011,10 @@ where
         }
     }
 
-    /// Check whether an account_address has a key package registered on the network
+    /// Check whether an account_identifier has a key package registered on the network
     ///
     /// Arguments:
-    /// - account_addresses: a list of account addresses to check
+    /// - account_identifier: a list of account addresses to check
     ///
     /// Returns:
     /// A Vec of booleans indicating whether each account address has a key package registered on the network

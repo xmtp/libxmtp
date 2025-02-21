@@ -6,7 +6,7 @@ use std::{
     hash::Hash,
 };
 use xmtp_api::identity::Identifier as ApiIdentifier;
-use xmtp_cryptography::{signature::AddressValidationError, XmtpInstallationCredential};
+use xmtp_cryptography::{signature::IdentifierValidationError, XmtpInstallationCredential};
 use xmtp_proto::{
     xmtp::identity::{
         api::v1::get_inbox_ids_request::Request as GetInboxIdsRequestProto,
@@ -30,7 +30,7 @@ pub enum RootIdentifier {
 }
 
 impl MemberIdentifier {
-    pub fn sanitize(self) -> Result<Self, AddressValidationError> {
+    pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
         let ident = match self {
             Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
             ident => ident,
@@ -48,7 +48,7 @@ impl MemberIdentifier {
         Self::Installation(ident::Installation::rand())
     }
 
-    pub fn eth(addr: impl ToString) -> Result<Self, AddressValidationError> {
+    pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
         Ok(RootIdentifier::eth(addr)?.into())
     }
 
@@ -103,7 +103,7 @@ impl RootIdentifier {
         Self::Ethereum(ident::Ethereum::rand())
     }
 
-    pub fn sanitize(self) -> Result<Self, AddressValidationError> {
+    pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
         let ident = match self {
             Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
             ident => ident,
@@ -111,12 +111,16 @@ impl RootIdentifier {
         Ok(ident)
     }
 
-    pub fn eth(addr: impl ToString) -> Result<Self, AddressValidationError> {
+    pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
     pub fn passkey(key: Vec<u8>) -> Self {
         Self::Passkey(ident::Passkey(key))
+    }
+
+    pub fn passkey_str(key: &str) -> Result<Self, IdentifierValidationError> {
+        Ok(Self::passkey(hex::decode(key)?))
     }
 
     pub fn from_proto(
