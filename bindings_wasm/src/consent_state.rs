@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
@@ -6,7 +7,7 @@ use xmtp_mls::storage::consent_record::{
 use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ConsentState {
   Unknown,
   Allowed,
@@ -34,7 +35,7 @@ impl From<ConsentState> for XmtpConsentState {
 }
 
 #[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ConsentEntityType {
   GroupId,
   InboxId,
@@ -52,6 +53,7 @@ impl From<ConsentEntityType> for XmtpConsentType {
 }
 
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Consent {
   #[wasm_bindgen(js_name = entityType)]
   pub entity_type: ConsentEntityType,

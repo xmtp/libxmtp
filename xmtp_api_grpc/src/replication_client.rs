@@ -278,7 +278,6 @@ impl XmtpMlsClient for ClientV4 {
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
         self.publish_envelopes_to_payer(req.messages)
             .await
-            .map_err(GrpcError::from)
             .map_err(Error::from)
     }
 
@@ -289,7 +288,6 @@ impl XmtpMlsClient for ClientV4 {
     ) -> Result<(), Self::Error> {
         self.publish_envelopes_to_payer(req.messages)
             .await
-            .map_err(GrpcError::from)
             .map_err(Error::from)
     }
 
