@@ -29,7 +29,7 @@ impl WasmDb {
         sqlite_web::init_sqlite().await;
         let conn = match opts {
             Ephemeral => SqliteConnection::establish(":memory:"),
-            Persistent(ref db_path) => SqliteConnection::establish(db_path),
+            Persistent(db_path) => SqliteConnection::establish(db_path),
         }?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),

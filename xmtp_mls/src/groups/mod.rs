@@ -1937,6 +1937,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    #[cfg(not(target_arch = "wasm32"))]
     use crate::groups::scoped_client::ScopedGroupClient;
     use diesel::RunQueryDsl;
     use diesel::connection::SimpleConnection;

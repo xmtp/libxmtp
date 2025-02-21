@@ -1846,7 +1846,7 @@ async fn get_keypackages_for_installation_ids(
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut Vec<Vec<u8>>,
+    failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
     let my_installation_id = client.context().installation_public_key().to_vec();
