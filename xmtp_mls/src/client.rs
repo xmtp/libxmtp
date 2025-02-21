@@ -44,7 +44,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, MemberIdentifier, RootIdentifier, SignatureError,
+        AssociationError, AssociationState, MemberIdentifier, PublicIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
@@ -304,7 +304,7 @@ where
     pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
-        identifier: RootIdentifier,
+        identifier: PublicIdentifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
             .find_inbox_ids_from_identifiers(conn, &[identifier])
@@ -317,7 +317,7 @@ where
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
         conn: &DbConnection,
-        identifiers: &[RootIdentifier],
+        identifiers: &[PublicIdentifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
         let mut new_inbox_ids = HashMap::default();
@@ -400,7 +400,7 @@ where
         let mut record_indices = Vec::new();
 
         for (index, record) in records.iter().enumerate() {
-            if let Some(ident) = record.root_identifier() {
+            if let Some(ident) = record.public_identifier() {
                 addresses_to_lookup.push(ident);
                 record_indices.push(index);
             }
@@ -511,7 +511,7 @@ where
     /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
-        account_identifiers: &[RootIdentifier],
+        account_identifiers: &[PublicIdentifier],
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -569,7 +569,7 @@ where
     /// Find or create a Direct Message with the default settings
     pub async fn find_or_create_dm(
         &self,
-        target_identity: RootIdentifier,
+        target_identity: PublicIdentifier,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with address: {target_identity}");
@@ -1020,12 +1020,12 @@ where
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
-        account_identifiers: &[RootIdentifier],
-    ) -> Result<HashMap<RootIdentifier, bool>, ClientError> {
+        account_identifiers: &[PublicIdentifier],
+    ) -> Result<HashMap<PublicIdentifier, bool>, ClientError> {
         let requests = account_identifiers.iter().map(Into::into).collect();
 
         // Get the identities that are on the network, set those to true
-        let mut can_message: HashMap<RootIdentifier, bool> = self
+        let mut can_message: HashMap<PublicIdentifier, bool> = self
             .api_client
             .get_inbox_ids(requests)
             .await?
@@ -1191,7 +1191,7 @@ pub(crate) mod tests {
             client
                 .find_inbox_id_from_identifier(
                     &client.store().conn().unwrap(),
-                    wallet.root_identifier()
+                    wallet.public_identifier()
                 )
                 .await
                 .unwrap(),
@@ -1499,7 +1499,7 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let record = StoredConsentRecord::new(
-            ConsentEntity::Identity(bo_wallet.root_identifier()),
+            ConsentEntity::Identity(bo_wallet.public_identifier()),
             ConsentState::Denied,
         );
         alix.set_consent_states(&[record]).await.unwrap();
@@ -1508,7 +1508,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let address_consent = alix
-            .get_consent_state(ConsentEntity::Identity(bo_wallet.root_identifier()))
+            .get_consent_state(ConsentEntity::Identity(bo_wallet.public_identifier()))
             .await
             .unwrap();
 
@@ -1567,7 +1567,7 @@ pub(crate) mod tests {
         assert!(bo_original_from_db.is_ok());
 
         alix.create_group_with_members(
-            &[bo_wallet.root_identifier()],
+            &[bo_wallet.public_identifier()],
             None,
             GroupMetadataOptions::default(),
         )
@@ -1599,7 +1599,7 @@ pub(crate) mod tests {
         assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(
-            &[bo_wallet.root_identifier()],
+            &[bo_wallet.public_identifier()],
             None,
             GroupMetadataOptions::default(),
         )

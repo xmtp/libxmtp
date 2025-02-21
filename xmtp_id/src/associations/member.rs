@@ -15,8 +15,8 @@ use xmtp_proto::{
     ConversionError,
 };
 
-/// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Eq, PartialEq, Hash)]
+/// A MemberIdentifier identifies members
 pub enum MemberIdentifier {
     Installation(ident::Installation),
     Ethereum(ident::Ethereum),
@@ -24,7 +24,7 @@ pub enum MemberIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum RootIdentifier {
+pub enum PublicIdentifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
 }
@@ -49,7 +49,7 @@ impl MemberIdentifier {
     }
 
     pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
-        Ok(RootIdentifier::eth(addr)?.into())
+        Ok(PublicIdentifier::eth(addr)?.into())
     }
 
     pub fn installation(key: Vec<u8>) -> Self {
@@ -97,7 +97,7 @@ impl MemberIdentifier {
     }
 }
 
-impl RootIdentifier {
+impl PublicIdentifier {
     #[cfg(any(test, feature = "test-utils"))]
     pub fn rand_ethereum() -> Self {
         Self::Ethereum(ident::Ethereum::rand())
@@ -128,7 +128,7 @@ impl RootIdentifier {
         kind: IdentifierKind,
     ) -> Result<Self, ConversionError> {
         let ident = ident.as_ref();
-        let root_ident = match kind {
+        let public_ident = match kind {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
                 Self::Ethereum(ident::Ethereum(ident.to_string()))
             }
@@ -141,7 +141,7 @@ impl RootIdentifier {
                 })?))
             }
         };
-        Ok(root_ident)
+        Ok(public_ident)
     }
 
     /// Get the generated inbox_id for this public identifier.
@@ -198,7 +198,7 @@ impl HasMemberKind for MemberIdentifier {
         }
     }
 }
-impl HasMemberKind for RootIdentifier {
+impl HasMemberKind for PublicIdentifier {
     fn kind(&self) -> MemberKind {
         match self {
             Self::Ethereum(_) => MemberKind::Ethereum,
@@ -232,7 +232,7 @@ impl Debug for MemberIdentifier {
     }
 }
 
-impl Display for RootIdentifier {
+impl Display for PublicIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ethereum(eth) => write!(f, "{eth}"),
@@ -259,16 +259,16 @@ impl From<XmtpInstallationCredential> for MemberIdentifier {
     }
 }
 
-impl From<RootIdentifier> for MemberIdentifier {
-    fn from(ident: RootIdentifier) -> Self {
+impl From<PublicIdentifier> for MemberIdentifier {
+    fn from(ident: PublicIdentifier) -> Self {
         match ident {
-            RootIdentifier::Ethereum(addr) => Self::Ethereum(addr),
-            RootIdentifier::Passkey(passkey) => Self::Passkey(passkey),
+            PublicIdentifier::Ethereum(addr) => Self::Ethereum(addr),
+            PublicIdentifier::Passkey(passkey) => Self::Passkey(passkey),
         }
     }
 }
-impl From<&RootIdentifier> for GetInboxIdsRequestProto {
-    fn from(ident: &RootIdentifier) -> Self {
+impl From<&PublicIdentifier> for GetInboxIdsRequestProto {
+    fn from(ident: &PublicIdentifier) -> Self {
         Self {
             identifier: format!("{ident}"),
             identifier_kind: {
@@ -279,27 +279,27 @@ impl From<&RootIdentifier> for GetInboxIdsRequestProto {
     }
 }
 
-impl From<&RootIdentifier> for ApiIdentifier {
-    fn from(ident: &RootIdentifier) -> Self {
+impl From<&PublicIdentifier> for ApiIdentifier {
+    fn from(ident: &PublicIdentifier) -> Self {
         Self {
             identifier: format!("{ident}"),
             identifier_kind: ident.into(),
         }
     }
 }
-impl From<RootIdentifier> for ApiIdentifier {
-    fn from(ident: RootIdentifier) -> Self {
+impl From<PublicIdentifier> for ApiIdentifier {
+    fn from(ident: PublicIdentifier) -> Self {
         (&ident).into()
     }
 }
-impl TryFrom<ApiIdentifier> for RootIdentifier {
+impl TryFrom<ApiIdentifier> for PublicIdentifier {
     type Error = DeserializationError;
     fn try_from(ident: ApiIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
-                RootIdentifier::eth(ident.identifier)?
+                PublicIdentifier::eth(ident.identifier)?
             }
-            IdentifierKind::Passkey => RootIdentifier::Passkey(ident::Passkey(
+            IdentifierKind::Passkey => PublicIdentifier::Passkey(ident::Passkey(
                 hex::decode(ident.identifier).map_err(|_| DeserializationError::InvalidPasskey)?,
             )),
         };
@@ -341,7 +341,7 @@ impl PartialEq<MemberIdentifier> for Member {
         self.identifier.eq(other)
     }
 }
-impl PartialEq<MemberIdentifier> for RootIdentifier {
+impl PartialEq<MemberIdentifier> for PublicIdentifier {
     fn eq(&self, other: &MemberIdentifier) -> bool {
         match (self, other) {
             (Self::Ethereum(ident), MemberIdentifier::Ethereum(other_ident)) => {
@@ -352,8 +352,8 @@ impl PartialEq<MemberIdentifier> for RootIdentifier {
         }
     }
 }
-impl PartialEq<RootIdentifier> for MemberIdentifier {
-    fn eq(&self, other: &RootIdentifier) -> bool {
+impl PartialEq<PublicIdentifier> for MemberIdentifier {
+    fn eq(&self, other: &PublicIdentifier) -> bool {
         other == self
     }
 }

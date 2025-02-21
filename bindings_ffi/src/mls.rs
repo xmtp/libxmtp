@@ -1,3 +1,4 @@
+use crate::identity::{FfiCollectionExt, FfiPublicIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
@@ -10,9 +11,8 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
-use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{
-    ident, verify_signed_with_public_context, DeserializationError, RootIdentifier,
+    ident, verify_signed_with_public_context, DeserializationError, PublicIdentifier,
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -30,7 +30,7 @@ use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
-use xmtp_mls::storage::consent_record::ConsentEntity;
+use xmtp_mls::storage::consent_record::{ConsentEntity, StoredIdentityKind};
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
@@ -115,7 +115,7 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
@@ -146,7 +146,7 @@ pub async fn create_client(
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
-        account_identifier.clone(),
+        account_identifier.clone().try_into()?,
         nonce,
         legacy_signed_private_key_proto,
     );
@@ -176,11 +176,11 @@ pub async fn create_client(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
 ) -> Result<Option<String>, GenericError> {
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-    let account_identifier: RootIdentifier = account_identifier.try_into()?;
+    let account_identifier: PublicIdentifier = account_identifier.try_into()?;
     let api_identifier: Identifier = account_identifier.into();
 
     let results = api
@@ -189,41 +189,6 @@ pub async fn get_inbox_id_for_identifier(
         .map_err(GenericError::from_error)?;
 
     Ok(results.get(&api_identifier).cloned())
-}
-
-#[allow(unused)]
-#[uniffi::export]
-pub fn generate_inbox_id(
-    account_identifier: FfiRootIdentifier,
-    nonce: u64,
-) -> Result<String, GenericError> {
-    let ident: RootIdentifier = account_identifier.try_into()?;
-    Ok(ident.inbox_id(nonce)?)
-}
-
-#[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
-pub enum FfiRootIdentifier {
-    Ethereum(String),
-    Passkey(Vec<u8>),
-}
-
-impl TryFrom<FfiRootIdentifier> for RootIdentifier {
-    type Error = IdentifierValidationError;
-    fn try_from(ident: FfiRootIdentifier) -> Result<Self, Self::Error> {
-        let ident = match ident {
-            FfiRootIdentifier::Ethereum(addr) => Self::eth(addr)?,
-            FfiRootIdentifier::Passkey(key) => Self::passkey(key),
-        };
-        Ok(ident)
-    }
-}
-impl From<RootIdentifier> for FfiRootIdentifier {
-    fn from(ident: RootIdentifier) -> Self {
-        match ident {
-            RootIdentifier::Ethereum(ident::Ethereum(addr)) => Self::Ethereum(addr),
-            RootIdentifier::Passkey(ident::Passkey(key)) => Self::Passkey(key),
-        }
-    }
 }
 
 #[derive(uniffi::Object)]
@@ -294,7 +259,7 @@ impl FfiSignatureRequest {
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
     #[allow(dead_code)]
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -333,11 +298,11 @@ impl FfiXmtpClient {
 
     pub async fn can_message(
         &self,
-        account_identifiers: Vec<FfiRootIdentifier>,
-    ) -> Result<HashMap<FfiRootIdentifier, bool>, GenericError> {
+        account_identifiers: Vec<FfiPublicIdentifier>,
+    ) -> Result<HashMap<FfiPublicIdentifier, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let account_identifiers: Result<Vec<RootIdentifier>, _> = account_identifiers
+        let account_identifiers: Result<Vec<PublicIdentifier>, _> = account_identifiers
             .into_iter()
             .map(|ident| ident.try_into())
             .collect();
@@ -367,7 +332,7 @@ impl FfiXmtpClient {
 
     pub async fn find_inbox_id(
         &self,
-        identifier: FfiRootIdentifier,
+        identifier: FfiPublicIdentifier,
     ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = self.inner_client.store().conn()?;
@@ -539,7 +504,7 @@ impl FfiXmtpClient {
     /// Adds a wallet address to the existing client
     pub async fn add_identity(
         &self,
-        new_identity: FfiRootIdentifier,
+        new_identity: FfiPublicIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
@@ -569,7 +534,7 @@ impl FfiXmtpClient {
     /// Revokes or removes an identity from the existing client
     pub async fn revoke_identity(
         &self,
-        identifier: FfiRootIdentifier,
+        identifier: FfiPublicIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let Self {
             ref inner_client, ..
@@ -760,9 +725,9 @@ impl From<HmacKey> for FfiHmacKey {
 #[derive(uniffi::Record)]
 pub struct FfiInboxState {
     pub inbox_id: String,
-    pub recovery_identity: FfiRootIdentifier,
+    pub recovery_identity: FfiPublicIdentifier,
     pub installations: Vec<FfiInstallation>,
-    pub account_identities: Vec<FfiRootIdentifier>,
+    pub account_identities: Vec<FfiPublicIdentifier>,
 }
 
 #[derive(uniffi::Record)]
@@ -797,7 +762,7 @@ impl From<AssociationState> for FfiInboxState {
                 })
                 .collect(),
             account_identities: state
-                .root_identifiers()
+                .public_identifiers()
                 .into_iter()
                 .map(Into::into)
                 .collect(),
@@ -1059,10 +1024,10 @@ impl From<&FfiMetadataField> for MetadataField {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        account_identities: Vec<FfiRootIdentifier>,
+        account_identities: Vec<FfiPublicIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let account_identities: Result<Vec<RootIdentifier>, _> = account_identities
+        let account_identities: Result<Vec<PublicIdentifier>, _> = account_identities
             .into_iter()
             .map(|ident| ident.try_into())
             .collect();
@@ -1181,7 +1146,7 @@ impl FfiConversations {
 
     pub async fn find_or_create_dm(
         &self,
-        target_identity: FfiRootIdentifier,
+        target_identity: FfiPublicIdentifier,
         opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         let target_identity = target_identity.try_into()?;
@@ -1573,7 +1538,7 @@ impl From<StoredConsentRecord> for FfiConsent {
 #[derive(uniffi::Record)]
 pub struct FfiConversationMember {
     pub inbox_id: String,
-    pub account_addresses: Vec<String>,
+    pub account_identifiers: Vec<FfiPublicIdentifier>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: FfiPermissionLevel,
     pub consent_state: FfiConsentState,
@@ -1658,10 +1623,10 @@ impl FfiConsentEntityType {
                     })
                 }
                 Some(FfiConsentIdentityKind::Ethereum) => {
-                    ConsentEntity::Identity(RootIdentifier::eth(entity)?)
+                    ConsentEntity::Identity(PublicIdentifier::eth(entity)?)
                 }
                 Some(FfiConsentIdentityKind::Passkey) => {
-                    ConsentEntity::Identity(RootIdentifier::passkey_str(&entity)?)
+                    ConsentEntity::Identity(PublicIdentifier::passkey_str(&entity)?)
                 }
             },
         };
@@ -1683,6 +1648,15 @@ impl From<FfiConsentEntityType> for StoredConsentType {
 pub enum FfiConsentIdentityKind {
     Ethereum,
     Passkey,
+}
+
+impl From<StoredIdentityKind> for FfiConsentIdentityKind {
+    fn from(kind: StoredIdentityKind) -> Self {
+        match kind {
+            StoredIdentityKind::Ethereum => Self::Ethereum,
+            StoredIdentityKind::Passkey => Self::Passkey,
+        }
+    }
 }
 
 #[derive(uniffi::Enum, Clone)]
@@ -1902,7 +1876,7 @@ impl FfiConversation {
             .into_iter()
             .map(|member| FfiConversationMember {
                 inbox_id: member.inbox_id,
-                account_addresses: member.account_addresses,
+                account_identifiers: member.account_identifiers.to_ffi(),
                 installation_ids: member.installation_ids,
                 permission_level: match member.permission_level {
                     PermissionLevel::Member => FfiPermissionLevel::Member,
@@ -1918,7 +1892,7 @@ impl FfiConversation {
 
     pub async fn add_members(
         &self,
-        account_addresses: Vec<String>,
+        account_addresses: Vec<FfiPublicIdentifier>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
         log::info!("adding members: {}", account_addresses.join(","));
 

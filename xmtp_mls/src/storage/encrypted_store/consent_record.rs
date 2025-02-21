@@ -14,7 +14,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::{ident, RootIdentifier};
+use xmtp_id::associations::{ident, PublicIdentifier};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -48,22 +48,22 @@ impl StoredConsentRecord {
             }
             StoredConsentType::InboxId => ConsentEntity::InboxId(self.entity.clone()),
             StoredConsentType::Identity => ConsentEntity::Identity(
-                self.root_identifier()
+                self.public_identifier()
                     .expect("Field is required in database when type is set to identity"),
             ),
         };
         Ok(entity)
     }
 
-    pub fn root_identifier(&self) -> Option<RootIdentifier> {
+    pub fn public_identifier(&self) -> Option<PublicIdentifier> {
         let identity_kind = &self.identity_kind?;
         let entity = &self.entity;
         let ident = match identity_kind {
             StoredIdentityKind::Ethereum => {
-                RootIdentifier::Ethereum(ident::Ethereum(entity.clone()))
+                PublicIdentifier::Ethereum(ident::Ethereum(entity.clone()))
             }
             StoredIdentityKind::Passkey => {
-                RootIdentifier::Passkey(ident::Passkey(hex::decode(entity).ok()?))
+                PublicIdentifier::Passkey(ident::Passkey(hex::decode(entity).ok()?))
             }
         };
         Some(ident)
@@ -162,7 +162,7 @@ impl DbConnection {
 pub enum ConsentEntity {
     ConversationId(Vec<u8>),
     InboxId(String),
-    Identity(RootIdentifier),
+    Identity(PublicIdentifier),
 }
 
 impl ConsentEntity {
@@ -259,11 +259,11 @@ where
     }
 }
 
-impl From<&RootIdentifier> for StoredIdentityKind {
-    fn from(ident: &RootIdentifier) -> Self {
+impl From<&PublicIdentifier> for StoredIdentityKind {
+    fn from(ident: &PublicIdentifier) -> Self {
         match ident {
-            RootIdentifier::Ethereum(_) => Self::Ethereum,
-            RootIdentifier::Passkey(_) => Self::Passkey,
+            PublicIdentifier::Ethereum(_) => Self::Ethereum,
+            PublicIdentifier::Passkey(_) => Self::Passkey,
         }
     }
 }

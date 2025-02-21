@@ -239,7 +239,7 @@ pub(crate) mod tests {
     use xmtp_id::associations::unverified::{
         UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
     };
-    use xmtp_id::associations::{RootIdentifier, ValidatedLegacySignedPublicKey};
+    use xmtp_id::associations::{PublicIdentifier, ValidatedLegacySignedPublicKey};
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::XmtpTestClient;
     use xmtp_proto::xmtp::identity::api::v1::{
@@ -350,10 +350,10 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let legacy_ident = RootIdentifier::eth(&legacy_account_address).unwrap();
+                    let legacy_ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
                     IdentityStrategy::new(
                         legacy_ident.inbox_id(1).unwrap(),
-                        RootIdentifier::eth(legacy_account_address.clone()).unwrap(),
+                        PublicIdentifier::eth(legacy_account_address.clone()).unwrap(),
                         1,
                         Some(legacy_key),
                     )
@@ -363,10 +363,10 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let legacy_ident = RootIdentifier::eth(&legacy_account_address).unwrap();
+                    let legacy_ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
                     IdentityStrategy::new(
                         legacy_ident.inbox_id(1).unwrap(),
-                        RootIdentifier::eth(legacy_account_address.clone()).unwrap(),
+                        PublicIdentifier::eth(legacy_account_address.clone()).unwrap(),
                         0,
                         Some(legacy_key),
                     )
@@ -376,10 +376,10 @@ pub(crate) mod tests {
             IdentityStrategyTestCase {
                 strategy: {
                     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                    let legacy_ident = RootIdentifier::eth(&legacy_account_address).unwrap();
+                    let legacy_ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
                     IdentityStrategy::new(
                         legacy_ident.inbox_id(0).unwrap(),
-                        RootIdentifier::eth(legacy_account_address.clone()).unwrap(),
+                        PublicIdentifier::eth(legacy_account_address.clone()).unwrap(),
                         0,
                         Some(legacy_key),
                     )
@@ -400,7 +400,7 @@ pub(crate) mod tests {
                     let account_ident = generate_local_wallet().get_identifier().unwrap();
                     IdentityStrategy::new(
                         account_ident.inbox_id(nonce).unwrap(),
-                        RootIdentifier::eth(account_ident.clone()).unwrap(),
+                        PublicIdentifier::eth(account_ident.clone()).unwrap(),
                         nonce,
                         None,
                     )
@@ -451,13 +451,13 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_2nd_time_client_creation() {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-        let ident = RootIdentifier::eth(&legacy_account_address).unwrap();
+        let ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
         let inbox_id = ident.inbox_id(0).unwrap();
         println!("{}", inbox_id.len());
 
         let identity_strategy = IdentityStrategy::new(
             inbox_id.clone(),
-            RootIdentifier::eth(legacy_account_address.clone()).unwrap(),
+            PublicIdentifier::eth(legacy_account_address.clone()).unwrap(),
             0,
             Some(legacy_key.clone()),
         );
@@ -490,7 +490,7 @@ pub(crate) mod tests {
 
         let client3 = Client::builder(IdentityStrategy::new(
             inbox_id.clone(),
-            RootIdentifier::eth(legacy_account_address.to_string()).unwrap(),
+            PublicIdentifier::eth(legacy_account_address.to_string()).unwrap(),
             0,
             None,
         ))
@@ -506,7 +506,7 @@ pub(crate) mod tests {
 
         let client4 = Client::builder(IdentityStrategy::new(
             inbox_id.clone(),
-            RootIdentifier::eth(legacy_account_address.to_string()).unwrap(),
+            PublicIdentifier::eth(legacy_account_address.to_string()).unwrap(),
             0,
             Some(legacy_key),
         ))
@@ -537,7 +537,7 @@ pub(crate) mod tests {
         .await
         .unwrap();
         let nonce = 0;
-        let ident = generate_local_wallet().root_identifier();
+        let ident = generate_local_wallet().public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let inbox_id_cloned = inbox_id.clone();
@@ -582,7 +582,7 @@ pub(crate) mod tests {
         .await
         .unwrap();
         let nonce = 0;
-        let ident = generate_local_wallet().root_identifier();
+        let ident = generate_local_wallet().public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let inbox_id_cloned = inbox_id.clone();
@@ -626,7 +626,7 @@ pub(crate) mod tests {
         .await
         .unwrap();
         let nonce = 0;
-        let ident = generate_local_wallet().root_identifier();
+        let ident = generate_local_wallet().public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let stored: StoredIdentity = (&Identity {
@@ -655,7 +655,7 @@ pub(crate) mod tests {
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
         let nonce = 0;
-        let ident = generate_local_wallet().root_identifier();
+        let ident = generate_local_wallet().public_identifier();
         let stored_inbox_id = ident.inbox_id(nonce).unwrap();
 
         let tmpdb = tmp_path();
@@ -705,11 +705,11 @@ pub(crate) mod tests {
             .unwrap();
 
         let nonce = 1;
-        let ident = wallet.root_identifier();
+        let ident = wallet.public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
         let client_a = Client::builder(IdentityStrategy::new(
             inbox_id.clone(),
-            wallet.root_identifier(),
+            wallet.public_identifier(),
             nonce,
             None,
         ))
@@ -733,7 +733,7 @@ pub(crate) mod tests {
 
         let client_b = Client::builder(IdentityStrategy::new(
             inbox_id,
-            wallet.root_identifier(),
+            wallet.public_identifier(),
             nonce,
             None,
         ))
@@ -815,12 +815,12 @@ pub(crate) mod tests {
 
                 contract_call.send().await.unwrap().await.unwrap();
                 let account_address = format!("{scw_addr:?}");
-                let ident = RootIdentifier::eth(&account_address).unwrap();
+                let ident = PublicIdentifier::eth(&account_address).unwrap();
                 let account_id = AccountId::new_evm(anvil_meta.chain_id, account_address.clone());
 
                 let identity_strategy = IdentityStrategy::new(
                     ident.inbox_id(0).unwrap(),
-                    RootIdentifier::eth(account_address).unwrap(),
+                    PublicIdentifier::eth(account_address).unwrap(),
                     0,
                     None,
                 );

@@ -1,4 +1,4 @@
-use super::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, RootIdentifier};
+use super::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, PublicIdentifier};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
@@ -66,7 +66,7 @@ pub trait IdentityAction: Send {
 #[derive(Debug, Clone)]
 pub struct CreateInbox {
     pub nonce: u64,
-    pub account_identifier: RootIdentifier,
+    pub account_identifier: PublicIdentifier,
     pub initial_address_signature: VerifiedSignature,
 }
 
@@ -273,7 +273,7 @@ impl IdentityAction for RevokeAssociation {
 #[derive(Debug, Clone)]
 pub struct ChangeRecoveryIdentity {
     pub recovery_identifier_signature: VerifiedSignature,
-    pub new_recovery_identifier: RootIdentifier,
+    pub new_recovery_identifier: PublicIdentifier,
 }
 
 impl IdentityAction for ChangeRecoveryIdentity {

@@ -4,12 +4,12 @@ use crate::storage::{
     consent_record::{ConsentEntity, ConsentState},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
-use xmtp_id::{associations::RootIdentifier, InboxId};
+use xmtp_id::{associations::PublicIdentifier, InboxId};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
     pub inbox_id: InboxId,
-    pub account_identifiers: Vec<RootIdentifier>,
+    pub account_identifiers: Vec<PublicIdentifier>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
@@ -102,7 +102,7 @@ where
 
                 Ok(GroupMember {
                     inbox_id: inbox_id.clone(),
-                    account_identifiers: association_state.root_identifiers(),
+                    account_identifiers: association_state.public_identifiers(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
                     consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),

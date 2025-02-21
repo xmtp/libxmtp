@@ -257,7 +257,7 @@ pub(crate) mod tests {
         let external_client_group =
             MlsGroup::new(bo_client.clone(), sync_group_id.clone(), created_at_ns);
         let result = external_client_group
-            .add_members(&[bo_wallet.root_identifier()])
+            .add_members(&[bo_wallet.public_identifier()])
             .await;
         assert!(result.is_err());
     }

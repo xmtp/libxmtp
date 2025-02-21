@@ -10,7 +10,7 @@ use std::{
 
 use super::{
     ident,
-    member::{Member, RootIdentifier},
+    member::{Member, PublicIdentifier},
     AssociationError, MemberIdentifier, MemberKind,
 };
 use crate::InboxIdRef;
@@ -53,11 +53,11 @@ impl AssociationStateDiff {
 pub struct AssociationState {
     pub(crate) inbox_id: String,
     pub(crate) members: HashMap<MemberIdentifier, Member>,
-    pub(crate) recovery_identifier: RootIdentifier,
+    pub(crate) recovery_identifier: PublicIdentifier,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
 }
 
-impl TryFrom<MemberIdentifier> for RootIdentifier {
+impl TryFrom<MemberIdentifier> for PublicIdentifier {
     type Error = AssociationError;
     fn try_from(ident: MemberIdentifier) -> Result<Self, Self::Error> {
         let public_ident = match ident {
@@ -88,7 +88,7 @@ impl AssociationState {
         new_state
     }
 
-    pub fn set_recovery_address(&self, recovery_identifier: RootIdentifier) -> Self {
+    pub fn set_recovery_address(&self, recovery_identifier: PublicIdentifier) -> Self {
         let mut new_state = self.clone();
         new_state.recovery_identifier = recovery_identifier;
 
@@ -118,7 +118,7 @@ impl AssociationState {
         &self.inbox_id
     }
 
-    pub fn recovery_identifier(&self) -> &RootIdentifier {
+    pub fn recovery_identifier(&self) -> &PublicIdentifier {
         &self.recovery_identifier
     }
 
@@ -138,12 +138,12 @@ impl AssociationState {
             .collect()
     }
 
-    pub fn root_identifiers(&self) -> Vec<RootIdentifier> {
+    pub fn public_identifiers(&self) -> Vec<PublicIdentifier> {
         self.members_by_kind(MemberKind::Ethereum)
             .into_iter()
             .filter_map(|member| match member.identifier {
-                MemberIdentifier::Ethereum(eth) => Some(RootIdentifier::Ethereum(eth)),
-                MemberIdentifier::Passkey(pk) => Some(RootIdentifier::Passkey(pk)),
+                MemberIdentifier::Ethereum(eth) => Some(PublicIdentifier::Ethereum(eth)),
+                MemberIdentifier::Passkey(pk) => Some(PublicIdentifier::Passkey(pk)),
                 _ => None,
             })
             .collect()
@@ -205,7 +205,7 @@ impl AssociationState {
     }
 
     pub fn new(
-        account_identifier: RootIdentifier,
+        account_identifier: PublicIdentifier,
         nonce: u64,
         chain_id: Option<u64>,
     ) -> Result<Self, AssociationError> {
@@ -233,7 +233,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_add_remove() {
         let starting_state =
-            AssociationState::new(RootIdentifier::rand_ethereum(), 0, None).unwrap();
+            AssociationState::new(PublicIdentifier::rand_ethereum(), 0, None).unwrap();
         let new_entity = Member::default();
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
@@ -244,7 +244,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn can_diff() {
         let starting_state =
-            AssociationState::new(RootIdentifier::rand_ethereum(), 0, None).unwrap();
+            AssociationState::new(PublicIdentifier::rand_ethereum(), 0, None).unwrap();
         let entity_1 = Member::default();
         let entity_2 = Member::default();
         let entity_3 = Member::default();

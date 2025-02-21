@@ -100,7 +100,7 @@ use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_id::associations::RootIdentifier;
+use xmtp_id::associations::PublicIdentifier;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
@@ -944,11 +944,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_addresses: &[RootIdentifier],
+        account_addresses: &[PublicIdentifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         // Fetch the associated inbox_ids
         let requests = account_addresses.iter().map(Into::into).collect();
-        let inbox_id_map: HashMap<RootIdentifier, String> = self
+        let inbox_id_map: HashMap<PublicIdentifier, String> = self
             .client
             .api()
             .get_inbox_ids(requests)
@@ -965,7 +965,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
 
         if inbox_id_map.len() != account_addresses.len() {
-            let found_addresses: HashSet<&RootIdentifier> = inbox_id_map.keys().collect();
+            let found_addresses: HashSet<&PublicIdentifier> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_addresses.iter());
 
             let missing_addresses = found_addresses.difference(&to_add_hashset);
@@ -1035,7 +1035,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// A `Result` indicating success or failure of the operation.
     pub async fn remove_members(
         &self,
-        account_addresses_to_remove: &[RootIdentifier],
+        account_addresses_to_remove: &[PublicIdentifier],
     ) -> Result<(), GroupError> {
         let account_addresses_to_remove = account_addresses_to_remove
             .into_iter()
@@ -1956,7 +1956,7 @@ pub(crate) mod tests {
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
-    use xmtp_id::associations::{MemberIdentifier, RootIdentifier};
+    use xmtp_id::associations::{MemberIdentifier, PublicIdentifier};
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -2449,7 +2449,7 @@ pub(crate) mod tests {
         // 3) Create the group, inviting bola (which internally includes bola_1 and bola_2)
         let group = alix
             .create_group_with_members(
-                &[bola_wallet.root_identifier()],
+                &[bola_wallet.public_identifier()],
                 None,
                 GroupMetadataOptions::default(),
             )
@@ -2558,7 +2558,7 @@ pub(crate) mod tests {
         // 3) Attempt to create the group, which should fail
         let result = alix
             .create_group_with_members(
-                &[bola_wallet.root_identifier()],
+                &[bola_wallet.public_identifier()],
                 None,
                 GroupMetadataOptions::default(),
             )
@@ -2616,7 +2616,10 @@ pub(crate) mod tests {
 
         // 3) Amal creates a DM group targeting Bola
         let amal_dm = amal
-            .find_or_create_dm(bola_wallet.root_identifier(), DMMetadataOptions::default())
+            .find_or_create_dm(
+                bola_wallet.public_identifier(),
+                DMMetadataOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -2724,7 +2727,10 @@ pub(crate) mod tests {
 
         // 3) Attempt to create the DM group, which should fail
         let result = amal
-            .find_or_create_dm(bola_wallet.root_identifier(), DMMetadataOptions::default())
+            .find_or_create_dm(
+                bola_wallet.public_identifier(),
+                DMMetadataOptions::default(),
+            )
             .await;
 
         // 4) Ensure DM creation fails with the correct error
@@ -2769,7 +2775,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let unconnected_ident = RootIdentifier::rand_ethereum();
+        let unconnected_ident = PublicIdentifier::rand_ethereum();
         let group = amal
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -2896,8 +2902,8 @@ pub(crate) mod tests {
             .unwrap();
         group
             .add_members(&[
-                bola_wallet.root_identifier(),
-                charlie_wallet.root_identifier(),
+                bola_wallet.public_identifier(),
+                charlie_wallet.public_identifier(),
             ])
             .await
             .unwrap();
@@ -2913,7 +2919,7 @@ pub(crate) mod tests {
         assert_eq!(group_update.removed_inboxes.len(), 0);
 
         group
-            .remove_members(&[bola_wallet.root_identifier()])
+            .remove_members(&[bola_wallet.public_identifier()])
             .await
             .unwrap();
         assert_eq!(group.members().await.unwrap().len(), 2);
@@ -2947,15 +2953,15 @@ pub(crate) mod tests {
             .unwrap();
         amal_group
             .add_members(&[
-                bola_wallet.root_identifier(),
-                charlie_wallet.root_identifier(),
+                bola_wallet.public_identifier(),
+                charlie_wallet.public_identifier(),
             ])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 3);
 
         amal_group
-            .remove_members(&[bola_wallet.root_identifier()])
+            .remove_members(&[bola_wallet.public_identifier()])
             .await
             .unwrap();
         assert_eq!(amal_group.members().await.unwrap().len(), 2);
@@ -3189,7 +3195,7 @@ pub(crate) mod tests {
         for _ in 0..249 {
             let wallet = generate_local_wallet();
             ClientBuilder::new_test_client(&wallet).await;
-            clients.push(wallet.root_identifier());
+            clients.push(wallet.public_identifier());
         }
         amal_group.add_members(&clients).await.unwrap();
         let bola_wallet = generate_local_wallet();
@@ -3302,7 +3308,7 @@ pub(crate) mod tests {
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
         let amal_group = amal
             .create_group_with_members(
-                &[bola_wallet.root_identifier()],
+                &[bola_wallet.public_identifier()],
                 policy_set,
                 GroupMetadataOptions::default(),
             )
@@ -3483,7 +3489,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(&[bola_wallet.root_identifier()])
+            .add_members(&[bola_wallet.public_identifier()])
             .await
             .unwrap();
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -3564,7 +3570,7 @@ pub(crate) mod tests {
 
         // Add bola to the group
         amal_group
-            .add_members(&[bola_wallet.root_identifier()])
+            .add_members(&[bola_wallet.public_identifier()])
             .await
             .unwrap();
         bola.sync_welcomes(&bola.mls_provider().unwrap())
@@ -3747,7 +3753,7 @@ pub(crate) mod tests {
 
         // Verify that no one can remove a super admin from a group
         amal_group
-            .remove_members(&[bola_wallet.root_identifier()])
+            .remove_members(&[bola_wallet.public_identifier()])
             .await
             .expect_err("expected err");
 
@@ -4089,7 +4095,7 @@ pub(crate) mod tests {
         amal_group.sync().await.unwrap();
         // Add bola to the group
         amal_group
-            .add_members(&[bola_wallet.root_identifier()])
+            .add_members(&[bola_wallet.public_identifier()])
             .await
             .unwrap();
         let bola_group = receive_group_invite(&bola).await;
@@ -4626,7 +4632,7 @@ pub(crate) mod tests {
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let alix_group = alix
             .create_group_with_members(
-                &[bo_wallet.root_identifier()],
+                &[bo_wallet.public_identifier()],
                 None,
                 GroupMetadataOptions::default(),
             )

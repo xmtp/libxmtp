@@ -1,6 +1,6 @@
 use serde::Serialize;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_id::associations::{ident, RootIdentifier as XmtpRootIdentifier};
+use xmtp_id::associations::{ident, PublicIdentifier as XmtpRootIdentifier};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]

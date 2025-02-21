@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::RootIdentifier as XmtpRootIdentifier;
+use xmtp_id::associations::PublicIdentifier as XmtpRootIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;

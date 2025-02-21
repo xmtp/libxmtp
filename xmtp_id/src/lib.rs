@@ -5,7 +5,7 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
-use associations::RootIdentifier;
+use associations::PublicIdentifier;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
@@ -99,15 +99,15 @@ pub async fn is_smart_contract(
 
 pub trait InboxOwner {
     /// Get address string of the wallet.
-    fn get_identifier(&self) -> Result<RootIdentifier, IdentifierValidationError>;
+    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError>;
 
     /// Sign text with the wallet.
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 impl InboxOwner for LocalWallet {
-    fn get_identifier(&self) -> Result<RootIdentifier, IdentifierValidationError> {
-        RootIdentifier::eth(h160addr_to_string(self.address()))
+    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
+        PublicIdentifier::eth(h160addr_to_string(self.address()))
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
@@ -120,7 +120,7 @@ impl<T> InboxOwner for &T
 where
     T: InboxOwner,
 {
-    fn get_identifier(&self) -> Result<RootIdentifier, IdentifierValidationError> {
+    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
         (**self).get_identifier()
     }
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use sqlite_web::dsl::RunQueryDsl;
 use std::collections::HashMap;
-use xmtp_id::associations::RootIdentifier;
+use xmtp_id::associations::PublicIdentifier;
 use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
@@ -26,7 +26,7 @@ impl_fetch!(IdentityCache, identity_cache);
 impl DbConnection {
     pub fn fetch_cached_inbox_ids(
         &self,
-        identifiers: &[RootIdentifier],
+        identifiers: &[PublicIdentifier],
     ) -> Result<HashMap<WalletAddress, InboxId>, StorageError> {
         use crate::storage::encrypted_store::schema::identity_cache::*;
 
@@ -49,7 +49,7 @@ impl DbConnection {
 
     pub fn cache_inbox_id(
         &self,
-        identifier: &RootIdentifier,
+        identifier: &PublicIdentifier,
         inbox_id: impl ToString,
     ) -> Result<(), StorageError> {
         IdentityCache {
@@ -68,7 +68,7 @@ pub(crate) mod tests {
         storage::{consent_record::StoredIdentityKind, encrypted_store::tests::with_connection},
         Store,
     };
-    use xmtp_id::associations::RootIdentifier;
+    use xmtp_id::associations::PublicIdentifier;
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -100,9 +100,9 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_fetch_and_store_identity_cache() {
         with_connection(|conn| {
-            let ident1 = RootIdentifier::rand_ethereum();
+            let ident1 = PublicIdentifier::rand_ethereum();
             let ident1_inbox = ident1.inbox_id(0).unwrap();
-            let ident2 = RootIdentifier::rand_ethereum();
+            let ident2 = PublicIdentifier::rand_ethereum();
 
             conn.cache_inbox_id(&ident1, &ident1_inbox).unwrap();
             let idents = &[ident1, ident2];
@@ -117,7 +117,7 @@ pub(crate) mod tests {
 
             // Fetch wallets with a non-existent list of inbox_ids
             let non_existent_wallets = conn
-                .fetch_cached_inbox_ids(&[RootIdentifier::rand_ethereum()])
+                .fetch_cached_inbox_ids(&[PublicIdentifier::rand_ethereum()])
                 .unwrap_or_default();
             assert!(
                 non_existent_wallets.is_empty(),

@@ -33,7 +33,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{
-    AssociationError, InstallationKeyContext, PublicContext, RootIdentifier,
+    AssociationError, InstallationKeyContext, PublicContext, PublicIdentifier,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
@@ -63,7 +63,7 @@ pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store. If not found, getting one from backend.
     CreateIfNotFound {
         inbox_id: InboxId,
-        identifier: RootIdentifier,
+        identifier: PublicIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
     },
@@ -88,7 +88,7 @@ impl IdentityStrategy {
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(
         inbox_id: InboxId,
-        identifier: RootIdentifier,
+        identifier: PublicIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
     ) -> Self {
@@ -273,7 +273,7 @@ impl Identity {
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi>(
         inbox_id: InboxId,
-        identifier: RootIdentifier,
+        identifier: PublicIdentifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,

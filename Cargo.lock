@@ -7691,6 +7691,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
+ "hex",
  "paranoid-android",
  "parking_lot 0.12.3",
  "prost",

@@ -53,7 +53,7 @@ fn create_ffi_client(c: &mut Criterion) {
                 bench_async_setup(|| async {
                     let wallet = xmtp_cryptography::utils::generate_local_wallet();
                     let nonce = 1;
-                    let inbox_id = generate_inbox_id(wallet.root_identifier(), nonce).unwrap();
+                    let inbox_id = generate_inbox_id(wallet.public_identifier(), nonce).unwrap();
                     let path = tmp_path();
                     let (url, is_secure) = network_url();
                     let api = xmtpv3::mls::connect_to_backend(url, is_secure)
@@ -62,7 +62,7 @@ fn create_ffi_client(c: &mut Criterion) {
                     (
                         api,
                         inbox_id,
-                        wallet.root_identifier(),
+                        wallet.public_identifier(),
                         nonce,
                         path,
                         span.clone(),
@@ -100,8 +100,8 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let mut benchmark_group = c.benchmark_group("create_client_from_cached");
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
     let nonce = 1;
-    let inbox_id = generate_inbox_id(wallet.root_identifier(), nonce).unwrap();
-    let address = wallet.root_identifier();
+    let inbox_id = generate_inbox_id(wallet.public_identifier(), nonce).unwrap();
+    let address = wallet.public_identifier();
     let path = tmp_path();
     let (url, is_secure) = network_url();
     let api = runtime.block_on(async {
