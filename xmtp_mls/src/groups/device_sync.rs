@@ -239,8 +239,8 @@ where
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
         let Self {
-            ref client,
-            ref retry,
+            client,
+            retry,
             ..
         } = self;
 
@@ -270,7 +270,7 @@ where
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
         let Self {
-            ref client, retry, ..
+            client, retry, ..
         } = self;
 
         let msg = retry_async!(
@@ -296,8 +296,8 @@ where
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
     pub async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
-        let Self {
-            ref init,
+        let &mut Self {
+            ref mut init,
             ref client,
             ..
         } = self;

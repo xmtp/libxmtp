@@ -72,8 +72,8 @@ pub fn encrypt(
 }
 
 fn encrypt_raw(payload: Payload, secret_bytes: &[u8]) -> Result<Ciphertext, String> {
-    let salt_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    let nonce_bytes = rand::thread_rng().gen::<[u8; 12]>();
+    let salt_bytes = rand::thread_rng().r#gen::<[u8; 32]>();
+    let nonce_bytes = rand::thread_rng().r#gen::<[u8; 12]>();
     let derived_key = hkdf(secret_bytes, &salt_bytes)?;
     let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
     let nonce = Nonce::from_slice(&nonce_bytes);

@@ -389,14 +389,14 @@ where
         let welcome_message::V1 {
             id,
             created_ns: _,
-            ref installation_key,
+            installation_key,
             ..
         } = welcome;
         let id = *id as i64;
 
         let Self {
-            ref client,
-            ref provider,
+            client,
+            provider,
             ..
         } = self;
         tracing::info!(

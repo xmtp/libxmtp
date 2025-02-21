@@ -75,7 +75,7 @@ impl IdentityStrategy {
     pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
         use IdentityStrategy::*;
         match self {
-            CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
+            CreateIfNotFound { inbox_id, .. } => Some(inbox_id),
             _ => None,
         }
     }

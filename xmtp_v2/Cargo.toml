@@ -1,8 +1,8 @@
 [package]
-edition = "2021"
+edition = "2024"
 license.workspace = true
 name = "xmtp_v2"
-rust-version = "1.64"
+rust-version = "1.85"
 version.workspace = true
 
 [dependencies]

@@ -112,11 +112,11 @@ pub struct CommitParticipant {
 impl std::fmt::Debug for CommitParticipant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            ref inbox_id,
-            ref installation_id,
-            ref is_creator,
-            ref is_admin,
-            ref is_super_admin,
+            inbox_id,
+            installation_id,
+            is_creator,
+            is_admin,
+            is_super_admin,
         } = self;
         write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
             inbox_id,

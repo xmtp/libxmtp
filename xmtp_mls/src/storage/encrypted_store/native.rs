@@ -122,7 +122,7 @@ impl NativeDb {
             StorageOption::Ephemeral => builder
                 .max_size(1)
                 .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
+            StorageOption::Persistent(path) => builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
                 .build(ConnectionManager::new(path))?,
         };
