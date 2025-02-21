@@ -491,7 +491,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 )))?;
 
         // Perform the operation with the MLS group
-        operation(mls_group).await.map_err(Into::into)
+        operation(mls_group).await
     }
 
     // Create a new group and save it to the DB
@@ -3106,14 +3106,17 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal
-            .create_group(None, GroupMetadataOptions {
-                name: Some("Group Name".to_string()),
-                image_url_square: Some("url".to_string()),
-                description: Some("group description".to_string()),
-                message_disappearing_settings: Some(
-                    expected_group_message_disappearing_settings.clone(),
-                ),
-            })
+            .create_group(
+                None,
+                GroupMetadataOptions {
+                    name: Some("Group Name".to_string()),
+                    image_url_square: Some("url".to_string()),
+                    description: Some("group description".to_string()),
+                    message_disappearing_settings: Some(
+                        expected_group_message_disappearing_settings.clone(),
+                    ),
+                },
+            )
             .unwrap();
 
         let binding = amal_group
@@ -4131,24 +4134,30 @@ pub(crate) mod tests {
                 .map(|m| m.id)
                 .collect::<Vec<Vec<u8>>>()
         );
-        assert_eq!(text, vec![
-            "test one".to_string(),
-            "test two".to_string(),
-            "test three".to_string(),
-            "test four".to_string(),
-        ]);
+        assert_eq!(
+            text,
+            vec![
+                "test one".to_string(),
+                "test two".to_string(),
+                "test three".to_string(),
+                "test four".to_string(),
+            ]
+        );
 
         let delivery = messages
             .iter()
             .cloned()
             .map(|m| m.delivery_status)
             .collect::<Vec<DeliveryStatus>>();
-        assert_eq!(delivery, vec![
-            DeliveryStatus::Unpublished,
-            DeliveryStatus::Unpublished,
-            DeliveryStatus::Unpublished,
-            DeliveryStatus::Unpublished,
-        ]);
+        assert_eq!(
+            delivery,
+            vec![
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+                DeliveryStatus::Unpublished,
+            ]
+        );
 
         amal_group.publish_messages().await.unwrap();
         bola_group.sync().await.unwrap();
@@ -4159,12 +4168,15 @@ pub(crate) mod tests {
             .cloned()
             .map(|m| m.delivery_status)
             .collect::<Vec<DeliveryStatus>>();
-        assert_eq!(delivery, vec![
-            DeliveryStatus::Published,
-            DeliveryStatus::Published,
-            DeliveryStatus::Published,
-            DeliveryStatus::Published,
-        ]);
+        assert_eq!(
+            delivery,
+            vec![
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+                DeliveryStatus::Published,
+            ]
+        );
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]

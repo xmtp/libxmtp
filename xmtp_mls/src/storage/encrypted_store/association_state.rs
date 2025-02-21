@@ -66,7 +66,7 @@ impl StoredAssociationState {
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
+            .map(|stored_state| stored_state.try_into())
             .transpose()?
             .inspect(|_| {
                 tracing::debug!(
@@ -159,12 +159,11 @@ pub(crate) mod tests {
             assert_eq!(first_association_state.len(), 1);
             assert_eq!(&first_association_state[0].inbox_id(), &inbox_id);
 
-            let both_association_states =
-                StoredAssociationState::batch_read_from_cache(conn, vec![
-                    (inbox_id.to_string(), 1),
-                    (inbox_id_2.to_string(), 2),
-                ])
-                .unwrap();
+            let both_association_states = StoredAssociationState::batch_read_from_cache(
+                conn,
+                vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
+            )
+            .unwrap();
 
             assert_eq!(both_association_states.len(), 2);
 

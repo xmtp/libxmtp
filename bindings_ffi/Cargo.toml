@@ -45,7 +45,7 @@ tracing_android_trace = { version = "0.1", features = ["api_level_29"] }
 tracing-oslog = "0.2"
 
 [build-dependencies]
-uniffi = { version = "0.28.0", features = ["build"] }
+uniffi = { version = "0.29.0", features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"
@@ -56,7 +56,7 @@ required-features = ["uniffi/cli"]
 ethers = { workspace = true, features = ["rustls"] }
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-uniffi = { version = "0.28.0", features = ["bindgen-tests"] }
+uniffi = { version = "0.29.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }

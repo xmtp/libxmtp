@@ -1500,9 +1500,10 @@ pub(crate) mod tests {
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message
         assert_eq!(bola_messages.len(), 2);
-        assert_eq!(bola_messages.get(1).unwrap().decrypted_message_bytes, vec![
-            1, 2, 3
-        ])
+        assert_eq!(
+            bola_messages.get(1).unwrap().decrypted_message_bytes,
+            vec![1, 2, 3]
+        )
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

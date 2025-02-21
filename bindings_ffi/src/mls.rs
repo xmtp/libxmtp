@@ -2583,13 +2583,14 @@ mod tests {
     use crate::{
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
         FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
         FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError, connect_to_backend,
         decode_multi_remote_attachment, decode_reaction, encode_multi_remote_attachment,
-        encode_reaction, get_inbox_id_for_address, inbox_owner::SigningError,
+        encode_reaction, get_inbox_id_for_address,
+        inbox_owner::{FfiInboxOwner, SigningError},
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -3293,16 +3294,19 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address.clone()], FfiCreateGroupOptions {
-                permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
-                group_name: Some("Group Name".to_string()),
-                group_image_url_square: Some("url".to_string()),
-                group_description: Some("group description".to_string()),
-                custom_permission_policy_set: None,
-                message_disappearing_settings: Some(
-                    conversation_message_disappearing_settings.clone(),
-                ),
-            })
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                    group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string()),
+                    custom_permission_policy_set: None,
+                    message_disappearing_settings: Some(
+                        conversation_message_disappearing_settings.clone(),
+                    ),
+                },
+            )
             .await
             .unwrap();
 
@@ -5350,14 +5354,17 @@ mod tests {
         // Step 1: Create a group
         let alix_group = alix
             .conversations()
-            .create_group(vec![bola.account_address.clone()], FfiCreateGroupOptions {
-                permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
-                group_name: Some("Group Name".to_string()),
-                group_image_url_square: Some("url".to_string()),
-                group_description: Some("group description".to_string()),
-                custom_permission_policy_set: None,
-                message_disappearing_settings: Some(disappearing_settings.clone()),
-            })
+            .create_group(
+                vec![bola.account_address.clone()],
+                FfiCreateGroupOptions {
+                    permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
+                    group_name: Some("Group Name".to_string()),
+                    group_image_url_square: Some("url".to_string()),
+                    group_description: Some("group description".to_string()),
+                    custom_permission_policy_set: None,
+                    message_disappearing_settings: Some(disappearing_settings.clone()),
+                },
+            )
             .await
             .unwrap();
 

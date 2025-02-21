@@ -521,13 +521,13 @@ where
         let sync_group = self.get_sync_group(provider.conn_ref())?;
         sync_group.sync_with_conn(provider).await?;
 
-        let messages =
-            provider
-                .conn_ref()
-                .get_group_messages(&sync_group.group_id, &MsgQueryArgs {
-                    kind: Some(GroupMessageKind::Application),
-                    ..Default::default()
-                })?;
+        let messages = provider.conn_ref().get_group_messages(
+            &sync_group.group_id,
+            &MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            },
+        )?;
 
         for msg in messages.into_iter().rev() {
             let Ok(msg_content) =

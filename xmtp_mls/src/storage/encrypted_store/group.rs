@@ -550,7 +550,6 @@ impl DbConnection {
                     .collect(),
             )
         })
-        .map_err(Into::into)
     }
 }
 
@@ -794,10 +793,13 @@ pub(crate) mod tests {
                 .unwrap();
 
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
-            assert_eq!(updated_group, StoredGroup {
-                membership_state: GroupMembershipState::Rejected,
-                ..test_group
-            });
+            assert_eq!(
+                updated_group,
+                StoredGroup {
+                    membership_state: GroupMembershipState::Rejected,
+                    ..test_group
+                }
+            );
         })
         .await
     }

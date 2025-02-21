@@ -637,42 +637,46 @@ pub(crate) mod tests {
         let client_timestamp_ns = rand_u64();
         let signature_bytes = rand_vec::<32>();
 
-        let identity_update = UnverifiedIdentityUpdate::new(inbox_id, client_timestamp_ns, vec![
-            UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
-                    UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
-                ),
-                unsigned_action: UnsignedCreateInbox {
-                    nonce,
-                    account_address,
-                },
-            }),
-            UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
-                new_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
-                existing_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                    4, 5, 6,
-                ]),
-                unsigned_action: UnsignedAddAssociation {
-                    new_member_identifier: rand_hexstring().into(),
-                },
-            }),
-            UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
-                recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                    7, 8, 9,
-                ]),
-                unsigned_action: UnsignedChangeRecoveryAddress {
-                    new_recovery_address: rand_hexstring(),
-                },
-            }),
-            UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
-                recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                    10, 11, 12,
-                ]),
-                unsigned_action: UnsignedRevokeAssociation {
-                    revoked_member: rand_hexstring().into(),
-                },
-            }),
-        ]);
+        let identity_update = UnverifiedIdentityUpdate::new(
+            inbox_id,
+            client_timestamp_ns,
+            vec![
+                UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+                    initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                        UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
+                    ),
+                    unsigned_action: UnsignedCreateInbox {
+                        nonce,
+                        account_address,
+                    },
+                }),
+                UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
+                    new_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
+                    existing_member_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        4, 5, 6,
+                    ]),
+                    unsigned_action: UnsignedAddAssociation {
+                        new_member_identifier: rand_hexstring().into(),
+                    },
+                }),
+                UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        7, 8, 9,
+                    ]),
+                    unsigned_action: UnsignedChangeRecoveryAddress {
+                        new_recovery_address: rand_hexstring(),
+                    },
+                }),
+                UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
+                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
+                        10, 11, 12,
+                    ]),
+                    unsigned_action: UnsignedRevokeAssociation {
+                        revoked_member: rand_hexstring().into(),
+                    },
+                }),
+            ],
+        );
 
         let serialized_update = IdentityUpdateProto::from(identity_update.clone());
 
