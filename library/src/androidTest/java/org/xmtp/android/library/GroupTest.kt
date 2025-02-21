@@ -633,7 +633,7 @@ class GroupTest {
             group.send("howdy")
             group.send("gm")
         }
-        val message = boClient.findMessage(messageId)
+        val message = boClient.conversations.findMessage(messageId)
         assertEquals(runBlocking { group.messages() }.size, 3)
         assertEquals(runBlocking { group.messages(afterNs = message?.sentAtNs) }.size, 0)
         runBlocking {
@@ -901,7 +901,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup = alixClient.findGroup(boGroup.id)
+        val alixGroup = alixClient.conversations.findGroup(boGroup.id)
 
         assertEquals(alixGroup?.id, boGroup.id)
     }
@@ -918,9 +918,9 @@ class GroupTest {
         }
         val boMessageId = runBlocking { boGroup.send("Hello") }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup = alixClient.findGroup(boGroup.id)
+        val alixGroup = alixClient.conversations.findGroup(boGroup.id)
         runBlocking { alixGroup?.sync() }
-        val alixMessage = alixClient.findMessage(boMessageId)
+        val alixMessage = alixClient.conversations.findMessage(boMessageId)
 
         assertEquals(alixMessage?.id, boMessageId)
     }
@@ -936,7 +936,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
+        val alixGroup: Group = alixClient.conversations.findGroup(boGroup.id)!!
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
         val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
         assertEquals(runBlocking { alixGroup.messages() }.size, 1)
@@ -986,8 +986,8 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.sync() }
-        val alixGroup: Group = alixClient.findGroup(boGroup.id)!!
-        val alixGroup2: Group = alixClient.findGroup(boGroup2.id)!!
+        val alixGroup: Group = alixClient.conversations.findGroup(boGroup.id)!!
+        val alixGroup2: Group = alixClient.conversations.findGroup(boGroup2.id)!!
         var numGroups: UInt?
 
         assertEquals(runBlocking { alixGroup.messages() }.size, 0)
@@ -1040,7 +1040,7 @@ class GroupTest {
         boGroup.send("howdy")
         alixClient.conversations.syncAllConversations()
 
-        val alixGroup = alixClient.findGroup(boGroup.id)
+        val alixGroup = alixClient.conversations.findGroup(boGroup.id)
 
         // Validate messages exist and settings are applied
         assertEquals(boGroup.messages().size, 2) // memberAdd, howdy

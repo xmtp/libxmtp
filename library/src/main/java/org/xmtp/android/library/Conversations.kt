@@ -27,6 +27,7 @@ import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
 import uniffi.xmtpv3.FfiSubscribeException
+import uniffi.xmtpv3.FfiXmtpClient
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -34,12 +35,73 @@ import kotlin.time.DurationUnit
 data class Conversations(
     var client: Client,
     private val ffiConversations: FfiConversations,
+    private val ffiClient: FfiXmtpClient,
 ) {
 
     enum class ConversationType {
         ALL,
         GROUPS,
         DMS;
+    }
+
+    fun findGroup(groupId: String): Group? {
+        return try {
+            Group(client, ffiClient.conversation(groupId.hexToByteArray()))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun findConversation(conversationId: String): Conversation? {
+        return try {
+            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
+            when (conversation.conversationType()) {
+                FfiConversationType.GROUP -> Conversation.Group(Group(client, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun findConversationByTopic(topic: String): Conversation? {
+        val regex = """/xmtp/mls/1/g-(.*?)/proto""".toRegex()
+        val matchResult = regex.find(topic)
+        val conversationId = matchResult?.groupValues?.get(1) ?: ""
+        return try {
+            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
+            when (conversation.conversationType()) {
+                FfiConversationType.GROUP -> Conversation.Group(Group(client, conversation))
+                FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun findDmByInboxId(inboxId: String): Dm? {
+        return try {
+            Dm(client, ffiClient.dmConversation(inboxId))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun findDmByAddress(address: String): Dm? {
+        val inboxId =
+            client.inboxIdFromAddress(address.lowercase())
+                ?: throw XMTPException("No inboxId present")
+        return findDmByInboxId(inboxId)
+    }
+
+    fun findMessage(messageId: String): Message? {
+        return try {
+            Message.create(ffiClient.message(messageId.hexToByteArray()))
+        } catch (e: Exception) {
+            null
+        }
     }
 
     suspend fun fromWelcome(envelopeBytes: ByteArray): Conversation {

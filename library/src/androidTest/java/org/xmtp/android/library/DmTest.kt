@@ -79,8 +79,8 @@ class DmTest {
         runBlocking {
             val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
 
-            val caroDm = boClient.findDmByInboxId(caroClient.inboxId)
-            val alixDm = boClient.findDmByInboxId(alixClient.inboxId)
+            val caroDm = boClient.conversations.findDmByInboxId(caroClient.inboxId)
+            val alixDm = boClient.conversations.findDmByInboxId(alixClient.inboxId)
             assertNull(alixDm)
             assertEquals(caroDm?.id, dm.id)
         }
@@ -91,8 +91,8 @@ class DmTest {
         runBlocking {
             val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
 
-            val caroDm = boClient.findDmByAddress(caro.walletAddress)
-            val alixDm = boClient.findDmByAddress(alix.walletAddress)
+            val caroDm = boClient.conversations.findDmByAddress(caro.walletAddress)
+            val alixDm = boClient.conversations.findDmByAddress(alix.walletAddress)
             assertNull(alixDm)
             assertEquals(caroDm?.id, dm.id)
         }
@@ -301,7 +301,7 @@ class DmTest {
     fun testCanStreamDmMessages() = kotlinx.coroutines.test.runTest {
         val group = boClient.conversations.findOrCreateDm(alix.walletAddress.lowercase())
         alixClient.conversations.sync()
-        val alixDm = alixClient.findDmByAddress(bo.walletAddress)
+        val alixDm = alixClient.conversations.findDmByAddress(bo.walletAddress)
         group.streamMessages().test {
             alixDm?.send("hi")
             assertEquals("hi", awaitItem().body)
@@ -419,7 +419,7 @@ class DmTest {
         boDm.send("howdy")
         alixClient.conversations.syncAllConversations()
 
-        val alixDm = alixClient.findDmByInboxId(boClient.inboxId)
+        val alixDm = alixClient.conversations.findDmByInboxId(boClient.inboxId)
 
         // Validate messages exist and settings are applied
         assertEquals(boDm.messages().size, 2) // memberAdd howdy

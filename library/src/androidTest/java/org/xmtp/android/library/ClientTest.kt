@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
@@ -14,7 +13,6 @@ import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.GenericException
 import java.io.File
 import java.security.SecureRandom
-import java.util.Date
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -558,7 +556,8 @@ class ClientTest {
         val state = runBlocking { fixtures.alixClient.inboxState(true) }
         assertEquals(state.addresses.size, 2)
 
-        val inboxId = runBlocking { fixtures.alixClient.inboxIdFromAddress(fixtures.boClient.address) }
+        val inboxId =
+            runBlocking { fixtures.alixClient.inboxIdFromAddress(fixtures.boClient.address) }
         assertEquals(inboxId, fixtures.alixClient.inboxId)
     }
 
@@ -603,77 +602,54 @@ class ClientTest {
     }
 
     @Test
-    fun testCreatesADevClientPerformance() {
+    fun testErrorsIfDbEncryptionKeyIsLost() {
         val key = SecureRandom().generateSeed(32)
+        val badKey = SecureRandom().generateSeed(32)
+
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val start = Date()
-        val client = runBlocking {
+        val alixWallet = PrivateKeyBuilder()
+
+        val alixClient = runBlocking {
             Client().create(
-                account = fakeWallet,
+                account = alixWallet,
                 options = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.DEV, true),
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
                     dbEncryptionKey = key
                 )
             )
         }
-        val end = Date()
-        val time1 = end.time - start.time
-        Log.d("PERF", "Created a client in ${time1 / 1000.0}s")
 
-        val start2 = Date()
-        val buildClient1 = runBlocking {
-            Client().build(
-                fakeWallet.address,
-                options = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.DEV, true),
-                    appContext = context,
-                    dbEncryptionKey = key
+        assertThrows(
+            "Error creating V3 client: Storage error: PRAGMA key or salt has incorrect value",
+            XMTPException::class.java
+        ) {
+            runBlocking {
+                Client().build(
+                    address = alixClient.address,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = badKey,
+                    )
                 )
-            )
+            }
         }
-        val end2 = Date()
-        val time2 = end2.time - start2.time
-        Log.d("PERF", "Built a client in ${time2 / 1000.0}s")
 
-        val start3 = Date()
-        val buildClient2 = runBlocking {
-            Client().build(
-                fakeWallet.address,
-                options = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.DEV, true),
-                    appContext = context,
-                    dbEncryptionKey = key
-                ),
-                inboxId = client.inboxId
-            )
+        assertThrows(
+            "Error creating V3 client: Storage error: PRAGMA key or salt has incorrect value",
+            XMTPException::class.java
+        ) {
+            runBlocking {
+                Client().create(
+                    account = alixWallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = badKey,
+                    )
+                )
+            }
         }
-        val end3 = Date()
-        val time3 = end3.time - start3.time
-        Log.d("PERF", "Built a client with inboxId in ${time3 / 1000.0}s")
-
-        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
-        val start4 = Date()
-        runBlocking {
-            Client().create(
-                PrivateKeyBuilder(),
-                options = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.DEV, true),
-                    appContext = context,
-                    dbEncryptionKey = key
-                ),
-            )
-        }
-        val end4 = Date()
-        val time4 = end4.time - start4.time
-        Log.d("PERF", "Create a client after prebuilding apiClient in ${time4 / 1000.0}s")
-
-        assert(time2 < time1)
-        assert(time3 < time1)
-        assert(time3 < time2)
-        assert(time4 < time1)
-        assertEquals(client.inboxId, buildClient1.inboxId)
-        assertEquals(client.inboxId, buildClient2.inboxId)
     }
 }

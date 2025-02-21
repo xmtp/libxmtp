@@ -193,7 +193,7 @@ class SmartContractWalletTest {
         runBlocking { davonGroup.send("from davon") }
 
         runBlocking { eriSCWClient.conversations.sync() }
-        val eriGroup = runBlocking { davonSCWClient.findGroup(davonGroup.id) }
+        val eriGroup = runBlocking { davonSCWClient.conversations.findGroup(davonGroup.id) }
         runBlocking { eriGroup?.sync() }
         assertEquals(runBlocking { eriGroup?.messages() }?.size, 3)
         assertEquals(runBlocking { eriGroup?.messages() }?.first()?.body, "from davon")

@@ -62,7 +62,7 @@ class HistorySyncTest {
             alixGroup.updateConsentState(ConsentState.DENIED)
             alixClient.conversations.syncAllConversations()
             alixClient2.conversations.syncAllConversations()
-            alix2Group = alixClient2.findGroup(alixGroup.id)!!
+            alix2Group = alixClient2.conversations.findGroup(alixGroup.id)!!
         }
     }
 
@@ -137,7 +137,7 @@ class HistorySyncTest {
 
             val alix3Groups = alixClient3.conversations.listGroups()
             assertEquals(alix3Groups.size, 1)
-            val alix3Group = alixClient3.findGroup(alixGroup.id)
+            val alix3Group = alixClient3.conversations.findGroup(alixGroup.id)
                 ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
             assertEquals(runBlocking { alixGroup.messages() }.size, 5)
             assertEquals(runBlocking { alix2Group.messages() }.size, 5)

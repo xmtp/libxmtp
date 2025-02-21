@@ -153,6 +153,8 @@ class Fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL,
     val alixAccount = PrivateKeyBuilder()
     val boAccount = PrivateKeyBuilder()
     val caroAccount = PrivateKeyBuilder()
+    val davonAccount = PrivateKeyBuilder()
+    val eriAccount = PrivateKeyBuilder()
 
     var alix: PrivateKey = alixAccount.getPrivateKey()
     var alixClient: Client =
@@ -165,6 +167,14 @@ class Fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL,
     var caro: PrivateKey = caroAccount.getPrivateKey()
     var caroClient: Client =
         runBlocking { Client().create(account = caroAccount, options = clientOptions) }
+
+    var davon: PrivateKey = davonAccount.getPrivateKey()
+    var davonClient: Client =
+        runBlocking { Client().create(account = davonAccount, options = clientOptions) }
+
+    var eri: PrivateKey = eriAccount.getPrivateKey()
+    var eriClient: Client =
+        runBlocking { Client().create(account = eriAccount, options = clientOptions) }
 }
 
 fun fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)): Fixtures =

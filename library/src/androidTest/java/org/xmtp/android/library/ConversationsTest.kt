@@ -3,8 +3,14 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -14,11 +20,13 @@ import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import kotlin.time.Duration.Companion.seconds
 
 @RunWith(AndroidJUnit4::class)
 class ConversationsTest {
     private lateinit var alixWallet: PrivateKeyBuilder
     private lateinit var boWallet: PrivateKeyBuilder
+    private lateinit var davonWallet: PrivateKeyBuilder
     private lateinit var alix: PrivateKey
     private lateinit var alixClient: Client
     private lateinit var bo: PrivateKey
@@ -26,6 +34,8 @@ class ConversationsTest {
     private lateinit var caroWallet: PrivateKeyBuilder
     private lateinit var caro: PrivateKey
     private lateinit var caroClient: Client
+    private lateinit var davon: PrivateKey
+    private lateinit var davonClient: Client
     private lateinit var fixtures: Fixtures
 
     @Before
@@ -37,10 +47,13 @@ class ConversationsTest {
         bo = fixtures.bo
         caroWallet = fixtures.caroAccount
         caro = fixtures.caro
+        davonWallet = fixtures.davonAccount
+        davon = fixtures.davon
 
         alixClient = fixtures.alixClient
         boClient = fixtures.boClient
         caroClient = fixtures.caroClient
+        davonClient = fixtures.davonClient
     }
 
     @Test
@@ -49,8 +62,8 @@ class ConversationsTest {
             runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
         val dm = runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
 
-        val sameDm = runBlocking { boClient.findConversationByTopic(dm.topic) }
-        val sameGroup = runBlocking { boClient.findConversationByTopic(group.topic) }
+        val sameDm = runBlocking { boClient.conversations.findConversationByTopic(dm.topic) }
+        val sameGroup = runBlocking { boClient.conversations.findConversationByTopic(group.topic) }
         assertEquals(group.id, sameGroup?.id)
         assertEquals(dm.id, sameDm?.id)
     }
@@ -252,5 +265,100 @@ class ConversationsTest {
         conversations.forEach { convo ->
             assertTrue(topics.contains(convo.topic))
         }
+    }
+
+    @Test
+    fun testStreamsAndMessages() = runBlocking {
+        val messages = mutableListOf<String>()
+        val alixGroup =
+            alixClient.conversations.newGroup(listOf(caroClient.address, boClient.address))
+        val caroGroup2 =
+            caroClient.conversations.newGroup(listOf(alixClient.address, boClient.address))
+
+        alixClient.conversations.syncAllConversations()
+        caroClient.conversations.syncAllConversations()
+        boClient.conversations.syncAllConversations()
+
+        val boGroup = boClient.conversations.findGroup(alixGroup.id)!!
+        val caroGroup = caroClient.conversations.findGroup(alixGroup.id)!!
+        val boGroup2 = boClient.conversations.findGroup(caroGroup2.id)!!
+        val alixGroup2 = alixClient.conversations.findGroup(caroGroup2.id)!!
+
+        val caroJob = launch(Dispatchers.IO) {
+            println("Caro is listening...")
+            try {
+                withTimeout(60.seconds) { // Ensure test doesn't hang indefinitely
+                    caroClient.conversations.streamAllMessages()
+                        .take(100) // Stop after receiving 90 messages
+                        .collect { message ->
+                            synchronized(messages) { messages.add(message.body) }
+                            println("Caro received: ${message.body}")
+                        }
+                }
+            } catch (e: TimeoutCancellationException) {
+                println("Timeout reached for caroJob")
+            }
+        }
+
+        delay(1000)
+
+        // Simulate message sending in multiple threads
+        val alixJob = launch(Dispatchers.IO) {
+            println("Alix is sending messages...")
+            repeat(20) {
+                val message = "Alix Message $it"
+                alixGroup.send(message)
+                alixGroup2.send(message)
+                println("Alix sent: $message")
+            }
+        }
+
+        val boMessageJob = launch(Dispatchers.IO) {
+            println("Bo is sending messages..")
+            repeat(10) {
+                val message = "Bo Message $it"
+                boGroup.send(message)
+                boGroup2.send(message)
+                println("Bo sent: $message")
+            }
+        }
+
+        val davonSpamJob = launch(Dispatchers.IO) {
+            println("Davon is sending spam groups..")
+            repeat(10) {
+                val spamMessage = "Davon Spam Message $it"
+                val group = davonClient.conversations.newGroup(listOf(caroClient.address))
+                group.send(spamMessage)
+                println("Davon spam: $spamMessage")
+            }
+        }
+
+        val caroMessagingJob = launch(Dispatchers.IO) {
+            println("Caro is sending messages...")
+            repeat(10) {
+                val message = "Caro Message $it"
+                caroGroup.send(message)
+                caroGroup2.send(message)
+                println("Caro sent: $message")
+            }
+        }
+
+        joinAll(alixJob, caroMessagingJob, boMessageJob, davonSpamJob)
+
+        // Wait a bit to ensure all messages are processed
+        delay(2000)
+
+        caroJob.cancelAndJoin()
+
+        assertEquals(90, messages.size)
+        assertEquals(40, caroGroup.messages().size)
+
+        boGroup.sync()
+        alixGroup.sync()
+        caroGroup.sync()
+
+        assertEquals(40, boGroup.messages().size)
+        assertEquals(41, alixGroup.messages().size)
+        assertEquals(40, caroGroup.messages().size)
     }
 }

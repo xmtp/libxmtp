@@ -7,9 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.InboxState
-import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.rawData
-import uniffi.xmtpv3.FfiConversationType
 import uniffi.xmtpv3.FfiSignatureRequest
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
@@ -143,7 +141,11 @@ class Client() {
         this.preferences = PrivatePreferences(client = this, ffiClient = libXMTPClient)
         this.ffiClient = libXMTPClient
         this.conversations =
-            Conversations(client = this, ffiConversations = libXMTPClient.conversations())
+            Conversations(
+                client = this,
+                ffiConversations = libXMTPClient.conversations(),
+                ffiClient = ffiClient
+            )
         this.dbPath = dbPath
         this.installationId = installationId
         this.inboxId = inboxId
@@ -321,65 +323,6 @@ class Client() {
             true
         } catch (e: Exception) {
             false
-        }
-    }
-
-    fun findGroup(groupId: String): Group? {
-        return try {
-            Group(this, ffiClient.conversation(groupId.hexToByteArray()))
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    suspend fun findConversation(conversationId: String): Conversation? {
-        return try {
-            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-            when (conversation.conversationType()) {
-                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
-                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
-                else -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    suspend fun findConversationByTopic(topic: String): Conversation? {
-        val regex = """/xmtp/mls/1/g-(.*?)/proto""".toRegex()
-        val matchResult = regex.find(topic)
-        val conversationId = matchResult?.groupValues?.get(1) ?: ""
-        return try {
-            val conversation = ffiClient.conversation(conversationId.hexToByteArray())
-            when (conversation.conversationType()) {
-                FfiConversationType.GROUP -> Conversation.Group(Group(this, conversation))
-                FfiConversationType.DM -> Conversation.Dm(Dm(this, conversation))
-                else -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    fun findDmByInboxId(inboxId: String): Dm? {
-        return try {
-            Dm(this, ffiClient.dmConversation(inboxId))
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    suspend fun findDmByAddress(address: String): Dm? {
-        val inboxId =
-            inboxIdFromAddress(address.lowercase()) ?: throw XMTPException("No inboxId present")
-        return findDmByInboxId(inboxId)
-    }
-
-    fun findMessage(messageId: String): Message? {
-        return try {
-            Message.create(ffiClient.message(messageId.hexToByteArray()))
-        } catch (e: Exception) {
-            null
         }
     }
 
