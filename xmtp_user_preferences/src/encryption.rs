@@ -1,6 +1,6 @@
 use xmtp_proto::xmtp::message_contents::{
-    ciphertext::{Aes256gcmHkdfsha256, Union},
     Ciphertext,
+    ciphertext::{Aes256gcmHkdfsha256, Union},
 };
 use xmtp_v2::encryption::{decrypt, encrypt, hkdf};
 

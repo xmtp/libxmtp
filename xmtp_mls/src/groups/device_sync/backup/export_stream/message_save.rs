@@ -80,7 +80,7 @@ impl TryFrom<GroupMessageKindSave> for GroupMessageKind {
             GroupMessageKindSave::Application => Self::Application,
             GroupMessageKindSave::MembershipChange => Self::MembershipChange,
             GroupMessageKindSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("message_kind"))
+                return Err(DeserializationError::Unspecified("message_kind"));
             }
         };
         Ok(message_kind)
@@ -94,7 +94,7 @@ impl TryFrom<DeliveryStatusSave> for DeliveryStatus {
             DeliveryStatusSave::Published => Self::Published,
             DeliveryStatusSave::Unpublished => Self::Unpublished,
             DeliveryStatusSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("delivery_status"))
+                return Err(DeserializationError::Unspecified("delivery_status"));
             }
         };
         Ok(delivery_status)
@@ -115,7 +115,7 @@ impl TryFrom<ContentTypeSave> for ContentType {
             ContentTypeSave::TransactionReference => Self::TransactionReference,
             ContentTypeSave::Unknown => Self::Unknown,
             ContentTypeSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("content_type"))
+                return Err(DeserializationError::Unspecified("content_type"));
             }
         };
         Ok(content_type)

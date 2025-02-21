@@ -1,13 +1,13 @@
 use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
-use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
+use openmls::prelude::{MlsMessageIn, ProtocolMessage, tls_codec::Deserialize};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::{
     associations::{
-        self, try_map_vec, unverified::UnverifiedIdentityUpdate, AssociationError,
-        DeserializationError, SignatureError,
+        self, AssociationError, DeserializationError, SignatureError, try_map_vec,
+        unverified::UnverifiedIdentityUpdate,
     },
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
 };
@@ -18,23 +18,23 @@ use xmtp_mls::{
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::{
-            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
             VerifySmartContractWalletSignatureRequestSignature,
             VerifySmartContractWalletSignaturesRequest,
             VerifySmartContractWalletSignaturesResponse,
+            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
         },
         associations::IdentityUpdate as IdentityUpdateProto,
     },
     mls_validation::v1::{
-        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
-        validation_api_server::ValidationApi,
         GetAssociationStateRequest,
         GetAssociationStateResponse,
         ValidateGroupMessagesRequest,
         ValidateGroupMessagesResponse,
         ValidateInboxIdKeyPackagesResponse,
         ValidateKeyPackagesRequest, // VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_inbox_id_key_packages_response::Response as ValidateInboxIdKeyPackageResponse,
+        validation_api_server::ValidationApi,
     },
 };
 
@@ -308,7 +308,7 @@ mod tests {
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         key_packages::KeyPackage,
-        prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
+        prelude::{Credential as OpenMlsCredential, CredentialWithKey, tls_codec::Serialize},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use xmtp_common::{rand_string, rand_u64};
@@ -320,13 +320,13 @@ mod tests {
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
         },
         is_smart_contract,
-        utils::test::{with_smart_contracts, CoinbaseSmartWallet},
+        utils::test::{CoinbaseSmartWallet, with_smart_contracts},
     };
     use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
         identity::{
-            associations::IdentityUpdate as IdentityUpdateProto,
             MlsCredential as InboxIdMlsCredential,
+            associations::IdentityUpdate as IdentityUpdateProto,
         },
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
@@ -506,9 +506,11 @@ mod tests {
             let contract_call = scw_factory.create_account(owners.clone(), nonce);
             contract_call.send().await.unwrap().await.unwrap();
 
-            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
-                .await
-                .unwrap());
+            assert!(
+                is_smart_contract(scw_addr, anvil.endpoint(), None)
+                    .await
+                    .unwrap()
+            );
 
             let hash = H256::random().into();
             let smart_wallet = CoinbaseSmartWallet::new(

@@ -5,7 +5,7 @@ mod metadata;
 use std::{borrow::Borrow, sync::Arc};
 
 use color_eyre::eyre::{self, Result};
-use rand::{seq::IteratorRandom, Rng};
+use rand::{Rng, seq::IteratorRandom};
 use redb::{AccessGuard, ReadTransaction, WriteTransaction};
 use speedy::{Readable, Writable};
 
@@ -65,10 +65,7 @@ impl<C: speedy::Context, const N: usize> Writable<C> for NetworkKey<N> {
         &self,
         writer: &mut T,
     ) -> std::result::Result<(), <C as speedy::Context>::Error> {
-        let NetworkKey {
-            ref network,
-            ref key,
-        } = self;
+        let NetworkKey { network, key } = self;
         writer.write_value(network)?;
         if N > 0 {
             writer.write_value(key)?;
@@ -281,15 +278,14 @@ where
     where
         Value: redb::Value + 'static,
     {
-        self.apply_read(|r| {
-            if let Ok(table) = r.open_table(Self::table()) {
+        self.apply_read(|r| match r.open_table(Self::table()) {
+            Ok(table) => {
                 let network: u64 = network.into();
                 let start = NetworkKey::<N>::create_low(network);
                 let end = NetworkKey::<N>::create_high(network);
                 Ok(Some(table.range(start..end)?.map(|r| r.unwrap().1)))
-            } else {
-                Ok(None)
             }
+            _ => Ok(None),
         })
     }
 
@@ -359,14 +355,13 @@ where
             return Ok(Vec::new());
         }
 
-        if let Some(items) = self.load(network)? {
-            Ok(items
+        match self.load(network)? {
+            Some(items) => Ok(items
                 .choose_multiple(rng, n)
                 .into_iter()
                 .map(|v| v.value())
-                .collect())
-        } else {
-            Ok(Vec::new())
+                .collect()),
+            _ => Ok(Vec::new()),
         }
     }
 }

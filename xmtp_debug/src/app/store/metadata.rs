@@ -21,7 +21,7 @@ pub type MetadataStore<'a> = super::KeyValueStore<'a, MetadataStorage>;
 #[macro_export]
 #[macro_use]
 macro_rules! meta_key {
-    ($network:expr) => {
+    ($network:expr_2021) => {
         $crate::app::store::NetworkKey::<0>::new(u64::from($network), [])
     };
 }

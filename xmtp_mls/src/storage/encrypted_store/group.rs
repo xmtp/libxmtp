@@ -1,13 +1,13 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::{
+    Sqlite,
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
     schema::groups::{self, dsl},
-    Sqlite,
 };
 
 use crate::{
-    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
+    DuplicateItem, StorageError, groups::group_metadata::DmMembers, impl_fetch, impl_store,
 };
 
 use crate::storage::NotFound;
@@ -550,7 +550,6 @@ impl DbConnection {
                     .collect(),
             )
         })
-        .map_err(Into::into)
     }
 }
 
@@ -664,11 +663,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
+        Fetch, Store,
         storage::{
             consent_record::{ConsentType, StoredConsentRecord},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
-        Fetch, Store,
     };
     use xmtp_common::{assert_ok, rand_vec, time::now_ns};
 

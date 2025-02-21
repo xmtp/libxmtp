@@ -2,7 +2,14 @@ version: 2
 updates:
   # Maintain dependencies for cargo
   - package-ecosystem: "cargo"
-    directory: "/"
+    directories:
+      - "/"
+      - "/xmtp_*"
+      - "/bindings_*"
+      - "/mls_validation_service"
+      - "/examples/cli"
+      - "/xtask"
+      - "/common"
     schedule:
       interval: "weekly"
     groups:
@@ -13,7 +20,7 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-  # Maintain dependencies for GitHub Actions
+        # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
     # Workflow files stored in the default location of `.github/workflows`. (You don't need to specify `/.github/workflows` for `directory`. You can use `directory: "/"`.)
     directory: "/"

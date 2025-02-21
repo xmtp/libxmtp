@@ -1,7 +1,7 @@
 use js_sys::Uint8Array;
-use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };

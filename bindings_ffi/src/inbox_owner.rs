@@ -1,7 +1,7 @@
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 // TODO proper error handling
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, uniffi::Error, thiserror::Error)]
 pub enum SigningError {
     #[error("This is a generic error")]
     Generic,
@@ -14,6 +14,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
 }
 
 // A simplified InboxOwner passed to Rust across the FFI boundary
+#[uniffi::export(with_foreign)]
 pub trait FfiInboxOwner: Send + Sync {
     fn get_address(&self) -> String;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;

@@ -3,7 +3,7 @@
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use thiserror::Error;
-use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
+use xmtp_common::{BoxedRetry, RetryableError, retry_async, retryable};
 
 use crate::{ApiEndpoint, Code, XmtpApiError};
 

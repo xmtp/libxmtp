@@ -2,14 +2,14 @@
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
+    AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
+    SignatureError,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
     verified_signature::VerifiedSignature,
-    AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
-    SignatureError,
 };
 use futures::future::try_join_all;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;

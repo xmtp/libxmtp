@@ -1,14 +1,14 @@
 use diesel::prelude::*;
 use prost::Message;
-use xmtp_id::{associations::AssociationState, InboxId};
-use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
+use xmtp_id::{InboxId, associations::AssociationState};
 use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use super::{
-    schema::association_state::{self, dsl},
     DbConnection,
+    schema::association_state::{self, dsl},
 };
-use crate::{impl_fetch, impl_store_or_ignore, storage::StorageError, Fetch, StoreOrIgnore};
+use crate::{Fetch, StoreOrIgnore, impl_fetch, impl_store_or_ignore, storage::StorageError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -66,7 +66,7 @@ impl StoredAssociationState {
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
+            .map(|stored_state| stored_state.try_into())
             .transpose()?
             .inspect(|_| {
                 tracing::debug!(

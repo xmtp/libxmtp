@@ -4,11 +4,11 @@ use super::{ApiClientWrapper, Error};
 use crate::{Result, XmtpApi};
 use futures::future::try_join_all;
 use xmtp_proto::xmtp::identity::api::v1::{
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
+    PublishIdentityUpdateRequest,
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
     get_inbox_ids_request::Request as GetInboxIdsRequestProto,
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
-    PublishIdentityUpdateRequest,
 };
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
@@ -57,7 +57,7 @@ where
     pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
-    ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
+    ) -> Result<impl Iterator<Item = (String, Vec<T>)> + use<T, ApiClient>>
     where
         T: TryFrom<IdentityUpdateLog>,
         Error: From<<T as TryFrom<IdentityUpdateLog>>::Error>,
@@ -145,11 +145,11 @@ pub(crate) mod tests {
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
     use xmtp_proto::xmtp::identity::api::v1::{
+        GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
         get_identity_updates_response::{
             IdentityUpdateLog, Response as GetIdentityUpdatesResponseItem,
         },
         get_inbox_ids_response::Response as GetInboxIdsResponseItem,
-        GetIdentityUpdatesResponse, GetInboxIdsResponse, PublishIdentityUpdateResponse,
     };
 
     fn create_identity_update(inbox_id: String) -> UnverifiedIdentityUpdate {

@@ -1,11 +1,11 @@
 use bindings_wasm::client::LogLevel;
-use bindings_wasm::client::{create_client, LogOptions};
+use bindings_wasm::client::{LogOptions, create_client};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
-use xmtp_cryptography::utils::{rng, LocalWallet};
-use xmtp_id::associations::generate_inbox_id;
+use xmtp_cryptography::utils::{LocalWallet, rng};
 use xmtp_id::InboxOwner;
+use xmtp_id::associations::generate_inbox_id;
 
 // Only run these tests in a browser.
 wasm_bindgen_test_configure!(run_in_dedicated_worker);

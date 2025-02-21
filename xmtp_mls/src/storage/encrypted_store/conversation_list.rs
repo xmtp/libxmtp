@@ -175,6 +175,7 @@ impl DbConnection {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::Store;
     use crate::storage::consent_record::{ConsentState, ConsentType};
     use crate::storage::group::tests::{
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
@@ -182,7 +183,6 @@ pub(crate) mod tests {
     use crate::storage::group::{GroupMembershipState, GroupQueryArgs};
     use crate::storage::group_message::ContentType;
     use crate::storage::tests::with_connection;
-    use crate::Store;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test(unsupported = tokio::test)]

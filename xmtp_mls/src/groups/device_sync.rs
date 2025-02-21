@@ -3,22 +3,22 @@ use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
 use crate::{
+    Client, Store,
     client::ClientError,
     configuration::NS_IN_HOUR,
     storage::{
+        DbConnection, NotFound, StorageError,
         consent_record::StoredConsentRecord,
         group::{ConversationType, GroupQueryArgs, StoredGroup},
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        DbConnection, NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
-    Client, Store,
 };
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm,
+    aead::{Aead, KeyInit},
 };
 #[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
@@ -30,19 +30,19 @@ use std::pin::Pin;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
-use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{
-    time::{now_ns, Duration},
     ExponentialBackoff,
+    time::{Duration, now_ns},
 };
+use xmtp_common::{Retry, RetryableError, retry_async};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType, plaintext_envelope::V2,
     DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
+    plaintext_envelope::V2, plaintext_envelope::v2::MessageType,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
@@ -238,11 +238,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
-        let Self {
-            ref client,
-            ref retry,
-            ..
-        } = self;
+        let Self { client, retry, .. } = self;
 
         let msg = retry_async!(
             retry,
@@ -269,9 +265,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
-        let Self {
-            ref client, retry, ..
-        } = self;
+        let Self { client, retry, .. } = self;
 
         let msg = retry_async!(
             retry,
@@ -296,8 +290,8 @@ where
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
     pub async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
-        let Self {
-            ref init,
+        let &mut Self {
+            ref mut init,
             ref client,
             ..
         } = self;
@@ -733,7 +727,9 @@ where
                         conn.maybe_insert_consent_record_return_existing(&consent_record)?
                     {
                         if existing_consent_record.state != consent_record.state {
-                            warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
+                            warn!(
+                                "Existing consent record exists and does not match payload state. Streaming consent_record update to sync group."
+                            );
                             self.local_events
                                 .send(LocalEvents::OutgoingPreferenceUpdates(vec![
                                     UserPreferenceUpdate::ConsentUpdate(existing_consent_record),

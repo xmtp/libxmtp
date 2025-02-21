@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{CodecError, ContentCodec};
 use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{
-    content_types::MultiRemoteAttachment, ContentTypeId, EncodedContent,
+    ContentTypeId, EncodedContent, content_types::MultiRemoteAttachment,
 };
 
 pub struct MultiRemoteAttachmentCodec {}

@@ -1,8 +1,8 @@
 use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
 use ethers::core::types::{self as ethers_types, H160};
 use ethers::types::Address;
-pub use k256::ecdsa::{RecoveryId, SigningKey};
 use k256::Secp256k1;
+pub use k256::ecdsa::{RecoveryId, SigningKey};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
 use thiserror::Error;
@@ -191,7 +191,7 @@ pub mod tests {
         signers::{LocalWallet, Signer},
     };
 
-    use crate::signature::{is_valid_ed25519_public_key, RecoverableSignature};
+    use crate::signature::{RecoverableSignature, is_valid_ed25519_public_key};
 
     pub fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());

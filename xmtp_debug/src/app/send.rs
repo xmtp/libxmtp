@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::args;
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Result, eyre};
 use rand::prelude::*;
 
 use super::store::{Database, GroupStore, IdentityStore};
@@ -28,10 +28,8 @@ impl Send {
     }
 
     async fn message(&self) -> Result<()> {
-        let Self { ref network, .. } = self;
-        let args::Send {
-            ref data, group_id, ..
-        } = &self.opts;
+        let Self { network, .. } = self;
+        let args::Send { data, group_id, .. } = &self.opts;
 
         let group_store: GroupStore = self.db.clone().into();
         let identity_store: IdentityStore = self.db.clone().into();

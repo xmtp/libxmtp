@@ -5,13 +5,13 @@ use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_mls::Client as MlsClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
-use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;

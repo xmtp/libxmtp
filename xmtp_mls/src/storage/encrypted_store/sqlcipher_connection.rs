@@ -50,7 +50,7 @@ impl EncryptedConnection {
 
         let salt = match opts {
             Ephemeral => None,
-            Persistent(ref db_path) => {
+            Persistent(db_path) => {
                 let mut salt = [0u8; 16];
                 let db_pathbuf = PathBuf::from(db_path);
                 let salt_path = Self::salt_file(db_path)?;
@@ -203,8 +203,8 @@ impl EncryptedConnection {
     }
 
     /// Output the corect order of PRAGMAS to instantiate a connection
-    fn pragmas(&self) -> impl Display {
-        let Self { ref key, ref salt } = self;
+    fn pragmas(&self) -> impl Display + use<> {
+        let Self { key, salt } = self;
 
         if let Some(s) = salt {
             format!(

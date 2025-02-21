@@ -5,11 +5,11 @@
 /// assert_err!(fun(), StorageError::Explosion, "the storage did not explode");
 #[macro_export]
 macro_rules! assert_err {
-        ( $x:expr , $y:pat $(,)? ) => {
+        ( $x:expr_2021 , $y:pat $(,)? ) => {
             assert!(matches!($x, Err($y)))
         };
 
-        ( $x:expr, $y:pat $(,)?, $($msg:tt)+) => {{
+        ( $x:expr_2021, $y:pat $(,)?, $($msg:tt)+) => {{
             assert!(matches!($x, Err($y)), $($msg)+)
         }}
     }
@@ -27,11 +27,11 @@ macro_rules! assert_err {
 #[macro_export]
 macro_rules! assert_ok {
 
-        ( $e:expr ) => {
+        ( $e:expr_2021 ) => {
             assert_ok!($e,)
         };
 
-        ( $e:expr, ) => {{
+        ( $e:expr_2021, ) => {{
             use std::result::Result::*;
             match $e {
                 Ok(v) => v,
@@ -39,11 +39,11 @@ macro_rules! assert_ok {
             }
         }};
 
-        ( $x:expr , $y:expr $(,)? ) => {
+        ( $x:expr_2021 , $y:expr_2021 $(,)? ) => {
             assert_eq!($x, Ok($y.into()));
         };
 
-        ( $x:expr, $y:expr $(,)?, $($msg:tt)+) => {{
+        ( $x:expr_2021, $y:expr_2021 $(,)?, $($msg:tt)+) => {{
             assert_eq!($x, Ok($y.into()), $($msg)+);
         }}
     }

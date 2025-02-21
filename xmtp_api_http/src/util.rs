@@ -1,8 +1,8 @@
-use crate::http_stream::SubscriptionItem;
 use crate::Error;
 use crate::ErrorResponse;
 use crate::HttpClientError;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use crate::http_stream::SubscriptionItem;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io::Read;
 
 #[derive(Deserialize, Serialize, Debug)]

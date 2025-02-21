@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_mls::groups::{
+  PreconfiguredPolicies,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
   group_permissions::{
     BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicies,
@@ -8,7 +9,6 @@ use xmtp_mls::groups::{
     PolicySet,
   },
   intents::{PermissionPolicyOption, PermissionUpdateType as XmtpPermissionUpdateType},
-  PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]

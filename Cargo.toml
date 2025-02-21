@@ -22,8 +22,8 @@ members = [
 ]
 
 # Make the feature resolver explicit.
-# See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
-resolver = "2"
+# See https://doc.rust-lang.org/edition-guide/rust-2024/cargo-resolver.html
+resolver = "3"
 
 [workspace.package]
 license = "MIT"

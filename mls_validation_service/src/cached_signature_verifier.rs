@@ -73,7 +73,7 @@ mod tests {
         MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
         VerifierError,
     };
-    use xmtp_id::utils::test::{with_smart_contracts, CoinbaseSmartWallet};
+    use xmtp_id::utils::test::{CoinbaseSmartWallet, with_smart_contracts};
 
     #[tokio::test]
     async fn test_is_valid_signature() {

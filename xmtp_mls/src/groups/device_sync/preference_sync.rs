@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
     Client,
+    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
 };
 use serde::{Deserialize, Serialize};
 use xmtp_proto::{

@@ -20,8 +20,8 @@ use crate::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 use rand::Rng;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 pub type BoxedRetry = Retry<Box<dyn Strategy>, Box<dyn Strategy>>;
@@ -401,7 +401,7 @@ impl Retry {
 /// ```
 #[macro_export]
 macro_rules! retry_async {
-    ($retry: expr, $code: tt) => {{
+    ($retry: expr_2021, $code: tt) => {{
         use tracing::Instrument as _;
         #[allow(unused)]
         use $crate::retry::RetryableError;
@@ -451,7 +451,7 @@ macro_rules! retryable {
         use $crate::retry::RetryableError;
         $error.is_retryable()
     }};
-    ($error: expr) => {{
+    ($error: expr_2021) => {{
         use $crate::retry::RetryableError;
         $error.is_retryable()
     }};

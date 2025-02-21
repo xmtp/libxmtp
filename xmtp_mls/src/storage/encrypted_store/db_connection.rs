@@ -1,11 +1,11 @@
-use crate::storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError};
+use crate::storage::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use diesel::connection::TransactionManager;
 use parking_lot::Mutex;
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -79,10 +79,11 @@ where
     {
         let mut lock = if self.in_transaction.load(Ordering::SeqCst) {
             self.write.lock()
-        } else if let Some(read) = &self.read {
-            read.lock()
         } else {
-            self.write.lock()
+            match &self.read {
+                Some(read) => read.lock(),
+                _ => self.write.lock(),
+            }
         };
 
         fun(&mut lock)

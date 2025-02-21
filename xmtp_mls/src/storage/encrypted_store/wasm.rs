@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 pub use sqlite_web::connection::WasmSqliteConnection as SqliteConnection;
 use std::sync::Arc;
 
-use super::{db_connection::DbConnectionPrivate, StorageError, StorageOption, XmtpDb};
+use super::{StorageError, StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 
 #[derive(Clone)]
 pub struct WasmDb {
@@ -29,7 +29,7 @@ impl WasmDb {
         sqlite_web::init_sqlite().await;
         let conn = match opts {
             Ephemeral => SqliteConnection::establish(":memory:"),
-            Persistent(ref db_path) => SqliteConnection::establish(db_path),
+            Persistent(db_path) => SqliteConnection::establish(db_path),
         }?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),

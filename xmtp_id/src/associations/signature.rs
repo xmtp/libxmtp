@@ -9,7 +9,7 @@ use xmtp_cryptography::{
     XmtpInstallationCredential,
 };
 use xmtp_proto::xmtp::message_contents::{
-    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
+    SignedPrivateKey as LegacySignedPrivateKeyProto, signed_private_key,
 };
 
 use super::{
@@ -111,9 +111,7 @@ pub fn verify_signed_with_public_context(
     public_key: &[u8; 32],
 ) -> Result<(), SignatureError> {
     let verifying_key = VerifyingKey::from_bytes(public_key)?;
-    verifying_key
-        .credential_verify::<PublicContext>(signature_text, signature_bytes)
-        .map_err(Into::into)
+    verifying_key.credential_verify::<PublicContext>(signature_text, signature_bytes)
 }
 
 #[derive(Clone, Debug, PartialEq)]

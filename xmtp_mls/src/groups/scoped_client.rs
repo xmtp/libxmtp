@@ -1,24 +1,24 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
+    Client,
     client::{ClientError, XmtpMlsLocalContext},
     identity_updates::{InstallationDiff, InstallationDiffError},
     storage::{
-        xmtp_openmls_provider::XmtpOpenMlsProvider, DbConnection, EncryptedMessageStore,
-        StorageError,
+        DbConnection, EncryptedMessageStore, StorageError,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
     },
     subscriptions::LocalEvents,
     types::InstallationId,
     verified_key_package_v2::VerifiedKeyPackageV2,
-    Client,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
 use xmtp_id::{
-    associations::AssociationState, scw_verifier::SmartContractSignatureVerifier, AsIdRef,
-    InboxIdRef,
+    AsIdRef, InboxIdRef, associations::AssociationState,
+    scw_verifier::SmartContractSignatureVerifier,
 };
 use xmtp_proto::{api_client::trait_impls::XmtpApi, xmtp::mls::api::v1::GroupMessage};
 

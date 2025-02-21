@@ -1,8 +1,8 @@
 use crate::conversation::Conversation;
 use crate::messages::Message;
 use std::{cell::RefCell, rc::Rc};
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
+use wasm_bindgen::prelude::*;
 use xmtp_common::{
   AbortHandle, GenericStreamHandle, StreamHandle as XmtpStreamHandle, StreamHandleError,
 };

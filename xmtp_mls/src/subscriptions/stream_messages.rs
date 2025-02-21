@@ -2,27 +2,27 @@ use std::{
     collections::HashMap,
     future::Future,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use super::{Result, SubscribeError};
 use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    XmtpOpenMlsProvider,
+    groups::{MlsGroup, scoped_client::ScopedGroupClient},
     storage::{
-        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
-        StorageError,
+        StorageError, group::StoredGroup, group_message::StoredGroupMessage,
+        refresh_state::EntityKind,
     },
     types::GroupId,
-    XmtpOpenMlsProvider,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
-use xmtp_common::{retry_async, FutureWrapper, Retry};
+use xmtp_common::{FutureWrapper, Retry, retry_async};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::{group_message, GroupMessage},
+    api_client::{XmtpMlsStreams, trait_impls::XmtpApi},
+    xmtp::mls::api::v1::{GroupMessage, group_message},
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -242,8 +242,8 @@ where
     type Item = Result<StoredGroupMessage>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        use std::task::Poll::*;
         use ProjectState::*;
+        use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
         match this.state.as_mut().project() {
@@ -440,27 +440,33 @@ where
             })
         );
 
-        if let Err(SubscribeError::ReceiveGroup(e)) = process_result {
-            tracing::warn!("error processing streamed message {e}");
-            self.attempt_message_recovery().await
-        // This should never occur because we map the error to `ReceiveGroup`
-        // But still exists defensively
-        } else if let Err(e) = process_result {
-            tracing::error!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                err = e.to_string(),
-                "process stream entry {:?}",
-                e
-            );
-        } else {
-            tracing::trace!(
-                cursor_id = self.msg.id,
-                inbox_id = self.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                "message process in stream success"
-            );
+        match process_result {
+            Err(SubscribeError::ReceiveGroup(e)) => {
+                tracing::warn!("error processing streamed message {e}");
+                self.attempt_message_recovery().await
+                // This should never occur because we map the error to `ReceiveGroup`
+                // But still exists defensively
+            }
+            _ => match process_result {
+                Err(e) => {
+                    tracing::error!(
+                        inbox_id = self.client.inbox_id(),
+                        group_id = hex::encode(&self.msg.group_id),
+                        cursor_id = self.msg.id,
+                        err = e.to_string(),
+                        "process stream entry {:?}",
+                        e
+                    );
+                }
+                _ => {
+                    tracing::trace!(
+                        cursor_id = self.msg.id,
+                        inbox_id = self.inbox_id(),
+                        group_id = hex::encode(&self.msg.group_id),
+                        "message process in stream success"
+                    );
+                }
+            },
         }
     }
 
@@ -495,24 +501,27 @@ where
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
-        if let Err(err) = group.sync_with_conn(&self.provider).await {
-            tracing::warn!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                err = %err,
-                "recovery sync triggered by streamed message failed: {}", err
-            );
-        } else {
-            let epoch = group.epoch(&self.provider).await.unwrap_or(0);
-            tracing::debug!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful. epoch = {} for group = {}",
-                epoch,
-                hex::encode(&self.msg.group_id)
-            )
+        match group.sync_with_conn(&self.provider).await {
+            Err(err) => {
+                tracing::warn!(
+                    inbox_id = self.client.inbox_id(),
+                    group_id = hex::encode(&self.msg.group_id),
+                    cursor_id = self.msg.id,
+                    err = %err,
+                    "recovery sync triggered by streamed message failed: {}", err
+                );
+            }
+            _ => {
+                let epoch = group.epoch(&self.provider).await.unwrap_or(0);
+                tracing::debug!(
+                    inbox_id = self.client.inbox_id(),
+                    group_id = hex::encode(&self.msg.group_id),
+                    cursor_id = self.msg.id,
+                    "recovery sync triggered by streamed message successful. epoch = {} for group = {}",
+                    epoch,
+                    hex::encode(&self.msg.group_id)
+                )
+            }
         }
     }
 }

@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
 use xmtp_common::retry_async;
+use xmtp_proto::ApiError;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::{
+    FetchKeyPackagesRequest, GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo,
+    QueryGroupMessagesRequest, QueryWelcomeMessagesRequest, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SortDirection, SubscribeGroupMessagesRequest,
+    SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
     subscribe_group_messages_request::Filter as GroupFilterProto,
-    subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
-    GroupMessage, GroupMessageInput, KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest,
-    QueryWelcomeMessagesRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
+    subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
 };
-use xmtp_proto::ApiError;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -360,8 +360,8 @@ pub mod tests {
     use crate::test_utils::MockError;
     use xmtp_common::StreamHandle;
     use xmtp_proto::xmtp::mls::api::v1::{
-        fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
-        QueryGroupMessagesResponse,
+        FetchKeyPackagesResponse, PagingInfo, QueryGroupMessagesResponse,
+        fetch_key_packages_response::KeyPackage,
     };
 
     use std::sync::{Arc, Mutex};

@@ -3,8 +3,8 @@ use crate::{
     groups::ScopedGroupClient,
     storage::group_message::StoredGroupMessage,
     subscriptions::{
-        stream_messages::{ProcessMessageFuture, StreamGroupMessages},
         Result, SubscribeError,
+        stream_messages::{ProcessMessageFuture, StreamGroupMessages},
     },
     types::GroupId,
 };
@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
 use xmtp_common::StreamHandle;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+use xmtp_proto::api_client::{XmtpMlsStreams, trait_impls::XmtpApi};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
@@ -46,8 +46,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         group_id: Vec<u8>,
         #[cfg(target_arch = "wasm32")] callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
         ScopedClient: 'static,
@@ -63,13 +63,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 pub(crate) fn stream_messages_with_callback<ScopedClient>(
     client: ScopedClient,
     #[cfg(not(target_arch = "wasm32"))] active_conversations: impl Iterator<Item = GroupId>
-        + Send
-        + 'static,
+    + Send
+    + 'static,
     #[cfg(target_arch = "wasm32")] active_conversations: impl Iterator<Item = GroupId> + 'static,
     #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
     #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
-        + Send
-        + 'static,
+    + Send
+    + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     ScopedClient: ScopedGroupClient + 'static,
@@ -134,10 +134,13 @@ pub(crate) mod tests {
             .process_streamed_group_message(message_bytes)
             .await;
 
-        if let Ok(message) = message_again {
-            assert_eq!(message.group_id, amal_group.clone().group_id)
-        } else {
-            panic!("failed, message needs to equal message_again");
+        match message_again {
+            Ok(message) => {
+                assert_eq!(message.group_id, amal_group.clone().group_id)
+            }
+            _ => {
+                panic!("failed, message needs to equal message_again");
+            }
         }
     }
 
@@ -196,10 +199,12 @@ pub(crate) mod tests {
         let values = limited_stream.collect::<Vec<_>>().await;
         assert_eq!(values.len(), 10);
         for value in values {
-            assert!(value
-                .unwrap()
-                .decrypted_message_bytes
-                .starts_with("hello".as_bytes()));
+            assert!(
+                value
+                    .unwrap()
+                    .decrypted_message_bytes
+                    .starts_with("hello".as_bytes())
+            );
         }
     }
 

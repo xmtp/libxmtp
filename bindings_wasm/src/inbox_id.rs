@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use xmtp_api::{strategies, ApiClientWrapper};
+use wasm_bindgen::prelude::{JsError, wasm_bindgen};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 

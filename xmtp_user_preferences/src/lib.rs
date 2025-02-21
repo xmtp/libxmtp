@@ -4,8 +4,8 @@ pub mod topic;
 use prost::Message as ProstMessage;
 
 use xmtp_proto::xmtp::message_contents::{
-    private_preferences_payload::Version as PrivatePreferencesVersion, Ciphertext,
-    PrivatePreferencesPayload,
+    Ciphertext, PrivatePreferencesPayload,
+    private_preferences_payload::Version as PrivatePreferencesVersion,
 };
 
 use crate::encryption::{decrypt_ciphertext, encrypt_to_ciphertext};

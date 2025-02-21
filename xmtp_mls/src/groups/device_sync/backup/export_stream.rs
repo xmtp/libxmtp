@@ -3,8 +3,8 @@ use crate::XmtpOpenMlsProvider;
 use futures::{Stream, StreamExt};
 use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
 use xmtp_proto::xmtp::device_sync::{
-    consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
-    BackupElement, BackupElementSelection,
+    BackupElement, BackupElementSelection, consent_backup::ConsentSave, group_backup::GroupSave,
+    message_backup::GroupMessageSave,
 };
 
 pub(crate) mod consent_save;

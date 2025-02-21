@@ -1,13 +1,13 @@
-use super::{export_stream::BatchExportStream, BackupOptions, BACKUP_VERSION};
-use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
-use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
+use super::{BACKUP_VERSION, BackupOptions, export_stream::BatchExportStream};
+use crate::{XmtpOpenMlsProvider, groups::device_sync::NONCE_SIZE};
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{pin_mut, task::Context, StreamExt};
+use futures::{StreamExt, pin_mut, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;

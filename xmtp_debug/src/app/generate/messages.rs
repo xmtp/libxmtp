@@ -5,8 +5,8 @@ use crate::{
     },
     args,
 };
-use color_eyre::eyre::{self, eyre, Result};
-use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
+use color_eyre::eyre::{self, Result, eyre};
+use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
 
 mod content_type;

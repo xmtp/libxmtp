@@ -1,11 +1,12 @@
-use crate::client::Client;
 use crate::ErrorWrapper;
+use crate::client::Client;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
 use xmtp_id::associations::{
+  AccountId,
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
-  verify_signed_with_public_context, AccountId,
+  verify_signed_with_public_context,
 };
 
 #[napi]
@@ -143,15 +144,19 @@ impl Client {
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
 
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
+    match signature_requests.get_mut(&signature_type) {
+      Some(signature_request) => {
+        let signature =
+          UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
-      signature_request
-        .add_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
+        signature_request
+          .add_signature(signature, &self.inner_client().scw_verifier())
+          .await
+          .map_err(ErrorWrapper::from)?;
+      }
+      _ => {
+        return Err(Error::from_reason("Signature request not found"));
+      }
     }
 
     Ok(())
@@ -167,21 +172,27 @@ impl Client {
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
 
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let address = self.account_address.clone();
-      let account_id = AccountId::new_evm(chain_id.get_u64().1, address);
-      let signature = NewUnverifiedSmartContractWalletSignature::new(
-        signature_bytes.deref().to_vec(),
-        account_id,
-        block_number.as_ref().map(|b| b.get_u64().1),
-      );
+    match signature_requests.get_mut(&signature_type) {
+      Some(signature_request) => {
+        let address = self.account_address.clone();
+        let account_id = AccountId::new_evm(chain_id.get_u64().1, address);
+        let signature = NewUnverifiedSmartContractWalletSignature::new(
+          signature_bytes.deref().to_vec(),
+          account_id,
+          block_number.as_ref().map(|b| b.get_u64().1),
+        );
 
-      signature_request
-        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
+        signature_request
+          .add_new_unverified_smart_contract_signature(
+            signature,
+            &self.inner_client().scw_verifier(),
+          )
+          .await
+          .map_err(ErrorWrapper::from)?;
+      }
+      _ => {
+        return Err(Error::from_reason("Signature request not found"));
+      }
     }
 
     Ok(())

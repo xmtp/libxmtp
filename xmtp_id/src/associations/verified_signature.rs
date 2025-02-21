@@ -2,15 +2,15 @@
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
-use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
+use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
-    ValidatedLegacySignedPublicKey,
+    AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
+    ValidatedLegacySignedPublicKey, to_lower_s,
 };
 
 #[derive(Debug, Clone)]
@@ -174,20 +174,19 @@ mod tests {
 
     use super::*;
     use crate::{
-        associations::{
-            sign_with_legacy_key, test_utils::MockSmartContractSignatureVerifier,
-            verified_signature::VerifiedSignature, InstallationKeyContext, MemberIdentifier,
-            SignatureKind,
-        },
         InboxOwner,
+        associations::{
+            InstallationKeyContext, MemberIdentifier, SignatureKind, sign_with_legacy_key,
+            test_utils::MockSmartContractSignatureVerifier, verified_signature::VerifiedSignature,
+        },
     };
     use ethers::signers::{LocalWallet, Signer};
     use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
     use xmtp_proto::xmtp::message_contents::{
-        signature::Union as SignatureUnion, signed_private_key,
-        SignedPrivateKey as LegacySignedPrivateKeyProto,
+        SignedPrivateKey as LegacySignedPrivateKeyProto, signature::Union as SignatureUnion,
+        signed_private_key,
     };
     use xmtp_v2::k256_helper::sign_sha256;
 

@@ -1,8 +1,8 @@
 //! Common Test Utilites
 use rand::{
+    Rng,
     distributions::{Alphanumeric, DistString},
     seq::IteratorRandom,
-    Rng,
 };
 use std::{future::Future, sync::OnceLock};
 use xmtp_cryptography::utils as crypto_utils;
@@ -51,9 +51,9 @@ impl Drop for InboxIdReplace {
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tracing_subscriber::{
+    EnvFilter, Layer,
     fmt::{self, format},
     registry::LookupSpan,
-    EnvFilter, Layer,
 };
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -130,9 +130,9 @@ pub fn logger() {
 /// A simple test logger that defaults to the INFO level
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub fn logger() {
+    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::EnvFilter;
 
     INIT.get_or_init(|| {
         let filter = EnvFilter::builder()
@@ -167,11 +167,11 @@ pub fn rand_vec<const N: usize>() -> Vec<u8> {
 }
 
 pub fn rand_u64() -> u64 {
-    crypto_utils::rng().gen()
+    crypto_utils::rng().r#gen()
 }
 
 pub fn rand_i64() -> i64 {
-    crypto_utils::rng().gen()
+    crypto_utils::rng().r#gen()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -198,10 +198,13 @@ where
 {
     crate::time::timeout(crate::time::Duration::from_secs(20), async {
         loop {
-            if let Some(r) = f().await {
-                return r;
-            } else {
-                crate::yield_().await;
+            match f().await {
+                Some(r) => {
+                    return r;
+                }
+                _ => {
+                    crate::yield_().await;
+                }
             }
         }
     })
@@ -216,10 +219,13 @@ where
 {
     crate::time::timeout(crate::time::Duration::from_secs(20), async {
         loop {
-            if let Ok(r) = f().await {
-                return r;
-            } else {
-                crate::yield_().await;
+            match f().await {
+                Ok(r) => {
+                    return r;
+                }
+                _ => {
+                    crate::yield_().await;
+                }
             }
         }
     })

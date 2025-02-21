@@ -6,7 +6,7 @@ use super::{
     sql_key_store::{self, SqlKeyStoreError},
 };
 use crate::{groups::intents::IntentError, types::InstallationId};
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
 
 pub struct Mls;
 
@@ -102,8 +102,8 @@ impl RetryableError for DuplicateItem {
 
 impl RetryableError<Mls> for diesel::result::Error {
     fn is_retryable(&self) -> bool {
-        use diesel::result::Error::*;
         use DatabaseErrorKind::*;
+        use diesel::result::Error::*;
 
         match self {
             DatabaseError(UniqueViolation, _) => false,

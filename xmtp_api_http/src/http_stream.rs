@@ -1,18 +1,18 @@
 //! Streams that work with HTTP POST requests
 
-use crate::{util::GrpcResponse, Error, HttpClientError};
+use crate::{Error, HttpClientError, util::GrpcResponse};
 use futures::{
-    stream::{self, Stream, StreamExt},
     Future,
+    stream::{self, Stream, StreamExt},
 };
 use pin_project_lite::pin_project;
 use reqwest::Response;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Deserializer;
 use std::{
     marker::PhantomData,
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 use xmtp_common::StreamWrapper;
 
@@ -80,10 +80,9 @@ where
             Some(bytes) => {
                 let bytes = bytes?;
                 let item = Self::on_bytes(bytes, this.remaining)?.pop();
-                if let Some(item) = item {
-                    Ready(Some(Ok(item)))
-                } else {
-                    self.poll_next(cx)
+                match item {
+                    Some(item) => Ready(Some(Ok(item))),
+                    _ => self.poll_next(cx),
                 }
             }
             None => Ready(None),

@@ -1,7 +1,7 @@
 use log::Subscriber;
 use std::sync::Once;
 use tracing_subscriber::{
-    layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, Layer,
+    Layer, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
 };
 
 #[cfg(target_os = "android")]
@@ -56,8 +56,8 @@ mod other {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         use tracing_subscriber::{
-            fmt::{self, format},
             EnvFilter, Layer,
+            fmt::{self, format},
         };
         let filter = EnvFilter::builder()
             .with_default_directive(tracing::metadata::LevelFilter::INFO.into())

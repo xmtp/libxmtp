@@ -12,12 +12,12 @@ use xmtp_proto::{
             VerifySmartContractWalletSignaturesResponse,
         },
         mls::api::v1::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
             FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage,
             QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
             QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
             SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
             UploadKeyPackageRequest,
+            group_message::{V1 as GroupMessageV1, Version as GroupMessageVersion},
         },
     },
 };

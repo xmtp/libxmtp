@@ -1,10 +1,10 @@
 use js_sys::Uint8Array;
 use std::sync::Arc;
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::associations::{
-  unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
+  unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
 
 use crate::client::Client;

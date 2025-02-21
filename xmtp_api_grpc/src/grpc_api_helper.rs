@@ -7,27 +7,27 @@ use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use tonic::{Request, Streaming, metadata::MetadataValue, transport::Channel};
 use tracing::Instrument;
 
 use crate::{GrpcBuilderError, GrpcError};
 use xmtp_proto::api_client::{ApiBuilder, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
+    ApiEndpoint,
     api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
-        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+        QueryRequest, QueryResponse, SubscribeRequest, message_api_client::MessageApiClient,
     },
     xmtp::mls::api::v1::{
-        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-        FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-        UploadKeyPackageRequest,
+        FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+        QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        mls_api_client::MlsApiClient as ProtoMlsApiClient,
     },
-    ApiEndpoint,
 };
 
 #[tracing::instrument(level = "trace", skip_all)]

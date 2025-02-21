@@ -3,9 +3,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::vec;
 
+use napi::JsFunction;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
-use napi::JsFunction;
 use napi_derive::napi;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
@@ -14,10 +14,10 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
+use crate::ErrorWrapper;
 use crate::conversation::MessageDisappearingSettings;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 
 #[napi]

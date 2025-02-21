@@ -7,11 +7,10 @@ use diesel::{
     sql_types::Integer,
 };
 
-use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
+use super::{Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{
-    impl_store, impl_store_or_ignore,
+    StoreOrIgnore, impl_store, impl_store_or_ignore,
     storage::{NotFound, StorageError},
-    StoreOrIgnore,
 };
 
 #[repr(i32)]
@@ -131,7 +130,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, storage::encrypted_store::tests::with_connection};
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]

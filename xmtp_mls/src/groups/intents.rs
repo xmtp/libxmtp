@@ -1,46 +1,46 @@
 use openmls::prelude::{
-    tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
+    tls_codec::{Error as TlsCodecError, Serialize},
 };
-use prost::{bytes::Bytes, DecodeError, Message};
+use prost::{DecodeError, Message, bytes::Bytes};
 use std::collections::HashMap;
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
-    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
+    update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
     update_group_membership_data::{
-        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+        V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
     },
-    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    update_permission_data::{Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+    update_permission_data::{V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
 
 use super::{
+    GroupError, MlsGroup,
     group_membership::GroupMembership,
     group_mutable_metadata::MetadataField,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     scoped_client::ScopedGroupClient,
-    GroupError, MlsGroup,
 };
 use crate::{
+    XmtpOpenMlsProvider,
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     storage::{
+        ProviderTransactions,
         db_connection::DbConnection,
         group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-        ProviderTransactions,
     },
     types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    XmtpOpenMlsProvider,
 };
 
 #[derive(Debug, Error)]
@@ -488,7 +488,7 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
             None => {
                 return Err(IntentError::Generic(
                     "missing update admin version".to_string(),
-                ))
+                ));
             }
         };
         let inbox_id = match msg.version {
@@ -496,7 +496,7 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
             None => {
                 return Err(IntentError::Generic(
                     "missing update admin version".to_string(),
-                ))
+                ));
             }
         };
 
@@ -582,7 +582,9 @@ impl From<PermissionPolicyOption> for PermissionsPolicies {
     fn from(value: PermissionPolicyOption) -> Self {
         match value {
             PermissionPolicyOption::Allow => {
-                tracing::error!("PermissionPolicyOption::Allow is not allowed for PermissionsPolicies, set to super_admin only instead");
+                tracing::error!(
+                    "PermissionPolicyOption::Allow is not allowed for PermissionsPolicies, set to super_admin only instead"
+                );
                 PermissionsPolicies::allow_if_actor_super_admin()
             }
             PermissionPolicyOption::Deny => PermissionsPolicies::deny(),
@@ -649,7 +651,7 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
             None => {
                 return Err(IntentError::Generic(
                     "missing update permission version".to_string(),
-                ))
+                ));
             }
         };
         let policy_option: PermissionPolicyOption = match msg.version {
@@ -660,7 +662,7 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
             None => {
                 return Err(IntentError::Generic(
                     "missing update permission version".to_string(),
-                ))
+                ));
             }
         };
         let metadata_field_name = match msg.version {
@@ -790,7 +792,7 @@ pub(crate) mod tests {
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
+    use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
 
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::FullXmtpClient,

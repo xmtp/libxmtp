@@ -46,7 +46,7 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Installation`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn installation(&self) -> Option<&[u8]> {
-        if let Self::Installation(ref installation) = self {
+        if let Self::Installation(installation) = self {
             Some(installation)
         } else {
             None
@@ -56,7 +56,7 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Address`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn address(&self) -> Option<&str> {
-        if let Self::Address(ref address) = self {
+        if let Self::Address(address) = self {
             Some(address)
         } else {
             None
@@ -76,7 +76,7 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Installation`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn to_installation(&self) -> Option<&[u8]> {
-        if let Self::Installation(ref installation) = self {
+        if let Self::Installation(installation) = self {
             Some(installation)
         } else {
             None

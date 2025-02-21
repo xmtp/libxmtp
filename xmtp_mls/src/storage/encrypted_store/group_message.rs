@@ -18,14 +18,14 @@ use xmtp_content_types::{
 };
 
 use super::{
+    Sqlite,
     db_connection::DbConnection,
     schema::{
         group_messages::{self, dsl},
         groups::dsl as groups_dsl,
     },
-    Sqlite,
 };
-use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
+use crate::{StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
@@ -483,8 +483,8 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        storage::encrypted_store::{group::tests::generate_group, tests::with_connection},
         Store,
+        storage::encrypted_store::{group::tests::generate_group, tests::with_connection},
     };
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
@@ -670,12 +670,16 @@ pub(crate) mod tests {
 
             // Verify the count and content of the remaining messages
             assert_eq!(remaining_messages.len(), 2);
-            assert!(remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 1_000_000_000)); // Message 1
-            assert!(remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)); // Message 3
+            assert!(
+                remaining_messages
+                    .iter()
+                    .any(|msg| msg.sent_at_ns == 1_000_000_000)
+            ); // Message 1
+            assert!(
+                remaining_messages
+                    .iter()
+                    .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
+            ); // Message 3
         })
         .await
     }

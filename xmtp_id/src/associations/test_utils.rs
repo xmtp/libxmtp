@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used)]
 use super::{
+    AccountId, InstallationKeyContext,
     builder::SignatureRequest,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
-    AccountId, InstallationKeyContext,
 };
 use crate::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use ethers::{
@@ -11,8 +11,8 @@ use ethers::{
     signers::{LocalWallet, Signer},
     types::Bytes,
 };
-use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 use xmtp_cryptography::CredentialSign;
+use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 
 #[derive(Debug, Clone)]
 pub struct MockSmartContractSignatureVerifier {

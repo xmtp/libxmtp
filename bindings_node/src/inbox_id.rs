@@ -3,10 +3,10 @@ use napi::bindgen_prelude::Result;
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
 use std::sync::Arc;
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_id::associations::MemberIdentifier;
+use xmtp_id::associations::generate_inbox_id as xmtp_id_generate_inbox_id;
 use xmtp_proto::api_client::ApiBuilder;
 
 #[napi]

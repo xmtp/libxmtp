@@ -56,7 +56,7 @@ impl TryFrom<ConsentTypeSave> for ConsentType {
             ConsentTypeSave::InboxId => Self::InboxId,
             ConsentTypeSave::ConversationId => Self::ConversationId,
             ConsentTypeSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("consent_type"))
+                return Err(DeserializationError::Unspecified("consent_type"));
             }
         })
     }
@@ -69,7 +69,7 @@ impl TryFrom<ConsentStateSave> for ConsentState {
             ConsentStateSave::Denied => Self::Denied,
             ConsentStateSave::Unknown => Self::Unknown,
             ConsentStateSave::Unspecified => {
-                return Err(DeserializationError::Unspecified("consent_state"))
+                return Err(DeserializationError::Unspecified("consent_state"));
             }
         })
     }

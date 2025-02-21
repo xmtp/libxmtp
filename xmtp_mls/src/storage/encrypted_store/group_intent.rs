@@ -10,21 +10,21 @@ use prost::Message;
 use xmtp_common::fmt;
 
 use super::{
+    Sqlite,
     db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
-    Sqlite,
 };
 use crate::{
+    Delete,
     groups::intents::{IntentError, SendMessageIntentData},
     impl_fetch, impl_store,
     storage::{NotFound, StorageError},
     utils::id::calculate_message_id,
-    Delete,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::{Content, V1},
     PlaintextEnvelope,
+    plaintext_envelope::{Content, V1},
 };
 pub type ID = i32;
 
@@ -435,11 +435,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
+        Fetch, Store,
         storage::encrypted_store::{
             group::{GroupMembershipState, StoredGroup},
             tests::with_connection,
         },
-        Fetch, Store,
     };
     use xmtp_common::rand_vec;
 
