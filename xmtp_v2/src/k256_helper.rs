@@ -27,7 +27,7 @@ fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<
 /// but take the secret key and public key as byte arrays in XMTP proto serialized format
 /// i.e. secret_key is a 32 byte array and public_key is a 65 byte array
 pub fn diffie_hellman_byte_params(secret_key: &[u8], public_key: &[u8]) -> Result<Vec<u8>, String> {
-    let secret_key = SecretKey::from_be_bytes(secret_key).map_err(|e| e.to_string())?;
+    let secret_key = SecretKey::from_slice(secret_key).map_err(|e| e.to_string())?;
     let public_key = PublicKey::from_sec1_bytes(public_key).map_err(|e| e.to_string())?;
     diffie_hellman(&secret_key, &public_key)
 }
@@ -35,7 +35,7 @@ pub fn diffie_hellman_byte_params(secret_key: &[u8], public_key: &[u8]) -> Resul
 /// Produce a recoverable signature for a SHA256 digest of the given message using the secret key
 /// Returns signature and recovery_id
 pub fn sign_sha256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), String> {
-    let signing_key = SigningKey::from_bytes(secret_key).map_err(|e| e.to_string())?;
+    let signing_key = SigningKey::from_slice(secret_key).map_err(|e| e.to_string())?;
     let sha256 = Sha256::new().chain(message);
     let (signature, recovery_id) = signing_key
         .sign_digest_recoverable(sha256)
@@ -44,7 +44,7 @@ pub fn sign_sha256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), S
 }
 
 pub fn sign_keccak_256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), String> {
-    let signing_key = SigningKey::from_bytes(secret_key).map_err(|e| e.to_string())?;
+    let signing_key = SigningKey::from_slice(secret_key).map_err(|e| e.to_string())?;
     let hash = Keccak256::new().chain(message);
     let (signature, recovery_id) = signing_key
         .sign_digest_recoverable::<Keccak256>(hash)
@@ -115,7 +115,7 @@ pub fn recover_public_key_predigest_keccak256(
 
 /// Get public key from secret key in uncompressed format
 pub fn get_public_key(secret_key: &[u8]) -> Result<Vec<u8>, String> {
-    let secret_key = SecretKey::from_be_bytes(secret_key).map_err(|e| e.to_string())?;
+    let secret_key = SecretKey::from_slice(secret_key).map_err(|e| e.to_string())?;
     Ok(secret_key
         .public_key()
         .to_encoded_point(false)

@@ -2,7 +2,6 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, KeyInit, Payload},
 };
-use generic_array::GenericArray;
 use hkdf::Hkdf;
 use rand::Rng;
 use sha2::Sha256;
@@ -49,7 +48,7 @@ fn decrypt_raw(
     secret_bytes: &[u8],
 ) -> Result<Vec<u8>, String> {
     let derived_key = hkdf(secret_bytes, salt_bytes)?;
-    let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
+    let key = Aes256Gcm::new_from_slice(&derived_key).map_err(|e| e.to_string())?;
     let nonce = Nonce::from_slice(nonce_bytes);
     let res = key.decrypt(nonce, payload);
     if res.is_err() {
@@ -75,7 +74,7 @@ fn encrypt_raw(payload: Payload, secret_bytes: &[u8]) -> Result<Ciphertext, Stri
     let salt_bytes = rand::thread_rng().r#gen::<[u8; 32]>();
     let nonce_bytes = rand::thread_rng().r#gen::<[u8; 12]>();
     let derived_key = hkdf(secret_bytes, &salt_bytes)?;
-    let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
+    let key = Aes256Gcm::new_from_slice(&derived_key).map_err(|e| e.to_string())?;
     let nonce = Nonce::from_slice(&nonce_bytes);
     let res = key.encrypt(nonce, payload);
     if res.is_err() {

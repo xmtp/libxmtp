@@ -2,21 +2,17 @@
 edition = "2024"
 license.workspace = true
 name = "xmtp_v2"
-rust-version = "1.85"
 version.workspace = true
 
 [dependencies]
-aes-gcm = "0.10.1"
-ecdsa = "0.15.1"
-generic-array = "0.14.6"
+aes-gcm = "0.10.3"
+ecdsa = "0.16.9"
 hex = { workspace = true }
 hkdf.workspace = true
-k256 = { version = "0.12.0", features = ["ecdh"] }
+k256 = { version = "0.13.4", features = ["ecdh"] }
 rand = { workspace = true }
 sha2.workspace = true
-sha3 = "0.10.6"
+sha3.workspace = true 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
-
-[dev-dependencies]

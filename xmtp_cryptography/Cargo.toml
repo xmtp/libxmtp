@@ -1,7 +1,6 @@
 [package]
 edition = "2024"
 name = "xmtp_cryptography"
-rust-version = "1.85"
 version.workspace = true
 license.workspace = true
 
