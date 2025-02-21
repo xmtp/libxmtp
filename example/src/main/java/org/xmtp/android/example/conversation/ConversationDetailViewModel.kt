@@ -50,7 +50,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             val listItems = mutableListOf<MessageListItem>()
             try {
                 if (conversation == null) {
-                    conversation = ClientManager.client.findConversationByTopic(conversationTopic!!)
+                    conversation = ClientManager.client.conversations.findConversationByTopic(conversationTopic!!)
                 }
                 conversation?.let {
                     if (conversation is Conversation.Group) {
@@ -75,7 +75,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             if (conversation == null) {
                 conversation =
                     runBlocking {
-                        ClientManager.client.findConversationByTopic(conversationTopic!!)
+                        ClientManager.client.conversations.findConversationByTopic(conversationTopic!!)
                     }
             }
             if (conversation != null) {

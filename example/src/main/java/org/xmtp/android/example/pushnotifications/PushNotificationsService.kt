@@ -83,7 +83,7 @@ class PushNotificationsService : FirebaseMessagingService() {
                 .setContentIntent(pendingIntent)
         } else {
             val conversation =
-                runBlocking { ClientManager.client.findConversationByTopic(topic) }
+                runBlocking { ClientManager.client.conversations.findConversationByTopic(topic) }
             if (conversation == null) {
                 Log.e(TAG, topic)
                 Log.e(TAG, "No keys or conversation persisted")
