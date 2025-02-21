@@ -50,8 +50,9 @@ impl<T> TryCollect for T where T: IntoIterator {}
 impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
-    P: Send + Sync + Client,
+    P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client,
+    ApiError<E>: From<ApiError<<P as Client>::Error>>
 {
     type Error = ApiError<E>;
     async fn upload_key_package(
@@ -62,7 +63,7 @@ where
             .envelopes(request.try_collect()?)
             .build()
             .unwrap()
-            .query(&self.payer_client)
+            .query(&self.payer_client).await?
     }
     async fn fetch_key_packages(
         &self,
@@ -78,7 +79,7 @@ where
             .limit(0u32) //todo: do we need to get it as a var in the parent function?
             .build()
             .unwrap()
-            .query(&self.message_client)
+            .query(&self.message_client).await?
     }
     async fn send_group_messages(
         &self,
@@ -88,7 +89,7 @@ where
             .envelopes(request.messages.try_collect()?)
             .build()
             .unwrap()
-            .query(&self.payer_client)
+            .query(&self.payer_client).await
     }
     async fn send_welcome_messages(
         &self,

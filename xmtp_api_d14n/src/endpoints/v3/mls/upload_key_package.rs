@@ -1,3 +1,4 @@
+use crate::QueryWelcomeMessagesBuilder;
 use derive_builder::Builder;
 use prost::Message;
 use std::borrow::Cow;

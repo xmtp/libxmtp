@@ -24,7 +24,7 @@ pub struct V3Client<C> {
 }
 
 #[async_trait::async_trait]
-impl<C> XmtpMlsClient for V3Client<C> {
+impl<C: xmtp_proto::traits::Client> XmtpMlsClient for V3Client<C> {
     type Error = ApiError<Box<dyn XmtpApiError>>;
 
     async fn upload_key_package(
@@ -36,7 +36,7 @@ impl<C> XmtpMlsClient for V3Client<C> {
             .is_inbox_id_credential(request.is_inbox_id_credential)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client).await?
     }
     async fn fetch_key_packages(
         &self,
@@ -46,7 +46,7 @@ impl<C> XmtpMlsClient for V3Client<C> {
             .installation_keys(request.installation_keys)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client)?
     }
     async fn send_group_messages(
         &self,
@@ -56,7 +56,7 @@ impl<C> XmtpMlsClient for V3Client<C> {
             .messages(request.messages)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client)?
     }
     async fn send_welcome_messages(
         &self,
@@ -66,7 +66,7 @@ impl<C> XmtpMlsClient for V3Client<C> {
             .messages(request.messages)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client)?
     }
     async fn query_group_messages(
         &self,
@@ -76,7 +76,7 @@ impl<C> XmtpMlsClient for V3Client<C> {
             .group_id(request.group_id)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client).await
     }
     async fn query_welcome_messages(
         &self,
@@ -137,6 +137,6 @@ impl<C> XmtpIdentityClient for V3Client<C> {
             .signatures(request.signatures)
             .build()
             .unwrap()
-            .query(&self.client)
+            .query(&self.client).await
     }
 }
