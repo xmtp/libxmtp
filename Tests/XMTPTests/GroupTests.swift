@@ -822,7 +822,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
 
 		try await fixtures.boClient.conversations.sync()
-		let boGroup = try fixtures.boClient.findGroup(groupId: group.id)!
+		let boGroup = try await fixtures.boClient.conversations.findGroup(groupId: group.id)!
 		groupName = try boGroup.groupName()
 		XCTAssertEqual(groupName, "Start Name")
 
@@ -913,7 +913,7 @@ class GroupTests: XCTestCase {
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
 			with: [fixtures.alix.address])
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.findGroup(groupId: boGroup.id)
+		let alixGroup = try await fixtures.alixClient.conversations.findGroup(groupId: boGroup.id)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
 	}
@@ -926,9 +926,9 @@ class GroupTests: XCTestCase {
 
 		let boMessageId = try await boGroup.send(content: "Hello")
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.findGroup(groupId: boGroup.id)
+		let alixGroup = try await fixtures.alixClient.conversations.findGroup(groupId: boGroup.id)
 		try await alixGroup?.sync()
-		_ = try fixtures.alixClient.findMessage(messageId: boMessageId)
+		_ = try await fixtures.alixClient.conversations.findMessage(messageId: boMessageId)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
 	}
@@ -939,7 +939,7 @@ class GroupTests: XCTestCase {
 			with: [fixtures.alix.address])
 
 		try await fixtures.alixClient.conversations.sync()
-		let alixGroup = try fixtures.alixClient.findGroup(groupId: boGroup.id)!
+		let alixGroup = try await fixtures.alixClient.conversations.findGroup(groupId: boGroup.id)!
 		let isGroupAllowed = try await fixtures.alixClient.preferences
 			.conversationState(conversationId: boGroup.id)
 		XCTAssertEqual(isGroupAllowed, .unknown)
@@ -989,7 +989,7 @@ class GroupTests: XCTestCase {
 			groups.append(group)
 		}
 		try await fixtures.boClient.conversations.sync()
-		let boGroup = try fixtures.boClient.findGroup(groupId: groups[0].id)
+		let boGroup = try await fixtures.boClient.conversations.findGroup(groupId: groups[0].id)
 		_ = try await groups[0].send(content: "hi")
 		let messageCount = try await boGroup!.messages().count
 		XCTAssertEqual(messageCount, 0)
@@ -1077,7 +1077,7 @@ class GroupTests: XCTestCase {
 		_ = try await boGroup.send(content: "howdy")
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
 
-		let alixGroup = try fixtures.alixClient.findGroup(
+		let alixGroup = try await fixtures.alixClient.conversations.findGroup(
 			groupId: boGroup.id)
 
 		let boGroupMessagesCount = try await boGroup.messages().count

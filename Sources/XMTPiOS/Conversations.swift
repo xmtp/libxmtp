@@ -66,10 +66,91 @@ actor FfiStreamActor {
 public actor Conversations {
 	var client: Client
 	var ffiConversations: FfiConversations
+	var ffiClient: FfiXmtpClient
 
-	init(client: Client, ffiConversations: FfiConversations) {
+	init(
+		client: Client, ffiConversations: FfiConversations,
+		ffiClient: FfiXmtpClient
+	) {
 		self.client = client
 		self.ffiConversations = ffiConversations
+		self.ffiClient = ffiClient
+	}
+
+	public func findGroup(groupId: String) throws -> Group? {
+		do {
+			return Group(
+				ffiGroup: try ffiClient.conversation(
+					conversationId: groupId.hexToData),
+				client: client)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findConversation(conversationId: String) async throws
+		-> Conversation?
+	{
+		do {
+			let conversation = try ffiClient.conversation(
+				conversationId: conversationId.hexToData)
+			return try await conversation.toConversation(client: client)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findConversationByTopic(topic: String) async throws
+		-> Conversation?
+	{
+		do {
+			let regexPattern = #"/xmtp/mls/1/g-(.*?)/proto"#
+			if let regex = try? NSRegularExpression(pattern: regexPattern) {
+				let range = NSRange(location: 0, length: topic.utf16.count)
+				if let match = regex.firstMatch(
+					in: topic, options: [], range: range)
+				{
+					let conversationId = (topic as NSString).substring(
+						with: match.range(at: 1))
+					let conversation = try ffiClient.conversation(
+						conversationId: conversationId.hexToData)
+					return try await conversation.toConversation(client: client)
+				}
+			}
+		} catch {
+			return nil
+		}
+		return nil
+	}
+
+	public func findDmByInboxId(inboxId: String) throws -> Dm? {
+		do {
+			let conversation = try ffiClient.dmConversation(
+				targetInboxId: inboxId)
+			return Dm(
+				ffiConversation: conversation, client: client)
+		} catch {
+			return nil
+		}
+	}
+
+	public func findDmByAddress(address: String) async throws -> Dm? {
+		guard
+			let inboxId = try await client.inboxIdFromAddress(address: address)
+		else {
+			throw ClientError.creationError("No inboxId present")
+		}
+		return try findDmByInboxId(inboxId: inboxId)
+	}
+
+	public func findMessage(messageId: String) throws -> Message? {
+		do {
+			return Message.create(
+				ffiMessage: try ffiClient.message(
+					messageId: messageId.hexToData))
+		} catch {
+			return nil
+		}
 	}
 
 	public func sync() async throws {

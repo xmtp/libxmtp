@@ -16,9 +16,9 @@ class ConversationTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caro.walletAddress)
 
-		let sameDm = try await fixtures.boClient.findConversationByTopic(
+		let sameDm = try await fixtures.boClient.conversations.findConversationByTopic(
 			topic: dm.topic)
-		let sameGroup = try await fixtures.boClient.findConversationByTopic(
+		let sameGroup = try await fixtures.boClient.conversations.findConversationByTopic(
 			topic: group.topic)
 
 		XCTAssertEqual(group.id, sameGroup?.id)
@@ -216,5 +216,117 @@ class ConversationTests: XCTestCase {
 		conversations.forEach { conversation in
 			XCTAssertTrue(topics.contains(conversation.topic))
 		}
+	}
+
+	func testStreamsAndMessages() async throws {
+		var messages: [String] = []
+		let fixtures = try await fixtures()
+
+		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
+			with: [
+				fixtures.caroClient.address, fixtures.boClient.address,
+			])
+
+		let caroGroup2 = try await fixtures.caroClient.conversations.newGroup(
+			with: [
+				fixtures.alixClient.address, fixtures.boClient.address,
+			])
+
+		_ = try await fixtures.alixClient.conversations.syncAllConversations()
+		_ = try await fixtures.caroClient.conversations.syncAllConversations()
+		_ = try await fixtures.boClient.conversations.syncAllConversations()
+
+		let boGroup = try await fixtures.boClient.conversations.findGroup(groupId: alixGroup.id)!
+		let caroGroup = try await fixtures.caroClient.conversations.findGroup(
+			groupId: alixGroup.id)!
+		let boGroup2 = try await fixtures.boClient.conversations.findGroup(groupId: caroGroup2.id)!
+		let alixGroup2 = try await fixtures.alixClient.conversations.findGroup(
+			groupId: caroGroup2.id)!
+
+		// Start listening for messages
+		let caroTask = Task {
+			print("Caro is listening...")
+			do {
+				for try await message in await fixtures.caroClient.conversations
+					.streamAllMessages()
+				{
+					try messages.append(message.body)
+					try print("Caro received: \(message.body)")
+
+					if messages.count >= 90 { break }
+				}
+			} catch {
+				print("Error while streaming messages: \(error)")
+			}
+		}
+
+		try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second delay
+
+		// Simulate message sending in parallel
+		await withThrowingTaskGroup(of: Void.self) { taskGroup in
+			taskGroup.addTask {
+				print("Alix is sending messages...")
+				for i in 0..<20 {
+					let message = "Alix Message \(i)"
+					_ = try await alixGroup.send(content: message)
+					_ = try await alixGroup2.send(content: message)
+					print("Alix sent: \(message)")
+				}
+			}
+
+			taskGroup.addTask {
+				print("Bo is sending messages...")
+				for i in 0..<10 {
+					let message = "Bo Message \(i)"
+					_ = try await boGroup.send(content: message)
+					_ = try await boGroup2.send(content: message)
+					print("Bo sent: \(message)")
+				}
+			}
+
+			taskGroup.addTask {
+				print("Davon is sending spam groups...")
+				for i in 0..<10 {
+					let spamMessage = "Davon Spam Message \(i)"
+					let group = try await fixtures.davonClient.conversations
+						.newGroup(
+							with: [fixtures.caroClient.address]
+						)
+					_ = try await group.send(content: spamMessage)
+					print("Davon spam: \(spamMessage)")
+				}
+			}
+
+			taskGroup.addTask {
+				print("Caro is sending messages...")
+				for i in 0..<10 {
+					let message = "Caro Message \(i)"
+					_ = try await caroGroup.send(content: message)
+					_ = try await caroGroup2.send(content: message)
+					print("Caro sent: \(message)")
+				}
+			}
+		}
+
+		// Wait a bit to ensure all messages are processed
+		try await Task.sleep(nanoseconds: 2_000_000_000)  // 2 seconds delay
+
+		caroTask.cancel()
+
+		XCTAssertEqual(messages.count, 90)
+		let caroMessagesCount = try await caroGroup.messages().count
+		XCTAssertEqual(caroMessagesCount, 40)
+
+		try await boGroup.sync()
+		try await alixGroup.sync()
+		try await caroGroup.sync()
+
+		let boMessagesCount = try await boGroup.messages().count
+		let alixMessagesCount = try await alixGroup.messages().count
+		let caroMessagesCountAfterSync = try await caroGroup.messages().count
+
+		XCTAssertEqual(boMessagesCount, 40)
+		XCTAssertEqual(alixMessagesCount, 41)
+		XCTAssertEqual(caroMessagesCountAfterSync, 40)
 	}
 }

@@ -68,16 +68,18 @@
 		public var boClient: Client!
 		public var caro: PrivateKey!
 		public var caroClient: Client!
+		public var davon: PrivateKey!
+		public var davonClient: Client!
 
-		init() async throws {
+		init(clientOptions: ClientOptions.Api) async throws {
 			alix = try PrivateKey.generate()
 			bo = try PrivateKey.generate()
 			caro = try PrivateKey.generate()
+			davon = try PrivateKey.generate()
 
 			let key = try Crypto.secureRandomBytes(count: 32)
 			let clientOptions: ClientOptions = ClientOptions(
-				api: ClientOptions.Api(
-					env: XMTPEnvironment.local, isSecure: false),
+				api: clientOptions,
 				dbEncryptionKey: key
 			)
 
@@ -87,13 +89,18 @@
 				account: bo, options: clientOptions)
 			caroClient = try await Client.create(
 				account: caro, options: clientOptions)
+			davonClient = try await Client.create(
+				account: davon, options: clientOptions)
 		}
 	}
 
 	extension XCTestCase {
 		@available(iOS 15, *)
-		public func fixtures() async throws -> Fixtures {
-			return try await Fixtures()
+		public func fixtures(
+			clientOptions: ClientOptions.Api = ClientOptions.Api(
+				env: XMTPEnvironment.local, isSecure: false)
+		) async throws -> Fixtures {
+			return try await Fixtures(clientOptions: clientOptions)
 		}
 	}
 #endif

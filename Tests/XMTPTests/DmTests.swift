@@ -13,9 +13,9 @@ class DmTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caro.walletAddress)
 
-		let caroDm = try fixtures.boClient.findDmByInboxId(
+		let caroDm = try await fixtures.boClient.conversations.findDmByInboxId(
 			inboxId: fixtures.caroClient.inboxID)
-		let alixDm = try fixtures.boClient.findDmByInboxId(
+		let alixDm = try await fixtures.boClient.conversations.findDmByInboxId(
 			inboxId: fixtures.alixClient.inboxID)
 
 		XCTAssertNil(alixDm)
@@ -28,9 +28,9 @@ class DmTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caro.walletAddress)
 
-		let caroDm = try await fixtures.boClient.findDmByAddress(
+		let caroDm = try await fixtures.boClient.conversations.findDmByAddress(
 			address: fixtures.caroClient.address)
-		let alixDm = try await fixtures.boClient.findDmByAddress(
+		let alixDm = try await fixtures.boClient.conversations.findDmByAddress(
 			address: fixtures.alixClient.address)
 
 		XCTAssertNil(alixDm)
@@ -300,7 +300,7 @@ class DmTests: XCTestCase {
 		_ = try await boDm.send(content: "howdy")
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
 		
-		let alixDm = try fixtures.alixClient.findDmByInboxId(inboxId: fixtures.boClient.inboxID)
+		let alixDm = try await fixtures.alixClient.conversations.findDmByInboxId(inboxId: fixtures.boClient.inboxID)
 
 		let boGroupMessagesCount = try await boDm.messages().count
 		let alixGroupMessagesCount = try await alixDm?.messages().count
