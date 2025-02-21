@@ -25,8 +25,8 @@ use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessa
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
+use crate::{groups::group_mutable_metadata::MessageDisappearingSettings, GroupCommitLock};
 use crate::{
     groups::{
         device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
@@ -174,6 +174,7 @@ pub struct XmtpMlsLocalContext {
     /// XMTP Local Storage
     store: EncryptedMessageStore,
     pub(crate) mutexes: MutexRegistry,
+    pub(crate) mls_commit_lock: std::sync::Arc<GroupCommitLock>,
 }
 
 impl XmtpMlsLocalContext {
@@ -213,6 +214,10 @@ impl XmtpMlsLocalContext {
     ) -> Result<Vec<u8>, IdentityError> {
         self.identity.sign_with_public_context(text)
     }
+
+    pub fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
+        &self.mls_commit_lock
+    }
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -238,6 +243,7 @@ where
             identity,
             store,
             mutexes: MutexRegistry::new(),
+            mls_commit_lock: Arc::new(GroupCommitLock::new()),
         });
         let (tx, _) = broadcast::channel(32);
 

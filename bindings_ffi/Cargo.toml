@@ -39,6 +39,7 @@ fdlimit = { version = "0.3", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2"
+tracing_android_trace = { version = "0.1", features = ["api_level_29"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 tracing-oslog = "0.2"

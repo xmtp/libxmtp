@@ -99,6 +99,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "android_trace"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d564b0f7a9c9e272c7e43c59f1f09ba04d060774ba7c5fa14c2f966bbd6c4e"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6430,6 +6439,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing_android_trace"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84fae205f9c07bfae3d36d199ab985118c90d225ff70a38e7ff3ecbdb4ef61bc"
+dependencies = [
+ "android_trace",
+ "smallvec",
+ "thread_local",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "trait-variant"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7640,6 +7663,7 @@ dependencies = [
  "libsqlite3-sys",
  "mockall",
  "mockito",
+ "once_cell",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
@@ -7747,6 +7771,7 @@ dependencies = [
  "tracing",
  "tracing-oslog",
  "tracing-subscriber",
+ "tracing_android_trace",
  "uniffi",
  "uuid 1.12.0",
  "xmtp_api",
