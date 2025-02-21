@@ -167,11 +167,11 @@ pub fn rand_vec<const N: usize>() -> Vec<u8> {
 }
 
 pub fn rand_u64() -> u64 {
-    crypto_utils::rng().gen()
+    crypto_utils::rng().r#gen()
 }
 
 pub fn rand_i64() -> i64 {
-    crypto_utils::rng().gen()
+    crypto_utils::rng().r#gen()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
