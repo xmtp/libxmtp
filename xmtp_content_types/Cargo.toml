@@ -1,5 +1,5 @@
 [package]
-edition = "2024"
+edition = "2021"
 name = "xmtp_content_types"
 version.workspace = true
 license.workspace = true

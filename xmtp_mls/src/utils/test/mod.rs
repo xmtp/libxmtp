@@ -3,12 +3,12 @@
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 use tokio::sync::Notify;
-use xmtp_common::time::{timeout, Expired};
+use xmtp_common::time::{Expired, timeout};
 use xmtp_id::{
     associations::{
         generate_inbox_id,
@@ -20,10 +20,10 @@ use xmtp_id::{
 use xmtp_proto::api_client::XmtpTestClient;
 
 use crate::{
+    Client, InboxOwner, XmtpApi,
     builder::ClientBuilder,
     identity::IdentityStrategy,
     storage::{DbConnection, EncryptedMessageStore, StorageOption},
-    Client, InboxOwner, XmtpApi,
 };
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
@@ -366,8 +366,8 @@ pub fn set_test_mode_upload_malformed_keypackage(
 ) {
     use std::env;
     if enable {
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
-        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+        unsafe { env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true") };
+        unsafe { env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS") };
 
         if let Some(installs) = installations {
             let installations_str = installs
@@ -376,11 +376,13 @@ pub fn set_test_mode_upload_malformed_keypackage(
                 .collect::<Vec<_>>()
                 .join(",");
 
-            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
+            unsafe { env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str) };
         }
     } else {
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
-        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+        unsafe { env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false") };
+        unsafe {
+            env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
+        };
     }
 }
 

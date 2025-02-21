@@ -1,7 +1,7 @@
 [package]
 name = "xdbg"
 description = "Debug and Inspection Tool for the XMTP Network"
-edition = "2024"
+edition = "2021"
 version = "0.1.0"
 license.workspace = true
 

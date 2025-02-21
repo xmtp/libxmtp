@@ -1,5 +1,5 @@
 [package]
-edition = "2024"
+edition = "2021"
 license.workspace = true
 name = "xmtp_proto"
 version.workspace = true

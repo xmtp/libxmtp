@@ -1,6 +1,6 @@
 [package]
 name = "xmtp_common"
-edition = "2024"
+edition = "2021"
 version.workspace = true
 license.workspace = true
 
