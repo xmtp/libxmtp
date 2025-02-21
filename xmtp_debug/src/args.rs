@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use color_eyre::eyre;
+use color_eyre::eyre::{self, Result};
+use directories::ProjectDirs;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
@@ -25,6 +26,45 @@ pub struct AppOpts {
     /// Runs at the end of execution, so operations will still be carried out
     #[arg(long)]
     pub clear: bool,
+    /// Override the directory to store xdbg's data
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
+    /// Override the directory where sqlite dbs of clients are stored
+    #[arg(long)]
+    pub sqlite_dir: Option<PathBuf>,
+}
+
+impl AppOpts {
+    pub(super) fn data_directory(&self) -> Result<PathBuf> {
+        let data = if let Some(d) = &self.data_dir {
+            Ok(d.clone())
+        } else {
+            if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
+                Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
+            } else {
+                Err(eyre::eyre!("No Home Directory Path could be retrieved"))
+            }
+        }?;
+        Ok(data)
+    }
+
+    pub(super) fn db_directory(&self, network: impl Into<u64>) -> Result<PathBuf> {
+        let data = if let Some(o) = &self.sqlite_dir {
+            o
+        } else {
+            &self.data_directory()?
+        };
+        let data = self.data_directory()?;
+        let dir = data.join("sqlite").join(network.into().to_string());
+        Ok(dir)
+    }
+
+    pub(super) fn redb(&self) -> Result<PathBuf> {
+        let data = self.data_directory()?;
+        let mut dir = data.join("xdbg");
+        dir.set_extension("redb");
+        Ok(dir)
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -36,6 +76,19 @@ pub enum Commands {
     Query(Query),
     Info(InfoOpts),
     Export(ExportOpts),
+    Stream(Stream),
+}
+
+/// output stream of messages from a group to stdout
+#[derive(Args, Debug)]
+pub struct Stream {
+    /// inboxId of user to stream with
+    #[arg(long, short)]
+    pub inbox_id: InboxId,
+    /// import identity from a file instead of pulling from a database.
+    /// useful if multiple instances of xdbg running.
+    #[arg(long)]
+    pub import: Option<PathBuf>,
 }
 
 /// Send Data on the network
@@ -149,6 +202,9 @@ pub struct ExportOpts {
     /// File to write to
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+    /// Inbox Id to export, if any
+    #[arg(long, short)]
+    pub inbox_id: Option<String>,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -156,6 +212,7 @@ pub enum EntityKind {
     Group,
     Message,
     Identity,
+    SingleIdentity,
 }
 
 impl std::fmt::Display for EntityKind {
@@ -165,6 +222,7 @@ impl std::fmt::Display for EntityKind {
             Group => write!(f, "group"),
             Message => write!(f, "message"),
             Identity => write!(f, "identity"),
+            SingleIdentity => write!(f, "single identity"),
         }
     }
 }

@@ -266,9 +266,6 @@ impl super::native::ValidatedConnection for EncryptedConnection {
         if tracing::enabled!(tracing::Level::DEBUG) {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
-        } else {
-            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = WARN;")
-                .ok();
         }
         tracing::debug!("SQLCipher Database validated.");
         Ok(())

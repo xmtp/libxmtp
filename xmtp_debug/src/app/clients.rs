@@ -66,7 +66,7 @@ async fn new_client_inner(
     let dir = if let Some(p) = db_path {
         p
     } else {
-        let dir = crate::app::App::db_directory(&network)?;
+        let dir = crate::app::App::db_directory();
         let db_name = format!("{inbox_id}:{}.db3", u64::from(network));
         dir.join(db_name)
     };

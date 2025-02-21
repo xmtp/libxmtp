@@ -279,20 +279,20 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     // `Trait` yet.
 
     #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream<'a> = stream::BoxStream<'a, Result<GroupMessage, Error>>;
+    type GroupMessageStream = stream::BoxStream<'static, Result<GroupMessage, Error>>;
     #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream<'a> = stream::BoxStream<'a, Result<WelcomeMessage, Error>>;
+    type WelcomeMessageStream = stream::BoxStream<'static, Result<WelcomeMessage, Error>>;
 
     #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream<'a> = stream::LocalBoxStream<'a, Result<GroupMessage, Error>>;
+    type GroupMessageStream = stream::LocalBoxStream<'static, Result<GroupMessage, Error>>;
     #[cfg(target_arch = "wasm32")]
-    type WelcomeMessageStream<'a> = stream::LocalBoxStream<'a, Result<WelcomeMessage, Error>>;
+    type WelcomeMessageStream = stream::LocalBoxStream<'static, Result<WelcomeMessage, Error>>;
 
     #[tracing::instrument(skip_all)]
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
+    ) -> Result<Self::GroupMessageStream, Error> {
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
@@ -305,7 +305,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+    ) -> Result<Self::WelcomeMessageStream, Error> {
         tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,

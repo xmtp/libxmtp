@@ -7367,6 +7367,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "fs_extra",
+ "futures",
  "hex",
  "indicatif",
  "k256 0.13.4",

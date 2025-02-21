@@ -18,13 +18,14 @@ mod query;
 mod send;
 /// Local storage
 mod store;
+/// Streaming
+mod stream;
 /// Types shared between App Functions
 mod types;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
-use directories::ProjectDirs;
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, path::Path, path::PathBuf, sync::Arc};
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::{generate_inbox_id, unverified::UnverifiedSignature};
@@ -38,6 +39,15 @@ use crate::args::{self, AppOpts};
 
 pub use clients::*;
 
+use std::sync::OnceLock;
+pub static DIRECTORIES: OnceLock<Directories> = OnceLock::new();
+
+pub struct Directories {
+    data: PathBuf,
+    sqlite: PathBuf,
+    redb: PathBuf,
+}
+
 #[derive(Debug)]
 pub struct App {
     /// Local K/V Store/Cache for values
@@ -47,42 +57,41 @@ pub struct App {
 
 impl App {
     pub fn new(opts: AppOpts) -> Result<Self> {
-        fs::create_dir_all(&Self::data_directory()?)?;
-        fs::create_dir_all(&Self::db_directory(&opts.backend)?)?;
+        let data = opts.data_directory()?;
+        let db = opts.db_directory(&opts.backend)?;
+        let redb = opts.redb()?;
+        fs::create_dir_all(&data)?;
+        fs::create_dir_all(&db)?;
+
+        DIRECTORIES.get_or_init(|| Directories {
+            data,
+            sqlite: db,
+            redb,
+        });
         debug!(
-            directory = %Self::data_directory()?.display(),
-            sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
+            directory = %opts.data_directory()?.display(),
+            sqlite_stores = %opts.db_directory(&opts.backend)?.display(),
             "created project directories",
         );
         Ok(Self {
-            db: Arc::new(redb::Database::create(Self::redb()?)?),
+            db: Arc::new(redb::Database::create(Self::redb())?),
             opts,
         })
     }
 
-    /// All data stored here
-    fn data_directory() -> Result<PathBuf> {
-        let data = if let Some(dir) = ProjectDirs::from("org", "xmtp", "xdbg") {
-            Ok::<_, eyre::Report>(dir.data_dir().to_path_buf())
-        } else {
-            eyre::bail!("No Home Directory Path could be retrieved");
-        }?;
-        Ok(data)
+    pub fn data_directory() -> &'static Path {
+        let d = DIRECTORIES.get().expect("must exist for app to run");
+        d.data.as_path()
     }
 
-    /// Directory for all SQLite files
-    fn db_directory(network: impl Into<u64>) -> Result<PathBuf> {
-        let data = Self::data_directory()?;
-        let dir = data.join("sqlite").join(network.into().to_string());
-        Ok(dir)
+    pub fn db_directory() -> &'static Path {
+        let d = DIRECTORIES.get().expect("must exist for app to run");
+        d.sqlite.as_path()
     }
 
-    /// Directory for all SQLite files
-    fn redb() -> Result<PathBuf> {
-        let data = Self::data_directory()?;
-        let mut dir = data.join("xdbg");
-        dir.set_extension("redb");
-        Ok(dir)
+    pub fn redb() -> &'static Path {
+        let d = DIRECTORIES.get().expect("must exist for app to run");
+        d.redb.as_path()
     }
 
     pub async fn run(self) -> Result<()> {
@@ -101,6 +110,7 @@ impl App {
             eyre::bail!("No subcommand was specified");
         }
 
+        // can 100% turn this into a trait
         if let Some(cmd) = cmd {
             match cmd {
                 Generate(g) => generate::Generate::new(g, backend, db).run().await,
@@ -110,12 +120,13 @@ impl App {
                 Info(i) => info::Info::new(i, backend, db).run().await,
                 Export(e) => export::Export::new(e, db, backend).run(),
                 Modify(m) => modify::Modify::new(m, backend, db).run().await,
+                Stream(s) => stream::Stream::new(s, backend, db).run().await,
             }?;
         }
 
         if clear {
+            let data = Self::data_directory();
             info!("Clearing app data");
-            let data = Self::data_directory()?;
             let _ = std::fs::remove_dir_all(data);
         }
         Ok(())

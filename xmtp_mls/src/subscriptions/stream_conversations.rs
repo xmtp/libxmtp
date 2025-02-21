@@ -150,12 +150,12 @@ pin_project! {
 
 type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
 
-pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
-    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+pub(super) type WelcomesApiSubscription<C> = MultiplexedSelect<
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
     <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::Error,
 >;
 
-impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>
+impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<Client<A, V>>>
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,

@@ -37,8 +37,8 @@ impl<'a, A, V>
     StreamAllMessages<
         'a,
         Client<A, V>,
-        StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>,
-        StreamGroupMessages<'a, Client<A, V>, MessagesApiSubscription<'a, Client<A, V>>>,
+        StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<Client<A, V>>>,
+        StreamGroupMessages<'a, Client<A, V>, MessagesApiSubscription<Client<A, V>>>,
     >
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
@@ -82,7 +82,7 @@ impl<'a, C, Conversations> Stream
         'a,
         C,
         Conversations,
-        StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>,
+        StreamGroupMessages<'a, C, MessagesApiSubscription<C>>,
     >
 where
     C: ScopedGroupClient + Clone + 'a,

@@ -53,6 +53,13 @@ impl Generate {
                 info!("identitites generated");
                 Ok(())
             }
+            SingleIdentity => {
+                GenerateIdentity::new(db.into(), network)
+                    .create_identities(1)
+                    .await?;
+                info!("identities generated");
+                Ok(())
+            }
         }
     }
 }

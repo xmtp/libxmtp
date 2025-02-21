@@ -19,6 +19,7 @@ ecdsa = "0.16"
 ethers.workspace = true
 fdlimit.workspace = true
 fs_extra = "1.3"
+futures.workspace = true
 hex.workspace = true
 indicatif = "0.17"
 k256 = "0.13"

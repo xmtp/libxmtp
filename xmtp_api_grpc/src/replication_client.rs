@@ -402,20 +402,20 @@ impl XmtpMlsClient for ClientV4 {
 #[async_trait::async_trait]
 impl XmtpMlsStreams for ClientV4 {
     type Error = crate::Error;
-    type GroupMessageStream<'a> = GroupMessageStream;
-    type WelcomeMessageStream<'a> = WelcomeMessageStream;
+    type GroupMessageStream = GroupMessageStream;
+    type WelcomeMessageStream = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
         unimplemented!();
     }
 
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         unimplemented!();
     }
 }

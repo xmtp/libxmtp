@@ -310,7 +310,7 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -328,7 +328,7 @@ where
         &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {

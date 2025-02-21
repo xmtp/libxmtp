@@ -118,10 +118,10 @@ pin_project! {
     }
 }
 
-pub(super) type MessagesApiSubscription<'a, C> =
-    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>;
+pub(super) type MessagesApiSubscription<C> =
+    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::GroupMessageStream;
 
-impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<C>>
 where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
@@ -208,7 +208,7 @@ where
         client: &'a C,
         mut filters: Vec<GroupFilter>,
         new_group: Vec<u8>,
-    ) -> Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)> {
+    ) -> Result<(MessagesApiSubscription<C>, Vec<u8>, Option<u64>)> {
         // get the last synced cursor
         let last_cursor = {
             let provider = client.mls_provider()?;
@@ -234,7 +234,7 @@ where
     }
 }
 
-impl<'a, C> Stream for StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, C> Stream for StreamGroupMessages<'a, C, MessagesApiSubscription<C>>
 where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
@@ -295,7 +295,7 @@ impl<C, S> StreamGroupMessages<'_, C, S> {
     }
 }
 
-impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<C>>
 where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,

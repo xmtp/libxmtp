@@ -52,8 +52,8 @@ impl<'a> From<&'a Identity> for EthereumWallet {
 #[derive(valuable::Valuable, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Readable, Writable)]
 pub struct Identity {
     pub inbox_id: [u8; 32],
-    installation_key: [u8; 32],
-    eth_key: [u8; 32],
+    pub(crate) installation_key: [u8; 32],
+    pub(crate) eth_key: [u8; 32],
 }
 
 impl std::fmt::Display for Identity {
@@ -94,7 +94,7 @@ impl Identity {
 
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
-        let dir = crate::app::App::db_directory(network)?;
+        let dir = crate::app::App::db_directory();
         let db_name = format!("{}:{}.db3", hex::encode(self.inbox_id), network.into());
         Ok(dir.join(db_name))
     }
