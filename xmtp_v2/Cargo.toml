@@ -12,7 +12,7 @@ hkdf.workspace = true
 k256 = { version = "0.13.4", features = ["ecdh"] }
 rand = { workspace = true }
 sha2.workspace = true
-sha3.workspace = true 
+sha3.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["js"] }
