@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{ident, PublicIdentifier};
 
@@ -11,8 +13,17 @@ pub enum FfiPublicIdentifier {
 
 impl FfiPublicIdentifier {
     pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
-        let ident: PublicIdentifier = self.into()?;
+        let ident: PublicIdentifier = self.clone().try_into()?;
         Ok(ident.inbox_id(nonce)?)
+    }
+}
+
+impl Display for FfiPublicIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ethereum(addr) => write!(f, "{addr}"),
+            Self::Passkey(key) => write!(f, "{}", hex::encode(key)),
+        }
     }
 }
 
