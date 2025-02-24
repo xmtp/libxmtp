@@ -1,4 +1,5 @@
 use crate::conversations::Conversations;
+use crate::identity::PublicIdentifier;
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -91,7 +92,6 @@ fn init_logging(options: LogOptions) -> Result<()> {
           .json()
           .flatten_event(true)
           .with_level(true)
-          .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
           .with_target(true);
 
         tracing_subscriber::registry().with(filter).with(fmt).init();
@@ -211,7 +211,10 @@ impl Client {
   }
 
   #[napi]
-  pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<HashMap<String, bool>> {
+  pub async fn can_message(
+    &self,
+    account_identities: Vec<PublicIdentifier>,
+  ) -> Result<HashMap<String, bool>> {
     let results: HashMap<String, bool> = self
       .inner_client
       .can_message(&account_addresses)

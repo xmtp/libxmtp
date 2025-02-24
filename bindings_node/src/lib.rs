@@ -6,6 +6,7 @@ mod consent_state;
 mod conversation;
 mod conversations;
 mod encoded_content;
+mod identity;
 pub mod inbox_id;
 mod inbox_state;
 mod message;
