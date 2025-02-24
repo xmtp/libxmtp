@@ -31,16 +31,18 @@ use tracing_subscriber::{
     Registry,
 };
 use valuable::Valuable;
+use xmtp_api::Identifier;
 use xmtp_api_grpc::replication_client::ClientV4;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, Error as GrpcError};
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
-use xmtp_id::associations::{generate_inbox_id, AssociationError, AssociationState, MemberKind};
+use xmtp_id::associations::{AssociationError, AssociationState, MemberKind, PublicIdentifier};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
@@ -189,7 +191,7 @@ enum Wallet {
 }
 
 impl InboxOwner for Wallet {
-    fn get_identifier(&self) -> String {
+    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
         match self {
             Wallet::LocalWallet(w) => w.get_identifier(),
         }
@@ -292,7 +294,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             info!(
                 command_output = true,
                 inbox_id = client.inbox_id(),
-                recovery_address = recovery,
+                recovery_address = format!("{recovery:?}"),
                 installation_ids = &ids.as_value(),
                 addressess = &addrs.as_value(),
                 "identity info",
@@ -382,7 +384,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 .expect("failed to get group");
 
             group
-                .add_members(account_addresses)
+                .add_members(&address_to_identity(account_addresses))
                 .await
                 .expect("failed to add member");
 
@@ -403,7 +405,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 .expect("failed to get group");
 
             group
-                .remove_members(account_addresses)
+                .remove_members(&address_to_identity(account_addresses))
                 .await
                 .expect("failed to add member");
 
@@ -498,11 +500,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
             debug::handle_debug(&client, debug_commands).await.unwrap();
         }
         Commands::GetInboxId { account_address } => {
-            let mapping = client
-                .api()
-                .get_inbox_ids(vec![account_address.clone()])
-                .await?;
-            let inbox_id = mapping.get(account_address).unwrap();
+            let ident = address_to_identity(&[account_address]).pop().unwrap();
+            let api_ident: Identifier = ident.into();
+            let mapping = client.api().get_inbox_ids(vec![api_ident.clone()]).await?;
+            let inbox_id = mapping.get(&api_ident).unwrap();
             info!("Inbox_id {inbox_id}");
         }
     }
@@ -554,10 +555,11 @@ where
     };
 
     let nonce = 0;
-    let inbox_id = generate_inbox_id(&w.get_identifier(), &nonce)?;
+    let ident = w.get_identifier().expect("Wallet address is invalid");
+    let inbox_id = ident.inbox_id(nonce)?;
     let client = create_client(
         cli,
-        IdentityStrategy::new(inbox_id, w.get_identifier(), nonce, None),
+        IdentityStrategy::new(inbox_id, ident, nonce, None),
         client,
     )
     .await?;
@@ -667,8 +669,10 @@ fn pretty_delta(now: u64, then: u64) -> String {
     f.convert(Duration::from_nanos(diff))
 }
 
-fn pretty_association_state(state: &AssociationState) -> (String, Vec<String>, Vec<String>) {
-    let recovery_address = state.recovery_address().clone();
+fn pretty_association_state(
+    state: &AssociationState,
+) -> (PublicIdentifier, Vec<String>, Vec<String>) {
+    let recovery_ident = state.recovery_identifier().clone();
     let installation_ids = state
         .installation_ids()
         .into_iter()
@@ -681,5 +685,12 @@ fn pretty_association_state(state: &AssociationState) -> (String, Vec<String>, V
         .map(|m| m.identifier.to_eth_address().unwrap())
         .collect::<Vec<String>>();
 
-    (recovery_address, installation_ids, addresses)
+    (recovery_ident, installation_ids, addresses)
+}
+
+fn address_to_identity(addresses: &[impl AsRef<str>]) -> Vec<PublicIdentifier> {
+    addresses
+        .iter()
+        .map(|addr| PublicIdentifier::eth(addr.as_ref()).expect("Eth address is invalid"))
+        .collect()
 }
