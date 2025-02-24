@@ -550,7 +550,6 @@ impl DbConnection {
                     .collect(),
             )
         })
-        .map_err(Into::into)
     }
 }
 
