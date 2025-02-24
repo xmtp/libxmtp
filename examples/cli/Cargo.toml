@@ -20,7 +20,7 @@ ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
 openmls = { workspace = true }
-owo-colors = "4.1"
+owo-colors = "4.2"
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

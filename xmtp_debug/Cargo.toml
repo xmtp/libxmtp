@@ -25,12 +25,12 @@ k256 = "0.13"
 lipsum = "0.9"
 miniserde = "0.1"
 openmls.workspace = true
-owo-colors = "4.1"
+owo-colors = "4.2"
 prost.workspace = true
 rand.workspace = true
 redb = "2.4"
 speedy = "0.8"
-tempfile = "3.15"
+tempfile = "3.17"
 thiserror.workspace = true
 tokio = "1.43"
 tracing = { workspace = true, features = ["valuable"] }

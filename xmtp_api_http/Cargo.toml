@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 async-trait.workspace = true
-bytes = "1.9"
+bytes = "1.10"
 futures = { workspace = true, default-features = false }
 pin-project-lite = "0.2.15"
 reqwest.workspace = true
