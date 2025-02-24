@@ -1158,14 +1158,6 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
-    #[cfg(test)]
-    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        let sync_group = inner.get_sync_group(&conn)?;
-        Ok(sync_group.into())
-    }
-
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: String,
@@ -1419,6 +1411,16 @@ impl FfiConversations {
         }
 
         Ok(hmac_map)
+    }
+}
+
+#[cfg(test)]
+impl FfiConversations {
+    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
+        Ok(sync_group.into())
     }
 }
 
