@@ -2,6 +2,7 @@ import {
   ConsentState,
   EncodedContent,
   Message,
+  MessageDisappearingSettings,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
@@ -11,6 +12,7 @@ import {
   createRegisteredClient,
   createUser,
   encodeTextMessage,
+  sleep,
 } from '@test/helpers'
 
 describe.concurrent('Conversation', () => {
@@ -409,5 +411,187 @@ describe.concurrent('Conversation', () => {
       updateGroupImageUrlSquarePolicy: 2,
       updateMessageDisappearingPolicy: 2,
     })
+  })
+
+  it('should handle disappearing messages in a group', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // create message disappearing settings so that messages are deleted after 1 second
+    const messageDisappearingSettings: MessageDisappearingSettings = {
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    }
+
+    // create a group with message disappearing settings
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
+        messageDisappearingSettings,
+      })
+
+    // verify that the message disappearing settings are set and enabled
+    expect(conversation.messageDisappearingSettings()).toEqual({
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    })
+    expect(conversation.isMessageDisappearingEnabled()).toBe(true)
+
+    // send messages to the group
+    await conversation.send(encodeTextMessage('gm'))
+    await conversation.send(encodeTextMessage('gm2'))
+
+    // verify that the messages are sent
+    expect((await conversation.findMessages()).length).toBe(3)
+
+    // sync the messages to the other client
+    await client2.conversations().sync()
+    const conversation2 = client2
+      .conversations()
+      .findGroupById(conversation.id())
+    await conversation2!.sync()
+
+    // verify that the message disappearing settings are set and enabled
+    expect(conversation2!.messageDisappearingSettings()).toEqual({
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    })
+    expect(conversation2!.isMessageDisappearingEnabled()).toBe(true)
+
+    // wait for the messages to be deleted
+    await sleep(2000)
+
+    // verify that the messages are deleted
+    expect((await conversation.findMessages()).length).toBe(1)
+
+    // verify that the messages are deleted on the other client
+    expect((await conversation2!.findMessages()).length).toBe(0)
+
+    // remove the message disappearing settings
+    await conversation.removeMessageDisappearingSettings()
+
+    // verify that the message disappearing settings are removed
+    expect(conversation.messageDisappearingSettings()).toEqual({
+      fromNs: 0,
+      inNs: 0,
+    })
+
+    expect(conversation.isMessageDisappearingEnabled()).toBe(false)
+
+    // sync other group
+    await conversation2!.sync()
+
+    // verify that the message disappearing settings are set and disabled
+    expect(conversation2!.messageDisappearingSettings()).toEqual({
+      fromNs: 0,
+      inNs: 0,
+    })
+    expect(conversation2!.isMessageDisappearingEnabled()).toBe(false)
+
+    // send messages to the group
+    await conversation2!.send(encodeTextMessage('gm'))
+    await conversation2!.send(encodeTextMessage('gm2'))
+
+    // verify that the messages are sent
+    expect((await conversation2!.findMessages()).length).toBe(4)
+
+    // sync original group
+    await conversation.sync()
+
+    // verify that the messages are not deleted
+    expect((await conversation.findMessages()).length).toBe(5)
+  })
+
+  it('should handle disappearing messages in a DM group', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+
+    // create message disappearing settings so that messages are deleted after 1 second
+    const messageDisappearingSettings: MessageDisappearingSettings = {
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    }
+
+    // create a group with message disappearing settings
+    const conversation = await client1
+      .conversations()
+      .createDm(user2.account.address, {
+        messageDisappearingSettings,
+      })
+
+    // verify that the message disappearing settings are set and enabled
+    expect(conversation.messageDisappearingSettings()).toEqual({
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    })
+    expect(conversation.isMessageDisappearingEnabled()).toBe(true)
+
+    // send messages to the group
+    await conversation.send(encodeTextMessage('gm'))
+    await conversation.send(encodeTextMessage('gm2'))
+
+    // verify that the messages are sent
+    expect((await conversation.findMessages()).length).toBe(3)
+
+    // sync the messages to the other client
+    await client2.conversations().sync()
+    const conversation2 = client2
+      .conversations()
+      .findGroupById(conversation.id())
+    await conversation2!.sync()
+
+    // verify that the message disappearing settings are set and enabled
+    expect(conversation2!.messageDisappearingSettings()).toEqual({
+      fromNs: 1_000_000,
+      inNs: 1_000_000,
+    })
+    expect(conversation2!.isMessageDisappearingEnabled()).toBe(true)
+
+    // wait for the messages to be deleted
+    await sleep(2000)
+
+    // verify that the messages are deleted
+    expect((await conversation.findMessages()).length).toBe(1)
+
+    // verify that the messages are deleted on the other client
+    expect((await conversation2!.findMessages()).length).toBe(0)
+
+    // remove the message disappearing settings
+    await conversation.removeMessageDisappearingSettings()
+
+    // verify that the message disappearing settings are removed
+    expect(conversation.messageDisappearingSettings()).toEqual({
+      fromNs: 0,
+      inNs: 0,
+    })
+
+    expect(conversation.isMessageDisappearingEnabled()).toBe(false)
+
+    // sync other group
+    await conversation2!.sync()
+
+    // verify that the message disappearing settings are set and disabled
+    expect(conversation2!.messageDisappearingSettings()).toEqual({
+      fromNs: 0,
+      inNs: 0,
+    })
+    expect(conversation2!.isMessageDisappearingEnabled()).toBe(false)
+
+    // send messages to the group
+    await conversation2!.send(encodeTextMessage('gm'))
+    await conversation2!.send(encodeTextMessage('gm2'))
+
+    // verify that the messages are sent
+    expect((await conversation2!.findMessages()).length).toBe(4)
+
+    // sync original group
+    await conversation.sync()
+
+    // verify that the messages are not deleted
+    expect((await conversation.findMessages()).length).toBe(5)
   })
 })
