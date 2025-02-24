@@ -184,12 +184,14 @@ impl XmtpDb for NativeDb {
     }
 
     fn release_connection(&self) -> Result<(), StorageError> {
+        tracing::warn!("released sqlite database connection");
         let mut pool_guard = self.pool.write();
         pool_guard.take();
         Ok(())
     }
 
     fn reconnect(&self) -> Result<(), StorageError> {
+        tracing::info!("reconnecting sqlite database connection");
         let mut builder = Pool::builder();
 
         if let Some(ref opts) = self.customizer {
