@@ -2595,14 +2595,19 @@ mod tests {
     };
     use ethers::utils::hex;
     use prost::Message;
+    use rand::Rng;
     use std::{
         collections::HashMap,
         sync::{
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
         },
+        time::Duration,
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use tokio::{
+        sync::Notify,
+        time::{error::Elapsed, Instant},
+    };
     use xmtp_common::time::now_ns;
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
@@ -2792,27 +2797,36 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, None, None).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
+        )
+        .await
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
+        host: Option<String>,
+        is_secure: Option<bool>,
     ) -> Arc<FfiXmtpClient> {
+        // Use a default for `host` if None is provided.
+        let host = host.unwrap_or_else(|| xmtp_api_grpc::LOCALHOST_ADDRESS.to_string());
+        // Use a default for `is_secure` if None is provided.
+        let is_secure = is_secure.unwrap_or(false);
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let nonce = 1;
         let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
+            connect_to_backend(host, is_secure).await.unwrap(),
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
@@ -2838,8 +2852,24 @@ mod tests {
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
+        )
+        .await
+    }
+
+    async fn new_dev_test_client() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            None,
+            Some(xmtp_api_grpc::DEV_ADDRESS.to_string()),
+            Some(false),
+        )
+        .await
     }
 
     impl FfiConversation {
@@ -7058,5 +7088,132 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+
+    #[tokio::test]
+    async fn test_create_dm_performance() {
+        let alix_client = new_dev_test_client().await;
+        let bo_client = new_dev_test_client().await;
+
+        let start = Instant::now();
+        let _dm = alix_client
+            .conversations()
+            .find_or_create_dm(
+                bo_client.account_address.clone(),
+                FfiCreateDMOptions::default(),
+            )
+            .await
+            .expect("DM creation should succeed");
+        let elapsed = start.elapsed();
+
+        println!("created a DM in: {}ms", elapsed.as_millis());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "DM creation took too long: {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_gm_performance() {
+        let alix_client = new_dev_test_client().await;
+        let bo_client = new_dev_test_client().await;
+
+        // Create a DM first.
+        let dm = alix_client
+            .conversations()
+            .find_or_create_dm(
+                bo_client.account_address.clone(),
+                FfiCreateDMOptions::default(),
+            )
+            .await
+            .expect("DM creation should succeed");
+
+        // Create a random gm message.
+        let random_number: u32 = rand::thread_rng().gen_range(1..=999_999);
+        let gm_message = format!("gm-{}", random_number);
+
+        let start = Instant::now();
+        dm.send(gm_message.into())
+            .await
+            .expect("Sending gm message should succeed");
+        let elapsed = start.elapsed();
+
+        println!("sendGmTime: {}ms", elapsed.as_millis());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "Sending gm message took too long: {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_group_performance() {
+        let alix_client = new_dev_test_client().await;
+        let bo_client = new_dev_test_client().await;
+        let caro_client = new_dev_test_client().await;
+        let davon_client = new_dev_test_client().await;
+
+        let start = Instant::now();
+        let _group = alix_client
+            .conversations()
+            .create_group(
+                vec![
+                    bo_client.account_address.clone(),
+                    caro_client.account_address.clone(),
+                    davon_client.account_address.clone(),
+                ],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .expect("Group creation should succeed");
+        let elapsed = start.elapsed();
+
+        println!("createGroupTime: {}ms", elapsed.as_millis());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "Group creation took too long: {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_gm_in_group_performance() {
+        let alix_client = new_dev_test_client().await;
+        let bo_client = new_dev_test_client().await;
+        let caro_client = new_dev_test_client().await;
+        let davon_client = new_dev_test_client().await;
+
+        // Create a group first.
+        let group = alix_client
+            .conversations()
+            .create_group(
+                vec![
+                    bo_client.account_address.clone(),
+                    caro_client.account_address.clone(),
+                    davon_client.account_address.clone(),
+                ],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .expect("Group creation should succeed");
+
+        // Create a random gm message for the group.
+        let random_number: u32 = rand::thread_rng().gen_range(1..=999_999);
+        let group_message = format!("gm-{}", random_number);
+
+        let start = Instant::now();
+        group
+            .send(group_message.into())
+            .await
+            .expect("Sending group gm message should succeed");
+        let elapsed = start.elapsed();
+
+        println!("sendGmInGroupTime: {}ms", elapsed.as_millis());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "Sending group gm message took too long: {}ms",
+            elapsed.as_millis()
+        );
     }
 }
