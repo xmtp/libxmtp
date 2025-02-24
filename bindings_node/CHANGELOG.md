@@ -1,5 +1,17 @@
 # @xmtp/node-bindings
 
+## 0.0.38
+
+- Added `version.json` to package
+- Added new methods to create groups by inbox ID
+- Added consent states option to `sync_all_conversations`
+- Updated list conversations options to include `consent_states` and `include_duplicate_dms`
+- Removed automatic message filtering from DM groups
+- Added disappearing messages methods to conversations
+- Updated conversations list methods to return conversations and their last message
+- Added consent streaming
+- Added preferences streaming
+
 ## 0.0.37
 
 - Removed group pinned frame URL
