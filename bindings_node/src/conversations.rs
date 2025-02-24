@@ -97,13 +97,17 @@ pub struct ListConversationsOptions {
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
     GroupQueryArgs {
-      created_before_ns: opts.created_before_ns,
-      created_after_ns: opts.created_after_ns,
-      limit: opts.limit,
+      allowed_states: opts
+        .allowed_states
+        .map(|vec| vec.into_iter().map(Into::into).collect()),
       consent_states: opts
         .consent_states
         .map(|vec| vec.into_iter().map(Into::into).collect()),
+      conversation_type: opts.conversation_type.map(Into::into),
+      created_before_ns: opts.created_before_ns,
+      created_after_ns: opts.created_after_ns,
       include_duplicate_dms: opts.include_duplicate_dms,
+      limit: opts.limit,
       ..Default::default()
     }
   }
