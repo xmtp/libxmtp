@@ -30,7 +30,7 @@
     "format": "prettier -w .",
     "format:check": "prettier -c .",
     "lint": "yarn lint:clippy && yarn lint:fmt",
-    "lint:clippy": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
+    "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
