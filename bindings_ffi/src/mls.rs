@@ -1158,6 +1158,14 @@ impl FfiConversations {
             .map_err(Into::into)
     }
 
+    #[cfg(test)]
+    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
+        Ok(sync_group.into())
+    }
+
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: String,
@@ -2692,7 +2700,7 @@ mod tests {
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
         FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError, GenericError,
+        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -6355,13 +6363,17 @@ mod tests {
         alix.set_consent_states(vec![FfiConsent {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::Identity,
-            entity: format!("{}", bo.account_identifier.into()),
+            entity: format!("{}", bo.account_identifier),
             identity_kind: Some(FfiConsentIdentityKind::Ethereum),
         }])
         .await
         .unwrap();
         let bo_consent = alix
-            .get_consent_state(FfiConsentEntityType::Identity, bo.account_identifier, None)
+            .get_consent_state(
+                FfiConsentEntityType::Identity,
+                bo.account_identifier.to_string(),
+                Some(FfiConsentIdentityKind::Ethereum),
+            )
             .await
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
@@ -6468,9 +6480,10 @@ mod tests {
     async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         // Step 1: Generate wallet A
         let wallet_a = generate_local_wallet();
+        let ident_a = wallet_a.public_identifier();
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_identifier(), &1).unwrap();
+        let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6478,7 +6491,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_identifier(),
+            wallet_a.get_identifier().unwrap().into(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6490,10 +6503,11 @@ mod tests {
 
         // Step 3: Generate wallet B
         let wallet_b = generate_local_wallet();
+        let wallet_b_ident = wallet_b.public_identifier();
 
         // Step 4: Associate wallet B to inbox A
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_identifier())
+            .add_identity(wallet_b.public_identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6515,7 +6529,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            wallet_b.get_identifier(),
+            wallet_b.get_identifier().unwrap().into(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6534,7 +6548,7 @@ mod tests {
         let bo_dm = bo
             .conversations()
             .find_or_create_dm(
-                wallet_a.get_identifier().clone(),
+                wallet_a.public_identifier().into(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -6573,7 +6587,7 @@ mod tests {
         assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
-        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_identifier(), &nonce).unwrap();
+        let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6581,7 +6595,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            wallet_b.get_identifier(),
+            wallet_b.get_identifier().unwrap().into(),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6606,7 +6620,8 @@ mod tests {
     async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
         // Step 1: Wallet A creates a new client with inbox_id A
         let wallet_a = generate_local_wallet();
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_identifier(), &1).unwrap();
+        let ident_a = wallet_a.public_identifier();
+        let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6614,7 +6629,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_identifier(),
+            wallet_a.get_identifier().unwrap().into(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6626,7 +6641,8 @@ mod tests {
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
-        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_identifier(), &1).unwrap();
+        let ident_b = wallet_b.public_identifier();
+        let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6634,7 +6650,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_identifier(),
+            wallet_b.get_identifier().unwrap().into(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6652,7 +6668,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_identifier(),
+            wallet_b.public_identifier().into(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6662,7 +6678,7 @@ mod tests {
 
         // Step 4: Client A adds association to wallet B
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_identifier())
+            .add_identity(wallet_b.public_identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6681,7 +6697,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_identifier(),
+            wallet_b.public_identifier().into(),
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
