@@ -13,7 +13,21 @@ pub async fn new_registered_client(
     } else {
         generate_wallet().into_ethers()
     };
-    new_client_inner(network, &local_wallet, None).await
+    new_client_inner(&network, &local_wallet, None).await
+}
+
+/// creates a new installation from an existing Identity
+/// uses the ethereum wallet and inbox id
+pub async fn new_installation_from_identity(
+    identity: Identity,
+    network: &args::BackendOpts,
+) -> Result<crate::DbgClient> {
+    let wallet = identity.wallet();
+    debug!(
+        inbox_id = hex::encode(identity.inbox_id),
+        "creating new installation from identity"
+    );
+    new_client_inner(network, &wallet.into_ethers(), None).await
 }
 
 /// Create a new client + Identity
@@ -32,7 +46,7 @@ pub async fn temp_client(
     let name = format!("{public}:{}.db3", u64::from(network));
 
     new_client_inner(
-        network.clone(),
+        network,
         &local_wallet,
         Some(tmp_dir.to_path_buf().join(name)),
     )
@@ -54,7 +68,7 @@ pub async fn client_from_identity(
 
 /// Create a new client + Identity & register it
 async fn new_client_inner(
-    network: args::BackendOpts,
+    network: &args::BackendOpts,
     wallet: &LocalWallet,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {

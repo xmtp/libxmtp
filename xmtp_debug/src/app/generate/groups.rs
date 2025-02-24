@@ -47,7 +47,12 @@ impl GenerateGroups {
         let mut rng = rand::thread_rng();
         for _ in 0..n {
             let identity = self.identity_store.random(network, &mut rng)?.unwrap();
-            let invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
+            // this will not use the same identity twice
+            let mut invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
+            // make sure not to use the owner of the group as an invitee
+            if let Some(index) = invitees.iter().position(|i| *i == identity) {
+                invitees.swap_remove(index);
+            }
             let bar_pointer = bar.clone();
             let network = network.clone();
             handles.push(set.spawn(async move {

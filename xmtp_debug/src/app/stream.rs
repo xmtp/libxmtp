@@ -2,14 +2,13 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
 
-use crate::args;
+use crate::{app::clients, args};
 use color_eyre::eyre::{eyre, Result};
 use futures::stream::StreamExt;
-use rand::prelude::*;
 
 use super::{
     export::IdentityExport,
-    store::{Database, GroupStore, IdentityStore},
+    store::{Database, IdentityStore},
     types::Identity,
 };
 
@@ -37,6 +36,9 @@ impl Stream {
             file.read_to_string(&mut s)?;
             let json: IdentityExport = miniserde::json::from_str(&s)?;
             let identity: Identity = json.try_into()?;
+            // create a new installation
+            let _ =
+                clients::new_installation_from_identity(identity.clone(), &self.network).await?;
             assert_eq!(
                 identity.inbox_id, *inbox_id,
                 "imported inbox id and provided inbox id must match"
@@ -52,7 +54,7 @@ impl Stream {
             id
         };
 
-        let client = crate::app::clients::client_from_identity(&identity, &self.network).await?;
+        let client = clients::client_from_identity(&identity, &self.network).await?;
         let mut stream = client.stream_all_messages(None).await?;
         let mut stream = std::pin::pin!(stream);
         while let Some(m) = stream.next().await {

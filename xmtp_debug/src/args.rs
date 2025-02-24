@@ -54,7 +54,6 @@ impl AppOpts {
         } else {
             &self.data_directory()?
         };
-        let data = self.data_directory()?;
         let dir = data.join("sqlite").join(network.into().to_string());
         Ok(dir)
     }

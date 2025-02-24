@@ -92,6 +92,10 @@ impl Identity {
         EthereumWallet::from_bytes(self.eth_key).address()
     }
 
+    pub fn wallet(&self) -> EthereumWallet {
+        EthereumWallet::from_bytes(self.eth_key)
+    }
+
     /// SQLite database path for this identity
     pub fn db_path(&self, network: impl Into<u64> + Copy) -> Result<std::path::PathBuf> {
         let dir = crate::app::App::db_directory();
