@@ -85,7 +85,8 @@ pub struct Stream {
     #[arg(long, short)]
     pub inbox_id: InboxId,
     /// import identity from a file instead of pulling from a database.
-    /// useful if multiple instances of xdbg running.
+    /// This creates a new installation for the identity.
+    /// useful for testing multiple version of libxmtp.
     #[arg(long)]
     pub import: Option<PathBuf>,
 }

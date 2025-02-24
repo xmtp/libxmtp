@@ -30,6 +30,7 @@ impl Stream {
             ref import,
         } = self.opts;
 
+        // setup the identity
         let identity: Identity = if let Some(file) = import {
             let mut file = File::open(file)?;
             let mut s = String::new();
