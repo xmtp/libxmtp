@@ -1,7 +1,9 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
+use xmtp_id::associations::PublicIdentifier;
 use xmtp_mls::storage::consent_record::{
-  ConsentState as XmtpConsentState, StoredConsentRecord, StoredConsentType as XmtpConsentType,
+  ConsentEntity, ConsentState as XmtpConsentState, StoredConsentRecord,
+  StoredConsentType as XmtpConsentType, StoredIdentityKind as XmtpConsentIdentityKind,
 };
 
 use crate::{client::Client, ErrorWrapper};
@@ -37,7 +39,7 @@ impl From<ConsentState> for XmtpConsentState {
 pub enum ConsentEntityType {
   GroupId,
   InboxId,
-  Address,
+  Identity,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -45,7 +47,22 @@ impl From<ConsentEntityType> for XmtpConsentType {
     match entity_type {
       ConsentEntityType::GroupId => XmtpConsentType::ConversationId,
       ConsentEntityType::InboxId => XmtpConsentType::InboxId,
-      ConsentEntityType::Address => XmtpConsentType::Identity,
+      ConsentEntityType::Identity => XmtpConsentType::Identity,
+    }
+  }
+}
+
+#[napi]
+pub enum ConsentIdentityKind {
+  Ethereum,
+  Passkey,
+}
+
+impl From<ConsentIdentityKind> for XmtpConsentIdentityKind {
+  fn from(kind: ConsentIdentityKind) -> Self {
+    match kind {
+      ConsentIdentityKind::Passkey => Self::Passkey,
+      ConsentIdentityKind::Ethereum => Self::Ethereum,
     }
   }
 }
@@ -55,6 +72,7 @@ pub struct Consent {
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
   pub entity: String,
+  pub identity_kind: Option<ConsentIdentityKind>,
 }
 
 impl From<Consent> for StoredConsentRecord {
@@ -63,6 +81,7 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+      identity_kind: consent.identity_kind.map(Into::into),
     }
   }
 }
@@ -87,7 +106,27 @@ impl Client {
     &self,
     entity_type: ConsentEntityType,
     entity: String,
+    identifier_kind: Option<ConsentIdentityKind>,
   ) -> Result<ConsentState> {
+    let consent_entity = match entity_type {
+      ConsentEntityType::GroupId => {
+        ConsentEntity::ConversationId(hex::decode(entity).map_err(ErrorWrapper::from)?)
+      }
+      ConsentEntityType::InboxId => ConsentEntity::InboxId(entity),
+      ConsentEntityType::Identity => {
+        let Some(kind) = identifier_kind else {
+          return Err(ErrorWrapper::from(
+            "Identifier kind is required when entity type is Identity".to_string(),
+          ));
+        };
+        let ident = match kind {
+          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity),
+          ConsentIdentityKind::Ethereum => PublicIdentifier::eth(&entity),
+        };
+        ConsentEntity::Identity(ident)
+      }
+    };
+
     let result = self
       .inner_client()
       .get_consent_state(entity_type.into(), entity)
