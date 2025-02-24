@@ -1,4 +1,4 @@
-use crate::identity::{FfiCollectionExt, FfiPublicIdentifier};
+use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiPublicIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
@@ -1892,12 +1892,20 @@ impl FfiConversation {
 
     pub async fn add_members(
         &self,
-        account_addresses: Vec<FfiPublicIdentifier>,
+        account_identifiers: Vec<FfiPublicIdentifier>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
-        log::info!("adding members: {}", account_addresses.join(","));
+        let account_identifiers = account_identifiers.to_internal()?;
+        log::info!(
+            "adding members: {}",
+            account_identifiers
+                .iter()
+                .map(|ident| format!("{ident}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
 
         self.inner
-            .add_members(&account_addresses)
+            .add_members(&account_identifiers)
             .await
             .map(FfiUpdateGroupMembershipResult::from)
             .map_err(Into::into)
@@ -1916,9 +1924,12 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
-    pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
+    pub async fn remove_members(
+        &self,
+        account_identifiers: Vec<FfiPublicIdentifier>,
+    ) -> Result<(), GenericError> {
         self.inner
-            .remove_members(&account_addresses)
+            .remove_members(&account_identifiers.to_internal()?)
             .await
             .map_err(Into::into)
     }
@@ -2496,6 +2507,14 @@ impl From<FfiConsent> for StoredConsentRecord {
         }
     }
 }
+impl From<FfiConsentIdentityKind> for StoredIdentityKind {
+    fn from(kind: FfiConsentIdentityKind) -> Self {
+        match kind {
+            FfiConsentIdentityKind::Ethereum => Self::Ethereum,
+            FfiConsentIdentityKind::Passkey => Self::Passkey,
+        }
+    }
+}
 
 type FfiHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 
@@ -2664,15 +2683,16 @@ mod tests {
     };
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind,
-        FfiConsentState, FfiContentType, FfiConversation, FfiConversationCallback,
-        FfiConversationMessageKind, FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection,
-        FfiGroupPermissionsOptions, FfiInboxOwner, FfiListConversationsOptions,
-        FfiListMessagesOptions, FfiMessageDisappearingSettings, FfiMessageWithReactions,
-        FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
-        FfiRemoteAttachmentInfo, FfiSubscribeError,
+        encode_multi_remote_attachment, encode_reaction,
+        identity::FfiPublicIdentifier,
+        inbox_owner::{IdentityValidationError, SigningError},
+        FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind, FfiConsentState, FfiContentType,
+        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError, GenericError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2696,7 +2716,7 @@ mod tests {
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
-        generate_inbox_id,
+        test_utils::WalletTestExt,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
@@ -2721,6 +2741,10 @@ mod tests {
             Self { wallet }
         }
 
+        pub fn public_identifier(&self) -> FfiPublicIdentifier {
+            self.wallet.public_identifier().into()
+        }
+
         pub fn new() -> Self {
             Self {
                 wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
@@ -2729,8 +2753,9 @@ mod tests {
     }
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
-        fn get_address(&self) -> String {
-            self.wallet.get_identifier()
+        fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError> {
+            let ident = self.wallet.get_identifier()?;
+            Ok(ident.into())
         }
 
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
@@ -2888,8 +2913,10 @@ mod tests {
         history_sync_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.public_identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -2897,7 +2924,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             history_sync_url,
@@ -2936,15 +2963,14 @@ mod tests {
         let client = new_test_client().await;
         let real_inbox_id = client.inbox_id();
 
-        let from_network = get_inbox_id_for_address(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            client.account_address.clone(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let id = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let from_network = get_inbox_id_for_address(client.account_address.clone())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(real_inbox_id, from_network);
     }
@@ -2952,10 +2978,13 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_legacy_identity() {
-        let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
+        let ident = FfiPublicIdentifier::Ethereum(
+            "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
+        );
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
@@ -2964,7 +2993,7 @@ mod tests {
             Some(tmp_path()),
             None,
             &inbox_id,
-            account_address.to_string(),
+            ident,
             nonce,
             Some(legacy_keys),
             None,
@@ -2978,8 +3007,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ident = ffi_inbox_owner.public_identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
 
@@ -2990,7 +3020,7 @@ mod tests {
             Some(path.clone()),
             None,
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3009,7 +3039,7 @@ mod tests {
             Some(path),
             None,
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3030,7 +3060,8 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&ffi_inbox_owner.get_identifier().unwrap(), &nonce).unwrap();
 
         let path = tmp_path();
 
@@ -3043,7 +3074,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3063,7 +3094,7 @@ mod tests {
             Some(path),
             Some(other_key.to_vec()),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3105,7 +3136,8 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&ffi_inbox_owner.get_identifier().unwrap(), &nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -3116,7 +3148,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3171,7 +3203,8 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id =
+            generate_inbox_id(&ffi_inbox_owner.get_identifier().unwrap(), &nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -3182,7 +3215,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3260,7 +3293,7 @@ mod tests {
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = generate_inbox_id(&inbox_owner.get_identifier().unwrap(), &nonce).unwrap();
         let path = tmp_path();
 
         let client = create_client(
@@ -3270,7 +3303,7 @@ mod tests {
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
-            inbox_owner.get_address(),
+            inbox_owner.get_identifier().unwrap(),
             nonce,
             None, // v2_signed_private_key_proto
             None,
@@ -3286,9 +3319,9 @@ mod tests {
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce).unwrap();
+        let amal_inbox_id = generate_inbox_id(&amal.get_identifier().unwrap(), &nonce).unwrap();
         let bola = LocalWalletInboxOwner::new();
-        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce).unwrap();
+        let bola_inbox_id = generate_inbox_id(&bola.get_identifier().unwrap(), &nonce).unwrap();
         let path = tmp_path();
 
         let client_amal = create_client(
@@ -3298,7 +3331,7 @@ mod tests {
             Some(path.clone()),
             None,
             &amal_inbox_id,
-            amal.get_address(),
+            amal.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3306,13 +3339,13 @@ mod tests {
         .await
         .unwrap();
         let can_message_result = client_amal
-            .can_message(vec![bola.get_address()])
+            .can_message(vec![bola.get_identifier().unwrap()])
             .await
             .unwrap();
 
         assert!(
             can_message_result
-                .get(&bola.get_address().to_string())
+                .get(&bola.get_identifier().unwrap().to_string())
                 .map(|&value| !value)
                 .unwrap_or(false),
             "Expected the can_message result to be false for the address"
@@ -3325,7 +3358,7 @@ mod tests {
             Some(path.clone()),
             None,
             &bola_inbox_id,
-            bola.get_address(),
+            bola.get_identifier().unwrap(),
             nonce,
             None,
             None,
@@ -3335,13 +3368,13 @@ mod tests {
         register_client(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
-            .can_message(vec![bola.get_address()])
+            .can_message(vec![bola.get_identifier().unwrap()])
             .await
             .unwrap();
 
         assert!(
             can_message_result2
-                .get(&bola.get_address().to_string())
+                .get(&bola.get_identifier().unwrap().to_string())
                 .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"

@@ -16,7 +16,7 @@ use xmtp_proto::{
 };
 
 #[derive(Clone, Eq, PartialEq, Hash)]
-/// A MemberIdentifier identifies members
+/// All identity logic happens here
 pub enum MemberIdentifier {
     Installation(ident::Installation),
     Ethereum(ident::Ethereum),
@@ -24,6 +24,10 @@ pub enum MemberIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+/// MemberIdentifier without the installation variant
+/// is uesd to enforce parameters.
+/// Not everything in this enum will be able to sign,
+/// which will be enforced on the unverified signature counterparts.
 pub enum PublicIdentifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),

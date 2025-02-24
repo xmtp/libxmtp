@@ -133,6 +133,8 @@ pub enum IdentifierValidationError {
     InvalidAddresses(Vec<String>),
     #[error("address is invalid hex address")]
     HexDecode(#[from] FromHexError),
+    #[error("generic error: {0}")]
+    Generic(String),
 }
 
 pub fn sanitize_evm_addresses(

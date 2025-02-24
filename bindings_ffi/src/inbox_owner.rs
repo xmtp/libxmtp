@@ -1,10 +1,22 @@
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use crate::identity::FfiPublicIdentifier;
+use xmtp_cryptography::signature::{
+    IdentifierValidationError, RecoverableSignature, SignatureError,
+};
+use xmtp_id::associations::PublicIdentifier;
 
 // TODO proper error handling
 #[derive(Debug, thiserror::Error)]
 pub enum SigningError {
     #[error("This is a generic error")]
     Generic,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IdentityValidationError {
+    #[error("This is a generic error")]
+    Generic,
+    #[error(transparent)]
+    Validation(#[from] IdentifierValidationError),
 }
 
 impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
@@ -15,7 +27,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
 
 // A simplified InboxOwner passed to Rust across the FFI boundary
 pub trait FfiInboxOwner: Send + Sync {
-    fn get_address(&self) -> String;
+    fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError>;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
 }
 
@@ -30,8 +42,12 @@ impl RustInboxOwner {
 }
 
 impl xmtp_mls::InboxOwner for RustInboxOwner {
-    fn get_identifier(&self) -> String {
-        self.ffi_inbox_owner.get_address().to_lowercase()
+    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
+        let ident = self
+            .ffi_inbox_owner
+            .get_identifier()
+            .map_err(|err| IdentifierValidationError::Generic(err.to_string()))?;
+        Ok(ident.try_into()?)
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {

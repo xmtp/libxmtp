@@ -9,6 +9,13 @@ pub enum FfiPublicIdentifier {
     Passkey(Vec<u8>),
 }
 
+impl FfiPublicIdentifier {
+    pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
+        let ident: PublicIdentifier = self.into()?;
+        Ok(ident.inbox_id(nonce)?)
+    }
+}
+
 #[allow(unused)]
 #[uniffi::export]
 pub fn generate_inbox_id(
