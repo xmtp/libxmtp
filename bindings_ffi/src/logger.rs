@@ -4,6 +4,11 @@ use tracing_subscriber::{
     layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, Layer,
 };
 
+pub const FILTER_DIRECTIVE: &str = "xmtp_mls=debug,xmtp_id=debug,\
+                    xmtp_api=debug,xmtp_api_grpc=debug,xmtp_proto=debug,\
+                    xmtp_common=debug,xmtp_api_d14n=debug,\
+                    xmtp_content_types=debug,xmtp_cryptography=debug,xmtp_user_preferences=debug,xmtpv3=debug";
+
 #[cfg(target_os = "android")]
 pub use android::*;
 #[cfg(target_os = "android")]
@@ -15,10 +20,11 @@ mod android {
     {
         use tracing_subscriber::EnvFilter;
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
+        let libxmtp_filter = EnvFilter::builder().parse(FILTER_DIRECTIVE);
         vec![
             paranoid_android::layer(env!("CARGO_PKG_NAME"))
                 .with_thread_names(true)
-                .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+                .with_filter(libxmtp_filter)
                 .boxed(),
             tracing_android_trace::AndroidTraceAsyncLayer::new()
                 .with_filter(api_calls_filter)
@@ -38,9 +44,9 @@ mod ios {
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         use tracing_oslog::OsLogger;
+        let libxmtp_filter = EnvFilter::builder().parse(FILTER_DIRECTIVE);
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default")
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+        OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
 }
 
