@@ -12,7 +12,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./version.json": "./dist/version.json"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,7 +22,7 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "yarn build:clean && yarn build:release && yarn build:finish",
+    "build": "yarn build:clean && yarn build:release && yarn build:finish && yarn generate:version",
     "build:clean": "rm -rf dist",
     "build:debug": "napi build --platform --esm",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
@@ -29,6 +30,7 @@
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
+    "generate:version": "tsx scripts/version.ts",
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
