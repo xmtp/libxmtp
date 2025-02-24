@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::PublicIdentifier;
+use crate::identity::{PublicIdentifier, RootIdentifier};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -26,7 +26,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
-  pub account_address: String,
+  pub account_identifier: RootIdentifier,
 }
 
 impl Client {
@@ -122,11 +122,14 @@ pub async fn create_client(
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
-  account_address: String,
+  account_identifier: RootIdentifier,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
+  let root_identifier = account_identifier.clone();
+  let account_identifier = account_identifier.to_public();
+
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(&host, is_secure)
     .await
@@ -152,9 +155,10 @@ pub async fn create_client(
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
+  let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
-    account_address.clone().to_lowercase(),
+    internal_account_identifier,
     // this is a temporary solution
     1,
     None,
@@ -183,7 +187,7 @@ pub async fn create_client(
 
   Ok(Client {
     inner_client: Arc::new(xmtp_client),
-    account_address,
+    account_identifier: root_identifier,
     signature_requests: Arc::new(Mutex::new(HashMap::new())),
   })
 }
