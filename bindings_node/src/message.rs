@@ -94,6 +94,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
 }
 
 #[napi(object)]
+#[derive(Clone)]
 pub struct Message {
   pub id: String,
   pub sent_at_ns: i64,

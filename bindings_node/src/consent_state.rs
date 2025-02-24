@@ -7,6 +7,7 @@ use xmtp_mls::storage::consent_record::{
 use crate::{client::Client, ErrorWrapper};
 
 #[napi]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum ConsentState {
   Unknown,
   Allowed,
@@ -34,6 +35,7 @@ impl From<ConsentState> for XmtpConsentState {
 }
 
 #[napi]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum ConsentEntityType {
   GroupId,
   InboxId,
@@ -50,7 +52,18 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
+impl From<XmtpConsentType> for ConsentEntityType {
+  fn from(entity_type: XmtpConsentType) -> Self {
+    match entity_type {
+      XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
+      XmtpConsentType::InboxId => ConsentEntityType::InboxId,
+      XmtpConsentType::Address => ConsentEntityType::Address,
+    }
+  }
+}
+
 #[napi(object)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Consent {
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
@@ -59,6 +72,16 @@ pub struct Consent {
 
 impl From<Consent> for StoredConsentRecord {
   fn from(consent: Consent) -> Self {
+    Self {
+      entity_type: consent.entity_type.into(),
+      state: consent.state.into(),
+      entity: consent.entity,
+    }
+  }
+}
+
+impl From<StoredConsentRecord> for Consent {
+  fn from(consent: StoredConsentRecord) -> Self {
     Self {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),

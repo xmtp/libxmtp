@@ -490,7 +490,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 )))?;
 
         // Perform the operation with the MLS group
-        operation(mls_group).await.map_err(Into::into)
+        operation(mls_group).await
     }
 
     // Create a new group and save it to the DB
