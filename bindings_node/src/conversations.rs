@@ -682,7 +682,7 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void")]
   pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
     let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
