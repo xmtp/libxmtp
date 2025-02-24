@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::{PublicIdentifier, RootIdentifier};
+use crate::identity::{IdentityExt, PublicIdentifier, RootIdentifier};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -215,17 +215,21 @@ impl Client {
   }
 
   #[napi]
-  pub async fn can_message(
-    &self,
-    account_identities: Vec<PublicIdentifier>,
-  ) -> Result<HashMap<String, bool>> {
-    let results: HashMap<String, bool> = self
+  /// The resulting vec will be the same length as the input and should be zipped for the results.
+  pub async fn can_message(&self, account_identities: Vec<PublicIdentifier>) -> Result<Vec<bool>> {
+    let ident = account_identities.to_internal()?;
+    let mut results = self
       .inner_client
-      .can_message(&account_addresses)
+      .can_message(&ident)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    Ok(results)
+    let result = ident
+      .iter()
+      .map(|ident| results.remove(ident).unwrap_or(false))
+      .collect();
+
+    Ok(result)
   }
 
   #[napi]
@@ -283,15 +287,19 @@ impl Client {
   }
 
   #[napi]
-  pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>> {
+  pub async fn find_inbox_id_by_identifier(
+    &self,
+    identifier: PublicIdentifier,
+  ) -> Result<Option<String>> {
     let conn = self
       .inner_client()
       .store()
       .conn()
       .map_err(ErrorWrapper::from)?;
+
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_address(&conn, address)
+      .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
       .await
       .map_err(ErrorWrapper::from)?;
 
