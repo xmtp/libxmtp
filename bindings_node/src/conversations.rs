@@ -690,13 +690,11 @@ impl Conversations {
         0,
         |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
           let env = ctx.env;
-          Ok(
-            ctx
-              .value
-              .into_iter()
-              .map(|v| env.to_js_value(&v))
-              .collect::<Result<Vec<napi::JsUnknown>, _>>()?,
-          )
+          ctx
+            .value
+            .into_iter()
+            .map(|v| env.to_js_value(&v))
+            .collect::<Result<Vec<napi::JsUnknown>, _>>()
         },
       )?;
     let inbox_id = self.inner_client.inbox_id().to_string();
@@ -707,7 +705,7 @@ impl Conversations {
           Ok(message) => {
             let msg: Vec<Tag<UserPreferenceUpdate>> = message
               .into_iter()
-              .map(|p| Tag::<UserPreferenceUpdate>::from(p))
+              .map(Tag::<UserPreferenceUpdate>::from)
               .collect();
             tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
           }
