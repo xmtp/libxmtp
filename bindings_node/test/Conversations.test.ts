@@ -67,9 +67,10 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = client1.conversations().list()
-    expect(group1.length).toBe(1)
-    expect(group1[0].id).toBe(group.id)
+    const groups1 = client1.conversations().list()
+    expect(groups1.length).toBe(1)
+    expect(groups1[0].conversation.id()).toBe(group.id())
+
     expect(client1.conversations().listDms().length).toBe(0)
     expect(client1.conversations().listGroups().length).toBe(1)
 
@@ -77,9 +78,9 @@ describe('Conversations', () => {
 
     await client2.conversations().sync()
 
-    const group2 = client2.conversations().list()
-    expect(group2.length).toBe(1)
-    expect(group2[0].id).toBe(group.id)
+    const groups2 = client2.conversations().list()
+    expect(groups2.length).toBe(1)
+    expect(groups2[0].conversation.id()).toBe(group.id())
 
     expect(client2.conversations().listDms().length).toBe(0)
     expect(client2.conversations().listGroups().length).toBe(1)
@@ -200,7 +201,7 @@ describe('Conversations', () => {
       updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect((await group.findMessages()).length).toBe(0)
+    expect((await group.findMessages()).length).toBe(1)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -213,10 +214,10 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = client1.conversations().list()
-    expect(group1.length).toBe(1)
-    expect(group1[0].id).toBe(group.id)
-    expect(group1[0].dmPeerInboxId()).toBe(client2.inboxId())
+    const groups1 = client1.conversations().list()
+    expect(groups1.length).toBe(1)
+    expect(groups1[0].conversation.id()).toBe(group.id())
+    expect(groups1[0].conversation.dmPeerInboxId()).toBe(client2.inboxId())
 
     expect(client1.conversations().listDms().length).toBe(1)
     expect(client1.conversations().listGroups().length).toBe(0)
@@ -225,10 +226,10 @@ describe('Conversations', () => {
 
     await client2.conversations().sync()
 
-    const group2 = client2.conversations().list()
-    expect(group2.length).toBe(1)
-    expect(group2[0].id).toBe(group.id)
-    expect(group2[0].dmPeerInboxId()).toBe(client1.inboxId())
+    const groups2 = client2.conversations().list()
+    expect(groups2.length).toBe(1)
+    expect(groups2[0].conversation.id()).toBe(group.id())
+    expect(groups2[0].conversation.dmPeerInboxId()).toBe(client1.inboxId())
 
     expect(client2.conversations().listDms().length).toBe(1)
     expect(client2.conversations().listGroups().length).toBe(0)
@@ -502,9 +503,15 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
-    const message2 = await groupsList3[0].send(encodeTextMessage('gm2!'))
-    const message3 = await groupsList4[0].send(encodeTextMessage('gm3!'))
+    const message1 = await groupsList2[0].conversation.send(
+      encodeTextMessage('gm!')
+    )
+    const message2 = await groupsList3[0].conversation.send(
+      encodeTextMessage('gm2!')
+    )
+    const message3 = await groupsList4[0].conversation.send(
+      encodeTextMessage('gm3!')
+    )
 
     await sleep()
 
@@ -554,9 +561,13 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList4[0].send(encodeTextMessage('gm3!'))
-    const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
-    const message2 = await groupsList3[0].send(encodeTextMessage('gm2!'))
+    await groupsList4[0].conversation.send(encodeTextMessage('gm3!'))
+    const message1 = await groupsList2[0].conversation.send(
+      encodeTextMessage('gm!')
+    )
+    const message2 = await groupsList3[0].conversation.send(
+      encodeTextMessage('gm2!')
+    )
 
     await sleep()
 
@@ -597,9 +608,11 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList2[0].send(encodeTextMessage('gm!'))
-    await groupsList3[0].send(encodeTextMessage('gm2!'))
-    const message3 = await groupsList4[0].send(encodeTextMessage('gm3!'))
+    await groupsList2[0].conversation.send(encodeTextMessage('gm!'))
+    await groupsList3[0].conversation.send(encodeTextMessage('gm2!'))
+    const message3 = await groupsList4[0].conversation.send(
+      encodeTextMessage('gm3!')
+    )
 
     await sleep()
 
