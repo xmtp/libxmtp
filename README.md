@@ -54,7 +54,7 @@ val clientOptions = ClientOptions(
 
 // Create the client with your wallet. This will connect to the XMTP `dev` network by default.
 // The account is anything that conforms to the `XMTP.SigningKey` protocol.
-val client = Client().create(account = account, options = clientOptions)
+val client = Client.create(account = account, options = clientOptions)
 
 // Start a dm conversation
 val conversation = client.conversations.newConversation("0x3F11b27F323b62B159D2642964fa27C46C841897")
@@ -75,7 +75,7 @@ conversation.streamMessages().collect {
 
 ## Create a client
 
-A client is created with `Client().create(account: SigningKey, options: ClientOptions): Client` that requires passing in an object capable of creating signatures on your behalf. The client will request a signature for any new installation.
+A client is created with `Client.create(account: SigningKey, options: ClientOptions): Client` that requires passing in an object capable of creating signatures on your behalf. The client will request a signature for any new installation.
 
 > **Note**
 > The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configure-the-client) to change this and other parameters of the network connection.
@@ -83,7 +83,7 @@ A client is created with `Client().create(account: SigningKey, options: ClientOp
 ```kotlin
 // Create the client with a `SigningKey` from your app
 val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.PRODUCTION, isSecure = true), dbEncryptionKey = encryptionKey, appContext = context)
-val client = Client().create(account = account, options = options)
+val client = Client.create(account = account, options = options)
 ```
 
 ### Create a client from saved encryptionKey
@@ -93,7 +93,7 @@ You can save your encryptionKey for the local database and build the client via 
 ```kotlin
 // Create the client with a `SigningKey` from your app
 val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.PRODUCTION, isSecure = true), dbEncryptionKey = encryptionKey, appContext = context)
-val client = Client().build(address = account.address, options = options)
+val client = Client.build(address = account.address, options = options)
 ```
 
 ### Configure the client

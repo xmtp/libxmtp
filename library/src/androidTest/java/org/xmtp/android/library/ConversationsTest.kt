@@ -252,7 +252,7 @@ class ConversationsTest {
         val conversations = mutableListOf<Conversation>()
         repeat(5) {
             val account = PrivateKeyBuilder()
-            val client = runBlocking { Client().create(account, fixtures.clientOptions) }
+            val client = runBlocking { Client.create(account, fixtures.clientOptions) }
             runBlocking {
                 conversations.add(
                     alixClient.conversations.newConversation(client.address)

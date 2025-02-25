@@ -112,7 +112,7 @@ class PerformanceTest {
         val fakeWallet = PrivateKeyBuilder()
         val start = Date()
         val client = runBlocking {
-            Client().create(
+            Client.create(
                 account = fakeWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
@@ -127,7 +127,7 @@ class PerformanceTest {
 
         val start2 = Date()
         val buildClient1 = runBlocking {
-            Client().build(
+            Client.build(
                 fakeWallet.address,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
@@ -142,7 +142,7 @@ class PerformanceTest {
 
         val start3 = Date()
         val buildClient2 = runBlocking {
-            Client().build(
+            Client.build(
                 fakeWallet.address,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
@@ -159,7 +159,7 @@ class PerformanceTest {
         runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
         val start4 = Date()
         runBlocking {
-            Client().create(
+            Client.create(
                 PrivateKeyBuilder(),
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),

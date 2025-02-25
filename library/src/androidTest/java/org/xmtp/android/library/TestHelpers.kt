@@ -158,23 +158,23 @@ class Fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL,
 
     var alix: PrivateKey = alixAccount.getPrivateKey()
     var alixClient: Client =
-        runBlocking { Client().create(account = alixAccount, options = clientOptions) }
+        runBlocking { Client.create(account = alixAccount, options = clientOptions) }
 
     var bo: PrivateKey = boAccount.getPrivateKey()
     var boClient: Client =
-        runBlocking { Client().create(account = boAccount, options = clientOptions) }
+        runBlocking { Client.create(account = boAccount, options = clientOptions) }
 
     var caro: PrivateKey = caroAccount.getPrivateKey()
     var caroClient: Client =
-        runBlocking { Client().create(account = caroAccount, options = clientOptions) }
+        runBlocking { Client.create(account = caroAccount, options = clientOptions) }
 
     var davon: PrivateKey = davonAccount.getPrivateKey()
     var davonClient: Client =
-        runBlocking { Client().create(account = davonAccount, options = clientOptions) }
+        runBlocking { Client.create(account = davonAccount, options = clientOptions) }
 
     var eri: PrivateKey = eriAccount.getPrivateKey()
     var eriClient: Client =
-        runBlocking { Client().create(account = eriAccount, options = clientOptions) }
+        runBlocking { Client.create(account = eriAccount, options = clientOptions) }
 }
 
 fun fixtures(api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)): Fixtures =

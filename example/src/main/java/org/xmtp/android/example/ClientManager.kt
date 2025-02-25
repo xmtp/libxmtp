@@ -51,7 +51,7 @@ object ClientManager {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 _client =
-                    Client().build(address, clientOptions(appContext, address))
+                    Client.build(address, clientOptions(appContext, address))
                 Client.register(codec = GroupUpdatedCodec())
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {

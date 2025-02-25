@@ -27,11 +27,11 @@ data class Fixtures(
         appContext = context,
     )
     var aliceClient: Client =
-        runBlocking { Client().create(account = aliceAccount, options = clientOptions) }
+        runBlocking { Client.create(account = aliceAccount, options = clientOptions) }
     var alice: PrivateKey = aliceAccount.getPrivateKey()
     var bob: PrivateKey = bobAccount.getPrivateKey()
     var bobClient: Client =
-        runBlocking { Client().create(account = bobAccount, options = clientOptions) }
+        runBlocking { Client.create(account = bobAccount, options = clientOptions) }
 
     constructor() : this(
         aliceAccount = PrivateKeyBuilder(),

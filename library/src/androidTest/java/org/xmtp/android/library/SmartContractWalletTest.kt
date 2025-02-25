@@ -49,7 +49,7 @@ class SmartContractWalletTest {
             boEOAWallet = PrivateKeyBuilder()
             boEOA = boEOAWallet.getPrivateKey()
             boEOAClient = runBlocking {
-                Client().create(
+                Client.create(
                     account = boEOAWallet,
                     options = options
                 )
@@ -58,7 +58,7 @@ class SmartContractWalletTest {
             // SCW
             davonSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_1)
             davonSCWClient = runBlocking {
-                Client().create(
+                Client.create(
                     account = davonSCW,
                     options = options
                 )
@@ -67,7 +67,7 @@ class SmartContractWalletTest {
             // SCW
             eriSCW = FakeSCWWallet.generate(ANVIL_TEST_PRIVATE_KEY_2)
             eriSCWClient = runBlocking {
-                Client().create(
+                Client.create(
                     account = eriSCW,
                     options = options
                 )
@@ -78,7 +78,7 @@ class SmartContractWalletTest {
     @Test
     fun testCanBuildASCW() {
         val davonSCWClient2 = runBlocking {
-            Client().build(
+            Client.build(
                 address = davonSCW.address,
                 options = options
             )

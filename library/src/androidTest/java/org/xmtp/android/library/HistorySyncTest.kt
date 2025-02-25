@@ -47,7 +47,7 @@ class HistorySyncTest {
         alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(bo.walletAddress)) }
 
         alixClient2 = runBlocking {
-            Client().create(
+            Client.create(
                 account = alixWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
@@ -109,7 +109,7 @@ class HistorySyncTest {
         assertEquals(state.installations.size, 2)
 
         val alixClient3 = runBlocking {
-            Client().create(
+            Client.create(
                 account = alixWallet,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
@@ -193,7 +193,7 @@ class HistorySyncTest {
 
         runBlocking {
             val alixClient3 = runBlocking {
-                Client().create(
+                Client.create(
                     account = alixWallet,
                     options = ClientOptions(
                         ClientOptions.Api(XMTPEnvironment.LOCAL, false),
