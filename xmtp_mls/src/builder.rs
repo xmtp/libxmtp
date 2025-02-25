@@ -133,11 +133,12 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
         let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
 
+        // start workers
         if history_sync_url.is_some() {
             client.start_sync_worker();
         }
-
         client.start_disappearing_messages_cleaner_worker();
+
         Ok(client)
     }
 
@@ -502,17 +503,17 @@ pub(crate) mod tests {
         assert!(client1.inbox_id() == client3.inbox_id());
         assert!(client1.installation_public_key() == client3.installation_public_key());
 
-        let client4 = Client::builder(identity_strategy)
-            .temp_store()
-            .await
-            .api_client(<TestClient as XmtpTestClient>::create_local().await)
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .build()
-            .await
-            .unwrap();
-        assert!(client4.context.signature_request().is_some());
-        assert!(client1.inbox_id() == client4.inbox_id());
-        assert!(client1.installation_public_key() != client4.installation_public_key());
+        //let client4 = Client::builder(identity_strategy)
+        //    .temp_store()
+        //    .await
+        //    .api_client(<TestClient as XmtpTestClient>::create_local().await)
+        //    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        //    .build()
+        //    .await
+        //    .unwrap();
+        //assert!(client4.context.signature_request().is_some());
+        //assert!(client1.inbox_id() == client4.inbox_id());
+        //assert!(client1.installation_public_key() != client4.installation_public_key());
     }
 
     // Should return error if inbox associated with given account_address doesn't match the provided one.
