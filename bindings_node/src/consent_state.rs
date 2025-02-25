@@ -1,9 +1,12 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use xmtp_id::associations::PublicIdentifier;
-use xmtp_mls::storage::consent_record::{
-  ConsentEntity, ConsentState as XmtpConsentState, StoredConsentRecord,
-  StoredConsentType as XmtpConsentType, StoredIdentityKind as XmtpConsentIdentityKind,
+use xmtp_mls::storage::{
+  consent_record::{
+    ConsentEntity, ConsentState as XmtpConsentState, StoredConsentRecord,
+    StoredConsentType as XmtpConsentType, StoredIdentityKind as XmtpConsentIdentityKind,
+  },
+  MissingRequired,
 };
 
 use crate::{client::Client, ErrorWrapper};
@@ -115,21 +118,20 @@ impl Client {
       ConsentEntityType::InboxId => ConsentEntity::InboxId(entity),
       ConsentEntityType::Identity => {
         let Some(kind) = identifier_kind else {
-          return Err(ErrorWrapper::from(
-            "Identifier kind is required when entity type is Identity".to_string(),
-          ));
+          return Err(ErrorWrapper::from(MissingRequired::IdentifierKind))?;
         };
         let ident = match kind {
           ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity),
           ConsentIdentityKind::Ethereum => PublicIdentifier::eth(&entity),
-        };
+        }
+        .map_err(ErrorWrapper::from)?;
         ConsentEntity::Identity(ident)
       }
     };
 
     let result = self
       .inner_client()
-      .get_consent_state(entity_type.into(), entity)
+      .get_consent_state(consent_entity)
       .await
       .map_err(ErrorWrapper::from)?;
 
