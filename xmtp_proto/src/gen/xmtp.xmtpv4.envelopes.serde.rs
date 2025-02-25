@@ -787,6 +787,12 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
         if self.payer_envelope.is_some() {
             len += 1;
         }
+        if self.base_fee_picodollars != 0 {
+            len += 1;
+        }
+        if self.congestion_fee_picodollars != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope", len)?;
         if self.originator_node_id != 0 {
             struct_ser.serialize_field("originatorNodeId", &self.originator_node_id)?;
@@ -803,6 +809,16 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
         }
         if let Some(v) = self.payer_envelope.as_ref() {
             struct_ser.serialize_field("payerEnvelope", v)?;
+        }
+        if self.base_fee_picodollars != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("baseFeePicodollars", ToString::to_string(&self.base_fee_picodollars).as_str())?;
+        }
+        if self.congestion_fee_picodollars != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("congestionFeePicodollars", ToString::to_string(&self.congestion_fee_picodollars).as_str())?;
         }
         struct_ser.end()
     }
@@ -822,6 +838,10 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
             "originatorNs",
             "payer_envelope",
             "payerEnvelope",
+            "base_fee_picodollars",
+            "baseFeePicodollars",
+            "congestion_fee_picodollars",
+            "congestionFeePicodollars",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -830,6 +850,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
             OriginatorSequenceId,
             OriginatorNs,
             PayerEnvelope,
+            BaseFeePicodollars,
+            CongestionFeePicodollars,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -855,6 +877,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             "originatorSequenceId" | "originator_sequence_id" => Ok(GeneratedField::OriginatorSequenceId),
                             "originatorNs" | "originator_ns" => Ok(GeneratedField::OriginatorNs),
                             "payerEnvelope" | "payer_envelope" => Ok(GeneratedField::PayerEnvelope),
+                            "baseFeePicodollars" | "base_fee_picodollars" => Ok(GeneratedField::BaseFeePicodollars),
+                            "congestionFeePicodollars" | "congestion_fee_picodollars" => Ok(GeneratedField::CongestionFeePicodollars),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -878,6 +902,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                 let mut originator_sequence_id__ = None;
                 let mut originator_ns__ = None;
                 let mut payer_envelope__ = None;
+                let mut base_fee_picodollars__ = None;
+                let mut congestion_fee_picodollars__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::OriginatorNodeId => {
@@ -910,6 +936,22 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             }
                             payer_envelope__ = map_.next_value()?;
                         }
+                        GeneratedField::BaseFeePicodollars => {
+                            if base_fee_picodollars__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("baseFeePicodollars"));
+                            }
+                            base_fee_picodollars__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CongestionFeePicodollars => {
+                            if congestion_fee_picodollars__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("congestionFeePicodollars"));
+                            }
+                            congestion_fee_picodollars__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(UnsignedOriginatorEnvelope {
@@ -917,6 +959,8 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                     originator_sequence_id: originator_sequence_id__.unwrap_or_default(),
                     originator_ns: originator_ns__.unwrap_or_default(),
                     payer_envelope: payer_envelope__,
+                    base_fee_picodollars: base_fee_picodollars__.unwrap_or_default(),
+                    congestion_fee_picodollars: congestion_fee_picodollars__.unwrap_or_default(),
                 })
             }
         }
