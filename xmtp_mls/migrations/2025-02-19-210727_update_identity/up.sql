@@ -15,7 +15,7 @@ SELECT
 FROM
     wallet_addresses;
 
--- Remove the existing pkey on wallet_addresses
+-- Remove wallet_addresses
 DROP TABLE wallet_addresses;
 
 -- Add a new identity kind (Ethereum, Passkey, Solana, Sui...)
@@ -27,16 +27,16 @@ UPDATE consent_records
 SET
     identity_kind = 1
 WHERE
-    consent_type = 3;
+    entity_type = 3;
 
 -- Add the constraint with syntax that works across different database systems
 ALTER TABLE consent_records ADD CHECK (
     (
-        consent_type = 3
+        entity_type = 3
         AND identity_kind IS NOT NULL
     )
     OR (
-        consent_type != 3
+        entity_type != 3
         AND identity_kind IS NULL
     )
 );
