@@ -118,7 +118,7 @@ impl AssociationState {
         &self.inbox_id
     }
 
-    pub fn recovery_identifier(&self) -> &PublicIdentifier {
+    pub fn o(&self) -> &PublicIdentifier {
         &self.recovery_identifier
     }
 
@@ -138,7 +138,7 @@ impl AssociationState {
             .collect()
     }
 
-    pub fn public_identifiers(&self) -> Vec<PublicIdentifier> {
+    pub fn identifiers(&self) -> Vec<PublicIdentifier> {
         self.members_by_kind(MemberKind::Ethereum)
             .into_iter()
             .filter_map(|member| match member.identifier {

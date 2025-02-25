@@ -102,7 +102,7 @@ where
 
                 Ok(GroupMember {
                     inbox_id: inbox_id.clone(),
-                    account_identifiers: association_state.public_identifiers(),
+                    account_identifiers: association_state.identifiers(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
                     consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),

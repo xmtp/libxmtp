@@ -42,7 +42,7 @@ impl Inspect {
                     .await?;
 
                 let public_idents: Vec<_> = state
-                    .public_identifiers()
+                    .identifiers()
                     .iter()
                     .map(|ident| format!("{ident:?}"))
                     .collect();

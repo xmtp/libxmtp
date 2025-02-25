@@ -71,7 +71,7 @@ impl From<AssociationState> for InboxState {
         })
         .collect(),
       account_identifiers: state
-        .public_identifiers()
+        .identifiers()
         .into_iter()
         .map(Into::into)
         .collect(),

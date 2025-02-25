@@ -761,11 +761,7 @@ impl From<AssociationState> for FfiInboxState {
                     }
                 })
                 .collect(),
-            account_identities: state
-                .public_identifiers()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            account_identities: state.identifiers().into_iter().map(Into::into).collect(),
         }
     }
 }

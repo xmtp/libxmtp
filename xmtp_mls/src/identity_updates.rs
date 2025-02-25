@@ -944,7 +944,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let association_state_after_add = get_association_state(&client, client.inbox_id()).await;
-        assert_eq!(association_state_after_add.public_identifiers().len(), 2);
+        assert_eq!(association_state_after_add.identifiers().len(), 2);
 
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
@@ -970,7 +970,7 @@ pub(crate) mod tests {
         // Make sure that the association state has removed the second wallet
         let association_state_after_revoke =
             get_association_state(&client, client.inbox_id()).await;
-        assert_eq!(association_state_after_revoke.public_identifiers().len(), 1);
+        assert_eq!(association_state_after_revoke.identifiers().len(), 1);
 
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
