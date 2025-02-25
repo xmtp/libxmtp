@@ -450,13 +450,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_2nd_time_client_creation() {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-        let ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
-        let inbox_id = ident.inbox_id(0).unwrap();
-        println!("{}", inbox_id.len());
+        let legacy_ident = PublicIdentifier::eth(&legacy_account_address).unwrap();
+        let inbox_id = legacy_ident.inbox_id(0).unwrap();
 
         let identity_strategy = IdentityStrategy::new(
             inbox_id.clone(),
-            PublicIdentifier::eth(legacy_account_address.clone()).unwrap(),
+            legacy_ident.clone(),
             0,
             Some(legacy_key.clone()),
         );
@@ -489,7 +488,7 @@ pub(crate) mod tests {
 
         let client3 = Client::builder(IdentityStrategy::new(
             inbox_id.clone(),
-            PublicIdentifier::eth(legacy_account_address.to_string()).unwrap(),
+            legacy_ident.clone(),
             0,
             None,
         ))
@@ -503,19 +502,14 @@ pub(crate) mod tests {
         assert!(client1.inbox_id() == client3.inbox_id());
         assert!(client1.installation_public_key() == client3.installation_public_key());
 
-        let client4 = Client::builder(IdentityStrategy::new(
-            inbox_id.clone(),
-            PublicIdentifier::eth(legacy_account_address.to_string()).unwrap(),
-            0,
-            Some(legacy_key),
-        ))
-        .temp_store()
-        .await
-        .api_client(<TestClient as XmtpTestClient>::create_local().await)
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .build()
-        .await
-        .unwrap();
+        let client4 = Client::builder(identity_strategy)
+            .temp_store()
+            .await
+            .api_client(<TestClient as XmtpTestClient>::create_local().await)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .build()
+            .await
+            .unwrap();
         assert!(client4.context.signature_request().is_some());
         assert!(client1.inbox_id() == client4.inbox_id());
         assert!(client1.installation_public_key() != client4.installation_public_key());
