@@ -69,13 +69,13 @@ services:
     # note: the SHA here is tied to the XTMPD_CONTRACTS_*_ADDRESSes
     # if you bump the version of anvil-xmtpd you will have to change the contracts
     # you can find them inside the anvil-xmtpd image via `docker exec libxmtp-chain-1 cat contracts.env`
-    image: ghcr.io/xmtp/anvil-xmtpd:v0.2.0
+    image: ghcr.io/xmtp/anvil-xmtpd:sha-b943a7a
     command: ["--host", "0.0.0.0"]
 
   repnode:
     platform: linux/amd64
     # note: avoid using :latest while xmtpd is under development to avoid breaking changes
-    image: ghcr.io/xmtp/xmtpd:v0.2.0
+    image: ghcr.io/xmtp/xmtpd:sha-b943a7a
     environment:
       XMTPD_DB_WRITER_CONNECTION_STRING: "postgres://postgres:xmtp@replicationdb:5432/postgres?sslmode=disable"
       XMTPD_CONTRACTS_RPC_URL: "http://chain:8545"
