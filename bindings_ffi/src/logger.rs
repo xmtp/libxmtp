@@ -41,15 +41,19 @@ pub use ios::*;
 #[cfg(target_os = "ios")]
 mod ios {
     use super::*;
+    use tracing_oslog::OsLogger;
     use tracing_subscriber::EnvFilter;
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        use tracing_oslog::OsLogger;
-        let libxmtp_filter = EnvFilter::builder().parse(FILTER_DIRECTIVE);
+        let libxmtp_filter = EnvFilter::builder()
+            .parse(FILTER_DIRECTIVE)
+            .unwrap_or_else(|_| EnvFilter::new("info"));
+
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
+        
         OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
 }
