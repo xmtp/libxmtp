@@ -43,7 +43,7 @@ let
 
   rust-toolchain = fenix.fromToolchainFile {
     file = ./../rust-toolchain;
-    sha256 = "sha256-vMlz0zHduoXtrlu0Kj1jEp71tYFXyymACW8L4jzrzNA=";
+    sha256 = "sha256-AJ6LX/Q/Er9kS15bn9iflkUwcgYqRQxiOIL2ToVAXaU=";
   };
 in
 mkShell {
