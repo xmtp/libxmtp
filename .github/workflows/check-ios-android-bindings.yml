@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
     paths:
-      - "*"
+      - ".github/workflows/check-ios-android-bindings.yml"
       - "bindings_ffi/**"
       - "Cargo.toml"
       - "Cargo.lock"
