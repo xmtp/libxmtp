@@ -331,7 +331,7 @@ where
 
         let missing: Vec<_> = identifiers
             .iter()
-            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident:?}")))
+            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident}")))
             .collect();
 
         if !missing.is_empty() {
@@ -342,7 +342,7 @@ where
         let inbox_ids = identifiers
             .iter()
             .map(|ident| {
-                let cache_key = format!("{ident:?}");
+                let cache_key = format!("{ident}");
                 if let Some(inbox_id) = cached_inbox_ids.remove(&cache_key) {
                     return Some(inbox_id);
                 }

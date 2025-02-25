@@ -137,10 +137,12 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::CreateInbox(action_proto) => {
-                let account_identifier = PublicIdentifier::from_proto(
-                    &action_proto.initial_identifier,
-                    action_proto.initial_identifier_kind(),
-                )?;
+                let kind = match action_proto.initial_identifier_kind() {
+                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+                    kind => kind,
+                };
+                let account_identifier =
+                    PublicIdentifier::from_proto(&action_proto.initial_identifier, kind)?;
 
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                     initial_address_signature: action_proto
@@ -153,10 +155,12 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
-                let new_recovery_identifier = PublicIdentifier::from_proto(
-                    &action_proto.new_recovery_identifier,
-                    action_proto.new_recovery_identifier_kind(),
-                )?;
+                let kind = match action_proto.new_recovery_identifier_kind() {
+                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+                    kind => kind,
+                };
+                let new_recovery_identifier =
+                    PublicIdentifier::from_proto(&action_proto.new_recovery_identifier, kind)?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
                     recovery_identifier_signature: action_proto
                         .existing_recovery_identifier_signature
@@ -503,10 +507,11 @@ impl TryFrom<AssociationStateProto> for AssociationState {
     type Error = ConversionError;
 
     fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
-        let recovery_identifier = PublicIdentifier::from_proto(
-            &proto.recovery_identifier,
-            proto.recovery_identifier_kind(),
-        )?;
+        let kind = match proto.recovery_identifier_kind() {
+            IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+            kind => kind,
+        };
+        let recovery_identifier = PublicIdentifier::from_proto(&proto.recovery_identifier, kind)?;
 
         let members = proto
             .members

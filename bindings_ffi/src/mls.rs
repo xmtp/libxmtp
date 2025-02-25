@@ -1033,7 +1033,7 @@ impl FfiConversations {
             "creating group with account addresses: {}",
             account_identities
                 .iter()
-                .map(|ident| format!("{ident:?}"))
+                .map(|ident| format!("{ident}"))
                 .collect::<Vec<_>>()
                 .join(", ")
         );

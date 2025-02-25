@@ -124,9 +124,13 @@ where
             .responses
             .into_iter()
             .filter_map(|resp| {
+                let kind = match resp.identifier_kind() {
+                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+                    kind => kind,
+                };
                 Some((
                     ApiIdentifier {
-                        identifier_kind: resp.identifier_kind(),
+                        identifier_kind: kind,
                         identifier: resp.identifier,
                     },
                     resp.inbox_id?,
