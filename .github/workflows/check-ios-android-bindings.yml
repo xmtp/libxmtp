@@ -5,9 +5,13 @@ on:
       - main
   pull_request:
     paths:
+      - "*"
       - "bindings_ffi/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "dev/**"
+      - "rust-toolchain"
+      - ".cargo/**"
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x
@@ -49,6 +53,7 @@ jobs:
           # We can add other targets later by making a pkg derivation and configuring LD_LIBRARY_PATH
           # according to https://github.com/bburdette/tauri-zknotes/blob/7aa3495dc2c8a266d81c2fa3e51ae347e9c2597d/flake.nix#L158
           # but this is good for just checking to ensure it compiles on this target
+          # Can also run android emulator here after cloning xmtp-android
   steps:
     - name: Checkout
       uses: actions/checkout@v4
