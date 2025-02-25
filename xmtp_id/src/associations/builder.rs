@@ -319,14 +319,14 @@ fn build_action(
                 .pending_signatures
                 .get(&SignatureField::InitialAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
-            let initial_address_signature = signatures
+            let initial_identifier_signature = signatures
                 .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action,
-                initial_address_signature,
+                initial_identifier_signature,
             }))
         }
         UnsignedAction::AddAssociation(unsigned_action) => {

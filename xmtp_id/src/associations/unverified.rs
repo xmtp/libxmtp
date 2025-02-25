@@ -101,7 +101,9 @@ impl UnverifiedAction {
 
     fn signatures(&self) -> Vec<UnverifiedSignature> {
         match self {
-            UnverifiedAction::CreateInbox(action) => vec![action.initial_address_signature.clone()],
+            UnverifiedAction::CreateInbox(action) => {
+                vec![action.initial_identifier_signature.clone()]
+            }
             UnverifiedAction::AddAssociation(action) => vec![
                 action.existing_member_signature.clone(),
                 action.new_member_signature.clone(),
@@ -124,8 +126,8 @@ impl UnverifiedAction {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
                 nonce: action.unsigned_action.nonce,
                 account_identifier: action.unsigned_action.account_identifier.clone(),
-                initial_address_signature: action
-                    .initial_address_signature
+                initial_identifier_signature: action
+                    .initial_identifier_signature
                     .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
@@ -167,17 +169,17 @@ impl UnverifiedAction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedCreateInbox {
     pub(crate) unsigned_action: UnsignedCreateInbox,
-    pub(crate) initial_address_signature: UnverifiedSignature,
+    pub(crate) initial_identifier_signature: UnverifiedSignature,
 }
 
 impl UnverifiedCreateInbox {
     pub fn new(
         unsigned_action: UnsignedCreateInbox,
-        initial_address_signature: UnverifiedSignature,
+        initial_identifier_signature: UnverifiedSignature,
     ) -> Self {
         Self {
             unsigned_action,
-            initial_address_signature,
+            initial_identifier_signature,
         }
     }
 }
@@ -431,7 +433,7 @@ mod tests {
                     account_identifier: account_identifier.clone().into(),
                     nonce,
                 },
-                initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(
                     UnverifiedRecoverableEcdsaSignature {
                         signature_bytes: vec![1, 2, 3],
                     },

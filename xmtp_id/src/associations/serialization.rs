@@ -145,7 +145,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     PublicIdentifier::from_proto(&action_proto.initial_identifier, kind)?;
 
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                    initial_address_signature: action_proto
+                    initial_identifier_signature: action_proto
                         .initial_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedCreateInbox {
@@ -280,7 +280,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     nonce: action.unsigned_action.nonce,
                     initial_identifier,
                     initial_identifier_kind: initial_identifier_kind as i32,
-                    initial_identifier_signature: Some(action.initial_address_signature.into()),
+                    initial_identifier_signature: Some(action.initial_identifier_signature.into()),
                 })
             }
             UnverifiedAction::AddAssociation(action) => {
@@ -709,7 +709,7 @@ pub(crate) mod tests {
             client_timestamp_ns,
             vec![
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                    initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                    initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(
                         UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
                     ),
                     unsigned_action: UnsignedCreateInbox {

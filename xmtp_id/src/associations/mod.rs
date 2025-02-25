@@ -88,7 +88,7 @@ pub mod test_defaults {
             Self {
                 nonce: rand_u64(),
                 account_identifier: signer.clone(),
-                initial_address_signature: VerifiedSignature::new(
+                initial_identifier_signature: VerifiedSignature::new(
                     signer.into(),
                     SignatureKind::Erc191,
                     rand_vec::<32>(),
@@ -254,7 +254,7 @@ pub(crate) mod tests {
         let create_action = CreateInbox {
             nonce: 0,
             account_identifier: member_identifier.clone(),
-            initial_address_signature: VerifiedSignature::new(
+            initial_identifier_signature: VerifiedSignature::new(
                 member_identifier.clone().into(),
                 SignatureKind::LegacyDelegated,
                 "0".as_bytes().to_vec(),
@@ -333,7 +333,7 @@ pub(crate) mod tests {
             None,
         );
         let action = CreateInbox {
-            initial_address_signature: bad_signature,
+            initial_identifier_signature: bad_signature,
             ..Default::default()
         };
 
@@ -661,14 +661,14 @@ pub(crate) mod tests {
     fn scw_signature_binding() {
         let initial_chain_id: u64 = 1;
         let signer = PublicIdentifier::rand_ethereum();
-        let initial_address_signature = VerifiedSignature::new(
+        let initial_identifier_signature = VerifiedSignature::new(
             signer.clone().into(),
             SignatureKind::Erc1271,
             rand_vec::<32>(),
             Some(initial_chain_id),
         );
         let action = CreateInbox {
-            initial_address_signature,
+            initial_identifier_signature,
             nonce: 0,
             account_identifier: signer.clone(),
         };

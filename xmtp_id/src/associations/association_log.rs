@@ -67,7 +67,7 @@ pub trait IdentityAction: Send {
 pub struct CreateInbox {
     pub nonce: u64,
     pub account_identifier: PublicIdentifier,
-    pub initial_address_signature: VerifiedSignature,
+    pub initial_identifier_signature: VerifiedSignature,
 }
 
 impl IdentityAction for CreateInbox {
@@ -81,14 +81,18 @@ impl IdentityAction for CreateInbox {
         }
 
         let account_address = self.account_identifier.clone();
-        let recovered_signer = self.initial_address_signature.signer.clone();
+        let recovered_signer = self.initial_identifier_signature.signer.clone();
         if recovered_signer != account_address {
             return Err(AssociationError::MissingExistingMember);
         }
 
-        allowed_signature_for_kind(&MemberKind::Ethereum, &self.initial_address_signature.kind)?;
+        allowed_signature_for_kind(
+            &MemberKind::Ethereum,
+            &self.initial_identifier_signature.kind,
+        )?;
 
-        if self.initial_address_signature.kind == SignatureKind::LegacyDelegated && self.nonce != 0
+        if self.initial_identifier_signature.kind == SignatureKind::LegacyDelegated
+            && self.nonce != 0
         {
             return Err(AssociationError::LegacySignatureReuse);
         }
@@ -96,12 +100,12 @@ impl IdentityAction for CreateInbox {
         AssociationState::new(
             account_address,
             self.nonce,
-            self.initial_address_signature.chain_id,
+            self.initial_identifier_signature.chain_id,
         )
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.initial_address_signature.raw_bytes.clone()]
+        vec![self.initial_identifier_signature.raw_bytes.clone()]
     }
 }
 
