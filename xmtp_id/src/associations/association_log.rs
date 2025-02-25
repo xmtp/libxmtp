@@ -240,9 +240,8 @@ impl IdentityAction for RevokeAssociation {
         let recovery_signer = &self.recovery_identifier_signature.signer;
         // Make sure there is a recovery address set on the state
         let state_recovery_identifier: MemberIdentifier =
-            existing_state.recovery_identifier().clone().into();
+            existing_state.recovery_identifier.clone().into();
 
-        // Ensure this message is signed by the recovery address
         if *recovery_signer != state_recovery_identifier {
             return Err(AssociationError::MissingExistingMember);
         }
@@ -302,7 +301,7 @@ impl IdentityAction for ChangeRecoveryIdentity {
             return Err(AssociationError::MissingExistingMember);
         }
 
-        Ok(existing_state.set_recovery_address(self.new_recovery_identifier.clone()))
+        Ok(existing_state.set_recovery_identifier(self.new_recovery_identifier.clone()))
     }
 
     fn signatures(&self) -> Vec<Vec<u8>> {

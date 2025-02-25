@@ -140,7 +140,7 @@ pub(crate) mod tests {
     pub fn new_test_inbox_with_installation() -> AssociationState {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
-        let initial_wallet_address = initial_state.recovery_identifier().clone();
+        let initial_wallet_address = initial_state.recovery_identifier.clone();
 
         let update = Action::AddAssociation(AddAssociation {
             existing_member_signature: VerifiedSignature::new(
@@ -182,7 +182,7 @@ pub(crate) mod tests {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
         let new_installation_identifier = MemberIdentifier::rand_installation();
-        let first_member = initial_state.recovery_identifier().clone();
+        let first_member = initial_state.recovery_identifier.clone();
 
         let update = Action::AddAssociation(AddAssociation {
             new_member_identifier: new_installation_identifier.clone(),
@@ -477,7 +477,7 @@ pub(crate) mod tests {
             .identifier;
         let update = Action::RevokeAssociation(RevokeAssociation {
             recovery_identifier_signature: VerifiedSignature::new(
-                initial_state.recovery_identifier().clone().into(),
+                initial_state.recovery_identifier.clone().into(),
                 SignatureKind::Erc191,
                 rand_vec::<32>(),
                 None,

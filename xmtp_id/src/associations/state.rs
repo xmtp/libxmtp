@@ -88,7 +88,7 @@ impl AssociationState {
         new_state
     }
 
-    pub fn set_recovery_address(&self, recovery_identifier: PublicIdentifier) -> Self {
+    pub fn set_recovery_identifier(&self, recovery_identifier: PublicIdentifier) -> Self {
         let mut new_state = self.clone();
         new_state.recovery_identifier = recovery_identifier;
 
@@ -118,7 +118,7 @@ impl AssociationState {
         &self.inbox_id
     }
 
-    pub fn o(&self) -> &PublicIdentifier {
+    pub fn recovery_identifier(&self) -> &PublicIdentifier {
         &self.recovery_identifier
     }
 
