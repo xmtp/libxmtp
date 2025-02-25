@@ -271,6 +271,18 @@ impl From<PublicIdentifier> for MemberIdentifier {
         }
     }
 }
+impl From<MemberIdentifier> for Option<PublicIdentifier> {
+    fn from(ident: MemberIdentifier) -> Self {
+        let ident = match ident {
+            MemberIdentifier::Passkey(passkey) => PublicIdentifier::Passkey(passkey),
+            MemberIdentifier::Ethereum(eth) => PublicIdentifier::Ethereum(eth),
+            _ => {
+                return None;
+            }
+        };
+        Some(ident)
+    }
+}
 impl From<&PublicIdentifier> for GetInboxIdsRequestProto {
     fn from(ident: &PublicIdentifier) -> Self {
         Self {

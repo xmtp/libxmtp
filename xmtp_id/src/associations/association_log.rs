@@ -139,12 +139,14 @@ impl IdentityAction for AddAssociation {
         // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
         // Otherwise the client should use the regular wallet signature to create
         let existing_member_identifier = existing_member_identifier.clone();
-        if (is_legacy_signature(&self.new_member_signature)
-            || is_legacy_signature(&self.existing_member_signature))
-        // Todo: reimplement this.
-        // && existing_state.inbox_id() != existing_member_identifier.get_inbox_id(0)?
-        {
-            return Err(AssociationError::LegacySignatureReuse);
+        let public_identifier: Option<PublicIdentifier> = existing_member_identifier.clone().into();
+        if let Some(public_identifier) = public_identifier {
+            if (is_legacy_signature(&self.new_member_signature)
+                || is_legacy_signature(&self.existing_member_signature))
+                && existing_state.inbox_id() != public_identifier.inbox_id(0)?
+            {
+                return Err(AssociationError::LegacySignatureReuse);
+            }
         }
 
         allowed_signature_for_kind(
