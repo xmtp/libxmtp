@@ -1320,7 +1320,7 @@ where
                     published_count += 1;
                     let payload_slice = payload_to_publish.as_slice();
                     let has_staged_commit = staged_commit.is_some();
-                    
+
                     let set_published_start = std::time::Instant::now();
                     provider.conn_ref().set_group_intent_published(
                         intent.id,
@@ -1330,20 +1330,20 @@ where
                         mls_group.epoch().as_u64() as i64,
                     )?;
                     let set_published_duration = set_published_start.elapsed();
-                    
+
                     let prepare_msgs_start = std::time::Instant::now();
                     let messages = self.prepare_group_messages(vec![payload_slice])?;
                     let prepare_msgs_duration = prepare_msgs_start.elapsed();
-                    
+
                     let send_msgs_start = std::time::Instant::now();
                     self.client
                         .api()
                         .send_group_messages(messages)
                         .await?;
                     let send_msgs_duration = send_msgs_start.elapsed();
-                    
+
                     let total_duration = intent_start.elapsed();
-                    
+
                     tracing::info!(
                         intent.id,
                         intent.kind = %intent.kind,
@@ -1631,14 +1631,14 @@ where
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         let start = std::time::Instant::now();
-        
+
         self.load_mls_group_with_lock_async(provider, |mls_group| async move {
             let extract_membership_start = std::time::Instant::now();
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
             let extract_membership_duration = extract_membership_start.elapsed();
-            
+
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.group_id),
@@ -1646,14 +1646,14 @@ where
                 "Extracted group membership in {:?}",
                 extract_membership_duration
             );
-    
+
             let conn = provider.conn_ref();
-            
+
             // Load any missing updates from the network
             let load_updates_start = std::time::Instant::now();
             load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
             let load_updates_duration = load_updates_start.elapsed();
-            
+
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.group_id),
@@ -1661,11 +1661,11 @@ where
                 "Loaded identity updates in {:?}",
                 load_updates_duration
             );
-    
+
             let sequence_id_start = std::time::Instant::now();
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
             let sequence_id_duration = sequence_id_start.elapsed();
-    
+
             // Get a list of all inbox IDs that have increased sequence_id for the group
             let changed_inbox_ids =
                 inbox_ids
@@ -1694,7 +1694,7 @@ where
                         }
                         Ok(updates)
                     })?;
-    
+
             let calc_changes_setup_start = std::time::Instant::now();
             let extensions: Extensions = mls_group.extensions().clone();
             let old_group_membership = extract_group_membership(&extensions)?;
@@ -1703,7 +1703,7 @@ where
                 new_membership.add(inbox_id.clone(), *sequence_id);
             }
             let calc_changes_setup_duration = calc_changes_setup_start.elapsed();
-    
+
             let calc_changes_start = std::time::Instant::now();
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.client,
@@ -1713,7 +1713,7 @@ where
             )
             .await?;
             let calc_changes_duration = calc_changes_start.elapsed();
-    
+
             tracing::info!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.group_id),
@@ -1731,7 +1731,7 @@ where
                 calc_changes_duration,
                 start.elapsed()
             );
-    
+
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
             if !inbox_ids_to_add.is_empty()
                 && !changes_with_kps.failed_installations.is_empty()
@@ -1741,7 +1741,7 @@ where
                     "Failed to verify all installations".to_string(),
                 ));
             }
-    
+
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
