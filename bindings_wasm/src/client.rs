@@ -16,14 +16,14 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
-use crate::identity::RootIdentifier;
+use crate::identity::{PublicIdentifier, RootIdentifier};
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 
 #[wasm_bindgen]
 pub struct Client {
-  account_address: String,
+  account_identifier: RootIdentifier,
   inner_client: Arc<RustXmtpClient>,
   pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
@@ -121,7 +121,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 pub async fn create_client(
   host: String,
   inbox_id: String,
-  account_address: String,
+  account_identifier: RootIdentifier,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
@@ -153,7 +153,7 @@ pub async fn create_client(
 
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
-    account_address.clone().to_lowercase(),
+    account_identifier.clone().to_public().try_into()?,
     // this is a temporary solution
     1,
     None,
@@ -178,7 +178,7 @@ pub async fn create_client(
   };
 
   Ok(Client {
-    account_address,
+    account_identifier,
     inner_client: Arc::new(xmtp_client),
     signature_requests: HashMap::new(),
   })
@@ -187,8 +187,8 @@ pub async fn create_client(
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(getter, js_name = accountAddress)]
-  pub fn account_address(&self) -> String {
-    self.account_address.clone()
+  pub fn account_identifier(&self) -> RootIdentifier {
+    self.account_identifier.clone()
   }
 
   #[wasm_bindgen(getter, js_name = inboxId)]
@@ -212,26 +212,30 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = canMessage)]
+  /// Output booleans should be zipped with the index of input identifiers
   pub async fn can_message(
     &self,
-    account_identifiers: Vec<RootIdentifier>,
+    account_identifiers: Vec<PublicIdentifier>,
   ) -> Result<JsValue, JsError> {
     let account_identifiers: Result<Vec<XmtpRootIdentifier>, JsError> = account_identifiers
-      .into_iter()
+      .iter()
+      .cloned()
       .map(|ident| ident.try_into())
       .collect();
     let account_identifiers = account_identifiers?;
 
-    let results: HashMap<RootIdentifier, bool> = self
+    let mut results = self
       .inner_client
       .can_message(&account_identifiers)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
-      .into_iter()
-      .map(|(ident, can_msg)| (ident.into(), can_msg))
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    let result: Vec<bool> = account_identifiers
+      .iter()
+      .map(|ident| results.remove(ident).unwrap_or(false))
       .collect();
 
-    Ok(crate::to_value(&results)?)
+    Ok(crate::to_value(&result)?)
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]

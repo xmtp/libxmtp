@@ -31,7 +31,7 @@ use tracing_subscriber::{
     Registry,
 };
 use valuable::Valuable;
-use xmtp_api::Identifier;
+use xmtp_api::ApiIdentifier;
 use xmtp_api_grpc::replication_client::ClientV4;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, Error as GrpcError};
 use xmtp_common::time::now_ns;
@@ -501,7 +501,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::GetInboxId { account_address } => {
             let ident = address_to_identity(&[account_address]).pop().unwrap();
-            let api_ident: Identifier = ident.into();
+            let api_ident: ApiIdentifier = ident.into();
             let mapping = client.api().get_inbox_ids(vec![api_ident.clone()]).await?;
             let inbox_id = mapping.get(&api_ident).unwrap();
             info!("Inbox_id {inbox_id}");
