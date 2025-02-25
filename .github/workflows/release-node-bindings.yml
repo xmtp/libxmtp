@@ -274,6 +274,14 @@ jobs:
       - name: Enable corepack
         run: corepack enable
 
+      - name: Install dependencies
+        working-directory: bindings_node
+        run: yarn
+
+      - name: Generate version
+        working-directory: bindings_node
+        run: yarn generate:version
+
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:

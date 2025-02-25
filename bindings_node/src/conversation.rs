@@ -12,16 +12,14 @@ use xmtp_mls::{
     intents::PermissionUpdateType as XmtpPermissionUpdateType,
     members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
   },
-  storage::{
-    group::ConversationType,
-    group_message::{GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs},
-  },
+  storage::{group::ConversationType, group_message::MsgQueryArgs},
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
   client::RustXmtpClient,
   consent_state::ConsentState,
+  conversations::MessageDisappearingSettings,
   encoded_content::EncodedContent,
   message::{ListMessagesOptions, Message},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
@@ -29,40 +27,12 @@ use crate::{
   ErrorWrapper,
 };
 use prost::Message as ProstMessage;
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpConversationMessageDisappearingSettings;
 
 use napi_derive::napi;
 
 #[napi]
 pub struct GroupMetadata {
   inner: XmtpGroupMetadata,
-}
-
-/// Settings for disappearing messages in a conversation.
-///
-/// # Fields
-///
-/// * `from_ns` - The timestamp (in nanoseconds) from when messages should be tracked for deletion.
-/// * `in_ns` - The duration (in nanoseconds) after which tracked messages will be deleted.
-#[napi(object)]
-#[derive(Clone)]
-pub struct MessageDisappearingSettings {
-  pub from_ns: i64,
-  pub in_ns: i64,
-}
-
-#[napi]
-impl MessageDisappearingSettings {
-  #[napi]
-  pub fn new(from_ns: i64, in_ns: i64) -> Self {
-    Self { from_ns, in_ns }
-  }
-}
-
-impl From<MessageDisappearingSettings> for XmtpConversationMessageDisappearingSettings {
-  fn from(value: MessageDisappearingSettings) -> Self {
-    XmtpConversationMessageDisappearingSettings::new(value.from_ns, value.in_ns)
-  }
 }
 
 #[napi]
@@ -99,6 +69,7 @@ pub struct GroupMember {
 }
 
 #[napi]
+#[derive(Clone)]
 pub struct Conversation {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
@@ -201,7 +172,7 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
       ConversationType::Group => None,
-      ConversationType::Dm => Some(XmtpGroupMessageKind::Application),
+      ConversationType::Dm => None,
       ConversationType::Sync => None,
     };
     let opts = MsgQueryArgs {
@@ -680,5 +651,61 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?;
 
     Ok(())
+  }
+
+  #[napi]
+  pub async fn update_message_disappearing_settings(
+    &self,
+    settings: MessageDisappearingSettings,
+  ) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    group
+      .update_conversation_message_disappearing_settings(settings.into())
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn remove_message_disappearing_settings(&self) -> Result<()> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .remove_conversation_message_disappearing_settings()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
+    let settings = self
+      .inner_client
+      .group_disappearing_settings(self.group_id.clone())
+      .map_err(ErrorWrapper::from)?;
+
+    match settings {
+      Some(s) => Ok(Some(s.into())),
+      None => Ok(None),
+    }
+  }
+
+  #[napi]
+  pub fn is_message_disappearing_enabled(&self) -> Result<bool> {
+    self.message_disappearing_settings().map(|settings| {
+      settings
+        .as_ref()
+        .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
+    })
   }
 }

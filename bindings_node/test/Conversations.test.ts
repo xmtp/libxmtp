@@ -1,3 +1,4 @@
+import { v4 } from 'uuid'
 import { describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
@@ -67,9 +68,10 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = client1.conversations().list()
-    expect(group1.length).toBe(1)
-    expect(group1[0].id).toBe(group.id)
+    const groups1 = client1.conversations().list()
+    expect(groups1.length).toBe(1)
+    expect(groups1[0].conversation.id()).toBe(group.id())
+
     expect(client1.conversations().listDms().length).toBe(0)
     expect(client1.conversations().listGroups().length).toBe(1)
 
@@ -77,9 +79,9 @@ describe('Conversations', () => {
 
     await client2.conversations().sync()
 
-    const group2 = client2.conversations().list()
-    expect(group2.length).toBe(1)
-    expect(group2[0].id).toBe(group.id)
+    const groups2 = client2.conversations().list()
+    expect(groups2.length).toBe(1)
+    expect(groups2[0].conversation.id()).toBe(group.id())
 
     expect(client2.conversations().listDms().length).toBe(0)
     expect(client2.conversations().listGroups().length).toBe(1)
@@ -200,7 +202,7 @@ describe('Conversations', () => {
       updateMessageDisappearingPolicy: 0,
     })
     expect(group.addedByInboxId()).toBe(client1.inboxId())
-    expect((await group.findMessages()).length).toBe(0)
+    expect((await group.findMessages()).length).toBe(1)
     const members = await group.listMembers()
     expect(members.length).toBe(2)
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -213,10 +215,10 @@ describe('Conversations', () => {
 
     expect(group.consentState()).toBe(ConsentState.Allowed)
 
-    const group1 = client1.conversations().list()
-    expect(group1.length).toBe(1)
-    expect(group1[0].id).toBe(group.id)
-    expect(group1[0].dmPeerInboxId()).toBe(client2.inboxId())
+    const groups1 = client1.conversations().list()
+    expect(groups1.length).toBe(1)
+    expect(groups1[0].conversation.id()).toBe(group.id())
+    expect(groups1[0].conversation.dmPeerInboxId()).toBe(client2.inboxId())
 
     expect(client1.conversations().listDms().length).toBe(1)
     expect(client1.conversations().listGroups().length).toBe(0)
@@ -225,21 +227,21 @@ describe('Conversations', () => {
 
     await client2.conversations().sync()
 
-    const group2 = client2.conversations().list()
-    expect(group2.length).toBe(1)
-    expect(group2[0].id).toBe(group.id)
-    expect(group2[0].dmPeerInboxId()).toBe(client1.inboxId())
+    const groups2 = client2.conversations().list()
+    expect(groups2.length).toBe(1)
+    expect(groups2[0].conversation.id()).toBe(group.id())
+    expect(groups2[0].conversation.dmPeerInboxId()).toBe(client1.inboxId())
 
     expect(client2.conversations().listDms().length).toBe(1)
     expect(client2.conversations().listGroups().length).toBe(0)
 
     const dm1 = client1.conversations().findDmByTargetInboxId(client2.inboxId())
     expect(dm1).toBeDefined()
-    expect(dm1!.id).toBe(group.id)
+    expect(dm1!.id()).toBe(group.id())
 
     const dm2 = client2.conversations().findDmByTargetInboxId(client1.inboxId())
     expect(dm2).toBeDefined()
-    expect(dm2!.id).toBe(group.id)
+    expect(dm2!.id()).toBe(group.id())
   })
 
   it('should find a group by ID', async () => {
@@ -502,9 +504,15 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
-    const message2 = await groupsList3[0].send(encodeTextMessage('gm2!'))
-    const message3 = await groupsList4[0].send(encodeTextMessage('gm3!'))
+    const message1 = await groupsList2[0].conversation.send(
+      encodeTextMessage('gm!')
+    )
+    const message2 = await groupsList3[0].conversation.send(
+      encodeTextMessage('gm2!')
+    )
+    const message3 = await groupsList4[0].conversation.send(
+      encodeTextMessage('gm3!')
+    )
 
     await sleep()
 
@@ -554,9 +562,13 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList4[0].send(encodeTextMessage('gm3!'))
-    const message1 = await groupsList2[0].send(encodeTextMessage('gm!'))
-    const message2 = await groupsList3[0].send(encodeTextMessage('gm2!'))
+    await groupsList4[0].conversation.send(encodeTextMessage('gm3!'))
+    const message1 = await groupsList2[0].conversation.send(
+      encodeTextMessage('gm!')
+    )
+    const message2 = await groupsList3[0].conversation.send(
+      encodeTextMessage('gm2!')
+    )
 
     await sleep()
 
@@ -597,9 +609,11 @@ describe('Conversations', () => {
     await groups4.sync()
     const groupsList4 = groups4.list()
 
-    await groupsList2[0].send(encodeTextMessage('gm!'))
-    await groupsList3[0].send(encodeTextMessage('gm2!'))
-    const message3 = await groupsList4[0].send(encodeTextMessage('gm3!'))
+    await groupsList2[0].conversation.send(encodeTextMessage('gm!'))
+    await groupsList3[0].conversation.send(encodeTextMessage('gm2!'))
+    const message3 = await groupsList4[0].conversation.send(
+      encodeTextMessage('gm3!')
+    )
 
     await sleep()
 
@@ -608,54 +622,54 @@ describe('Conversations', () => {
     expect(messages.map((m) => m.id)).toEqual([message3])
   })
 
-  it('should manage group consent state', async () => {
+  it('should get hmac keys', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+    await createRegisteredClient(user2)
     const group = await client1
       .conversations()
       .createGroup([user2.account.address])
-    expect(group).toBeDefined()
-
-    await client2.conversations().sync()
-    const group2 = client2.conversations().findGroupById(group.id())
-    expect(group2).toBeDefined()
-    expect(group2.consentState()).toBe(ConsentState.Unknown)
-    await group2.send(encodeTextMessage('gm!'))
-    expect(group2.consentState()).toBe(ConsentState.Allowed)
+    const dm = await client1.conversations().createDm(user2.account.address)
+    const hmacKeys = client1.conversations().getHmacKeys()
+    expect(hmacKeys).toBeDefined()
+    const keys = Object.keys(hmacKeys)
+    expect(keys.length).toBe(2)
+    expect(keys).toContain(group.id())
+    expect(keys).toContain(dm.id())
+    for (const values of Object.values(hmacKeys)) {
+      expect(values.length).toBe(3)
+      for (const value of values) {
+        expect(value.key).toBeDefined()
+        expect(value.key.length).toBe(42)
+        expect(value.epoch).toBeDefined()
+        expect(typeof value.epoch).toBe('bigint')
+      }
+    }
   })
 
-  it('should update group metadata in empty group', async () => {
-    const user1 = createUser()
-    const client1 = await createRegisteredClient(user1)
+  it('should sync groups across installations', async () => {
+    const user = createUser()
+    const client = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client2 = await createRegisteredClient(user)
+    const user2 = createUser()
+    await createRegisteredClient(user2)
 
-    // Create empty group with admin-only permissions
-    const group = await client1.conversations().createGroup([], {
-      permissions: GroupPermissionsOptions.AdminOnly,
-    })
-    expect(group).toBeDefined()
+    const group = await client
+      .conversations()
+      .createGroup([user2.account.address])
+    await client2.conversations().sync()
+    const convos = client2.conversations().list()
+    expect(convos.length).toBe(1)
+    expect(convos[0].conversation.id()).toBe(group.id())
 
-    // Update group name without syncing first
-    await group.updateGroupName('New Group Name 1')
-    expect(group.groupName()).toBe('New Group Name 1')
-
-    // Verify name persists after sync
-    await group.sync()
-    expect(group.groupName()).toBe('New Group Name 1')
-
-    // Create another empty group
-    const soloGroup = await client1.conversations().createGroup([], {
-      permissions: GroupPermissionsOptions.AdminOnly,
-    })
-    expect(soloGroup).toBeDefined()
-
-    // Update and verify name
-    await soloGroup.updateGroupName('New Group Name 2')
-    expect(soloGroup.groupName()).toBe('New Group Name 2')
-
-    // Verify name persists after sync
-    await soloGroup.sync()
-    expect(soloGroup.groupName()).toBe('New Group Name 2')
+    const group2 = await client.conversations().createDm(user2.account.address)
+    await client2.conversations().sync()
+    const convos2 = client2.conversations().list()
+    expect(convos2.length).toBe(2)
+    const convos2Ids = convos2.map((c) => c.conversation.id())
+    expect(convos2Ids).toContain(group2.id())
+    expect(convos2Ids).toContain(group.id())
   })
 })

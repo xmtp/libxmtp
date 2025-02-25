@@ -362,7 +362,7 @@ where
                     let metadata = group.metadata(&self.provider).await?;
                     return Ok(self
                         .conversation_type
-                        .map_or(true, |ct| ct == metadata.conversation_type)
+                        .is_none_or(|ct| ct == metadata.conversation_type)
                         .then_some((group, id)));
                 }
 
@@ -380,7 +380,7 @@ where
         let metadata = group.metadata(&self.provider).await?;
         Ok(self
             .conversation_type
-            .map_or(true, |ct| ct == metadata.conversation_type)
+            .is_none_or(|ct| ct == metadata.conversation_type)
             .then_some((group, welcome_id)))
     }
 
