@@ -647,6 +647,9 @@ impl serde::Serialize for PayerEnvelope {
         if self.payer_signature.is_some() {
             len += 1;
         }
+        if self.target_originator != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.PayerEnvelope", len)?;
         if !self.unsigned_client_envelope.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -655,6 +658,9 @@ impl serde::Serialize for PayerEnvelope {
         }
         if let Some(v) = self.payer_signature.as_ref() {
             struct_ser.serialize_field("payerSignature", v)?;
+        }
+        if self.target_originator != 0 {
+            struct_ser.serialize_field("targetOriginator", &self.target_originator)?;
         }
         struct_ser.end()
     }
@@ -670,12 +676,15 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
             "unsignedClientEnvelope",
             "payer_signature",
             "payerSignature",
+            "target_originator",
+            "targetOriginator",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             UnsignedClientEnvelope,
             PayerSignature,
+            TargetOriginator,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -699,6 +708,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                         match value {
                             "unsignedClientEnvelope" | "unsigned_client_envelope" => Ok(GeneratedField::UnsignedClientEnvelope),
                             "payerSignature" | "payer_signature" => Ok(GeneratedField::PayerSignature),
+                            "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -720,6 +730,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
             {
                 let mut unsigned_client_envelope__ = None;
                 let mut payer_signature__ = None;
+                let mut target_originator__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::UnsignedClientEnvelope => {
@@ -736,11 +747,20 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                             }
                             payer_signature__ = map_.next_value()?;
                         }
+                        GeneratedField::TargetOriginator => {
+                            if target_originator__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("targetOriginator"));
+                            }
+                            target_originator__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(PayerEnvelope {
                     unsigned_client_envelope: unsigned_client_envelope__.unwrap_or_default(),
                     payer_signature: payer_signature__,
+                    target_originator: target_originator__.unwrap_or_default(),
                 })
             }
         }
