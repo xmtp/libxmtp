@@ -667,7 +667,11 @@ impl Conversations {
     let stream_closer =
       RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
         match message {
-          Ok(m) => callback.on_consent_update(m.into_iter().map(Consent::from).collect()),
+          Ok(m) => callback.on_consent_update(
+            m.into_iter()
+              .map(|c| JsValue::from(Consent::from(c)))
+              .collect(),
+          ),
           Err(e) => callback.on_error(JsError::from(e)),
         }
       });
