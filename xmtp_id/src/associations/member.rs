@@ -393,7 +393,7 @@ pub(crate) mod tests {
     fn test_identifier_comparisons() {
         let address_1 = MemberIdentifier::rand_ethereum();
         let address_2 = MemberIdentifier::rand_ethereum();
-        let address_1_copy = MemberIdentifier::rand_ethereum();
+        let address_1_copy = address_1.clone();
 
         assert!(address_1 != address_2);
         assert!(address_1.ne(&address_2));
