@@ -29,7 +29,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 pub type ID = i32;
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow, Hash)]
 #[diesel(sql_type = Integer)]
 pub enum IntentKind {
     SendMessage = 1,
