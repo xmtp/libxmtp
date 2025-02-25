@@ -17,7 +17,7 @@ pub struct UnsignedCreateInbox {
 
 impl SignatureTextCreator for UnsignedCreateInbox {
     fn signature_text(&self) -> String {
-        format!("- Create inbox\n  (Owner: {:?})", self.account_identifier)
+        format!("- Create inbox\n  (Owner: {})", self.account_identifier)
     }
 }
 
@@ -35,10 +35,7 @@ impl SignatureTextCreator for UnsignedAddAssociation {
             MemberKind::Ethereum => "Link address to inbox",
             MemberKind::Passkey => "Link passkey to inbox",
         };
-        format!(
-            "- {prefix}\n  ({id_kind}: {:?})",
-            self.new_member_identifier
-        )
+        format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
     }
 }
 
@@ -68,7 +65,7 @@ pub struct UnsignedChangeRecoveryAddress {
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
     fn signature_text(&self) -> String {
         format!(
-            "- Change inbox recovery address\n  ({:?})",
+            "- Change inbox recovery address\n  (Address: {})",
             self.new_recovery_identifier
         )
     }
