@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/node-bindings",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
@@ -12,7 +12,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./version.json": "./dist/version.json"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,7 +22,7 @@
   ],
   "scripts": {
     "artifacts": "napi artifacts",
-    "build": "yarn build:clean && yarn build:release && yarn build:finish",
+    "build": "yarn build:clean && yarn build:release && yarn build:finish && yarn generate:version",
     "build:clean": "rm -rf dist",
     "build:debug": "napi build --platform --esm",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
@@ -29,8 +30,9 @@
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
+    "generate:version": "tsx scripts/version.ts",
     "lint": "yarn lint:clippy && yarn lint:fmt",
-    "lint:clippy": "cargo clippy --all-features --all-targets --no-deps -- -Dwarnings",
+    "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
@@ -43,12 +45,14 @@
     "fast-glob": "^3.3.3",
     "prettier": "^3.5.0",
     "prettier-plugin-packagejson": "^2.5.8",
+    "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "uuid": "^11.0.5",
     "viem": "^2.23.2",
     "vite": "^6.1.0",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.0.4"
+    "vitest": "^3.0.4",
+    "zx": "^8.3.2"
   },
   "packageManager": "yarn@4.6.0",
   "engines": {

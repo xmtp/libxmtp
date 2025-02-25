@@ -4,6 +4,11 @@ use tracing_subscriber::{
     layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt, Layer,
 };
 
+pub const FILTER_DIRECTIVE: &str = "xmtp_mls=debug,xmtp_id=debug,\
+                    xmtp_api=debug,xmtp_api_grpc=debug,xmtp_proto=debug,\
+                    xmtp_common=debug,xmtp_api_d14n=debug,\
+                    xmtp_content_types=debug,xmtp_cryptography=debug,xmtp_user_preferences=debug,xmtpv3=debug";
+
 #[cfg(target_os = "android")]
 pub use android::*;
 #[cfg(target_os = "android")]
@@ -13,9 +18,21 @@ mod android {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        paranoid_android::layer(env!("CARGO_PKG_NAME"))
-            .with_thread_names(true)
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+        use tracing_subscriber::EnvFilter;
+        let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
+        let libxmtp_filter = EnvFilter::builder()
+            .parse(FILTER_DIRECTIVE)
+            .unwrap_or_else(|_| EnvFilter::new("info"));
+
+        vec![
+            paranoid_android::layer(env!("CARGO_PKG_NAME"))
+                .with_thread_names(true)
+                .with_filter(libxmtp_filter)
+                .boxed(),
+            tracing_android_trace::AndroidTraceAsyncLayer::new()
+                .with_filter(api_calls_filter)
+                .boxed(),
+        ]
     }
 }
 
@@ -24,15 +41,20 @@ pub use ios::*;
 #[cfg(target_os = "ios")]
 mod ios {
     use super::*;
-    // use tracing_subscriber::Layer;
+    use tracing_oslog::OsLogger;
+    use tracing_subscriber::EnvFilter;
+
     pub fn native_layer<S>() -> impl Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        use tracing_oslog::OsLogger;
+        let libxmtp_filter = EnvFilter::builder()
+            .parse(FILTER_DIRECTIVE)
+            .unwrap_or_else(|_| EnvFilter::new("info"));
+
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default")
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+
+        OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
 }
 

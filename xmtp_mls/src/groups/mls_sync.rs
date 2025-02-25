@@ -485,7 +485,7 @@ where
             cursor,
             intent.id,
             intent.kind = %intent.kind,
-            "[{}]-[{}] processing own message for intent {} / {:?}, message_epoch: {}",
+            "[{}]-[{}] processing own message for intent {} / {}, message_epoch: {}",
             self.context().inbox_id(),
             hex::encode(self.group_id.clone()),
             intent.id,
@@ -836,6 +836,7 @@ where
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
+    #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1112,7 +1113,7 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn receive(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let messages = self
             .client
@@ -1529,7 +1530,6 @@ where
                 inbox_ids
                     .iter()
                     .try_fold(HashMap::new(), |mut updates, inbox_id| {
-                        tracing::info!("INBOX ID = {}", inbox_id);
                         match (
                             latest_sequence_id_map.get(inbox_id as &str),
                             existing_group_membership.get(inbox_id),

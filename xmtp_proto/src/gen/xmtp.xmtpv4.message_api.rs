@@ -14,6 +14,10 @@ pub struct EnvelopesQuery {
     #[prost(message, optional, tag="3")]
     pub last_seen: ::core::option::Option<super::envelopes::Cursor>,
 }
+impl ::prost::Name for EnvelopesQuery {
+const NAME: &'static str = "EnvelopesQuery";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.EnvelopesQuery".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.EnvelopesQuery".into() }}
 /// Batch subscribe to envelopes
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -21,6 +25,10 @@ pub struct SubscribeEnvelopesRequest {
     #[prost(message, optional, tag="1")]
     pub query: ::core::option::Option<EnvelopesQuery>,
 }
+impl ::prost::Name for SubscribeEnvelopesRequest {
+const NAME: &'static str = "SubscribeEnvelopesRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.SubscribeEnvelopesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.SubscribeEnvelopesRequest".into() }}
 /// Streamed response for batch subscribe - can be multiple envelopes at once
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -28,6 +36,10 @@ pub struct SubscribeEnvelopesResponse {
     #[prost(message, repeated, tag="1")]
     pub envelopes: ::prost::alloc::vec::Vec<super::envelopes::OriginatorEnvelope>,
 }
+impl ::prost::Name for SubscribeEnvelopesResponse {
+const NAME: &'static str = "SubscribeEnvelopesResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.SubscribeEnvelopesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.SubscribeEnvelopesResponse".into() }}
 /// Query envelopes request
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -37,6 +49,10 @@ pub struct QueryEnvelopesRequest {
     #[prost(uint32, tag="2")]
     pub limit: u32,
 }
+impl ::prost::Name for QueryEnvelopesRequest {
+const NAME: &'static str = "QueryEnvelopesRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.QueryEnvelopesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.QueryEnvelopesRequest".into() }}
 /// Query envelopes response
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -44,18 +60,30 @@ pub struct QueryEnvelopesResponse {
     #[prost(message, repeated, tag="1")]
     pub envelopes: ::prost::alloc::vec::Vec<super::envelopes::OriginatorEnvelope>,
 }
+impl ::prost::Name for QueryEnvelopesResponse {
+const NAME: &'static str = "QueryEnvelopesResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.QueryEnvelopesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.QueryEnvelopesResponse".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishPayerEnvelopesRequest {
     #[prost(message, repeated, tag="1")]
     pub payer_envelopes: ::prost::alloc::vec::Vec<super::envelopes::PayerEnvelope>,
 }
+impl ::prost::Name for PublishPayerEnvelopesRequest {
+const NAME: &'static str = "PublishPayerEnvelopesRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.PublishPayerEnvelopesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.PublishPayerEnvelopesRequest".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishPayerEnvelopesResponse {
     #[prost(message, repeated, tag="1")]
     pub originator_envelopes: ::prost::alloc::vec::Vec<super::envelopes::OriginatorEnvelope>,
 }
+impl ::prost::Name for PublishPayerEnvelopesResponse {
+const NAME: &'static str = "PublishPayerEnvelopesResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.PublishPayerEnvelopesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.PublishPayerEnvelopesResponse".into() }}
 /// Request to retrieve the XIDs for the given addresses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -74,7 +102,15 @@ pub mod get_inbox_ids_request {
         #[prost(enumeration="super::super::super::identity::associations::IdentifierKind", tag="2")]
         pub identifier_kind: i32,
     }
+impl ::prost::Name for Request {
+const NAME: &'static str = "Request";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.GetInboxIdsRequest.Request".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.GetInboxIdsRequest.Request".into() }}
 }
+impl ::prost::Name for GetInboxIdsRequest {
+const NAME: &'static str = "GetInboxIdsRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.GetInboxIdsRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.GetInboxIdsRequest".into() }}
 /// Response with the XIDs for the requested addresses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -95,7 +131,15 @@ pub mod get_inbox_ids_response {
         #[prost(enumeration="super::super::super::identity::associations::IdentifierKind", tag="3")]
         pub identifier_kind: i32,
     }
+impl ::prost::Name for Response {
+const NAME: &'static str = "Response";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.GetInboxIdsResponse.Response".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.GetInboxIdsResponse.Response".into() }}
 }
+impl ::prost::Name for GetInboxIdsResponse {
+const NAME: &'static str = "GetInboxIdsResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.GetInboxIdsResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.GetInboxIdsResponse".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LivenessFailure {
@@ -117,12 +161,20 @@ pub mod liveness_failure {
         Publish(super::PublishPayerEnvelopesRequest),
     }
 }
+impl ::prost::Name for LivenessFailure {
+const NAME: &'static str = "LivenessFailure";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.LivenessFailure".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.LivenessFailure".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SafetyFailure {
     #[prost(message, repeated, tag="1")]
     pub envelopes: ::prost::alloc::vec::Vec<super::envelopes::OriginatorEnvelope>,
 }
+impl ::prost::Name for SafetyFailure {
+const NAME: &'static str = "SafetyFailure";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.SafetyFailure".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.SafetyFailure".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnsignedMisbehaviorReport {
@@ -149,6 +201,10 @@ pub mod unsigned_misbehavior_report {
         Safety(super::SafetyFailure),
     }
 }
+impl ::prost::Name for UnsignedMisbehaviorReport {
+const NAME: &'static str = "UnsignedMisbehaviorReport";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.UnsignedMisbehaviorReport".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.UnsignedMisbehaviorReport".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MisbehaviorReport {
@@ -162,28 +218,48 @@ pub struct MisbehaviorReport {
     #[prost(message, optional, tag="3")]
     pub signature: ::core::option::Option<super::super::identity::associations::RecoverableEcdsaSignature>,
 }
+impl ::prost::Name for MisbehaviorReport {
+const NAME: &'static str = "MisbehaviorReport";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.MisbehaviorReport".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.MisbehaviorReport".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubmitMisbehaviorReportRequest {
     #[prost(message, optional, tag="1")]
     pub report: ::core::option::Option<UnsignedMisbehaviorReport>,
 }
+impl ::prost::Name for SubmitMisbehaviorReportRequest {
+const NAME: &'static str = "SubmitMisbehaviorReportRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.SubmitMisbehaviorReportRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.SubmitMisbehaviorReportRequest".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SubmitMisbehaviorReportResponse {
 }
+impl ::prost::Name for SubmitMisbehaviorReportResponse {
+const NAME: &'static str = "SubmitMisbehaviorReportResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.SubmitMisbehaviorReportResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.SubmitMisbehaviorReportResponse".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct QueryMisbehaviorReportsRequest {
     #[prost(uint64, tag="1")]
     pub after_ns: u64,
 }
+impl ::prost::Name for QueryMisbehaviorReportsRequest {
+const NAME: &'static str = "QueryMisbehaviorReportsRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.QueryMisbehaviorReportsRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.QueryMisbehaviorReportsRequest".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryMisbehaviorReportsResponse {
     #[prost(message, repeated, tag="1")]
     pub reports: ::prost::alloc::vec::Vec<MisbehaviorReport>,
 }
+impl ::prost::Name for QueryMisbehaviorReportsResponse {
+const NAME: &'static str = "QueryMisbehaviorReportsResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.message_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.message_api.QueryMisbehaviorReportsResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.message_api.QueryMisbehaviorReportsResponse".into() }}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum Misbehavior {

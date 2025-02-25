@@ -15,6 +15,10 @@ pub struct Token {
     #[prost(message, optional, tag="3")]
     pub auth_data_signature: ::core::option::Option<super::super::message_contents::Signature>,
 }
+impl ::prost::Name for Token {
+const NAME: &'static str = "Token";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.Token".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.Token".into() }}
 /// AuthData carries token parameters that are authenticated
 /// by the identity key signature.
 /// It is embedded in the Token structure as bytes
@@ -30,6 +34,10 @@ pub struct AuthData {
     #[prost(uint64, tag="2")]
     pub created_ns: u64,
 }
+impl ::prost::Name for AuthData {
+const NAME: &'static str = "AuthData";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.AuthData".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.AuthData".into() }}
 /// This is based off of the go-waku Index type, but with the
 /// receiverTime and pubsubTopic removed for simplicity.
 /// Both removed fields are optional
@@ -41,6 +49,10 @@ pub struct IndexCursor {
     #[prost(uint64, tag="2")]
     pub sender_time_ns: u64,
 }
+impl ::prost::Name for IndexCursor {
+const NAME: &'static str = "IndexCursor";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.IndexCursor".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.IndexCursor".into() }}
 /// Wrapper for potentially multiple types of cursor
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -63,6 +75,10 @@ pub mod cursor {
         Index(super::IndexCursor),
     }
 }
+impl ::prost::Name for Cursor {
+const NAME: &'static str = "Cursor";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.Cursor".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.Cursor".into() }}
 /// This is based off of the go-waku PagingInfo struct, but with the direction
 /// changed to our SortDirection enum format
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -76,6 +92,10 @@ pub struct PagingInfo {
     #[prost(enumeration="SortDirection", tag="3")]
     pub direction: i32,
 }
+impl ::prost::Name for PagingInfo {
+const NAME: &'static str = "PagingInfo";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.PagingInfo".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.PagingInfo".into() }}
 /// Envelope encapsulates a message while in transit.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -93,6 +113,10 @@ pub struct Envelope {
     #[prost(bytes="vec", tag="3")]
     pub message: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for Envelope {
+const NAME: &'static str = "Envelope";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.Envelope".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.Envelope".into() }}
 /// Publish
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -100,11 +124,19 @@ pub struct PublishRequest {
     #[prost(message, repeated, tag="1")]
     pub envelopes: ::prost::alloc::vec::Vec<Envelope>,
 }
+impl ::prost::Name for PublishRequest {
+const NAME: &'static str = "PublishRequest";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.PublishRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.PublishRequest".into() }}
 /// Empty message as a response for Publish
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PublishResponse {
 }
+impl ::prost::Name for PublishResponse {
+const NAME: &'static str = "PublishResponse";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.PublishResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.PublishResponse".into() }}
 /// Subscribe
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -112,11 +144,19 @@ pub struct SubscribeRequest {
     #[prost(string, repeated, tag="1")]
     pub content_topics: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for SubscribeRequest {
+const NAME: &'static str = "SubscribeRequest";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.SubscribeRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.SubscribeRequest".into() }}
 /// SubscribeAll
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SubscribeAllRequest {
 }
+impl ::prost::Name for SubscribeAllRequest {
+const NAME: &'static str = "SubscribeAllRequest";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.SubscribeAllRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.SubscribeAllRequest".into() }}
 /// Query
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -130,6 +170,10 @@ pub struct QueryRequest {
     #[prost(message, optional, tag="4")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryRequest {
+const NAME: &'static str = "QueryRequest";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.QueryRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.QueryRequest".into() }}
 /// The response, containing envelopes, for a query
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -139,6 +183,10 @@ pub struct QueryResponse {
     #[prost(message, optional, tag="2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryResponse {
+const NAME: &'static str = "QueryResponse";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.QueryResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.QueryResponse".into() }}
 /// BatchQuery
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -146,6 +194,10 @@ pub struct BatchQueryRequest {
     #[prost(message, repeated, tag="1")]
     pub requests: ::prost::alloc::vec::Vec<QueryRequest>,
 }
+impl ::prost::Name for BatchQueryRequest {
+const NAME: &'static str = "BatchQueryRequest";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.BatchQueryRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.BatchQueryRequest".into() }}
 /// Response containing a list of QueryResponse messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -153,6 +205,10 @@ pub struct BatchQueryResponse {
     #[prost(message, repeated, tag="1")]
     pub responses: ::prost::alloc::vec::Vec<QueryResponse>,
 }
+impl ::prost::Name for BatchQueryResponse {
+const NAME: &'static str = "BatchQueryResponse";
+const PACKAGE: &'static str = "xmtp.message_api.v1";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.message_api.v1.BatchQueryResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.message_api.v1.BatchQueryResponse".into() }}
 /// Sort direction
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

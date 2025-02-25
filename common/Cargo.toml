@@ -49,6 +49,8 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
+parking_lot.workspace = true
+once_cell.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
@@ -73,6 +75,7 @@ test-utils = [
   "dep:tracing-wasm",
   "dep:console_error_panic_hook",
   "dep:tracing-forest",
+  "dep:once_cell",
 ]
 bench = [
   "test-utils",

@@ -13,12 +13,13 @@ pub enum StreamHandleError {
     ChannelClosed,
     #[error("The stream was closed")]
     StreamClosed,
-    #[error(transparent)]
-    JoinHandleError(#[from] tokio::task::JoinError),
     #[error("Stream Cancelled")]
     Cancelled,
     #[error("Stream Panicked With {0}")]
     Panicked(String),
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error(transparent)]
+    JoinHandleError(#[from] tokio::task::JoinError),
 }
 /// A handle to a spawned Stream
 /// the spawned stream can be 'joined` by awaiting its Future implementation.

@@ -19,6 +19,7 @@ on:
       - "bindings_ffi/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
       - "rust-toolchain"
       - "rustfmt.toml"
 env:

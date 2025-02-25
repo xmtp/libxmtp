@@ -66,7 +66,7 @@ impl StoredAssociationState {
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| stored_state.try_into().map_err(ConversionError::from))
+            .map(|stored_state| stored_state.try_into())
             .transpose()?
             .inspect(|_| {
                 tracing::debug!(

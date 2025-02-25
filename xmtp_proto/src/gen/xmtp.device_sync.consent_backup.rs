@@ -13,6 +13,10 @@ pub struct ConsentSave {
     #[prost(enumeration="ConsentIdentityKindSave", optional, tag="4")]
     pub identity_kind: ::core::option::Option<i32>,
 }
+impl ::prost::Name for ConsentSave {
+const NAME: &'static str = "ConsentSave";
+const PACKAGE: &'static str = "xmtp.device_sync.consent_backup";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.consent_backup.ConsentSave".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.consent_backup.ConsentSave".into() }}
 /// Consent record type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

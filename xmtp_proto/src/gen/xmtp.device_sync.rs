@@ -22,6 +22,10 @@ pub mod backup_element {
         Consent(super::consent_backup::ConsentSave),
     }
 }
+impl ::prost::Name for BackupElement {
+const NAME: &'static str = "BackupElement";
+const PACKAGE: &'static str = "xmtp.device_sync";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.BackupElement".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.BackupElement".into() }}
 /// Proto representation of backup metadata
 /// (Backup version is explicitly missing - it's stored as a header.)
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -36,6 +40,10 @@ pub struct BackupMetadataSave {
     #[prost(int64, optional, tag="5")]
     pub end_ns: ::core::option::Option<i64>,
 }
+impl ::prost::Name for BackupMetadataSave {
+const NAME: &'static str = "BackupMetadataSave";
+const PACKAGE: &'static str = "xmtp.device_sync";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.BackupMetadataSave".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.BackupMetadataSave".into() }}
 /// Elements selected for backup
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

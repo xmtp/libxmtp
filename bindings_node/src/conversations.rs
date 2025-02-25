@@ -4,22 +4,28 @@ use std::sync::Arc;
 use std::vec;
 
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::{
+  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+};
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
+use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-use crate::conversation::MessageDisappearingSettings;
+use crate::consent_state::{Consent, ConsentState};
 use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use serde::{Deserialize, Serialize};
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[napi]
 #[derive(Debug)]
@@ -78,27 +84,58 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 }
 
 #[napi(object)]
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ListConversationsOptions {
   pub allowed_states: Option<Vec<GroupMembershipState>>,
+  pub consent_states: Option<Vec<ConsentState>>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
+  pub include_duplicate_dms: bool,
   pub limit: Option<i64>,
   pub conversation_type: Option<ConversationType>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
-    GroupQueryArgs::default()
-      .maybe_allowed_states(
-        opts
-          .allowed_states
-          .map(|states| states.into_iter().map(From::from).collect()),
-      )
-      .maybe_conversation_type(opts.conversation_type.map(|ct| ct.into()))
-      .maybe_created_after_ns(opts.created_after_ns)
-      .maybe_created_before_ns(opts.created_before_ns)
-      .maybe_limit(opts.limit)
+    GroupQueryArgs {
+      allowed_states: opts
+        .allowed_states
+        .map(|vec| vec.into_iter().map(Into::into).collect()),
+      consent_states: opts
+        .consent_states
+        .map(|vec| vec.into_iter().map(Into::into).collect()),
+      conversation_type: opts.conversation_type.map(Into::into),
+      created_before_ns: opts.created_before_ns,
+      created_after_ns: opts.created_after_ns,
+      include_duplicate_dms: opts.include_duplicate_dms,
+      limit: opts.limit,
+      ..Default::default()
+    }
+  }
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct MessageDisappearingSettings {
+  pub from_ns: i64,
+  pub in_ns: i64,
+}
+
+impl From<MessageDisappearingSettings> for XmtpMessageDisappearingSettings {
+  fn from(value: MessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
+  }
+}
+
+impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
+  fn from(value: XmtpMessageDisappearingSettings) -> Self {
+    Self {
+      from_ns: value.from_ns,
+      in_ns: value.in_ns,
+    }
   }
 }
 
@@ -114,6 +151,56 @@ impl From<XmtpHmacKey> for HmacKey {
       epoch: BigInt::from(value.epoch),
       key: value.key.to_vec(),
     }
+  }
+}
+
+// TODO: Napi-rs 3.0.0 will support structured enums
+// alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
+// PR: https://github.com/napi-rs/napi-rs/pull/2222
+// Issue: https://github.com/napi-rs/napi-rs/issues/507
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Tag<T> {
+  V(T),
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum UserPreferenceUpdate {
+  ConsentUpdate { consent: Consent },
+  HmacKeyUpdate { key: Vec<u8> },
+}
+
+impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
+  fn from(value: XmtpUserPreferenceUpdate) -> Self {
+    match value {
+      XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => {
+        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
+      }
+      XmtpUserPreferenceUpdate::ConsentUpdate(consent) => {
+        Tag::V(UserPreferenceUpdate::ConsentUpdate {
+          consent: Consent::from(consent),
+        })
+      }
+    }
+  }
+}
+
+#[napi]
+pub struct ConversationListItem {
+  conversation: Conversation,
+  last_message: Option<Message>,
+}
+
+#[napi]
+impl ConversationListItem {
+  #[napi(getter)]
+  pub fn conversation(&self) -> Conversation {
+    self.conversation.clone()
+  }
+
+  #[napi(getter)]
+  pub fn last_message(&self) -> Option<Message> {
+    self.last_message.clone()
   }
 }
 
@@ -241,6 +328,75 @@ impl Conversations {
     Ok(convo.into())
   }
 
+  #[napi]
+  pub async fn create_group_by_inbox_id(
+    &self,
+    inbox_ids: Vec<String>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation> {
+    let options = options.unwrap_or(CreateGroupOptions {
+      permissions: None,
+      group_name: None,
+      group_image_url_square: None,
+      group_description: None,
+      custom_permission_policy_set: None,
+      message_disappearing_settings: None,
+    });
+
+    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
+      if options.custom_permission_policy_set.is_none() {
+        return Err(Error::from_reason("CustomPolicy must include policy set"));
+      }
+    } else if options.custom_permission_policy_set.is_some() {
+      return Err(Error::from_reason(
+        "Only CustomPolicy may specify a policy set",
+      ));
+    }
+
+    let metadata_options = options.clone().into_group_metadata_options();
+
+    let group_permissions = match options.permissions {
+      Some(GroupPermissionsOptions::Default) => {
+        Some(PreconfiguredPolicies::Default.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::AdminOnly) => {
+        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
+      }
+      Some(GroupPermissionsOptions::CustomPolicy) => {
+        if let Some(policy_set) = options.custom_permission_policy_set {
+          Some(
+            policy_set
+              .try_into()
+              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
+          )
+        } else {
+          None
+        }
+      }
+      _ => None,
+    };
+
+    let convo = if inbox_ids.is_empty() {
+      let group = self
+        .inner_client
+        .create_group(group_permissions, metadata_options)
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+      group
+    } else {
+      self
+        .inner_client
+        .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
+    };
+
+    Ok(convo.into())
+  }
+
   #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(
     &self,
@@ -251,6 +407,24 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(
         account_identity.try_into()?,
+        options.unwrap_or_default().into_dm_metadata_options(),
+      )
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(convo.into())
+  }
+
+  #[napi(js_name = "createDmByInboxId")]
+  pub async fn find_or_create_dm_by_inbox_id(
+    &self,
+    inbox_id: String,
+    options: Option<CreateDMOptions>,
+  ) -> Result<Conversation> {
+    let convo = self
+      .inner_client
+      .find_or_create_dm_by_inbox_id(
+        inbox_id,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await
@@ -322,15 +496,20 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn sync_all_conversations(&self) -> Result<usize> {
+  pub async fn sync_all_conversations(
+    &self,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<usize> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, None)
+      .sync_all_welcomes_and_groups(&provider, consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -338,20 +517,28 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
-    let convo_list: Vec<Conversation> = self
+  pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
+    let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .find_groups(opts.unwrap_or_default().into())
+      .list_conversations(opts.unwrap_or_default().into())
       .map_err(ErrorWrapper::from)?
       .into_iter()
-      .map(Conversation::from)
+      .map(|conversation_item| ConversationListItem {
+        conversation: conversation_item.group.into(),
+        last_message: conversation_item
+          .last_message
+          .map(|stored_message| stored_message.into()),
+      })
       .collect();
 
     Ok(convo_list)
   }
 
   #[napi]
-  pub fn list_groups(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_groups(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<ConversationListItem>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Group),
       ..opts.unwrap_or_default()
@@ -359,7 +546,10 @@ impl Conversations {
   }
 
   #[napi]
-  pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<Conversation>> {
+  pub fn list_dms(
+    &self,
+    opts: Option<ListConversationsOptions>,
+  ) -> Result<Vec<ConversationListItem>> {
     self.list(Some(ListConversationsOptions {
       conversation_type: Some(ConversationType::Dm),
       ..opts.unwrap_or_default()
@@ -469,5 +659,70 @@ impl Conversations {
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
   pub fn stream_all_dm_messages(&self, callback: JsFunction) -> Result<StreamCloser> {
     self.stream_all_messages(callback, Some(ConversationType::Dm))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  pub fn stream_consent(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
+      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
+    let stream_closer =
+      RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
+        tracing::trace!(inbox_id, "[received] calling tsfn callback");
+        match message {
+          Ok(message) => {
+            let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
+            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            tsfn.call(
+              Err(Error::from(ErrorWrapper::from(e))),
+              ThreadsafeFunctionCallMode::Blocking,
+            );
+          }
+        }
+      });
+
+    Ok(StreamCloser::new(stream_closer))
+  }
+
+  #[napi(ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void")]
+  pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
+      callback.create_threadsafe_function(
+        0,
+        |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
+          let env = ctx.env;
+          ctx
+            .value
+            .into_iter()
+            .map(|v| env.to_js_value(&v))
+            .collect::<Result<Vec<napi::JsUnknown>, _>>()
+        },
+      )?;
+    let inbox_id = self.inner_client.inbox_id().to_string();
+    let stream_closer =
+      RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
+        tracing::trace!(inbox_id, "[received] calling tsfn callback");
+        match message {
+          Ok(message) => {
+            let msg: Vec<Tag<UserPreferenceUpdate>> = message
+              .into_iter()
+              .map(Tag::<UserPreferenceUpdate>::from)
+              .collect();
+            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(e) => {
+            tsfn.call(
+              Err(Error::from(ErrorWrapper::from(e))),
+              ThreadsafeFunctionCallMode::Blocking,
+            );
+          }
+        }
+      });
+
+    Ok(StreamCloser::new(stream_closer))
   }
 }

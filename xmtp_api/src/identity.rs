@@ -58,7 +58,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(len = filters.len()))]
     pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
@@ -98,13 +98,16 @@ where
         Ok(res)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(self), fields(len = account_identifiers.len()))]
     pub async fn get_inbox_ids(
         &self,
-        requests: Vec<ApiIdentifier>,
+        account_identifiers: Vec<ApiIdentifier>,
     ) -> Result<IdentifierToInboxIdMap> {
-        tracing::info!("Getting inbox_ids for account identities: {:?}", &requests);
-        let requests = requests
+        tracing::info!(
+            "Getting inbox_ids for account identities: {:?}",
+            &account_identifiers
+        );
+        let requests = account_identifiers
             .into_iter()
             .map(|r| GetInboxIdsRequestProto {
                 identifier: r.identifier,
@@ -132,7 +135,7 @@ where
             .collect())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,

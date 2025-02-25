@@ -5,6 +5,10 @@ on:
       - "bindings_wasm/**"
       - ".github/workflows/lint-wasm-bindings.yaml"
       - "rustfmt.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain"
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0

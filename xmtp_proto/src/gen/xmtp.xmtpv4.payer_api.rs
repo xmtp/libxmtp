@@ -6,12 +6,20 @@ pub struct PublishClientEnvelopesRequest {
     #[prost(message, repeated, tag="1")]
     pub envelopes: ::prost::alloc::vec::Vec<super::envelopes::ClientEnvelope>,
 }
+impl ::prost::Name for PublishClientEnvelopesRequest {
+const NAME: &'static str = "PublishClientEnvelopesRequest";
+const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.payer_api.PublishClientEnvelopesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.payer_api.PublishClientEnvelopesRequest".into() }}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishClientEnvelopesResponse {
     #[prost(message, repeated, tag="1")]
     pub originator_envelopes: ::prost::alloc::vec::Vec<super::envelopes::OriginatorEnvelope>,
 }
+impl ::prost::Name for PublishClientEnvelopesResponse {
+const NAME: &'static str = "PublishClientEnvelopesResponse";
+const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse".into() }}
 /// Encoded file descriptor set for the `xmtp.xmtpv4.payer_api` package
 pub const FILE_DESCRIPTOR_SET: &[u8] = &[
     0x0a, 0xfa, 0x09, 0x0a, 0x20, 0x78, 0x6d, 0x74, 0x70, 0x76, 0x34, 0x2f, 0x70, 0x61, 0x79, 0x65,

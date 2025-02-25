@@ -29,6 +29,10 @@ pub struct GroupSave {
     #[prost(int64, optional, tag="12")]
     pub message_disappear_in_ns: ::core::option::Option<i64>,
 }
+impl ::prost::Name for GroupSave {
+const NAME: &'static str = "GroupSave";
+const PACKAGE: &'static str = "xmtp.device_sync.group_backup";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.group_backup.GroupSave".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.group_backup.GroupSave".into() }}
 /// Group membership state
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

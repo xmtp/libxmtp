@@ -198,7 +198,6 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let api = self
             .api_client
             .clone()
-            .take()
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
