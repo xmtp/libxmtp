@@ -53,7 +53,7 @@ mod ios {
             .unwrap_or_else(|_| EnvFilter::new("info"));
 
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        
+
         OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
 }
