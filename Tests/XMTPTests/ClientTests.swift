@@ -570,4 +570,28 @@ class ClientTests: XCTestCase {
 				installationId: alixInstallationId
 			))
 	}
+
+	func testCreatesAClientManually() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alix = try PrivateKey.generate()
+		let options = ClientOptions.init(
+			api: .init(env: .local, isSecure: false),
+			dbEncryptionKey: key
+		)
+
+		let inboxId = try await Client.getOrCreateInboxId(
+			api: options.api, address: alix.address)
+		let client = try await Client.ffiCreateClient(
+			address: alix.address, clientOptions: options)
+		let sigRequest = client.ffiSignatureRequest()
+		try await sigRequest!.addEcdsaSignature(
+			signatureBytes: try alix.sign(message: sigRequest!.signatureText())
+				.rawData)
+		try await client.ffiRegisterIdentity(signatureRequest: sigRequest!)
+		let canMessage = try await client.canMessage(addresses: [client.address]
+		)[client.address]
+
+		XCTAssertTrue(canMessage == true)
+		XCTAssertEqual(inboxId, client.inboxID)
+	}
 }
