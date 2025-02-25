@@ -11,7 +11,9 @@ use xmtp_proto::api_client::{Envelope, XmtpIdentityClient, XmtpMlsClient, XmtpMl
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
 use xmtp_proto::v4_utils::build_identity_topic_from_hex_encoded;
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{IdentityUpdateLog, Response};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
+    IdentityUpdateLog, Response,
+};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_response, get_inbox_ids_response, GetIdentityUpdatesRequest,
     GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
@@ -157,7 +159,8 @@ where
             .build()
             .unwrap()
             .query(&self.payer_client)
-            .await?.map_err(ApiError::from)
+            .await?
+            .map_err(ApiError::from)
     }
 
     async fn get_identity_updates_v2(
@@ -183,7 +186,8 @@ where
             .build()
             .unwrap()
             .query(&self.message_client)
-            .await?.map_err(ApiError::from);
+            .await?
+            .map_err(ApiError::from);
 
         let joined_data: Vec<_> = result
             .envelopes
@@ -193,7 +197,9 @@ where
         let responses: Vec<Response> = joined_data
             .iter()
             .map(|(envelopes, inner_req)| {
-                let identity_updates =vec![convert_v4_envelope_to_identity_update(envelopes).map_err(GrpcError::from).unwrap()];
+                let identity_updates = vec![convert_v4_envelope_to_identity_update(envelopes)
+                    .map_err(GrpcError::from)
+                    .unwrap()];
                 Response {
                     inbox_id: inner_req.inbox_id.clone(),
                     updates: identity_updates,
@@ -214,7 +220,8 @@ where
             .unwrap()
             .query(&self.message_client)
             .await
-            .unwrap().map_err(Error::from)?;
+            .unwrap()
+            .map_err(Error::from)?;
         res.responses
             .iter()
             .map(|r| get_inbox_ids_response::Response {

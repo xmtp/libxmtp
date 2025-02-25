@@ -63,10 +63,12 @@ where
 // blanket Query implementation for a bare Endpoint
 impl<E, T, C> Query<T, C> for E
 where
-    E: Endpoint,
+    E: Endpoint<Output = T>,
     C: Client,
-    T: TryFrom<E::Output>,
-    ApiError<<C as Client>::Error>: From<<T as TryFrom<E::Output>>::Error>,
+    T: Default + prost::Message,
+    // TODO: figure out how to get conversions rightfigure out how to get conversions right
+    // T: TryFrom<E::Output>,
+    // ApiError<<C as Client>::Error>: From<<T as TryFrom<E::Output>>::Error>,
 {
     async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>> {
         let mut request = http::Request::builder();
