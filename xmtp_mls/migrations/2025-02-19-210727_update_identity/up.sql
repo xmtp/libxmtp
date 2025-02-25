@@ -1,13 +1,22 @@
--- Remove the existing pkey on wallet_addresses
-DROP TABLE wallet_addresses;
-
--- Change the name to identity_cache
+-- Change wallet_addresses to identity_cache
 CREATE TABLE identity_cache (
     inbox_id TEXT NOT NULL,
     identity TEXT NOT NULL,
     identity_kind INT NOT NULL,
     PRIMARY KEY (identity, identity_kind)
 );
+
+INSERT INTO
+    identity_cache (inbox_id, identity, identity_kind)
+SELECT
+    inbox_id,
+    wallet_address,
+    1
+FROM
+    wallet_addresses;
+
+-- Remove the existing pkey on wallet_addresses
+DROP TABLE wallet_addresses;
 
 -- Add a new identity kind (Ethereum, Passkey, Solana, Sui...)
 ALTER TABLE consent_records
