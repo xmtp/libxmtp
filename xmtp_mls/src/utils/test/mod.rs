@@ -8,7 +8,7 @@ use std::{
     },
 };
 use tokio::sync::Notify;
-use xmtp_api::Identifier;
+use xmtp_api::ApiIdentifier;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{
@@ -232,7 +232,7 @@ where
     V: SmartContractSignatureVerifier,
 {
     pub async fn is_registered(&self, identifier: &PublicIdentifier) -> bool {
-        let identifier: Identifier = identifier.into();
+        let identifier: ApiIdentifier = identifier.into();
         let ids = self
             .api_client
             .get_inbox_ids(vec![identifier.clone()])

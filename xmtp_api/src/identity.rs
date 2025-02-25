@@ -36,9 +36,9 @@ impl From<&GetIdentityUpdatesV2Filter> for GetIdentityUpdatesV2RequestProto {
 }
 
 /// Maps account addresses to inbox IDs. If no inbox ID found, the value will be None
-type IdentifierToInboxIdMap = HashMap<Identifier, String>;
+type IdentifierToInboxIdMap = HashMap<ApiIdentifier, String>;
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub struct Identifier {
+pub struct ApiIdentifier {
     pub identifier: String,
     pub identifier_kind: IdentifierKind,
 }
@@ -99,7 +99,10 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn get_inbox_ids(&self, requests: Vec<Identifier>) -> Result<IdentifierToInboxIdMap> {
+    pub async fn get_inbox_ids(
+        &self,
+        requests: Vec<ApiIdentifier>,
+    ) -> Result<IdentifierToInboxIdMap> {
         tracing::info!("Getting inbox_ids for account identities: {:?}", &requests);
         let requests = requests
             .into_iter()
@@ -119,7 +122,7 @@ where
             .into_iter()
             .filter_map(|resp| {
                 Some((
-                    Identifier {
+                    ApiIdentifier {
                         identifier_kind: resp.identifier_kind(),
                         identifier: resp.identifier,
                     },
@@ -149,7 +152,7 @@ pub(crate) mod tests {
 
     use super::super::test_utils::*;
     use super::GetIdentityUpdatesV2Filter;
-    use crate::{identity::Identifier, ApiClientWrapper};
+    use crate::{identity::ApiIdentifier, ApiClientWrapper};
     use std::collections::HashMap;
     use xmtp_common::rand_hexstring;
     use xmtp_id::associations::unverified::UnverifiedIdentityUpdate;
@@ -275,7 +278,7 @@ pub(crate) mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
         let result = wrapper
-            .get_inbox_ids(vec![Identifier {
+            .get_inbox_ids(vec![ApiIdentifier {
                 identifier: address.clone(),
                 identifier_kind: IdentifierKind::Ethereum,
             }])
@@ -285,7 +288,7 @@ pub(crate) mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(
             result
-                .get(&Identifier {
+                .get(&ApiIdentifier {
                     identifier: address,
                     identifier_kind: IdentifierKind::Ethereum
                 })

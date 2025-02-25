@@ -5,7 +5,7 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper, Identifier};
+use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
@@ -181,7 +181,7 @@ pub async fn get_inbox_id_for_identifier(
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let account_identifier: PublicIdentifier = account_identifier.try_into()?;
-    let api_identifier: Identifier = account_identifier.into();
+    let api_identifier: ApiIdentifier = account_identifier.into();
 
     let results = api
         .get_inbox_ids(vec![api_identifier.clone()])

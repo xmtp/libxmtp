@@ -15,7 +15,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::conversation::MessageDisappearingSettings;
-use crate::identity::PublicIdentifier;
+use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -229,7 +229,11 @@ impl Conversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(&account_identities, group_permissions, metadata_options)
+        .create_group_with_members(
+          &account_identities.to_internal()?,
+          group_permissions,
+          metadata_options,
+        )
         .await
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
     };
@@ -240,13 +244,13 @@ impl Conversations {
   #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(
     &self,
-    account_address: String,
+    account_identity: PublicIdentifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation> {
     let convo = self
       .inner_client
       .find_or_create_dm(
-        account_address,
+        account_identity.try_into()?,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await

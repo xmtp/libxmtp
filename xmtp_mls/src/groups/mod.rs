@@ -95,7 +95,6 @@ use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use xmtp_api::Identifier;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
@@ -1989,7 +1988,6 @@ pub(crate) mod tests {
             xmtp_openmls_provider::XmtpOpenMlsProvider,
         },
         utils::test::FullXmtpClient,
-        InboxOwner,
     };
     use xmtp_common::StreamHandle as _;
 

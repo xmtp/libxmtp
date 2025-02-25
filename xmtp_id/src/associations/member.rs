@@ -5,7 +5,7 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
 };
-use xmtp_api::identity::Identifier as ApiIdentifier;
+use xmtp_api::identity::ApiIdentifier;
 use xmtp_cryptography::{signature::IdentifierValidationError, XmtpInstallationCredential};
 use xmtp_proto::{
     xmtp::identity::{
