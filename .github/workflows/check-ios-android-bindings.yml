@@ -54,22 +54,22 @@ jobs:
           # according to https://github.com/bburdette/tauri-zknotes/blob/7aa3495dc2c8a266d81c2fa3e51ae347e9c2597d/flake.nix#L158
           # but this is good for just checking to ensure it compiles on this target
           # Can also run android emulator here after cloning xmtp-android
-  steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Install Nix
-      uses: cachix/install-nix-action@v30
-      with:
-        # Mostly to avoid GitHub rate limiting
-        extra_nix_config: |
-          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-    - uses: DeterminateSystems/magic-nix-cache-action@v9
-    - name: Cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          .
-    - name: check target
-      run: |
-        nix develop .#android --command \
-          cargo check --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: check target
+        run: |
+          nix develop .#android --command \
+            cargo check --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
