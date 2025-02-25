@@ -63,7 +63,7 @@ impl Logger {
         };
         let subscriber = tracing_subscriber::registry();
         let now = chrono::Local::now();
-        let log_file_name = PathBuf::from(format!("./{}-xdbg", now));
+        let log_file_name = PathBuf::from(format!("./xdbg_log-{}", now));
 
         let subscriber = subscriber
             // default, always-on layer

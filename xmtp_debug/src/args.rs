@@ -32,6 +32,9 @@ pub struct AppOpts {
     /// Override the directory where sqlite dbs of clients are stored
     #[arg(long)]
     pub sqlite_dir: Option<PathBuf>,
+    /// File to write any diagnostics
+    #[arg(long, short)]
+    pub diagnostics: Option<PathBuf>,
 }
 
 impl AppOpts {
@@ -81,14 +84,11 @@ pub enum Commands {
 /// output stream of messages from a group to stdout
 #[derive(Args, Debug)]
 pub struct Stream {
-    /// inboxId of user to stream with
-    #[arg(long, short)]
-    pub inbox_id: InboxId,
-    /// import identity from a file instead of pulling from a database.
+    /// import identity from a file.
     /// This creates a new installation for the identity.
-    /// useful for testing multiple version of libxmtp.
+    /// could useful for testing streaming across multiple version of libxmtp.
     #[arg(long)]
-    pub import: Option<PathBuf>,
+    pub import: PathBuf,
 }
 
 /// Send Data on the network
@@ -125,6 +125,9 @@ pub struct MessageGenerateOpts {
     /// Continuously generate & send messages
     #[arg(long, short)]
     pub r#loop: bool,
+    /// loop until some amount of messages sent is hit
+    #[arg(long, short)]
+    pub loop_until: Option<usize>,
     /// Interval to send messages on (default every second)
     #[arg(long, short, default_value_t = MillisecondInterval::default())]
     pub interval: MillisecondInterval,

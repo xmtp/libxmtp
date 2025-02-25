@@ -85,6 +85,20 @@ async fn new_client_inner(
         dir.join(db_name)
     };
 
+    let store = EncryptedMessageStore::new(
+        StorageOption::Persistent(
+            dir.into_os_string()
+                .into_string()
+                .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
+        ),
+        [0u8; 32],
+    )
+    .await?;
+
+    let c = store.conn()?;
+    // turn of memory hardneinmg to prevent lots of sqlcipher errors
+    c.disable_memory_security();
+
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_address(),
@@ -93,17 +107,7 @@ async fn new_client_inner(
     ))
     .api_client(api)
     .with_remote_verifier()?
-    .store(
-        EncryptedMessageStore::new(
-            StorageOption::Persistent(
-                dir.into_os_string()
-                    .into_string()
-                    .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
-            ),
-            [0u8; 32],
-        )
-        .await?,
-    )
+    .store(store)
     .build()
     .await?;
 

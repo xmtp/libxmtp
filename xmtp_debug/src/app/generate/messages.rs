@@ -43,7 +43,10 @@ impl GenerateMessages {
     pub async fn run(self, n: usize) -> Result<()> {
         info!(fdlimit = app::get_fdlimit(), "generating messages");
         let args::MessageGenerateOpts {
-            r#loop, interval, ..
+            r#loop,
+            interval,
+            loop_until,
+            ..
         } = self.opts;
 
         self.send_many_messages(self.db.clone(), n).await?;
@@ -54,6 +57,19 @@ impl GenerateMessages {
                 tokio::time::sleep(*interval).await;
                 self.send_many_messages(self.db.clone(), n).await?;
             }
+        }
+        let mut total_messages = 0;
+        if let Some(until) = loop_until {
+            loop {
+                info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
+                tokio::time::sleep(*interval).await;
+                let sent = self.send_many_messages(self.db.clone(), n).await?;
+                total_messages += sent;
+                if total_messages > until {
+                    break;
+                }
+            }
+            app::App::write_diagnostic(format!("{}", total_messages))?;
         }
         Ok(())
     }

@@ -25,7 +25,23 @@ mod types;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
-use std::{fs, path::Path, path::PathBuf, sync::Arc};
+use futures::stream::StreamExt;
+use parking_lot::{Mutex, MutexGuard};
+use signal_hook::iterator::Signals;
+use std::future::Future;
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::{generate_inbox_id, unverified::UnverifiedSignature};
@@ -40,12 +56,17 @@ use crate::args::{self, AppOpts};
 pub use clients::*;
 
 use std::sync::OnceLock;
+// we make liberal use of globals here, probably not the best thing
 pub static DIRECTORIES: OnceLock<Directories> = OnceLock::new();
+// pub static IS_TERMINATED: AtomicBool = AtomicBool::new(false);
+// resolves once the app should exit
+static IS_TERMINATED_FUTURE: OnceLock<JoinHandle<()>> = OnceLock::new();
 
 pub struct Directories {
     data: PathBuf,
     sqlite: PathBuf,
     redb: PathBuf,
+    diagnostics: Mutex<Box<dyn Write + Send + Sync>>,
 }
 
 #[derive(Debug)]
@@ -57,17 +78,49 @@ pub struct App {
 
 impl App {
     pub fn new(opts: AppOpts) -> Result<Self> {
+        use signal_hook::consts::signal::*;
+        let (tx, rx) = oneshot::channel();
+
         let data = opts.data_directory()?;
         let db = opts.db_directory(&opts.backend)?;
         let redb = opts.redb()?;
         fs::create_dir_all(&data)?;
         fs::create_dir_all(&db)?;
+        // a quick & dirty way to get diagnostics about what just happened
+        let w = if let Some(ref f) = opts.diagnostics {
+            Box::new(fs::File::create(f)?) as Box<dyn Write + Send + Sync>
+        } else {
+            Box::new(std::io::stdout()) as Box<dyn Write + Send + Sync>
+        };
 
         DIRECTORIES.get_or_init(|| Directories {
             data,
             sqlite: db,
             redb,
+            diagnostics: Mutex::new(w),
         });
+
+        std::thread::spawn(move || {
+            let mut tx = Some(tx);
+            let term = Arc::new(AtomicBool::new(false));
+            signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&term))?;
+            signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&term))?;
+            signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term))?;
+            signal_hook::flag::register(signal_hook::consts::SIGQUIT, Arc::clone(&term))?;
+            while !term.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            if let Some(t) = tx.take() {
+                let _ = t.send(());
+            }
+            Ok::<_, eyre::Report>(())
+        });
+        IS_TERMINATED_FUTURE.get_or_init(|| {
+            tokio::task::spawn(async move {
+                let _ = rx.await;
+            })
+        });
+
         debug!(
             directory = %opts.data_directory()?.display(),
             sqlite_stores = %opts.db_directory(&opts.backend)?.display(),
@@ -92,6 +145,38 @@ impl App {
     pub fn redb() -> &'static Path {
         let d = DIRECTORIES.get().expect("must exist for app to run");
         d.redb.as_path()
+    }
+
+    pub fn is_terminated_future() -> impl Future<Output = ()> {
+        let terminate = IS_TERMINATED_FUTURE
+            .get()
+            .expect("must exist for app to run")
+            .is_finished();
+        std::future::poll_fn(move |_cx| {
+            if terminate {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        })
+    }
+
+    #[allow(unused)]
+    pub fn is_terminated() -> bool {
+        IS_TERMINATED_FUTURE
+            .get()
+            .expect("msut exist for app to run")
+            .is_finished()
+    }
+
+    pub fn diagnostics() -> MutexGuard<'static, Box<dyn Write + Send + Sync>> {
+        let d = DIRECTORIES.get().expect("must exist for app to run");
+        d.diagnostics.lock()
+    }
+
+    pub fn write_diagnostic(s: String) -> std::io::Result<()> {
+        let mut d = Self::diagnostics();
+        writeln!(d, "{}", s)
     }
 
     pub async fn run(self) -> Result<()> {
@@ -129,6 +214,9 @@ impl App {
             info!("Clearing app data");
             let _ = std::fs::remove_dir_all(data);
         }
+
+        let mut d = Self::diagnostics();
+        d.flush()?;
         Ok(())
     }
 }

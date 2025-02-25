@@ -27,9 +27,11 @@ lipsum = "0.9"
 miniserde = "0.1"
 openmls.workspace = true
 owo-colors = "4.1"
+parking_lot.workspace = true
 prost.workspace = true
 rand.workspace = true
 redb = "2.4"
+signal-hook = { version = "0.3", features = ["channel"] }
 speedy = "0.8"
 tempfile = "3.15"
 thiserror.workspace = true
@@ -50,6 +52,6 @@ valuable = { version = "0.1", features = ["derive"] }
 xmtp_api_grpc.workspace = true
 xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_id.workspace = true
-xmtp_mls.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
