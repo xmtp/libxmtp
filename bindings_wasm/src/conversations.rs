@@ -10,6 +10,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::conversation::MessageDisappearingSettings;
+use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -232,7 +233,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createGroup)]
   pub async fn create_group(
     &self,
-    account_addresses: Vec<String>,
+    account_identifiers: Vec<PublicIdentifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -275,7 +276,7 @@ impl Conversations {
       _ => None,
     };
 
-    let convo = if account_addresses.is_empty() {
+    let convo = if account_identifiers.is_empty() {
       let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
@@ -288,7 +289,11 @@ impl Conversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
+        .create_group_with_members(
+          &account_identifiers.to_internal()?,
+          group_permissions,
+          metadata_options,
+        )
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?
     };
@@ -299,13 +304,13 @@ impl Conversations {
   #[wasm_bindgen(js_name = createDm)]
   pub async fn find_or_create_dm(
     &self,
-    account_address: String,
+    account_identifier: PublicIdentifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
       .find_or_create_dm(
-        account_address,
+        account_identifier.try_into()?,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await

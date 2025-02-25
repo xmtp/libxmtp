@@ -291,7 +291,7 @@ impl Client {
   #[wasm_bindgen(js_name = findInboxIdByAddress)]
   pub async fn find_inbox_id_by_identifier(
     &self,
-    identifier: RootIdentifier,
+    identifier: PublicIdentifier,
   ) -> Result<Option<String>, JsError> {
     let conn = self
       .inner_client

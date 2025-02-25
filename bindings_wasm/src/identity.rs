@@ -1,13 +1,12 @@
 use serde::Serialize;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{ident, PublicIdentifier as XMTPPublicIdentifier};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct PublicIdentifier {
-  identifier: String,
-  identifier_kind: PublicIdentifierKind,
+  pub identifier: String,
+  pub identifier_kind: PublicIdentifierKind,
 }
 
 #[wasm_bindgen]
@@ -20,8 +19,8 @@ pub enum PublicIdentifierKind {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct RootIdentifier {
-  identifier: String,
-  identifier_kind: RootIdentifierKind,
+  pub identifier: String,
+  pub identifier_kind: RootIdentifierKind,
 }
 
 #[wasm_bindgen]
@@ -45,28 +44,12 @@ impl From<RootIdentifier> for PublicIdentifier {
     }
   }
 }
-impl From<PublicIdentifier> for RootIdentifier {
-  fn from(ident: PublicIdentifier) -> Self {
-    Self {
-      identifier: ident.identifier,
-      identifier_kind: ident.identifier_kind.into(),
-    }
-  }
-}
 
 impl From<RootIdentifierKind> for PublicIdentifierKind {
   fn from(kind: RootIdentifierKind) -> Self {
     match kind {
       RootIdentifierKind::Ethereum => Self::Ethereum,
       RootIdentifierKind::Passkey => Self::Passkey,
-    }
-  }
-}
-impl From<PublicIdentifierKind> for RootIdentifierKind {
-  fn from(kind: PublicIdentifierKind) -> Self {
-    match kind {
-      PublicIdentifierKind::Ethereum => Self::Ethereum,
-      PublicIdentifierKind::Passkey => Self::Passkey,
     }
   }
 }
@@ -94,6 +77,27 @@ impl TryFrom<PublicIdentifier> for XMTPPublicIdentifier {
       PublicIdentifierKind::Passkey => Self::passkey_str(&ident.identifier)?,
     };
     Ok(ident)
+  }
+}
+impl TryFrom<PublicIdentifier> for RootIdentifier {
+  type Error = JsError;
+  fn try_from(ident: PublicIdentifier) -> Result<Self, Self::Error> {
+    let ident = Self {
+      identifier: ident.identifier,
+
+      identifier_kind: ident.identifier_kind.try_into()?,
+    };
+    Ok(ident)
+  }
+}
+impl TryFrom<PublicIdentifierKind> for RootIdentifierKind {
+  type Error = JsError;
+  fn try_from(kind: PublicIdentifierKind) -> Result<Self, Self::Error> {
+    let kind = match kind {
+      PublicIdentifierKind::Ethereum => Self::Ethereum,
+      PublicIdentifierKind::Passkey => Self::Passkey,
+    };
+    Ok(kind)
   }
 }
 

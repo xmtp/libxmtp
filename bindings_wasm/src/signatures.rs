@@ -1,13 +1,15 @@
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
+use xmtp_id::associations::{
+  verify_signed_with_public_context, PublicIdentifier as XmtpPublicIdentifier,
+};
 
-use crate::client::Client;
+use crate::{client::Client, identity::RootIdentifierKind};
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
@@ -61,9 +63,10 @@ impl Client {
     &mut self,
     new_wallet_address: String,
   ) -> Result<String, JsError> {
+    let ident = XmtpPublicIdentifier::eth(new_wallet_address)?;
     let signature_request = self
       .inner_client()
-      .associate_eth_wallet(new_wallet_address.to_lowercase())
+      .associate_identity(ident)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
@@ -80,9 +83,10 @@ impl Client {
     &mut self,
     wallet_address: String,
   ) -> Result<String, JsError> {
+    let ident = XmtpPublicIdentifier::eth(wallet_address)?;
     let signature_request = self
       .inner_client()
-      .revoke_eth_wallets(vec![wallet_address.to_lowercase()])
+      .revoke_identities(vec![ident])
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
@@ -172,11 +176,18 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
+    let RootIdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
+      return Err(JsError::new(
+        "Account identifier must be an ethereum address.",
+      ));
+    };
+
     let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let address = self.account_address().clone();
+    let ident: XmtpPublicIdentifier = self.account_identifier().clone().to_public().try_into()?;
+    let address = ident.to_string();
 
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let account_id = AccountId::new_evm(chain_id, address);
+      let account_id = AccountId::new_evm(chain_id, address.clone());
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.to_vec(),
         account_id,
@@ -189,8 +200,7 @@ impl Client {
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     } else {
       return Err(JsError::new(&format!(
-        "Signature request for {} not found",
-        address
+        "Signature request for {address} not found",
       )));
     }
 

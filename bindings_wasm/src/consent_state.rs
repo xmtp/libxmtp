@@ -1,7 +1,8 @@
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use xmtp_id::associations::PublicIdentifier;
 use xmtp_mls::storage::consent_record::{
-  ConsentState as XmtpConsentState, StoredConsentRecord, StoredConsentType as XmtpConsentType,
-  StoredIdentityKind,
+  ConsentEntity, ConsentState as XmtpConsentState, StoredConsentRecord,
+  StoredConsentType as XmtpConsentType, StoredIdentityKind as XmtpConsentIdentityKind,
 };
 
 use crate::{client::Client, conversation::Conversation};
@@ -42,6 +43,22 @@ pub enum ConsentEntityType {
   Identity,
 }
 
+#[wasm_bindgen]
+#[derive(Clone, PartialEq)]
+pub enum ConsentIdentityKind {
+  Ethereum,
+  Passkey,
+}
+
+impl From<ConsentIdentityKind> for XmtpConsentIdentityKind {
+  fn from(kind: ConsentIdentityKind) -> Self {
+    match kind {
+      ConsentIdentityKind::Ethereum => Self::Ethereum,
+      ConsentIdentityKind::Passkey => Self::Passkey,
+    }
+  }
+}
+
 impl From<ConsentEntityType> for XmtpConsentType {
   fn from(entity_type: ConsentEntityType) -> Self {
     match entity_type {
@@ -69,15 +86,15 @@ pub enum IdentityKind {
   Passkey,
 }
 
-impl From<StoredIdentityKind> for IdentityKind {
-  fn from(kind: StoredIdentityKind) -> Self {
+impl From<XmtpConsentIdentityKind> for IdentityKind {
+  fn from(kind: XmtpConsentIdentityKind) -> Self {
     match kind {
-      StoredIdentityKind::Ethereum => Self::Ethereum,
-      StoredIdentityKind::Passkey => Self::Passkey,
+      XmtpConsentIdentityKind::Ethereum => Self::Ethereum,
+      XmtpConsentIdentityKind::Passkey => Self::Passkey,
     }
   }
 }
-impl From<IdentityKind> for StoredIdentityKind {
+impl From<IdentityKind> for XmtpConsentIdentityKind {
   fn from(kind: IdentityKind) -> Self {
     match kind {
       IdentityKind::Ethereum => Self::Ethereum,
@@ -143,14 +160,53 @@ impl Client {
     &self,
     entity_type: ConsentEntityType,
     entity: String,
+    identity_kind: Option<ConsentIdentityKind>,
   ) -> Result<ConsentState, JsError> {
+    let entity = ConsentEntity::build(entity_type, entity, identity_kind)?;
+
     let result = self
       .inner_client()
-      .get_consent_state(entity_type.into(), entity)
+      .get_consent_state(entity)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(result.into())
+  }
+}
+
+pub trait ConsentEntityConstruct {
+  fn build(
+    entity_type: ConsentEntityType,
+    entity: String,
+    identity_kind: Option<ConsentIdentityKind>,
+  ) -> Result<Self, JsError>
+  where
+    Self: Sized;
+}
+impl ConsentEntityConstruct for ConsentEntity {
+  fn build(
+    entity_type: ConsentEntityType,
+    entity: String,
+    identity_kind: Option<ConsentIdentityKind>,
+  ) -> Result<Self, JsError> {
+    let entity = match entity_type {
+      ConsentEntityType::GroupId => ConsentEntity::ConversationId(hex::decode(entity).unwrap()),
+      ConsentEntityType::InboxId => ConsentEntity::InboxId(entity),
+      ConsentEntityType::Identity => {
+        let Some(identity_kind) = identity_kind else {
+          return Err(JsError::new(
+            "identity kind is required when entity type is identity",
+          ));
+        };
+        let ident = match identity_kind {
+          ConsentIdentityKind::Ethereum => PublicIdentifier::eth(entity),
+          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity),
+        }
+        .map_err(|err| JsError::new(&err.to_string()))?;
+        ConsentEntity::Identity(ident)
+      }
+    };
+    Ok(entity)
   }
 }
 
