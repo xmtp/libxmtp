@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
 
-use crate::{ApiEndpoint, Code, XmtpApiError};
+use crate::{ApiEndpoint, Code, ProtoError, XmtpApiError};
 
 pub trait Endpoint {
     type Output: prost::Message + Default;
@@ -104,6 +104,8 @@ where
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
+    #[error(transparent)]
+    ProtoError(#[from] ProtoError), //should we combine it with Body error?
 }
 
 impl<E> XmtpApiError for ApiError<E>
@@ -135,6 +137,7 @@ where
             Http(_) => true,
             DecodeError(_) => false,
             Conversion(_) => false,
+            ProtoError(_) => false,
         }
     }
 }

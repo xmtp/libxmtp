@@ -42,7 +42,6 @@ mod test {
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::mls::api::v1::{welcome_message_input, SendWelcomeMessagesRequest, WelcomeMessageInput, FILE_DESCRIPTOR_SET};
 
     #[test]
