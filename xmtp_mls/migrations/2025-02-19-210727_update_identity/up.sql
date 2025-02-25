@@ -29,14 +29,40 @@ SET
 WHERE
     entity_type = 3;
 
--- Add the constraint with syntax that works across different database systems
-ALTER TABLE consent_records ADD CHECK (
-    (
-        entity_type = 3
-        AND identity_kind IS NOT NULL
-    )
-    OR (
-        entity_type != 3
-        AND identity_kind IS NULL
+CREATE TABLE consent_records_new (
+    entity_type int NOT NULL,
+    state int NOT NULL,
+    entity text NOT NULL,
+    identity_kind INT,
+    PRIMARY KEY (entity_type, entity),
+    CHECK (
+        (
+            entity_type = 3
+            AND identity_kind IS NOT NULL
+        )
+        OR (
+            entity_type != 3
+            AND identity_kind IS NULL
+        )
     )
 );
+
+INSERT INTO
+    consent_records_new (entity_type, state, entity, identity_kind)
+SELECT
+    entity_type,
+    state,
+    entity,
+    CASE
+        WHEN entity_type = 3 THEN 1
+        ELSE NULL
+    END
+FROM
+    consent_records;
+
+-- Drop the old table
+DROP TABLE consent_records;
+
+-- Rename the new table to the original name
+ALTER TABLE consent_records_new
+RENAME TO consent_records;
