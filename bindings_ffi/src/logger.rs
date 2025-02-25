@@ -20,7 +20,10 @@ mod android {
     {
         use tracing_subscriber::EnvFilter;
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = EnvFilter::builder().parse(FILTER_DIRECTIVE);
+        let libxmtp_filter = EnvFilter::builder()
+            .parse(FILTER_DIRECTIVE)
+            .unwrap_or_else(|_| EnvFilter::new("info"));
+
         vec![
             paranoid_android::layer(env!("CARGO_PKG_NAME"))
                 .with_thread_names(true)
@@ -38,7 +41,8 @@ pub use ios::*;
 #[cfg(target_os = "ios")]
 mod ios {
     use super::*;
-    // use tracing_subscriber::Layer;
+    use tracing_subscriber::EnvFilter;
+
     pub fn native_layer<S>() -> impl Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
