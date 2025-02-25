@@ -79,12 +79,15 @@ impl DbConnection {
         entity: &ConsentEntity,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
         Ok(self.raw_query_read(|conn| -> diesel::QueryResult<_> {
-            dsl::consent_records
+            let mut q = dsl::consent_records
                 .filter(dsl::entity.eq(entity.id()))
                 .filter(dsl::entity_type.eq(entity.r#type()))
-                .filter(dsl::identity_kind.eq(entity.kind()))
-                .first(conn)
-                .optional()
+                .into_boxed();
+            if let Some(kind) = entity.kind() {
+                q = q.filter(dsl::identity_kind.eq(kind));
+            }
+
+            q.first(conn).optional()
         })?)
     }
 
@@ -169,7 +172,7 @@ impl ConsentEntity {
     fn id(&self) -> String {
         match self {
             Self::ConversationId(id) => hex::encode(id),
-            Self::InboxId(id) => hex::encode(id),
+            Self::InboxId(id) => id.clone(),
             Self::Identity(ident) => format!("{ident}"),
         }
     }

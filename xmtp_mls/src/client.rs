@@ -1501,7 +1501,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_get_and_set_consent() {
+    async fn test_get_and_set_consent_client() {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
