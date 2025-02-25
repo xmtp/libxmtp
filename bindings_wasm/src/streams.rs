@@ -1,4 +1,3 @@
-use crate::consent_state::Consent;
 use crate::conversation::Conversation;
 use crate::messages::Message;
 use crate::user_preferences::UserPreference;
@@ -21,7 +20,7 @@ extern "C" {
   pub fn on_message(this: &StreamCallback, item: Message);
 
   #[wasm_bindgen(structural, method)]
-  pub fn on_consent_update(this: &StreamCallback, item: Vec<Consent>);
+  pub fn on_consent_update(this: &StreamCallback, item: Vec<JsValue>);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_user_preference_update(this: &StreamCallback, item: Vec<UserPreference>);
