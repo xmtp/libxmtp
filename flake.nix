@@ -36,9 +36,14 @@
         in
         {
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
-          # A shell focused on rust development (no android or ios specific platforms)
-          devShells.default = callPackage pkgs ./nix/libxmtp.nix { };
-          devShells.android = callPackage pkgs ./nix/android.nix { };
+          devShells = {
+            # shell for general xmtp rust dev
+            default = callPackage pkgs ./nix/libxmtp.nix { };
+            # Shell for android builds
+            android = callPackage pkgs ./nix/android.nix { };
+            # Shell for iOS builds
+            ios = callPackage pkgs ./nix/ios.nix { };
+          };
         };
     };
 }
