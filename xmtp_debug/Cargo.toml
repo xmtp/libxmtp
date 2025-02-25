@@ -24,7 +24,8 @@ hex.workspace = true
 indicatif = "0.17"
 k256 = "0.13"
 lipsum = "0.9"
-miniserde = "0.1"
+serde.workspace = true
+serde_json.workspace = true
 openmls.workspace = true
 owo-colors = "4.1"
 parking_lot.workspace = true
@@ -36,6 +37,7 @@ speedy = "0.8"
 tempfile = "3.15"
 thiserror.workspace = true
 tokio = "1.43"
+tokio-stream.workspace = true
 tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
 tracing-logfmt.workspace = true

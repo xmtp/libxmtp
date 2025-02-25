@@ -12,6 +12,9 @@ use xmtp_cryptography::{utils::LocalWallet, XmtpInstallationCredential};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
+pub mod diagnostics;
+pub use diagnostics::*;
+
 /// An InboxId represented as fixed bytes
 pub type InboxId = [u8; 32];
 

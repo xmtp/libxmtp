@@ -1,7 +1,9 @@
 #!/bin/bash
 set -eou pipefail
 
-MESSAGES="${1:-1000}"
+MESSAGES="${1:-500}"
+SEND_FILE="./.send_diagnostics"
+STREAM_FILE="./.stream_diagnostics"
 
 echo "sending $MESSAGES messages"
 rm -rf test_data test_data2
@@ -9,48 +11,37 @@ rm -f identity.json
 rm -f xdbg_log*.json
 rm -rf xdbg_log*.log
 rm -f ._send_out
+rm -f $STREAM_FILE
+rm -f $SEND_FILE
 
 cargo build --release --bin xdbg
 
 WORKSPACE_MANIFEST="$(cargo locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
-SEND_FILE="./.send_diagnostics"
-STREAM_FILE="./.stream_diagnostics"
 
 cd $WORKSPACE_PATH
 
 XDBG="$WORKSPACE_PATH/target/release/xdbg"
 
-$XDBG --data-dir ./test_data generate --entity identity --amount 300
+$XDBG --data-dir ./test_data generate --entity identity --amount 400
 # Create a single group with all generated identities
-$XDBG --data-dir ./test_data generate --entity group --amount 1 --invite 300 > identity.json
+$XDBG --data-dir ./test_data generate --entity group --amount 5 --invite 400 > identity.json
 # Create a new installation with one of the users in the group
 $XDBG --data-dir ./test_data export --entity single-identity > identity.json
 
 
-# Send messages in forked
-send_messages() {
-  echo "sleeping 5 seconds before sending messages"
-  sleep 5
-  $XDBG --diagnostics $SEND_FILE --data-dir ./test_data generate --entity message --amount 50 --loop-until $MESSAGES >/dev/null
-}
-
-send_messages &
+RUST_LOG=xmtp_mls::groups::mls_sync=debug $XDBG --diagnostics $SEND_FILE --data-dir ./test_data generate --entity message --amount 10 --interval 100 --loop-until $MESSAGES > send_log &
 SEND_PID=$!
 $XDBG --diagnostics $STREAM_FILE --data-dir ./test_data2 stream --import identity.json &
 STREAM_PID=$!
 
-echo "SEND $SEND_PID"
-echo "STREAM $STREAM_PID"
 wait $SEND_PID
 
-echo "sleeping 5 seconds before killing stream"
 sleep 5
 echo "killing $STREAM_PID"
 kill $STREAM_PID
 sleep 1
 
-echo "SENT $(tail -n1 $SEND_FILE)"
-echo "RECEIVED $(tail -n1 $STREAM_FILE)"
-rm $STREAM_FILE
-rm $SEND_FILE
+echo "SENT $(jq .count)"
+echo "RECEIVED $(jq '.messages | length')"
+

@@ -45,19 +45,20 @@ impl GenerateGroups {
 
         let network = &self.network;
         let mut rng = rand::thread_rng();
-        for _ in 0..n {
-            let identity = self.identity_store.random(network, &mut rng)?.unwrap();
+        // TODO: error if there aren't unique identities to create a group per-identity
+        let group_creators = self.identity_store.random_n(network, &mut rng, n)?;
+        for creator in group_creators.iter().cloned() {
             // this will not use the same identity twice
             let mut invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
             // make sure not to use the owner of the group as an invitee
-            if let Some(index) = invitees.iter().position(|i| *i == identity) {
+            if let Some(index) = invitees.iter().position(|i| *i == creator) {
                 invitees.swap_remove(index);
             }
             let bar_pointer = bar.clone();
             let network = network.clone();
             handles.push(set.spawn(async move {
-                debug!(address = identity.address(), "group owner");
-                let client = app::client_from_identity(&identity, &network).await?;
+                debug!(address = creator.address(), "group owner");
+                let client = app::client_from_identity(&creator, &network).await?;
                 let ids = invitees
                     .iter()
                     .map(|i| hex::encode(i.inbox_id))
@@ -69,7 +70,7 @@ impl GenerateGroups {
                     .into_iter()
                     .map(|i| i.inbox_id)
                     .collect::<Vec<InboxId>>();
-                members.push(identity.inbox_id);
+                members.push(creator.inbox_id);
                 Ok(Group {
                     id: group
                         .group_id
@@ -77,7 +78,7 @@ impl GenerateGroups {
                         .expect("Group id expected to be 32 bytes"),
                     member_size: members.len() as u32,
                     members,
-                    created_by: identity.inbox_id,
+                    created_by: creator.inbox_id,
                 })
             }));
 

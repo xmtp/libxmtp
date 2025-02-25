@@ -263,7 +263,9 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             cipher_version.first().as_ref().map(|v| &v.cipher_version),
             cipher_provider_version
         );
-        if tracing::enabled!(tracing::Level::DEBUG) {
+        let sqlcipher_log = std::env::var("SQLCIPHER_LOG");
+        let sqlcipher_log_enabled = matches!(sqlcipher_log, Ok(s) if s == "true" || s == "1");
+        if sqlcipher_log_enabled {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
         }

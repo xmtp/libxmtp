@@ -3,7 +3,7 @@ use std::io::Read;
 use std::sync::Arc;
 
 use crate::{
-    app::{self, clients},
+    app::{self, clients, types::Diagnostic},
     args,
 };
 use color_eyre::eyre::Result;
@@ -36,7 +36,7 @@ impl Stream {
             let mut file = File::open(import)?;
             let mut s = String::new();
             file.read_to_string(&mut s)?;
-            let json: IdentityExport = miniserde::json::from_str(&s)?;
+            let json: IdentityExport = serde_json::from_str(&s)?;
             let identity: Identity = json.try_into()?;
             // create a new installation
             let _ =
@@ -52,7 +52,7 @@ impl Stream {
             ProgressStyle::with_template("{spinner} streamed {pos} messages in {elapsed}").unwrap();
         let bar = ProgressBar::no_length().with_style(style);
 
-        let mut total_messages_streamed = 0;
+        let mut messages = Vec::with_capacity(1000);
         // TODO: Record streamed messages in database
         // allow JSON export for inspection/asserts
         let duration = std::time::Duration::from_millis(45);
@@ -69,9 +69,9 @@ impl Stream {
                 },
                 m = stream.next() => {
                     match m {
-                        Some(Ok(_msg)) => {
+                        Some(Ok(msg)) => {
                             bar.inc(1);
-                            total_messages_streamed += 1;
+                            messages.push(msg);
                         }
                         Some(Err(e)) => {
                             error!("{}", e);
@@ -81,7 +81,14 @@ impl Stream {
                 }
             }
         }
-        app::App::write_diagnostic(format!("{}", total_messages_streamed))?;
+        let messages = messages
+            .into_iter()
+            .map(|m| String::from_utf8_lossy(&m.decrypted_message_bytes).to_string())
+            .collect::<Vec<String>>();
+        app::App::write_diagnostic(Diagnostic {
+            messages: Some(messages),
+            ..Default::default()
+        })?;
         Ok(())
     }
 }

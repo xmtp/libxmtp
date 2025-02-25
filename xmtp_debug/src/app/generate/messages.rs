@@ -2,10 +2,12 @@ use crate::{
     app::{
         self,
         store::{Database, GroupStore, IdentityStore, MetadataStore, RandomDatabase},
+        types::Diagnostic,
     },
     args,
 };
 use color_eyre::eyre::{self, eyre, Result};
+use futures::stream::StreamExt;
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 use std::sync::Arc;
 
@@ -48,28 +50,37 @@ impl GenerateMessages {
             loop_until,
             ..
         } = self.opts;
-
-        self.send_many_messages(self.db.clone(), n).await?;
+        let interval = tokio::time::interval(*interval);
+        let mut stream = tokio_stream::wrappers::IntervalStream::new(interval);
 
         if r#loop {
-            loop {
+            while let Some(_) = stream.next().await {
                 info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
-                tokio::time::sleep(*interval).await;
                 self.send_many_messages(self.db.clone(), n).await?;
             }
         }
+
         let mut total_messages = 0;
         if let Some(until) = loop_until {
             loop {
-                info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
-                tokio::time::sleep(*interval).await;
-                let sent = self.send_many_messages(self.db.clone(), n).await?;
-                total_messages += sent;
-                if total_messages > until {
-                    break;
+                tokio::select! {
+                    _ = stream.next() => {
+                        info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
+                        let sent = self.send_many_messages(self.db.clone(), n).await?;
+                        total_messages += sent;
+                        if total_messages > until {
+                            break;
+                        }
+                    },
+                    _ = app::App::is_terminated_future() => {
+                        break;
+                    }
                 }
             }
-            app::App::write_diagnostic(format!("{}", total_messages))?;
+            app::App::write_diagnostic(Diagnostic {
+                count: Some(total_messages),
+                ..Default::default()
+            })?;
         }
         Ok(())
     }
@@ -78,6 +89,8 @@ impl GenerateMessages {
         let Self { network, opts, .. } = self;
 
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
+        // sendign N messages in a tokio set might be too much at once, and why we're running into
+        // database locked + failed to wait for intent
         for _ in 0..n {
             let d = db.clone();
             let n = network.clone();
@@ -136,7 +149,6 @@ impl GenerateMessages {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
             let group = client.group(group.id.into())?;
-            group.maybe_update_installations(&provider, None).await?;
             group.sync_with_conn(&provider).await?;
             let words = rng.gen_range(0..*max_message_size);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);

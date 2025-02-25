@@ -4,8 +4,8 @@ use crate::{
 };
 
 use color_eyre::eyre::{self, bail, eyre, Result};
-use miniserde::{Deserialize, Serialize};
 use rand::seq::IteratorRandom;
+use serde::{Deserialize, Serialize};
 use std::{fs, io::Write, sync::Arc};
 
 use super::types::{Group, Identity};
@@ -53,7 +53,7 @@ impl Export {
                     let ids = ids
                         .map(|i| IdentityExport::from(i.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&ids);
+                    let json = serde_json::to_string(&ids)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };
@@ -64,7 +64,7 @@ impl Export {
                     let groups = groups
                         .map(|g| GroupExport::from(g.value()))
                         .collect::<Vec<_>>();
-                    let json = miniserde::json::to_string(&groups);
+                    let json = serde_json::to_string(&groups)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 };
@@ -87,7 +87,7 @@ impl Export {
                             .ok_or(eyre!("empty identities"))?;
                         Ok(identity)
                     }?;
-                    let json = miniserde::json::to_string(&id);
+                    let json = serde_json::to_string(&id)?;
                     writer.write_all(json.as_bytes())?;
                     writer.flush()?;
                 } else {

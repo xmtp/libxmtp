@@ -55,7 +55,10 @@ impl Logger {
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
-        let app_filter = || EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}"));
+        let app_filter = || {
+            EnvFilter::try_from_default_env()
+                .unwrap_or(EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}")))
+        };
         let file_filter = || {
             EnvFilter::builder().parse_lossy(
                 "xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",

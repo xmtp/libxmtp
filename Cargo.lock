@@ -3516,17 +3516,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mini-internal"
-version = "0.1.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07b7f1340a7f0d2f89755aac4096f1c55352bfcb95cb8f351d6fcefa18df474f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.90",
-]
-
-[[package]]
 name = "minicov"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3541,17 +3530,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "miniserde"
-version = "0.1.41"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "625208b7bc90255fe6d99338041880bf48a3049166f46fbefbd4e9b0478c0b66"
-dependencies = [
- "itoa",
- "mini-internal",
- "ryu",
-]
 
 [[package]]
 name = "miniz_oxide"
@@ -7382,18 +7360,20 @@ dependencies = [
  "indicatif",
  "k256 0.13.4",
  "lipsum",
- "miniserde",
  "openmls",
  "owo-colors 4.1.0",
  "parking_lot 0.12.3",
  "prost",
  "rand",
  "redb",
+ "serde",
+ "serde_json",
  "signal-hook",
  "speedy",
  "tempfile",
  "thiserror 2.0.6",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-appender",
  "tracing-logfmt",

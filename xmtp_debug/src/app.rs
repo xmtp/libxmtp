@@ -25,9 +25,7 @@ mod types;
 
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
-use futures::stream::StreamExt;
 use parking_lot::{Mutex, MutexGuard};
-use signal_hook::iterator::Signals;
 use std::future::Future;
 use std::{
     fs,
@@ -78,7 +76,6 @@ pub struct App {
 
 impl App {
     pub fn new(opts: AppOpts) -> Result<Self> {
-        use signal_hook::consts::signal::*;
         let (tx, rx) = oneshot::channel();
 
         let data = opts.data_directory()?;
@@ -174,9 +171,10 @@ impl App {
         d.diagnostics.lock()
     }
 
-    pub fn write_diagnostic(s: String) -> std::io::Result<()> {
+    pub fn write_diagnostic(diagnostic: types::Diagnostic) -> std::io::Result<()> {
         let mut d = Self::diagnostics();
-        writeln!(d, "{}", s)
+        serde_json::to_writer(&mut *d, &diagnostic)?;
+        Ok(())
     }
 
     pub async fn run(self) -> Result<()> {
