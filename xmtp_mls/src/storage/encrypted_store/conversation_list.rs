@@ -333,7 +333,7 @@ pub(crate) mod tests {
             test_group_1_consent.store(conn).unwrap();
             let test_group_2_consent = StoredConsentRecord::new(
                 ConsentEntity::ConversationId(test_group_2.id.clone()),
-                ConsentState::Allowed,
+                ConsentState::Denied,
             );
             test_group_2_consent.store(conn).unwrap();
             let test_group_3_consent = StoredConsentRecord::new(
