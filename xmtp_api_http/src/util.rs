@@ -2,6 +2,7 @@ use crate::http_stream::SubscriptionItem;
 use crate::Error;
 use crate::ErrorResponse;
 use crate::HttpClientError;
+use prost::Message;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::Read;
 
@@ -14,6 +15,14 @@ pub(crate) enum GrpcResponse<T> {
     Empty {},
 }
 
+/// handle JSON response from gRPC, returning either
+/// the expected deserialized response object or a gRPC [`Error`]
+pub fn handle_error_proto<T>(reader: bytes::Bytes) -> Result<T, Error>
+where
+    T: prost::Message + Default,
+{
+    Ok(Message::decode(reader).map_err(HttpClientError::from)?)
+}
 /// handle JSON response from gRPC, returning either
 /// the expected deserialized response object or a gRPC [`Error`]
 pub fn handle_error<R: Read, T>(reader: R) -> Result<T, Error>

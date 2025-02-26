@@ -12,6 +12,7 @@ async-trait.workspace = true
 bytes = "1.9"
 futures = { workspace = true, default-features = false }
 pin-project-lite = "0.2.15"
+prost.workspace = true
 reqwest.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

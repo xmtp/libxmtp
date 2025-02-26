@@ -7478,6 +7478,7 @@ dependencies = [
  "bytes",
  "futures",
  "pin-project-lite",
+ "prost",
  "reqwest 0.12.12",
  "serde",
  "serde_json",
