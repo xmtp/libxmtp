@@ -76,6 +76,14 @@ pub mod test_util {
             }
         }
 
+        /// Disable sqlcipher memory security
+        pub fn disable_memory_security(&self) {
+            let query = r#"PRAGMA cipher_memory_security = OFF"#;
+            let query = diesel::sql_query(query);
+            let _ = self.raw_query_read(|c| query.clone().execute(c)).unwrap();
+            let _ = self.raw_query_write(|c| query.execute(c)).unwrap();
+        }
+
         pub fn intents_published(&self) -> i32 {
             self.raw_query_read(|conn| {
                 let mut row = conn
