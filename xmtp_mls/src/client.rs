@@ -1,3 +1,33 @@
+#[cfg(any(test, feature = "test-utils"))]
+use crate::groups::device_sync::WorkerHandle;
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::GroupCommitLock;
+use crate::{
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
+        group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
+    },
+    identity::{parse_credential, Identity, IdentityError},
+    identity_updates::{load_identity_updates, IdentityUpdateError},
+    mutex_registry::MutexRegistry,
+    storage::{
+        consent_record::{ConsentState, StoredConsentRecord},
+        db_connection::DbConnection,
+        group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
+        group_message::StoredGroupMessage,
+        refresh_state::EntityKind,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        EncryptedMessageStore, NotFound, StorageError,
+    },
+    subscriptions::{LocalEventError, LocalEvents},
+    types::InstallationId,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    Fetch, XmtpApi,
+};
+use crate::{
+    groups::{ConversationListItem, DMMetadataOptions},
+    storage::consent_record::ConsentEntity,
+};
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
@@ -9,49 +39,18 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
-
-use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_api::ApiClientWrapper;
+use xmtp_common::{retry_async, retryable, Retry};
+use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, SignatureError,
+        AssociationError, AssociationState, MemberIdentifier, PublicIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
 };
-
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
-
-#[cfg(any(test, feature = "test-utils"))]
-use crate::groups::device_sync::WorkerHandle;
-
-use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::{groups::group_mutable_metadata::MessageDisappearingSettings, GroupCommitLock};
-use crate::{
-    groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
-        group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
-    },
-    identity::{parse_credential, Identity, IdentityError},
-    identity_updates::{load_identity_updates, IdentityUpdateError},
-    mutex_registry::MutexRegistry,
-    storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-        db_connection::DbConnection,
-        group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
-        group_message::StoredGroupMessage,
-        refresh_state::EntityKind,
-        wallet_addresses::WalletEntry,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-        EncryptedMessageStore, NotFound, StorageError,
-    },
-    subscriptions::{LocalEventError, LocalEvents},
-    types::InstallationId,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    Fetch, Store, XmtpApi,
-};
-use xmtp_api::ApiClientWrapper;
-use xmtp_common::{retry_async, retryable, Retry};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -65,7 +64,7 @@ pub enum Network {
 #[derive(Debug, Error)]
 pub enum ClientError {
     #[error(transparent)]
-    AddressValidation(#[from] AddressValidationError),
+    AddressValidation(#[from] IdentifierValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),
     #[error("storage error: {0}")]
@@ -309,64 +308,50 @@ where
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given address
-    pub async fn find_inbox_id_from_address(
+    pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
-        address: String,
+        identifier: PublicIdentifier,
     ) -> Result<Option<String>, ClientError> {
-        let results = self.find_inbox_ids_from_addresses(conn, &[address]).await?;
+        let results = self
+            .find_inbox_ids_from_identifiers(conn, &[identifier])
+            .await?;
         Ok(results.into_iter().next().flatten())
     }
 
     /// Calls the server to look up the `inbox_id`s` associated with a list of addresses.
     /// If no `inbox_id` is found, returns None.
-    pub(crate) async fn find_inbox_ids_from_addresses(
+    pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
         conn: &DbConnection,
-        addresses: &[String],
+        identifiers: &[PublicIdentifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
-        let sanitized_addresses = sanitize_evm_addresses(addresses)?;
+        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
+        let mut new_inbox_ids = HashMap::default();
 
-        let local_results: Vec<WalletEntry> =
-            conn.fetch_wallets_list_with_key(&sanitized_addresses)?;
-
-        let mut results: HashMap<String, String> = local_results
-            .into_iter()
-            .map(|entry| (entry.wallet_address, entry.inbox_id))
-            .collect();
-
-        let missing_addresses: Vec<String> = sanitized_addresses
+        let missing: Vec<_> = identifiers
             .iter()
-            .filter(|address| !results.contains_key(*address))
-            .cloned()
+            .filter(|ident| !cached_inbox_ids.contains_key(&format!("{ident}")))
             .collect();
 
-        if missing_addresses.is_empty() {
-            let inbox_ids: Vec<Option<String>> = sanitized_addresses
-                .iter()
-                .map(|address| results.remove(address))
-                .collect();
-            return Ok(inbox_ids);
+        if !missing.is_empty() {
+            let identifiers = identifiers.iter().map(Into::into).collect();
+            new_inbox_ids = self.api_client.get_inbox_ids(identifiers).await?;
         }
 
-        let web_results = self.api_client.get_inbox_ids(missing_addresses).await?;
-
-        for (address, inbox_id) in web_results {
-            results
-                .insert(address.clone(), inbox_id.clone())
-                .unwrap_or_default();
-            let new_entry = WalletEntry {
-                inbox_id: InboxId::from(inbox_id),
-                wallet_address: address,
-            };
-            new_entry.store(conn).ok();
-        }
-
-        let inbox_ids: Vec<Option<String>> = sanitized_addresses
+        let inbox_ids = identifiers
             .iter()
-            .map(|address| results.remove(address))
+            .map(|ident| {
+                let cache_key = format!("{ident}");
+                if let Some(inbox_id) = cached_inbox_ids.remove(&cache_key) {
+                    return Some(inbox_id);
+                }
+                if let Some(inbox_id) = new_inbox_ids.remove(&ident.into()) {
+                    return Some(inbox_id);
+                }
+                None
+            })
             .collect();
-
         Ok(inbox_ids)
     }
 
@@ -422,23 +407,22 @@ where
         let mut record_indices = Vec::new();
 
         for (index, record) in records.iter().enumerate() {
-            if record.entity_type == ConsentType::Address {
-                addresses_to_lookup.push(record.entity.clone());
+            if let Some(ident) = record.public_identifier() {
+                addresses_to_lookup.push(ident);
                 record_indices.push(index);
             }
         }
 
         let inbox_ids = self
-            .find_inbox_ids_from_addresses(&conn, &addresses_to_lookup)
+            .find_inbox_ids_from_identifiers(&conn, &addresses_to_lookup)
             .await?;
 
         for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
             if let Some(inbox_id) = inbox_id_opt {
                 let record = &records[record_indices[i]];
                 new_records.push(StoredConsentRecord::new(
-                    ConsentType::InboxId,
+                    ConsentEntity::InboxId(inbox_id),
                     record.state,
-                    inbox_id,
                 ));
             }
         }
@@ -462,27 +446,26 @@ where
     /// Get the consent state for a given entity
     pub async fn get_consent_state(
         &self,
-        entity_type: ConsentType,
-        entity: String,
+        mut entity: ConsentEntity,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
-        let record = if entity_type == ConsentType::Address {
+
+        // Swap out external identity for inbox_id if we can
+        if let ConsentEntity::Identity(ident) = &entity {
             if let Some(inbox_id) = self
-                .find_inbox_id_from_address(&conn, entity.clone())
+                .find_inbox_id_from_identifier(&conn, ident.clone())
                 .await?
             {
-                conn.get_consent_record(inbox_id, ConsentType::InboxId)?
-            } else {
-                conn.get_consent_record(entity, entity_type)?
+                entity = ConsentEntity::InboxId(inbox_id);
             }
-        } else {
-            conn.get_consent_record(entity, entity_type)?
-        };
-
-        match record {
-            Some(rec) => Ok(rec.state),
-            None => Ok(ConsentState::Unknown),
         }
+
+        let state = conn
+            .get_consent_record(&entity)?
+            .map(|consent| consent.state)
+            .unwrap_or(ConsentState::Unknown);
+
+        Ok(state)
     }
 
     /// Gets a reference to the client's store
@@ -535,14 +518,14 @@ where
     /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
-        account_addresses: &[String],
+        account_identifiers: &[PublicIdentifier],
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
-        group.add_members(account_addresses).await?;
+        group.add_members(account_identifiers).await?;
 
         Ok(group)
     }
@@ -593,18 +576,18 @@ where
     /// Find or create a Direct Message with the default settings
     pub async fn find_or_create_dm(
         &self,
-        account_address: String,
+        target_identity: PublicIdentifier,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("finding or creating dm with address: {}", account_address);
+        tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider()?;
         let inbox_id = match self
-            .find_inbox_id_from_address(provider.conn_ref(), account_address.clone())
+            .find_inbox_id_from_identifier(provider.conn_ref(), target_identity.clone())
             .await?
         {
             Some(id) => id,
             None => {
-                return Err(NotFound::InboxIdForAddress(account_address).into());
+                return Err(NotFound::InboxIdForAddress(target_identity.to_string()).into());
             }
         };
 
@@ -1027,39 +1010,44 @@ where
     ) -> Result<InboxId, ClientError> {
         let inbox_id = parse_credential(credential)?;
         let association_state = self.get_latest_association_state(conn, &inbox_id).await?;
+        let ident = MemberIdentifier::installation(installation_pub_key);
 
-        match association_state.get(&installation_pub_key.clone().into()) {
+        match association_state.get(&ident) {
             Some(_) => Ok(inbox_id),
             None => Err(IdentityError::InstallationIdNotFound(inbox_id).into()),
         }
     }
 
-    /// Check whether an account_address has a key package registered on the network
+    /// Check whether an account_identifier has a key package registered on the network
     ///
     /// Arguments:
-    /// - account_addresses: a list of account addresses to check
+    /// - account_identifier: a list of account addresses to check
     ///
     /// Returns:
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
-        account_addresses: &[String],
-    ) -> Result<HashMap<String, bool>, ClientError> {
-        let account_addresses = sanitize_evm_addresses(account_addresses)?;
-        let inbox_id_map = self
+        account_identifiers: &[PublicIdentifier],
+    ) -> Result<HashMap<PublicIdentifier, bool>, ClientError> {
+        let requests = account_identifiers.iter().map(Into::into).collect();
+
+        // Get the identities that are on the network, set those to true
+        let mut can_message: HashMap<PublicIdentifier, bool> = self
             .api_client
-            .get_inbox_ids(account_addresses.clone())
-            .await?;
+            .get_inbox_ids(requests)
+            .await?
+            .into_iter()
+            .filter_map(|(ident, _)| Some((ident.try_into().ok()?, true)))
+            .collect();
 
-        let results = account_addresses
-            .iter()
-            .map(|address| {
-                let result = inbox_id_map.get(address).map(|_| true).unwrap_or(false);
-                (address.clone(), result)
-            })
-            .collect::<HashMap<String, bool>>();
+        // Fill in the rest with false
+        for ident in account_identifiers {
+            if !can_message.contains_key(ident) {
+                can_message.insert(ident.clone(), false);
+            }
+        }
 
-        Ok(results)
+        Ok(can_message)
     }
 }
 
@@ -1071,17 +1059,19 @@ pub(crate) mod tests {
     use super::Client;
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
+    use xmtp_id::associations::test_utils::WalletTestExt;
+    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;
+    use crate::storage::consent_record::ConsentEntity;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{
-            consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+            consent_record::{ConsentState, StoredConsentRecord},
             group::GroupQueryArgs,
             group_message::MsgQueryArgs,
             schema::identity_updates,
@@ -1206,7 +1196,10 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_address(&client.store().conn().unwrap(), wallet.get_address())
+                .find_inbox_id_from_identifier(
+                    &client.store().conn().unwrap(),
+                    wallet.public_identifier()
+                )
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())
@@ -1508,22 +1501,21 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_get_and_set_consent() {
+    async fn test_get_and_set_consent_client() {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
         let record = StoredConsentRecord::new(
-            ConsentType::Address,
+            ConsentEntity::Identity(bo_wallet.public_identifier()),
             ConsentState::Denied,
-            bo_wallet.get_address(),
         );
         alix.set_consent_states(&[record]).await.unwrap();
         let inbox_consent = alix
-            .get_consent_state(ConsentType::InboxId, bo.inbox_id().to_string())
+            .get_consent_state(ConsentEntity::InboxId(bo.inbox_id().to_string()))
             .await
             .unwrap();
         let address_consent = alix
-            .get_consent_state(ConsentType::Address, bo_wallet.get_address())
+            .get_consent_state(ConsentEntity::Identity(bo_wallet.public_identifier()))
             .await
             .unwrap();
 
@@ -1582,7 +1574,7 @@ pub(crate) mod tests {
         assert!(bo_original_from_db.is_ok());
 
         alix.create_group_with_members(
-            &[bo_wallet.get_address()],
+            &[bo_wallet.public_identifier()],
             None,
             GroupMetadataOptions::default(),
         )
@@ -1614,7 +1606,7 @@ pub(crate) mod tests {
         assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(
-            &[bo_wallet.get_address()],
+            &[bo_wallet.public_identifier()],
             None,
             GroupMetadataOptions::default(),
         )

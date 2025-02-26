@@ -1,14 +1,29 @@
 namespace xmtpv3 {
-};
+    [Error]
+    enum SigningError {
+      "Generic",
+    };
 
-[Error]
-enum SigningError {
-  "Generic",
-};
+    [Error]
+    enum IdentityValidationError {
+      "Generic",
+    };
 
-callback interface FfiInboxOwner {
-    string get_address();
+    enum FfiPublicIdentifierKind {
+      "Ethereum",
+      "Passkey",
+    };
 
-    [Throws=SigningError]
-    bytes sign(string text);
+    dictionary FfiPublicIdentifier {
+      string identifier;
+      FfiPublicIdentifierKind identifier_kind;
+    };
+
+    callback interface FfiInboxOwner {
+        [Throws=SigningError]
+        bytes sign(string text);
+
+        [Throws=IdentityValidationError]
+        FfiPublicIdentifier get_identifier();
+    };
 };

@@ -1,17 +1,15 @@
-use xmtp_id::InboxId;
-
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
-
 use crate::storage::{
     association_state::StoredAssociationState,
-    consent_record::{ConsentState, ConsentType},
+    consent_record::{ConsentEntity, ConsentState},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
+use xmtp_id::{associations::PublicIdentifier, InboxId};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
     pub inbox_id: InboxId,
-    pub account_addresses: Vec<String>,
+    pub account_identifiers: Vec<PublicIdentifier>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
@@ -89,9 +87,9 @@ where
         let members = association_states
             .into_iter()
             .map(|association_state| {
-                let inbox_id_str = association_state.inbox_id().to_string();
-                let is_admin = mutable_metadata.is_admin(&inbox_id_str);
-                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
+                let inbox_id = association_state.inbox_id().to_string();
+                let is_admin = mutable_metadata.is_admin(&inbox_id);
+                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id);
                 let permission_level = if is_super_admin {
                     PermissionLevel::SuperAdmin
                 } else if is_admin {
@@ -100,12 +98,11 @@ where
                     PermissionLevel::Member
                 };
 
-                let consent =
-                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+                let consent = conn.get_consent_record(&ConsentEntity::InboxId(inbox_id.clone()))?;
 
                 Ok(GroupMember {
-                    inbox_id: inbox_id_str.clone(),
-                    account_addresses: association_state.account_addresses(),
+                    inbox_id: inbox_id.clone(),
+                    account_identifiers: association_state.identifiers(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,
                     consent_state: consent.map_or(ConsentState::Unknown, |c| c.state),
