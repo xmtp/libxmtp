@@ -7,7 +7,7 @@ enum SigningError {
 };
 
 callback interface FfiInboxOwner {
-    string get_address();
+    string get_identifier();
 
     [Throws=SigningError]
     bytes sign(string text);
