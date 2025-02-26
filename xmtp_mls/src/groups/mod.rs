@@ -1963,7 +1963,7 @@ pub(crate) mod tests {
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
-    use xmtp_id::associations::{MemberIdentifier, PublicIdentifier};
+    use xmtp_id::associations::PublicIdentifier;
     use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 

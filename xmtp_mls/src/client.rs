@@ -1060,7 +1060,7 @@ pub(crate) mod tests {
     use diesel::RunQueryDsl;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
-    use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
+    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;

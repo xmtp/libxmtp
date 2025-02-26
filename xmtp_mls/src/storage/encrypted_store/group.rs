@@ -664,7 +664,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         storage::{
-            consent_record::{ConsentEntity, StoredConsentType},
+            consent_record::ConsentEntity,
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
         Fetch, Store,

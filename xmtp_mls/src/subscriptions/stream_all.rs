@@ -113,16 +113,14 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use crate::groups::DMMetadataOptions;
+    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::{associations::test_utils::WalletTestExt, InboxOwner};
-
-    use crate::groups::DMMetadataOptions;
-    use futures::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_changing_group_list() {
