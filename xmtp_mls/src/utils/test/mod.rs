@@ -179,6 +179,7 @@ where
         .unwrap();
     let conn = client.store().conn().unwrap();
     conn.register_triggers();
+    conn.disable_memory_security();
     register_client(&client, owner).await;
 
     client
@@ -215,6 +216,7 @@ where
     let client = builder.build().await.unwrap();
     let conn = client.store().conn().unwrap();
     conn.register_triggers();
+    conn.disable_memory_security();
     register_client(&client, owner).await;
 
     client
