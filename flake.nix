@@ -1,98 +1,49 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
-
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
     };
-
-    flake-utils = { url = "github:numtide/flake-utils"; };
+    flake-parts = { url = "github:hercules-ci/flake-parts"; };
+    systems.url = "github:nix-systems/default";
+    mkshell-util.url = "github:insipx/mkShell-util.nix";
   };
 
-  outputs = { nixpkgs, flake-utils, fenix, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        inherit (pkgs.stdenv) isDarwin;
-        inherit (pkgs) androidenv;
-        inherit (androidComposition) androidsdk;
-        frameworks = if isDarwin then pkgs.darwin.apple_sdk.frameworks else null;
-        pkgs = import nixpkgs {
-          inherit system;
-          # Rust Overlay
-          overlays = [ fenix.overlays.default ];
-          config = {
-            android_sdk.accept_license = true;
-            allowUnfree = true;
+  nixConfig = {
+    extra-trusted-public-keys = "xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=";
+    extra-substituters = "https://xmtp.cachix.org";
+  };
+
+  outputs = inputs@{ flake-parts, fenix, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = import inputs.systems;
+      perSystem = { pkgs, system, ... }:
+        let
+          util = import inputs.mkshell-util;
+          mkShellWrappers = pkgs: util callPackage pkgs;
+          callPackage = pkgs: pkgs.lib.callPackageWith ((mkShellWrappers pkgs) // pkgs);
+          pkgConfig = {
+            inherit system;
+            # Rust Overlay
+            overlays = [ fenix.overlays.default ];
+            config = {
+              android_sdk.accept_license = true;
+              allowUnfree = true;
+            };
+          };
+        in
+        {
+          _module.args.pkgs = import inputs.nixpkgs pkgConfig;
+          devShells = {
+            # shell for general xmtp rust dev
+            default = callPackage pkgs ./nix/libxmtp.nix { };
+            # Shell for android builds
+            android = callPackage pkgs ./nix/android.nix { };
+            # Shell for iOS builds
+            ios = callPackage pkgs ./nix/ios.nix { };
           };
         };
-
-        android = {
-          platforms = [ "34" ];
-          platformTools = "33.0.3";
-          buildTools = [ "30.0.3" ];
-        };
-
-        sdkArgs = {
-          platformVersions = android.platforms;
-          platformToolsVersion = android.platformTools;
-          buildToolsVersions = android.buildTools;
-          includeNDK = true;
-        };
-
-        androidTargets = [
-          "aarch64-linux-android"
-          "armv7-linux-androideabi"
-          "x86_64-linux-android"
-          "i686-linux-android"
-        ];
-
-        # Pinned Rust Version
-        rust-toolchain = with fenix.packages.${system}; combine [
-          stable.cargo
-          stable.rustc
-          (pkgs.lib.forEach
-            androidTargets
-            (target: targets."${target}".stable.rust-std))
-        ];
-
-        # https://github.com/NixOS/nixpkgs/blob/master/doc/languages-frameworks/android.section.md
-        androidHome = "${androidComposition.androidsdk}/libexec/android-sdk";
-        androidComposition = androidenv.composeAndroidPackages sdkArgs;
-
-        # Packages available to flake while building the environment
-        nativeBuildInputs = with pkgs; [ pkg-config ];
-        # Define the packages available to the build environment
-        # https://search.nixos.org/packages
-        buildInputs = with pkgs; [
-          rust-toolchain
-          kotlin
-          androidsdk
-          jdk17
-          cargo-ndk
-
-          # System Libraries
-          sqlite
-          openssl
-        ] ++ lib.optionals isDarwin [
-          # optional packages if on darwin, in order to check if build passes locally
-          libiconv
-          frameworks.CoreServices
-          frameworks.Carbon
-          frameworks.ApplicationServices
-          frameworks.AppKit
-          darwin.cctools
-        ];
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          OPENSSL_DIR = "${pkgs.openssl.dev}";
-          ANDROID_HOME = androidHome;
-          ANDROID_SDK_ROOT = androidHome; # ANDROID_SDK_ROOT is deprecated, but some tools may still use it;
-          ANDROID_NDK_ROOT = "${androidHome}/ndk-bundle";
-
-          inherit buildInputs nativeBuildInputs;
-        };
-      });
+    };
 }

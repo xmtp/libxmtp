@@ -51,9 +51,7 @@ mod ios {
         let libxmtp_filter = EnvFilter::builder()
             .parse(FILTER_DIRECTIVE)
             .unwrap_or_else(|_| EnvFilter::new("info"));
-
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-
         OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
 }
@@ -104,11 +102,19 @@ pub use test_logger::*;
 #[cfg(test)]
 mod test_logger {
     use super::*;
+    use tracing_subscriber::EnvFilter;
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         xmtp_common::logger_layer()
+    }
+
+    #[test]
+    fn test_directive() {
+        let _filer = EnvFilter::builder()
+            .parse(FILTER_DIRECTIVE)
+            .expect("should parse correctly");
     }
 }
