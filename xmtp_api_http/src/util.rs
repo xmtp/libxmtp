@@ -17,11 +17,24 @@ pub(crate) enum GrpcResponse<T> {
 
 /// handle JSON response from gRPC, returning either
 /// the expected deserialized response object or a gRPC [`Error`]
-pub fn handle_error_proto<T>(reader: bytes::Bytes) -> Result<T, Error>
+pub async fn handle_error_proto<T>(response: reqwest::Response) -> Result<T, Error>
 where
     T: prost::Message + Default,
 {
-    Ok(Message::decode(reader).map_err(HttpClientError::from)?)
+    if response.status().is_success() {
+        let res = response.bytes().await.map_err(HttpClientError::from)?;
+        return Ok(Message::decode(res).map_err(HttpClientError::from)?);
+    }
+
+    Err(HttpClientError::Grpc(ErrorResponse {
+        code: response.status().as_u16() as usize,
+        message: response
+            .text_with_charset("utf-8")
+            .await
+            .map_err(HttpClientError::from)?,
+        details: vec![],
+    })
+    .into())
 }
 /// handle JSON response from gRPC, returning either
 /// the expected deserialized response object or a gRPC [`Error`]

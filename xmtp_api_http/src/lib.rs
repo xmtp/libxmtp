@@ -177,13 +177,11 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::upload_kp)?
-            .bytes()
-            .await
             .map_err(Error::upload_kp)?;
 
-        tracing::debug!("upload_key_package");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::UploadKeyPackage))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::UploadKeyPackage))
     }
 
     async fn fetch_key_packages(
@@ -197,13 +195,11 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::fetch_kps)?
-            .bytes()
-            .await
             .map_err(Error::fetch_kps)?;
-
         tracing::debug!("fetch_key_packages");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::FetchKeyPackages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::FetchKeyPackages))
     }
 
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
@@ -214,13 +210,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::send_group_messages)?
-            .bytes()
-            .await
             .map_err(Error::send_group_messages)?;
 
         tracing::debug!("send_group_messages");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::SendGroupMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::SendGroupMessages))
     }
 
     async fn send_welcome_messages(
@@ -234,13 +229,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::send_welcome_messages)?
-            .bytes()
-            .await
             .map_err(Error::send_welcome_messages)?;
 
         tracing::debug!("send_welcome_messages");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::SendWelcomeMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::SendWelcomeMessages))
     }
 
     async fn query_group_messages(
@@ -254,13 +248,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::query_group_messages)?
-            .bytes()
-            .await
             .map_err(Error::query_group_messages)?;
 
         tracing::debug!("query_group_messages");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
     }
 
     async fn query_welcome_messages(
@@ -274,13 +267,12 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::query_welcome_messages)?
-            .bytes()
-            .await
             .map_err(Error::query_welcome_messages)?;
 
         tracing::debug!("query_welcome_messages");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
     }
 }
 
@@ -347,13 +339,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::publish_identity_update)?
-            .bytes()
-            .await
             .map_err(Error::publish_identity_update)?;
 
         tracing::debug!("publish_identity_update");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::PublishIdentityUpdate))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::PublishIdentityUpdate))
     }
 
     async fn get_identity_updates_v2(
@@ -367,13 +358,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::get_identity_updates_v2)?
-            .bytes()
-            .await
             .map_err(Error::get_identity_updates_v2)?;
 
         tracing::debug!("get_identity_updates_v2");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::GetIdentityUpdatesV2))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::GetIdentityUpdatesV2))
     }
 
     async fn get_inbox_ids(
@@ -387,13 +377,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::get_inbox_ids)?
-            .bytes()
-            .await
             .map_err(Error::get_inbox_ids)?;
 
         tracing::debug!("get_inbox_ids");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::GetInboxIds))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::GetInboxIds))
     }
 
     async fn verify_smart_contract_wallet_signatures(
@@ -407,13 +396,12 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::verify_scw_signature)?
-            .bytes()
-            .await
             .map_err(Error::verify_scw_signature)?;
 
         tracing::debug!("verify_smart_contract_wallet_signatures");
-        handle_error_proto(res).map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
     }
 }
 
@@ -447,7 +435,6 @@ pub mod tests {
             })
             .await;
 
-        println!("{:?}", result);
         assert!(result.is_err());
         println!("{:?}", result);
         assert!(result
