@@ -25,6 +25,8 @@ pub struct GrpcClient {
     libxmtp_version: MetadataValue<metadata::Ascii>,
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Client for GrpcClient {
     type Error = crate::GrpcError;
     type Stream = tonic::Streaming<Bytes>;
