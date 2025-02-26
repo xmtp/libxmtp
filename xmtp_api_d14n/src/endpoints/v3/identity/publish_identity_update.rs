@@ -2,7 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::identity::api::v1::{PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET};
+use xmtp_proto::xmtp::identity::api::v1::{
+    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET,
+};
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 #[derive(Debug, Builder, Default)]
@@ -44,7 +46,9 @@ mod test {
     use xmtp_common::time::now_ns;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET};
+    use xmtp_proto::xmtp::identity::api::v1::{
+        PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET,
+    };
     use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
     #[test]
@@ -69,6 +73,7 @@ mod test {
             .build()
             .unwrap();
 
-        let _: Result<PublishIdentityUpdateResponse, xmtp_proto::traits::ApiError<GrpcError>> = endpoint.query(&client).await;
+        let _: Result<PublishIdentityUpdateResponse, xmtp_proto::traits::ApiError<GrpcError>> =
+            endpoint.query(&client).await;
     }
 }

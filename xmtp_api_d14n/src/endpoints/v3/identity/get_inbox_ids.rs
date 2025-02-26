@@ -44,12 +44,14 @@ impl Endpoint for GetInboxIds {
 
 #[cfg(test)]
 mod test {
+    use crate::v3::identity::GetInboxIds;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET};
-    use crate::v3::identity::GetInboxIds;
+    use xmtp_proto::xmtp::identity::api::v1::{
+        GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {

@@ -3,8 +3,10 @@ use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-use xmtp_proto::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, PublishClientEnvelopesResponse};
 use xmtp_proto::xmtp::xmtpv4::payer_api::FILE_DESCRIPTOR_SET;
+use xmtp_proto::xmtp::xmtpv4::payer_api::{
+    PublishClientEnvelopesRequest, PublishClientEnvelopesResponse,
+};
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
@@ -39,13 +41,15 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use crate::PublishClientEnvelopes;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-    use xmtp_proto::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, PublishClientEnvelopesResponse, FILE_DESCRIPTOR_SET};
-    use crate::PublishClientEnvelopes;
+    use xmtp_proto::xmtp::xmtpv4::payer_api::{
+        PublishClientEnvelopesRequest, PublishClientEnvelopesResponse, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {

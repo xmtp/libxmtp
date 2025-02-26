@@ -71,7 +71,6 @@ mod test {
             .build()
             .unwrap();
 
-
         // let _ = endpoint.query(&client).await.is_err();
         // assert_eq!(result.is_err(), true);
     }

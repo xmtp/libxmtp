@@ -44,12 +44,14 @@ impl Endpoint for QueryWelcomeMessages {
 
 #[cfg(test)]
 mod test {
+    use crate::QueryWelcomeMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::mls::api::v1::{QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, FILE_DESCRIPTOR_SET};
-    use crate::{QueryWelcomeMessages};
+    use xmtp_proto::xmtp::mls::api::v1::{
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {
@@ -65,7 +67,7 @@ mod test {
         client.set_host(LOCALHOST_ADDRESS.to_string());
         let client = client.build().await.unwrap();
         let endpoint = QueryWelcomeMessages::builder()
-            .installation_key(vec![1,2,3])
+            .installation_key(vec![1, 2, 3])
             .build()
             .unwrap();
 

@@ -2,6 +2,7 @@
 
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
+
 use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
 use xmtp_api_grpc::replication_client::convert_v4_envelope_to_identity_update;
 use xmtp_api_grpc::GrpcError;
@@ -9,7 +10,10 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
-use xmtp_proto::v4_utils::{build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic, build_welcome_message_topic};
+use xmtp_proto::v4_utils::{
+    build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
+    build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
+};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_inbox_ids_response, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
@@ -18,14 +22,18 @@ use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
+    group_message, group_message_input, welcome_message, welcome_message_input,
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-    SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+    SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
+use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
+
+const DEFAULT_PAGINATION_LIMIT: u32 = 100;
 
 pub struct D14nClient<C, P, E> {
     message_client: C,
@@ -39,100 +47,210 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client,
+    ApiError<E>: From<ApiError<<P as Client>::Error>>
+        + From<ApiError<<C as Client>::Error>>
+        + Send
+        + Sync
+        + 'static,
+    ApiError<E>: From<GrpcError>,
 {
     type Error = ApiError<E>;
+
     async fn upload_key_package(
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        // let envelopes: Vec<ClientEnvelope> = request
-        //     .into_iter()
-        //     .map(|message| message.try_into().map_err(GrpcError::from))
-        //     .collect::<Result<_, _>>()?;
-        // PublishClientEnvelopes::builder()
-        //     .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.payer_client)
-        //     .await?
-        todo!()
+        let envelope: ClientEnvelope = request.try_into().map_err(GrpcError::from)?;
+
+        PublishClientEnvelopes::builder()
+            .envelopes(vec![envelope])
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
+            .await?;
+
+        Ok(())
     }
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
-        // let topics = request
-        //     .installation_keys
-        //     .iter()
-        //     .map(|key| build_key_package_topic(key.as_slice()))
-        //     .collect();
-        // QueryEnvelopes::builder()
-        //     .envelopes(topics)
-        //     .limit(0u32) //todo: do we need to get it as a var in the parent function?
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.message_client)
-        //     .await?;
-        todo!()
+        let topics = request
+            .installation_keys
+            .iter()
+            .map(|key| build_key_package_topic(key))
+            .collect();
+
+        let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
+            .envelopes(EnvelopesQuery {
+                topics,
+                originator_node_ids: vec![], // todo: set later
+                last_seen: None,             // todo: set later
+            })
+            .limit(DEFAULT_PAGINATION_LIMIT)
+            .build()
+            .unwrap()
+            .query(&self.message_client)
+            .await?;
+
+        let key_packages = result
+            .envelopes
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?;
+
+        Ok(FetchKeyPackagesResponse { key_packages })
     }
     async fn send_group_messages(
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        // PublishClientEnvelopes::builder()
-        //     .envelopes(request.messages.try_collect()?)
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.payer_client)
-        //     .await
-        todo!()
+        let envelopes: Vec<ClientEnvelope> = request
+            .messages
+            .into_iter()
+            .map(|message| message.try_into().map_err(GrpcError::from))
+            .collect::<Result<_, _>>()?;
+
+        PublishClientEnvelopes::builder()
+            .envelopes(envelopes)
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
+            .await?;
+
+        Ok(())
     }
     async fn send_welcome_messages(
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        // PublishClientEnvelopes::builder()
-        //     .envelopes(request.messages.try_collect()?)
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.payer_client)
-        todo!()
+        let envelope: Vec<ClientEnvelope> = request
+            .messages
+            .into_iter()
+            .map(|message| message.try_into().map_err(GrpcError::from))
+            .collect::<Result<_, _>>()?;
+
+        PublishClientEnvelopes::builder()
+            .envelopes(envelope)
+            .build()
+            .unwrap()
+            .query(&self.payer_client)
+            .await?;
+
+        Ok(())
     }
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        // let query_envelopes = EnvelopesQuery {
-        //     topics: vec![build_group_message_topic(request.group_id.as_slice())],
-        //     originator_node_ids: vec![], //todo: set later
-        //     last_seen: None,             //todo: set later
-        // };
-        // QueryEnvelopes::builder()
-        //     .envelopes(query_envelopes)
-        //     .limit(0u32) //todo: do we need to get it as a var in the parent function?
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.message_client)
-        todo!()
+        let query_envelopes = EnvelopesQuery {
+            topics: vec![build_group_message_topic(request.group_id.as_slice())],
+            originator_node_ids: Vec::new(), // todo: set later
+            last_seen: None,                 // todo: set later
+        };
+
+        let response_envelopes: QueryEnvelopesResponse = QueryEnvelopes::builder()
+            .envelopes(query_envelopes)
+            .limit(
+                request
+                    .paging_info
+                    .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
+            ) // Defaulting limit to 100
+            .build()
+            .map_err(|err| ApiError::<E>::Generic)?
+            .query(&self.message_client)
+            .await?;
+
+        let messages = response_envelopes
+            .envelopes
+            .into_iter()
+            .map(|envelope| {
+                let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope)?;
+                let client_envelope = extract_client_envelope(&envelope)?;
+                let payload = client_envelope.payload.ok_or(GrpcError::MissingPayload)?;
+
+                if let Payload::GroupMessage(group_message) = payload {
+                    if let Some(group_message_input::Version::V1(v1_group_message)) =
+                        group_message.version
+                    {
+                        return Ok(GroupMessage {
+                            version: Some(group_message::Version::V1(group_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                group_id: request.group_id.clone(),
+                                data: v1_group_message.data,
+                                sender_hmac: v1_group_message.sender_hmac,
+                            })),
+                        });
+                    }
+                }
+
+                Err(GrpcError::MissingPayload)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(QueryGroupMessagesResponse {
+            messages,
+            paging_info: None,
+        })
     }
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        // let query_envelopes = EnvelopesQuery {
-        //     topics: vec![build_welcome_message_topic(
-        //         request.installation_key.as_slice(),
-        //     )],
-        //     originator_node_ids: vec![], //todo: set later
-        //     last_seen: None,             //todo: set later
-        // };
-        // QueryEnvelopes::builder()
-        //     .envelopes(query_envelopes)
-        //     .limit(0u32) //todo: do we need to get it as a var in the parent function?
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.message_client)
-        todo!()
+        let query = EnvelopesQuery {
+            topics: vec![build_welcome_message_topic(
+                request.installation_key.as_slice(),
+            )],
+            originator_node_ids: Vec::new(), // todo: set later
+            last_seen: None,                 // todo: set later
+        };
+
+        let response_envelopes = QueryEnvelopes::builder()
+            .envelopes(query)
+            .limit(
+                request
+                    .paging_info
+                    .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
+            ) // Defaulting limit to 100
+            .build()
+            .map_err(|err| ApiError::<E>::Generic)?
+            .query(&self.message_client)
+            .await?;
+
+        let messages = response_envelopes
+            .envelopes
+            .into_iter()
+            .filter_map(|envelope| {
+                let unsigned_originator_envelope =
+                    extract_unsigned_originator_envelope(&envelope).ok()?;
+                let client_envelope = extract_client_envelope(&envelope).ok()?;
+                let payload = client_envelope.payload?;
+
+                if let Payload::WelcomeMessage(welcome_message) = payload {
+                    if let Some(welcome_message_input::Version::V1(v1_welcome_message)) =
+                        welcome_message.version
+                    {
+                        return Some(Ok(WelcomeMessage {
+                            version: Some(welcome_message::Version::V1(welcome_message::V1 {
+                                id: unsigned_originator_envelope.originator_sequence_id,
+                                created_ns: unsigned_originator_envelope.originator_ns as u64,
+                                installation_key: request.installation_key.clone(),
+                                data: v1_welcome_message.data,
+                                hpke_public_key: v1_welcome_message.hpke_public_key,
+                            })),
+                        }));
+                    }
+                }
+
+                Some(Err(GrpcError::MissingPayload))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(QueryWelcomeMessagesResponse {
+            messages,
+            paging_info: None,
+        })
     }
 }
 
@@ -142,7 +260,11 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
-    ApiError<E>: From<ApiError<<P as Client>::Error>> + Send + Sync + 'static,
+    ApiError<E>: From<ApiError<<P as Client>::Error>>
+        + From<ApiError<<C as Client>::Error>>
+        + Send
+        + Sync
+        + 'static,
 {
     type Error = ApiError<E>;
 
@@ -164,7 +286,6 @@ where
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Self::Error> {
-        let limit = 1000; // q: where we should set the limits? here or get it as the fn params?
         let topics = request
             .requests
             .iter()
@@ -179,7 +300,7 @@ where
                 originator_node_ids: vec![], //todo: set later
                 last_seen: None,             //todo: set later
             })
-            .limit(1000u32)
+            .limit(DEFAULT_PAGINATION_LIMIT)
             .build()
             .unwrap()
             .query(&self.message_client)

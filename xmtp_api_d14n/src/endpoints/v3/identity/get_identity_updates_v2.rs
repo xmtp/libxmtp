@@ -42,7 +42,10 @@ mod test {
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{get_identity_updates_request::Request, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, FILE_DESCRIPTOR_SET};
+    use xmtp_proto::xmtp::identity::api::v1::{
+        get_identity_updates_request::Request, GetIdentityUpdatesRequest,
+        GetIdentityUpdatesResponse, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {
@@ -65,7 +68,7 @@ mod test {
             .build()
             .unwrap();
 
-        let result:GetIdentityUpdatesResponse  = endpoint.query(&client).await.unwrap();
+        let result: GetIdentityUpdatesResponse = endpoint.query(&client).await.unwrap();
         assert_eq!(result.responses.len(), 0);
     }
 }

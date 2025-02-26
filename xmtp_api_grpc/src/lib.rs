@@ -8,6 +8,7 @@ pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
+use std::convert::Infallible;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -83,6 +84,13 @@ pub enum GrpcError {
     Proto(#[from] xmtp_proto::ProtoError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error("unreachable (Infallible)")]
+    Unreachable,
+}
+impl From<Infallible> for GrpcError {
+    fn from(_: Infallible) -> Self {
+        GrpcError::Unreachable
+    }
 }
 
 impl xmtp_common::retry::RetryableError for Error {

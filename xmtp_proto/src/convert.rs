@@ -5,12 +5,13 @@ use crate::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope};
+use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
 
 use crate::v4_utils::{
-    build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
-    get_key_package_topic,
+    build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
+    get_group_message_topic, get_key_package_topic,
 };
+use crate::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -43,6 +44,26 @@ impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
             })
         } else {
             Err(crate::ProtoError::NotFound("payload keypackage".into()))
+        }
+    }
+}
+
+impl TryFrom<OriginatorEnvelope> for KeyPackage {
+    type Error = crate::ProtoError;
+
+    fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        let client_env = extract_client_envelope(&originator)?;
+
+        if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
+            let key_package = upload_key_package
+                .key_package
+                .ok_or_else(|| crate::ProtoError::NotFound("payload key package".into()))?;
+
+            Ok(KeyPackage {
+                key_package_tls_serialized: key_package.key_package_tls_serialized,
+            })
+        } else {
+            Err(crate::ProtoError::NotFound("payload key package".into()))
         }
     }
 }

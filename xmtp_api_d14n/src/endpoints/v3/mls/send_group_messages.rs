@@ -38,12 +38,14 @@ impl Endpoint for SendGroupMessages {
 
 #[cfg(test)]
 mod test {
+    use crate::SendGroupMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, SendGroupMessagesRequest, FILE_DESCRIPTOR_SET};
-    use crate::SendGroupMessages;
+    use xmtp_proto::xmtp::mls::api::v1::{
+        GroupMessageInput, SendGroupMessagesRequest, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {

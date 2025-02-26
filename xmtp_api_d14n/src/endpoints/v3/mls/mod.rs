@@ -12,5 +12,5 @@ pub use send_group_messages::*;
 
 mod send_welcome_messages;
 mod upload_key_package;
-pub use upload_key_package::*;
 pub use send_welcome_messages::*;
+pub use upload_key_package::*;
