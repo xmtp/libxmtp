@@ -1,16 +1,18 @@
-use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
+use prost::Message;
+use crate::xmtp::identity::api::v1::{PublishIdentityUpdateRequest};
 use crate::xmtp::mls::api::v1::{
     group_message_input::Version as GroupMessageInputVersion,
     welcome_message_input::Version as WelcomeMessageVersion, GroupMessageInput,
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
+use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope};
 
 use crate::v4_utils::{
     build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
     get_group_message_topic, get_key_package_topic,
 };
+use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
 
 mod inbox_id {
@@ -68,6 +70,39 @@ impl TryFrom<OriginatorEnvelope> for KeyPackage {
     }
 }
 
+impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
+    type Error = crate::ProtoError;
+
+    fn try_from(envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
+        let originator_envelope = UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)
+            .map_err(|_| crate::ProtoError::NotFound("Failed to decode UnsignedOriginatorEnvelope".into()))?;
+
+        let payer_envelope = originator_envelope
+            .payer_envelope
+            .ok_or_else(|| crate::ProtoError::NotFound("payer envelope".into()))?;
+
+        // TODO: validate payer signatures
+        let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
+        let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)
+            .map_err(|_| crate::ProtoError::NotFound("Failed to decode ClientEnvelope".into()))?;
+
+        let payload = client_envelope
+            .payload
+            .ok_or_else(|| crate::ProtoError::NotFound("payload".into()))?;
+
+        let identity_update = match payload {
+            Payload::IdentityUpdate(update) => update,
+            _ => return Err(crate::ProtoError::NotFound("Expected IdentityUpdate payload".into())),
+        };
+
+        Ok(IdentityUpdateLog {
+            sequence_id: originator_envelope.originator_sequence_id,
+            server_timestamp_ns: originator_envelope.originator_ns as u64,
+            update: Some(identity_update),
+        })
+    }
+}
 impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
     type Error = crate::ProtoError;
 

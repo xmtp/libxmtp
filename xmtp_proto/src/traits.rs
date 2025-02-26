@@ -87,7 +87,7 @@ where
         let request = request.uri(endpoint.as_ref());
         let rsp = client.request(request, self.body()?).await?;
         let rsp: E::Output = prost::Message::decode(rsp.into_body())?;
-        Ok(rsp.try_into()?)
+        Ok(rsp)
     }
 }
 

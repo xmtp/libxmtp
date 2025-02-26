@@ -4,7 +4,6 @@
 #![allow(unused)]
 
 use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
-use xmtp_api_grpc::replication_client::convert_v4_envelope_to_identity_update;
 use xmtp_api_grpc::GrpcError;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
@@ -14,7 +13,9 @@ use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
     build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
 };
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
+    IdentityUpdateLog, Response,
+};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_inbox_ids_response, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
     GetInboxIdsRequest, GetInboxIdsResponse, PublishIdentityUpdateRequest,
@@ -265,6 +266,7 @@ where
         + Send
         + Sync
         + 'static,
+    xmtp_proto::traits::ApiError<E>: From<GrpcError>,
 {
     type Error = ApiError<E>;
 
@@ -273,7 +275,7 @@ where
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         let result = PublishClientEnvelopes::builder()
-            .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
+            .envelopes(vec![request.try_into().map_err(GrpcError::from)?])
             .build()
             .unwrap()
             .query(&self.payer_client)
@@ -312,17 +314,16 @@ where
             .zip(request.requests.into_iter())
             .collect();
         let responses: Vec<Response> = joined_data
-            .iter()
+            .into_iter()
             .map(|(envelopes, inner_req)| {
-                let identity_updates = vec![convert_v4_envelope_to_identity_update(envelopes)
-                    .map_err(GrpcError::from)
-                    .unwrap()];
+                let identity_update_log: IdentityUpdateLog =
+                    envelopes.try_into().map_err(GrpcError::from).unwrap(); //todo: handle
                 Response {
                     inbox_id: inner_req.inbox_id.clone(),
-                    updates: identity_updates,
+                    updates: vec![identity_update_log],
                 }
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         Ok(GetIdentityUpdatesResponse { responses })
     }
@@ -359,13 +360,6 @@ where
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        // let result = PublishClientEnvelopes::builder()
-        //     .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
-        //     .build()
-        //     .unwrap()
-        //     .query(&self.payer_client)
-        //     .await?;
-
-        Ok(VerifySmartContractWalletSignaturesResponse { responses: vec![] })
+        unimplemented!()
     }
 }
