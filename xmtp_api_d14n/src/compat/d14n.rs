@@ -2,33 +2,29 @@
 
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
-
 use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
 use xmtp_api_grpc::replication_client::convert_v4_envelope_to_identity_update;
-use xmtp_api_grpc::{Error, GrpcError};
+use xmtp_api_grpc::GrpcError;
 use xmtp_common::RetryableError;
-use xmtp_proto::api_client::{Envelope, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
-use xmtp_proto::v4_utils::build_identity_topic_from_hex_encoded;
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
-    IdentityUpdateLog, Response,
-};
+use xmtp_proto::v4_utils::{build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic, build_welcome_message_topic};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::api::v1::{
-    get_identity_updates_response, get_inbox_ids_response, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, GetInboxIdsRequest, GetInboxIdsResponse,
-    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
-    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    get_inbox_ids_response, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+    GetInboxIdsRequest, GetInboxIdsResponse, PublishIdentityUpdateRequest,
+    PublishIdentityUpdateResponse, VerifySmartContractWalletSignaturesRequest,
+    VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, QueryGroupMessagesRequest,
     QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
     SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
 };
-use xmtp_proto::xmtp::xmtpv4::envelopes::OriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
-    EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesRequest,
-    QueryEnvelopesResponse,
+    EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
 
 pub struct D14nClient<C, P, E> {
@@ -54,7 +50,7 @@ where
         //     .map(|message| message.try_into().map_err(GrpcError::from))
         //     .collect::<Result<_, _>>()?;
         // PublishClientEnvelopes::builder()
-        //     .envelopes(envelopes)
+        //     .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
         //     .build()
         //     .unwrap()
         //     .query(&self.payer_client)
@@ -146,7 +142,7 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
-    ApiError<E>: From<ApiError<<P as Client>::Error>>,
+    ApiError<E>: From<ApiError<<P as Client>::Error>> + Send + Sync + 'static,
 {
     type Error = ApiError<E>;
 
@@ -154,20 +150,21 @@ where
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
-        PublishClientEnvelopes::builder()
+        let result = PublishClientEnvelopes::builder()
             .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
             .build()
             .unwrap()
             .query(&self.payer_client)
-            .await?
-            .map_err(ApiError::from)
+            .await?;
+
+        Ok(PublishIdentityUpdateResponse {})
     }
 
     async fn get_identity_updates_v2(
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Self::Error> {
-        let limit = 0; // q: where we should set the limits? here or get it as the fn params?
+        let limit = 1000; // q: where we should set the limits? here or get it as the fn params?
         let topics = request
             .requests
             .iter()
@@ -182,12 +179,11 @@ where
                 originator_node_ids: vec![], //todo: set later
                 last_seen: None,             //todo: set later
             })
-            .limit(0u32)
+            .limit(1000u32)
             .build()
             .unwrap()
             .query(&self.message_client)
-            .await?
-            .map_err(ApiError::from);
+            .await?;
 
         let joined_data: Vec<_> = result
             .envelopes
@@ -205,7 +201,7 @@ where
                     updates: identity_updates,
                 }
             })
-            .collect()?;
+            .collect::<Vec<_>>();
 
         Ok(GetIdentityUpdatesResponse { responses })
     }
@@ -215,27 +211,40 @@ where
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         let res: GetInboxIdsResponseV4 = GetInboxIds::builder()
-            .addresses(request.requests.iter().map(|r| r.address.clone()).collect())
+            .addresses(
+                request
+                    .requests
+                    .iter()
+                    .map(|r| r.address.clone())
+                    .collect::<Vec<_>>(),
+            )
             .build()
             .unwrap()
             .query(&self.message_client)
-            .await
-            .unwrap()
-            .map_err(Error::from)?;
-        res.responses
-            .iter()
-            .map(|r| get_inbox_ids_response::Response {
-                address: r.address.clone(),
-                inbox_id: r.inbox_id.clone(),
-            })
-            .collect()
-            .map_err(Error::from)
+            .await?;
+        Ok(GetInboxIdsResponse {
+            responses: res
+                .responses
+                .iter()
+                .map(|r| get_inbox_ids_response::Response {
+                    address: r.address.clone(),
+                    inbox_id: r.inbox_id.clone(),
+                })
+                .collect::<Vec<_>>(),
+        })
     }
 
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        todo!()
+        // let result = PublishClientEnvelopes::builder()
+        //     .envelopes(vec![request.try_into().map_err(ApiError::ProtoError)?])
+        //     .build()
+        //     .unwrap()
+        //     .query(&self.payer_client)
+        //     .await?;
+
+        Ok(VerifySmartContractWalletSignaturesResponse { responses: vec![] })
     }
 }
