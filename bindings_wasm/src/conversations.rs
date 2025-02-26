@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
@@ -667,18 +668,18 @@ impl Conversations {
     let stream_closer =
       RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
         match message {
-          Ok(m) => callback.on_consent_update(
-            m.into_iter()
-              .map(|c| JsValue::from(Consent::from(c)))
-              .collect(),
-          ),
+          Ok(m) => {
+            let array = m.into_iter().map(Consent::from).collect::<Vec<Consent>>();
+            let value = serde_wasm_bindgen::to_value(&array).unwrap_throw();
+            callback.on_consent_update(value)
+          }
           Err(e) => callback.on_error(JsError::from(e)),
         }
       });
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[wasm_bindgen(js_name = "streamConsent")]
+  #[wasm_bindgen(js_name = "streamPreferences")]
   pub fn stream_preferences(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
     let stream_closer =
       RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
