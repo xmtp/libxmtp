@@ -203,37 +203,77 @@ where
     // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        let _mutex = self.mutex.lock().await;
-        let mut errors: Vec<GroupError> = vec![];
+        let start = std::time::Instant::now();
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&self.group_id),
+            "Starting sync_with_conn"
+        );
 
+        let lock_start = std::time::Instant::now();
+        let _mutex = self.mutex.lock().await;
+        tracing::info!("Acquiring mutex lock took: {:?}", lock_start.elapsed());
+
+        let mut errors: Vec<GroupError> = vec![];
         let conn = provider.conn_ref();
 
-        // Even if publish fails, continue to receiving
+        // Publish intents
+        let publish_start = std::time::Instant::now();
         if let Err(publish_error) = self.publish_intents(provider).await {
             tracing::error!(
                 error = %publish_error,
+                duration = ?publish_start.elapsed(),
                 "Sync: error publishing intents {:?}",
                 publish_error
             );
             errors.push(publish_error);
+        } else {
+            tracing::info!(
+                "publish_intents succeeded, took: {:?}",
+                publish_start.elapsed()
+            );
         }
 
-        // Even if receiving fails, continue to post_commit
+        // Receive messages
+        let receive_start = std::time::Instant::now();
         if let Err(receive_error) = self.receive(provider).await {
-            tracing::error!(error = %receive_error, "receive error {:?}", receive_error);
+            tracing::error!(
+                error = %receive_error,
+                duration = ?receive_start.elapsed(),
+                "receive error {:?}",
+                receive_error
+            );
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
+        } else {
+            tracing::info!("receive succeeded, took: {:?}", receive_start.elapsed());
         }
 
+        // Post commit
+        let post_commit_start = std::time::Instant::now();
         if let Err(post_commit_err) = self.post_commit(conn).await {
             tracing::error!(
                 error = %post_commit_err,
+                duration = ?post_commit_start.elapsed(),
                 "post commit error {:?}",
                 post_commit_err
             );
             errors.push(post_commit_err);
+        } else {
+            tracing::info!(
+                "post_commit succeeded, took: {:?}",
+                post_commit_start.elapsed()
+            );
         }
+
+        let total_duration = start.elapsed();
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&self.group_id),
+            "sync_with_conn completed in {:?}",
+            total_duration
+        );
 
         // Return a combination of publish and post_commit errors
         if !errors.is_empty() {
@@ -1192,105 +1232,180 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), GroupError> {
+        let start = std::time::Instant::now();
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            group_id = hex::encode(&self.group_id),
+            "Starting publish_intents"
+        );
+
         self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
-            let intents = provider.conn_ref().find_group_intents(
-                self.group_id.clone(),
-                Some(vec![IntentState::ToPublish]),
-                None,
-            )?;
+        let find_intents_start = std::time::Instant::now();
+        let intents = provider.conn_ref().find_group_intents(
+            self.group_id.clone(),
+            Some(vec![IntentState::ToPublish]),
+            None,
+        )?;
+        tracing::info!(
+            "Found {} intents to publish in {:?}",
+            intents.len(),
+            find_intents_start.elapsed()
+        );
 
-            for intent in intents {
-                let result = retry_async!(
-                    Retry::default(),
-                    (async {
-                        self.get_publish_intent_data(provider, &mut mls_group, &intent)
-                            .await
-                    })
-                );
+        // Count intents by type
+        let intent_types: std::collections::HashMap<_, _> = intents
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut map, intent| {
+                *map.entry(intent.kind.clone()).or_insert(0) += 1;
+                map
+            });
+        tracing::info!("Intent types to publish: {:?}", intent_types);
 
-                match result {
-                    Err(err) => {
-                        tracing::error!(error = %err, "error getting publish intent data {:?}", err);
-                        if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
-                            tracing::error!(
-                                intent.id,
-                                intent.kind = %intent.kind,
-                                inbox_id = self.client.inbox_id(),
-                                installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
-                                "intent {} has reached max publish attempts", intent.id);
-                            // TODO: Eventually clean up errored attempts
-                            provider
-                                .conn_ref()
-                                .set_group_intent_error_and_fail_msg(&intent)?;
-                        } else {
-                            provider
-                                .conn_ref()
-                                .increment_intent_publish_attempt_count(intent.id)?;
-                        }
+        let mut published_count = 0;
+        let mut skipped_count = 0;
+        let mut error_count = 0;
 
-                        return Err(err);
-                    }
-                    Ok(Some(PublishIntentData {
-                                payload_to_publish,
-                                post_commit_action,
-                                staged_commit,
-                            })) => {
-                        let payload_slice = payload_to_publish.as_slice();
-                        let has_staged_commit = staged_commit.is_some();
-                        provider.conn_ref().set_group_intent_published(
-                            intent.id,
-                            sha256(payload_slice),
-                            post_commit_action,
-                            staged_commit,
-                            mls_group.epoch().as_u64() as i64,
-                        )?;
-                        tracing::debug!(
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
-                            intent.id,
-                            intent.kind = %intent.kind,
-                            group_id = hex::encode(&self.group_id),
-                            "[{}] set stored intent [{}] to state `published`",
-                            self.client.inbox_id(),
-                            intent.id
-                        );
+        for intent in intents {
+            let intent_start = std::time::Instant::now();
+            let get_data_start = std::time::Instant::now();
+            let result = retry_async!(
+                Retry::default(),
+                (async {
+                    self.get_publish_intent_data(provider, &mut mls_group, &intent)
+                        .await
+                })
+            );
+            let get_data_duration = get_data_start.elapsed();
 
-                        let messages = self.prepare_group_messages(vec![payload_slice])?;
-                        self.client
-                            .api()
-                            .send_group_messages(messages)
-                            .await?;
-
-                        tracing::info!(
+            match result {
+                Err(err) => {
+                    error_count += 1;
+                    let duration = intent_start.elapsed();
+                    tracing::error!(
+                        error = %err,
+                        intent_type = %intent.kind,
+                        duration = ?duration,
+                        get_data_duration = ?get_data_duration,
+                        "Error getting publish intent data (get_data: {:?}, total: {:?})",
+                        get_data_duration,
+                        duration
+                    );
+                    if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                        tracing::error!(
                             intent.id,
                             intent.kind = %intent.kind,
                             inbox_id = self.client.inbox_id(),
                             installation_id = %self.client.installation_id(),
                             group_id = hex::encode(&self.group_id),
-                            "[{}] published intent [{}] of type [{}]",
-                            self.client.inbox_id(),
+                            duration = ?duration,
+                            "Intent {} has reached max publish attempts (took {:?})",
                             intent.id,
-                            intent.kind
+                            duration
                         );
-                        if has_staged_commit {
-                            tracing::info!("Commit sent. Stopping further publishes for this round");
-                            return Ok(());
-                        }
+                        provider
+                            .conn_ref()
+                            .set_group_intent_error_and_fail_msg(&intent)?;
+                    } else {
+                        provider
+                            .conn_ref()
+                            .increment_intent_publish_attempt_count(intent.id)?;
                     }
-                    Ok(None) => {
+                    return Err(err);
+                }
+                Ok(Some(PublishIntentData {
+                    payload_to_publish,
+                    post_commit_action,
+                    staged_commit,
+                })) => {
+                    published_count += 1;
+                    let payload_slice = payload_to_publish.as_slice();
+                    let has_staged_commit = staged_commit.is_some();
+
+                    let set_published_start = std::time::Instant::now();
+                    provider.conn_ref().set_group_intent_published(
+                        intent.id,
+                        sha256(payload_slice),
+                        post_commit_action,
+                        staged_commit,
+                        mls_group.epoch().as_u64() as i64,
+                    )?;
+                    let set_published_duration = set_published_start.elapsed();
+
+                    let prepare_msgs_start = std::time::Instant::now();
+                    let messages = self.prepare_group_messages(vec![payload_slice])?;
+                    let prepare_msgs_duration = prepare_msgs_start.elapsed();
+
+                    let send_msgs_start = std::time::Instant::now();
+                    self.client
+                        .api()
+                        .send_group_messages(messages)
+                        .await?;
+                    let send_msgs_duration = send_msgs_start.elapsed();
+
+                    let total_duration = intent_start.elapsed();
+
+                    tracing::info!(
+                        intent.id,
+                        intent.kind = %intent.kind,
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = %self.client.installation_id(),
+                        group_id = hex::encode(&self.group_id),
+                        get_data_duration = ?get_data_duration,
+                        set_published_duration = ?set_published_duration,
+                        prepare_msgs_duration = ?prepare_msgs_duration,
+                        send_msgs_duration = ?send_msgs_duration,
+                        total_duration = ?total_duration,
+                        "Published intent successfully (get_data: {:?}, set_published: {:?}, prepare_msgs: {:?}, send_msgs: {:?}, total: {:?})",
+                        get_data_duration,
+                        set_published_duration,
+                        prepare_msgs_duration,
+                        send_msgs_duration,
+                        total_duration
+                    );
+
+                    if has_staged_commit {
                         tracing::info!(
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
-                            "Skipping intent because no publish data returned"
+                            "Commit sent. Stopping further publishes for this round. Published {} intents, skipped {}, errors {} (get_data: {:?}, set_published: {:?}, prepare_msgs: {:?}, send_msgs: {:?}, total: {:?})",
+                            published_count,
+                            skipped_count,
+                            error_count,
+                            get_data_duration,
+                            set_published_duration,
+                            prepare_msgs_duration,
+                            send_msgs_duration,
+                            total_duration
                         );
-                        let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
-                        deleter.delete(intent.id)?;
+                        return Ok(());
                     }
                 }
+                Ok(None) => {
+                    skipped_count += 1;
+                    let duration = intent_start.elapsed();
+                    tracing::info!(
+                        inbox_id = self.client.inbox_id(),
+                        installation_id = %self.client.installation_id(),
+                        duration = ?duration,
+                        "Skipping intent because no publish data returned (total: {:?})",
+                        duration
+                    );
+                    let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
+                    deleter.delete(intent.id)?;
+                }
             }
+        }
 
-            Ok(())
-        }).await
+        let total_duration = start.elapsed();
+        tracing::info!(
+            "Completed publish_intents in {:?}. Published: {}, Skipped: {}, Errors: {}",
+            total_duration,
+            published_count,
+            skipped_count,
+            error_count
+        );
+
+        Ok(())
+    })
+    .await
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
@@ -1508,22 +1623,48 @@ where
      * Callers may also include a list of added or removed inboxes
      */
     #[tracing::instrument(level = "trace", skip_all)]
+
     pub(super) async fn get_membership_update_intent(
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
+        let start = std::time::Instant::now();
+
         self.load_mls_group_with_lock_async(provider, |mls_group| async move {
+            let extract_membership_start = std::time::Instant::now();
             let existing_group_membership = extract_group_membership(mls_group.extensions())?;
-            // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
-            let conn = provider.conn_ref();
-            // Load any missing updates from the network
-            load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
+            let extract_membership_duration = extract_membership_start.elapsed();
 
+            tracing::debug!(
+                inbox_id = self.client.inbox_id(),
+                group_id = hex::encode(&self.group_id),
+                extract_membership_duration = ?extract_membership_duration,
+                "Extracted group membership in {:?}",
+                extract_membership_duration
+            );
+
+            let conn = provider.conn_ref();
+
+            // Load any missing updates from the network
+            let load_updates_start = std::time::Instant::now();
+            load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
+            let load_updates_duration = load_updates_start.elapsed();
+
+            tracing::debug!(
+                inbox_id = self.client.inbox_id(),
+                group_id = hex::encode(&self.group_id),
+                load_updates_duration = ?load_updates_duration,
+                "Loaded identity updates in {:?}",
+                load_updates_duration
+            );
+
+            let sequence_id_start = std::time::Instant::now();
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
+            let sequence_id_duration = sequence_id_start.elapsed();
 
             // Get a list of all inbox IDs that have increased sequence_id for the group
             let changed_inbox_ids =
@@ -1534,16 +1675,13 @@ where
                             latest_sequence_id_map.get(inbox_id as &str),
                             existing_group_membership.get(inbox_id),
                         ) {
-                            // This is an update. We have a new sequence ID and an existing one
                             (Some(latest_sequence_id), Some(current_sequence_id)) => {
                                 let latest_sequence_id_u64 = *latest_sequence_id as u64;
                                 if latest_sequence_id_u64.gt(current_sequence_id) {
                                     updates.insert(inbox_id.to_string(), latest_sequence_id_u64);
                                 }
                             }
-                            // This is for new additions to the group
                             (Some(latest_sequence_id), None) => {
-                                // This is the case for net new members to the group
                                 updates.insert(inbox_id.to_string(), *latest_sequence_id as u64);
                             }
                             (_, _) => {
@@ -1554,16 +1692,19 @@ where
                                 return Err(GroupError::MissingSequenceId);
                             }
                         }
-
                         Ok(updates)
                     })?;
+
+            let calc_changes_setup_start = std::time::Instant::now();
             let extensions: Extensions = mls_group.extensions().clone();
             let old_group_membership = extract_group_membership(&extensions)?;
             let mut new_membership = old_group_membership.clone();
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
                 new_membership.add(inbox_id.clone(), *sequence_id);
             }
+            let calc_changes_setup_duration = calc_changes_setup_start.elapsed();
 
+            let calc_changes_start = std::time::Instant::now();
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.client,
                 provider,
@@ -1571,9 +1712,27 @@ where
                 &old_group_membership,
             )
             .await?;
+            let calc_changes_duration = calc_changes_start.elapsed();
+
+            tracing::info!(
+                inbox_id = self.client.inbox_id(),
+                group_id = hex::encode(&self.group_id),
+                extract_membership_duration = ?extract_membership_duration,
+                load_updates_duration = ?load_updates_duration,
+                sequence_id_duration = ?sequence_id_duration,
+                calc_changes_setup_duration = ?calc_changes_setup_duration,
+                calc_changes_duration = ?calc_changes_duration,
+                total_duration = ?start.elapsed(),
+                "Membership update intent processing times: extract={:?}, load_updates={:?}, sequence_id={:?}, calc_changes_setup={:?}, calc_changes={:?}, total={:?}",
+                extract_membership_duration,
+                load_updates_duration,
+                sequence_id_duration,
+                calc_changes_setup_duration,
+                calc_changes_duration,
+                start.elapsed()
+            );
 
             // If we fail to fetch or verify all the added members' KeyPackage, return an error.
-            // skip if the inbox ids is 0 from the beginning
             if !inbox_ids_to_add.is_empty()
                 && !changes_with_kps.failed_installations.is_empty()
                 && changes_with_kps.new_installations.is_empty()

@@ -994,28 +994,55 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
+        let start = std::time::Instant::now();
+        tracing::info!(
+            "Starting add_members_by_inbox_id_with_provider for {} members",
+            inbox_ids.len()
+        );
+
+        let collect_start = std::time::Instant::now();
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        tracing::info!("Collecting ids took: {:?}", collect_start.elapsed());
+
+        let intent_start = std::time::Instant::now();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
             .await?;
+        tracing::info!(
+            "get_membership_update_intent took: {:?}",
+            intent_start.elapsed()
+        );
 
-        // TODO:nm this isn't the best test for whether the request is valid
-        // If some existing group member has an update, this will return an intent with changes
-        // when we really should return an error
         let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
 
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
+            tracing::info!(
+                "total add_members_by_inbox_id_with_provider (early return) took: {:?}",
+                start.elapsed()
+            );
             return ok_result;
         }
 
+        let queue_start = std::time::Instant::now();
         let intent = self.queue_intent(
             provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
         )?;
+        tracing::info!("queue_intent took: {:?}", queue_start.elapsed());
 
+        let sync_start = std::time::Instant::now();
         self.sync_until_intent_resolved(provider, intent.id).await?;
+        tracing::info!(
+            "sync_until_intent_resolved took: {:?}",
+            sync_start.elapsed()
+        );
+
+        tracing::info!(
+            "total add_members_by_inbox_id_with_provider took: {:?}",
+            start.elapsed()
+        );
         ok_result
     }
 
