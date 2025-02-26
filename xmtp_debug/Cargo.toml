@@ -37,12 +37,12 @@ tracing = { workspace = true, features = ["valuable"] }
 tracing-appender = "0.2"
 tracing-logfmt.workspace = true
 tracing-subscriber = { workspace = true, features = [
-    "time",
-    "json",
-    "chrono",
-    "env-filter",
-    "valuable",
-    "ansi",
+  "time",
+  "json",
+  "chrono",
+  "env-filter",
+  "valuable",
+  "ansi",
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
