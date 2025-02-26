@@ -1,5 +1,14 @@
 # XMTP Debug
 
+## WARNING
+
+Nothing about xdbg is secure. it openly writes private keys as plaintext in json
+and in the database. No attempt is made at forward or backwards compatibility.
+Client message databases are secured by an empty string. This tool is meant
+purely as a debugging tool, and not for personal or production use.
+
+Use at your own risk.
+
 ### Debug your app on local & dev XMTP environments
 
 Supported Features:
