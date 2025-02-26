@@ -1,24 +1,2 @@
 namespace xmtpv3 {
 };
-
-[Error]
-enum SigningError {
-  "Generic",
-};
-
-enum RootIdentifierKind {
-  "Ethereum",
-  "Passkey",
-};
-
-dictionary RootIdentifier {
-  string identifier;
-  RootIdentifierKind identifier_kind;
-};
-
-callback interface FfiInboxOwner {
-    RootIdentifier get_identifier();
-
-    [Throws=SigningError]
-    bytes sign(string text);
-};
