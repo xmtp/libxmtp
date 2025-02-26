@@ -26,7 +26,8 @@ where
 }
 */
 
-#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Client {
     type Error: std::error::Error + Send + Sync + 'static;
     type Stream: futures::Stream;
@@ -45,10 +46,12 @@ pub trait Client {
 }
 
 // query can return a Wrapper XmtpResponse<T> that implements both Future and Stream. If stream is used on singular response, just a stream of one item. This lets us re-use query for everything.
-#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Query<T, C>
 where
-    C: Client,
+    C: Client + Send + Sync,
+    T: Send,
 {
     async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>>;
 
@@ -61,10 +64,12 @@ where
 }
 
 // blanket Query implementation for a bare Endpoint
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<E, T, C> Query<T, C> for E
 where
-    E: Endpoint<Output = T>,
-    C: Client,
+    E: Endpoint<Output = T> + Sync,
+    C: Client + Sync + Send,
     T: Default + prost::Message,
     // TODO: figure out how to get conversions rightfigure out how to get conversions right
     // T: TryFrom<E::Output>,
