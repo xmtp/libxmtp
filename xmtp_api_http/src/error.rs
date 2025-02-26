@@ -165,6 +165,8 @@ pub enum HttpClientError {
     HeaderName(#[from] reqwest::header::InvalidHeaderName),
     #[error("error deserializing json response {0}")]
     Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Decode(#[from] prost::DecodeError),
 }
 
 impl xmtp_common::RetryableError for HttpClientError {

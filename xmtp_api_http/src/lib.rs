@@ -7,8 +7,10 @@ pub mod util;
 
 use futures::stream;
 use http_stream::create_grpc_stream;
+use prost::Message;
 use reqwest::header;
-use util::handle_error;
+use reqwest::header::HeaderMap;
+use util::handle_error_proto;
 use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -65,7 +67,7 @@ impl XmtpHttpApiClient {
         })
     }
 
-    fn builder() -> XmtpHttpApiClientBuilder {
+    pub fn builder() -> XmtpHttpApiClientBuilder {
         Default::default()
     }
 
@@ -154,6 +156,14 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
     }
 }
 
+fn protobuf_headers() -> Result<HeaderMap, HttpClientError> {
+    let mut headers = HeaderMap::new();
+
+    headers.insert("Content-Type", "application/x-protobuf".parse()?);
+    headers.insert("Accept", "application/x-protobuf".parse()?);
+    Ok(headers)
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsClient for XmtpHttpApiClient {
@@ -163,16 +173,15 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::upload_kp)?
-            .bytes()
             .await
             .map_err(Error::upload_kp)?;
 
-        tracing::debug!("upload_key_package");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::UploadKeyPackage))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::UploadKeyPackage))
     }
 
     async fn fetch_key_packages(
@@ -182,32 +191,31 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::fetch_kps)?
-            .bytes()
-            .await
             .map_err(Error::fetch_kps)?;
-
         tracing::debug!("fetch_key_packages");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::FetchKeyPackages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::FetchKeyPackages))
     }
 
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::send_group_messages)?
-            .bytes()
             .await
             .map_err(Error::send_group_messages)?;
 
         tracing::debug!("send_group_messages");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::SendGroupMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::SendGroupMessages))
     }
 
     async fn send_welcome_messages(
@@ -217,16 +225,16 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::send_welcome_messages)?
-            .bytes()
             .await
             .map_err(Error::send_welcome_messages)?;
 
         tracing::debug!("send_welcome_messages");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::SendWelcomeMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::SendWelcomeMessages))
     }
 
     async fn query_group_messages(
@@ -236,16 +244,16 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::query_group_messages)?
-            .bytes()
             .await
             .map_err(Error::query_group_messages)?;
 
         tracing::debug!("query_group_messages");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
     }
 
     async fn query_welcome_messages(
@@ -255,16 +263,16 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::query_welcome_messages)?
-            .bytes()
             .await
             .map_err(Error::query_welcome_messages)?;
 
         tracing::debug!("query_welcome_messages");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
     }
 }
 
@@ -327,16 +335,16 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::publish_identity_update)?
-            .bytes()
             .await
             .map_err(Error::publish_identity_update)?;
 
         tracing::debug!("publish_identity_update");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::PublishIdentityUpdate))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::PublishIdentityUpdate))
     }
 
     async fn get_identity_updates_v2(
@@ -346,16 +354,16 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::get_identity_updates_v2)?
-            .bytes()
             .await
             .map_err(Error::get_identity_updates_v2)?;
 
         tracing::debug!("get_identity_updates_v2");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::GetIdentityUpdatesV2))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::GetIdentityUpdatesV2))
     }
 
     async fn get_inbox_ids(
@@ -365,16 +373,16 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::get_inbox_ids)?
-            .bytes()
             .await
             .map_err(Error::get_inbox_ids)?;
 
         tracing::debug!("get_inbox_ids");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::GetInboxIds))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::GetInboxIds))
     }
 
     async fn verify_smart_contract_wallet_signatures(
@@ -384,16 +392,16 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
-            .json(&request)
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
             .send()
-            .await
-            .map_err(Error::verify_scw_signature)?
-            .bytes()
             .await
             .map_err(Error::verify_scw_signature)?;
 
         tracing::debug!("verify_smart_contract_wallet_signatures");
-        handle_error(&*res).map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
+        handle_error_proto(res)
+            .await
+            .map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
     }
 }
 
@@ -428,6 +436,7 @@ pub mod tests {
             .await;
 
         assert!(result.is_err());
+        println!("{:?}", result);
         assert!(result
             .as_ref()
             .err()
