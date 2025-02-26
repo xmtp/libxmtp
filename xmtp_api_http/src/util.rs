@@ -28,10 +28,7 @@ where
 
     Err(HttpClientError::Grpc(ErrorResponse {
         code: response.status().as_u16() as usize,
-        message: response
-            .text_with_charset("utf-8")
-            .await
-            .map_err(HttpClientError::from)?,
+        message: response.text().await.map_err(HttpClientError::from)?,
         details: vec![],
     })
     .into())

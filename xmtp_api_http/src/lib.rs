@@ -67,7 +67,7 @@ impl XmtpHttpApiClient {
         })
     }
 
-    fn builder() -> XmtpHttpApiClientBuilder {
+    pub fn builder() -> XmtpHttpApiClientBuilder {
         Default::default()
     }
 
