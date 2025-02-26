@@ -112,7 +112,7 @@ pub(crate) mod tests {
             assert_eq!(stored_wallets.len(), 1);
 
             // Verify it's the correct inbox_id
-            let cached_inbox_id = stored_wallets.get(&format!("{:?}", idents[0])).unwrap();
+            let cached_inbox_id = stored_wallets.get(&format!("{}", idents[0])).unwrap();
             assert_eq!(*cached_inbox_id, ident1_inbox);
 
             // Fetch wallets with a non-existent list of inbox_ids
