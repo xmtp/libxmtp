@@ -20,7 +20,7 @@ extern "C" {
   pub fn on_message(this: &StreamCallback, item: Message);
 
   #[wasm_bindgen(structural, method)]
-  pub fn on_consent_update(this: &StreamCallback, item: js_sys::Array);
+  pub fn on_consent_update(this: &StreamCallback, item: JsValue);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_user_preference_update(this: &StreamCallback, item: Vec<UserPreference>);
