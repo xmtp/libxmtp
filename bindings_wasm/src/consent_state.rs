@@ -56,6 +56,7 @@ impl From<ConsentEntityType> for XmtpConsentType {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Consent {
   #[wasm_bindgen(js_name = entityType)]
+  #[serde(rename = "entityType")]
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
   pub entity: String,
