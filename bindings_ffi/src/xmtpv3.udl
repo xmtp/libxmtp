@@ -6,8 +6,18 @@ enum SigningError {
   "Generic",
 };
 
+enum RootIdentifierKind {
+  "Ethereum",
+  "Passkey",
+};
+
+dictionary RootIdentifier {
+  string identifier;
+  RootIdentifierKind identifier_kind;
+};
+
 callback interface FfiInboxOwner {
-    string get_identifier();
+    RootIdentifier get_identifier();
 
     [Throws=SigningError]
     bytes sign(string text);
