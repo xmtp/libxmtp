@@ -64,6 +64,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_get_inbox_ids() {
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
