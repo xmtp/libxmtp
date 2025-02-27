@@ -1636,9 +1636,10 @@ impl FfiConsentEntityType {
                 Some(FfiConsentIdentityKind::Ethereum) => {
                     ConsentEntity::Identity(PublicIdentifier::eth(entity)?)
                 }
-                Some(FfiConsentIdentityKind::Passkey) => {
-                    ConsentEntity::Identity(PublicIdentifier::passkey_str(&entity)?)
-                }
+                Some(FfiConsentIdentityKind::Passkey) => ConsentEntity::Identity(
+                    PublicIdentifier::passkey_str(&entity, None)
+                        .map_err(GenericError::from_error)?,
+                ),
             },
         };
         Ok(entity)
@@ -2695,13 +2696,11 @@ mod tests {
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
-        identity::{
-            FfiPublicIdentifier, FfiPublicIdentifierKind, FfiRootIdentifier, FfiRootIdentifierKind,
-        },
-        inbox_owner::{IdentityValidationError, SigningError},
+        identity::{FfiPublicIdentifier, FfiRootIdentifier, FfiRootIdentifierKind},
+        inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind, FfiConsentState, FfiContentType,
         FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
-        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions, FfiInboxOwner,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
         FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
@@ -2768,7 +2767,10 @@ mod tests {
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
         fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError> {
-            let ident = self.wallet.get_identifier()?;
+            let ident = self
+                .wallet
+                .get_identifier()
+                .map_err(|err| IdentityValidationError::Generic(err.to_string()))?;
             Ok(ident.into())
         }
 
@@ -2996,6 +2998,7 @@ mod tests {
         let ident = FfiRootIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
             identifier_kind: FfiRootIdentifierKind::Ethereum,
+            relying_partner: None,
         };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;

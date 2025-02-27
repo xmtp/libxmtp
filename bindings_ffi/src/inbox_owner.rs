@@ -5,18 +5,16 @@ use xmtp_cryptography::signature::{
 use xmtp_id::associations::PublicIdentifier;
 
 // TODO proper error handling
-#[derive(Debug, thiserror::Error)]
+#[derive(uniffi::Error, Debug, thiserror::Error)]
 pub enum SigningError {
     #[error("This is a generic error")]
     Generic,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(uniffi::Error, Debug, thiserror::Error)]
 pub enum IdentityValidationError {
-    #[error("This is a generic error")]
-    Generic,
-    #[error(transparent)]
-    Validation(#[from] IdentifierValidationError),
+    #[error("Error: {0:?}")]
+    Generic(String),
 }
 
 impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
@@ -26,6 +24,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
 }
 
 // A simplified InboxOwner passed to Rust across the FFI boundary
+#[uniffi::export(with_foreign)]
 pub trait FfiInboxOwner: Send + Sync {
     fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError>;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
