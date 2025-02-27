@@ -122,7 +122,7 @@ impl PublicIdentifier {
     pub fn passkey(key: Vec<u8>, relying_partner: Option<String>) -> Self {
         Self::Passkey(ident::Passkey {
             key,
-            relying_partner: relying_partner,
+            relying_partner,
         })
     }
 
@@ -132,7 +132,7 @@ impl PublicIdentifier {
     ) -> Result<Self, IdentifierValidationError> {
         Ok(Self::Passkey(ident::Passkey {
             key: hex::decode(key)?,
-            relying_partner: relying_partner,
+            relying_partner,
         }))
     }
 

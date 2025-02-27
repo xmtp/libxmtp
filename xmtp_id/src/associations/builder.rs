@@ -491,7 +491,6 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let account_address = wallet.get_identifier().unwrap();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
         let existing_member_identifier = wallet.public_identifier();

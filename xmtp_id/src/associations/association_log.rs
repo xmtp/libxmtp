@@ -434,20 +434,12 @@ fn allowed_signature_for_kind(
     signature_kind: &SignatureKind,
 ) -> Result<(), AssociationError> {
     let is_ok = match role {
-        MemberKind::Ethereum => match signature_kind {
-            SignatureKind::Erc191 => true,
-            SignatureKind::Erc1271 => true,
-            SignatureKind::LegacyDelegated => true,
-            _ => false,
-        },
-        MemberKind::Installation => match signature_kind {
-            SignatureKind::InstallationKey => true,
-            _ => false,
-        },
-        MemberKind::Passkey => match signature_kind {
-            SignatureKind::P256 => true,
-            _ => false,
-        },
+        MemberKind::Ethereum => matches!(
+            signature_kind,
+            SignatureKind::Erc191 | SignatureKind::Erc1271 | SignatureKind::LegacyDelegated
+        ),
+        MemberKind::Installation => matches!(signature_kind, SignatureKind::InstallationKey),
+        MemberKind::Passkey => matches!(signature_kind, SignatureKind::P256),
     };
 
     if !is_ok {

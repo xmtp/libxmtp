@@ -217,7 +217,7 @@ impl UnverifiedRevokeAssociation {
     ) -> Self {
         Self {
             unsigned_action,
-            recovery_identifier_signature: recovery_identifier_signature,
+            recovery_identifier_signature,
         }
     }
 }
@@ -428,7 +428,7 @@ mod tests {
             client_timestamp_ns: 10,
             actions: vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action: UnsignedCreateInbox {
-                    account_identifier: account_identifier.clone().into(),
+                    account_identifier: account_identifier.clone(),
                     nonce,
                 },
                 initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(
