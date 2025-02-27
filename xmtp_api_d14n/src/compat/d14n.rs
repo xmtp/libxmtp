@@ -155,7 +155,7 @@ where
                 request
                     .paging_info
                     .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
-            ) // Defaulting limit to 100
+            )
             .build()
             .unwrap()
             .query(&self.message_client)
@@ -215,7 +215,7 @@ where
                 request
                     .paging_info
                     .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
-            ) // Defaulting limit to 100
+            )
             .build()
             .unwrap()
             .query(&self.message_client)
@@ -319,7 +319,7 @@ where
         let responses: Vec<Response> = joined_data
             .into_iter()
             .map(|(envelopes, inner_req)| {
-                let identity_update_log: IdentityUpdateLog = envelopes.try_into()?; // Handle fallible conversion
+                let identity_update_log: IdentityUpdateLog = envelopes.try_into()?;
                 Ok(Response {
                     inbox_id: inner_req.inbox_id.clone(),
                     updates: vec![identity_update_log],
