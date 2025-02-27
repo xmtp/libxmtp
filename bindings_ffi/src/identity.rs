@@ -8,6 +8,7 @@ use crate::GenericError;
 pub struct FfiPublicIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiPublicIdentifierKind,
+    pub relying_partner: Option<String>,
 }
 
 #[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
@@ -20,6 +21,7 @@ pub enum FfiPublicIdentifierKind {
 pub struct FfiRootIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiRootIdentifierKind,
+    pub relying_partner: Option<String>,
 }
 
 #[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
@@ -33,6 +35,7 @@ impl FfiPublicIdentifier {
         Some(FfiRootIdentifier {
             identifier: self.identifier,
             identifier_kind: self.identifier_kind.to_root()?,
+            relying_partner: self.relying_partner,
         })
     }
 }
@@ -91,6 +94,7 @@ impl From<FfiRootIdentifier> for FfiPublicIdentifier {
         Self {
             identifier: ident.identifier,
             identifier_kind: ident.identifier_kind.into(),
+            relying_partner: ident.relying_partner,
         }
     }
 }
@@ -110,10 +114,15 @@ impl From<PublicIdentifier> for FfiPublicIdentifier {
             PublicIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
                 identifier: addr,
                 identifier_kind: FfiPublicIdentifierKind::Ethereum,
+                relying_partner: None,
             },
-            PublicIdentifier::Passkey(ident::Passkey(key)) => Self {
+            PublicIdentifier::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            }) => Self {
                 identifier: hex::encode(key),
                 identifier_kind: FfiPublicIdentifierKind::Passkey,
+                relying_partner,
             },
         }
     }
@@ -124,7 +133,9 @@ impl TryFrom<FfiPublicIdentifier> for PublicIdentifier {
     fn try_from(ident: FfiPublicIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             FfiPublicIdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-            FfiPublicIdentifierKind::Passkey => Self::passkey_str(&ident.identifier)?,
+            FfiPublicIdentifierKind::Passkey => {
+                Self::passkey_str(&ident.identifier, ident.relying_partner)?
+            }
         };
         Ok(ident)
     }
@@ -135,6 +146,7 @@ impl TryFrom<FfiPublicIdentifier> for FfiRootIdentifier {
         let ident = Self {
             identifier: ident.identifier,
             identifier_kind: ident.identifier_kind.try_into()?,
+            relying_partner: ident.relying_partner,
         };
         Ok(ident)
     }
