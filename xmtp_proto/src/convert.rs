@@ -1,4 +1,10 @@
+use crate::v4_utils::{
+    build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
+    get_group_message_topic, get_key_package_topic,
+};
+use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
+use crate::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
 use crate::xmtp::mls::api::v1::{
     group_message_input::Version as GroupMessageInputVersion,
     welcome_message_input::Version as WelcomeMessageVersion, GroupMessageInput,
@@ -8,14 +14,8 @@ use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{
     AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
 };
+use crate::ConversionError;
 use prost::Message;
-
-use crate::v4_utils::{
-    build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
-    get_group_message_topic, get_key_package_topic,
-};
-use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
-use crate::xmtp::mls::api::v1::fetch_key_packages_response::KeyPackage;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -36,73 +36,102 @@ mod inbox_id {
 }
 
 impl TryFrom<UploadKeyPackageRequest> for ClientEnvelope {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(req: UploadKeyPackageRequest) -> Result<Self, Self::Error> {
         if let Some(key_package) = req.key_package.as_ref() {
+            let topic =
+                get_key_package_topic(key_package).map_err(|_| ConversionError::Missing {
+                    item: "topic",
+                    r#type: std::any::type_name::<UploadKeyPackageRequest>(),
+                })?;
+
             Ok(ClientEnvelope {
-                aad: Some(AuthenticatedData::with_topic(get_key_package_topic(
-                    key_package,
-                )?)),
+                aad: Some(AuthenticatedData::with_topic(topic)),
                 payload: Some(Payload::UploadKeyPackage(req)),
             })
         } else {
-            Err(crate::ProtoError::NotFound("payload keypackage".into()))
+            Err(ConversionError::Missing {
+                item: "key_package",
+                r#type: std::any::type_name::<UploadKeyPackageRequest>(),
+            })
         }
     }
 }
 
 impl TryFrom<OriginatorEnvelope> for KeyPackage {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
-        let client_env = extract_client_envelope(&originator)?;
+        let client_env =
+            extract_client_envelope(&originator).map_err(|_| ConversionError::Missing {
+                item: "client_env",
+                r#type: std::any::type_name::<OriginatorEnvelope>(),
+            })?;
 
         if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
             let key_package = upload_key_package
                 .key_package
-                .ok_or_else(|| crate::ProtoError::NotFound("payload key package".into()))?;
+                .ok_or(ConversionError::Missing {
+                    item: "key_package",
+                    r#type: std::any::type_name::<OriginatorEnvelope>(),
+                })?;
 
             Ok(KeyPackage {
                 key_package_tls_serialized: key_package.key_package_tls_serialized,
             })
         } else {
-            Err(crate::ProtoError::NotFound("payload key package".into()))
+            Err(ConversionError::Missing {
+                item: "key_package",
+                r#type: std::any::type_name::<OriginatorEnvelope>(),
+            })
         }
     }
 }
 
 impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
         let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
         let originator_envelope = UnsignedOriginatorEnvelope::decode(
             &mut unsigned_originator_envelope,
         )
-        .map_err(|_| {
-            crate::ProtoError::NotFound("Failed to decode UnsignedOriginatorEnvelope".into())
+        .map_err(|_| ConversionError::Missing {
+            item: "identity_update",
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
         })?;
 
-        let payer_envelope = originator_envelope
-            .payer_envelope
-            .ok_or_else(|| crate::ProtoError::NotFound("payer envelope".into()))?;
+        let payer_envelope =
+            originator_envelope
+                .payer_envelope
+                .ok_or(ConversionError::Missing {
+                    item: "identity_update",
+                    r#type: std::any::type_name::<OriginatorEnvelope>(),
+                })?;
 
         // TODO: validate payer signatures
         let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
-        let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)
-            .map_err(|_| crate::ProtoError::NotFound("Failed to decode ClientEnvelope".into()))?;
+        let client_envelope =
+            ClientEnvelope::decode(&mut unsigned_client_envelope).map_err(|_| {
+                ConversionError::Missing {
+                    item: "identity_update",
+                    r#type: std::any::type_name::<OriginatorEnvelope>(),
+                }
+            })?;
 
-        let payload = client_envelope
-            .payload
-            .ok_or_else(|| crate::ProtoError::NotFound("payload".into()))?;
+        let payload = client_envelope.payload.ok_or(ConversionError::Missing {
+            item: "identity_update",
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?;
 
         let identity_update = match payload {
             Payload::IdentityUpdate(update) => update,
             _ => {
-                return Err(crate::ProtoError::NotFound(
-                    "Expected IdentityUpdate payload".into(),
-                ))
+                return Err(ConversionError::Missing {
+                    item: "identity_update",
+                    r#type: std::any::type_name::<OriginatorEnvelope>(),
+                })
             }
         };
 
@@ -114,43 +143,57 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
     }
 }
 impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(req: PublishIdentityUpdateRequest) -> Result<Self, Self::Error> {
         if let Some(identity_update) = req.identity_update {
             Ok(ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(
-                    build_identity_topic_from_hex_encoded(&identity_update.inbox_id)?,
+                    build_identity_topic_from_hex_encoded(&identity_update.inbox_id).map_err(
+                        |_| ConversionError::Missing {
+                            item: "identity_update",
+                            r#type: std::any::type_name::<PublishIdentityUpdateRequest>(),
+                        },
+                    )?,
                 )),
                 payload: Some(Payload::IdentityUpdate(identity_update)),
             })
         } else {
-            Err(crate::ProtoError::NotFound(
-                "payload identity update".into(),
-            ))
+            Err(ConversionError::Missing {
+                item: "identity_update",
+                r#type: std::any::type_name::<PublishIdentityUpdateRequest>(),
+            })
         }
     }
 }
 
 impl TryFrom<GroupMessageInput> for ClientEnvelope {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(req: GroupMessageInput) -> Result<Self, Self::Error> {
         if let Some(GroupMessageInputVersion::V1(ref version)) = req.version {
             Ok(ClientEnvelope {
-                aad: Some(AuthenticatedData::with_topic(get_group_message_topic(
-                    version.data.clone(),
-                )?)),
+                aad: Some(AuthenticatedData::with_topic(
+                    get_group_message_topic(version.data.clone()).map_err(|_| {
+                        ConversionError::Missing {
+                            item: "group_message",
+                            r#type: std::any::type_name::<GroupMessageInput>(),
+                        }
+                    })?,
+                )),
                 payload: Some(Payload::GroupMessage(req)),
             })
         } else {
-            Err(crate::ProtoError::NotFound("payload group message".into()))
+            Err(ConversionError::Missing {
+                item: "group_message",
+                r#type: std::any::type_name::<GroupMessageInput>(),
+            })
         }
     }
 }
 
 impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
-    type Error = crate::ProtoError;
+    type Error = ConversionError;
 
     fn try_from(req: WelcomeMessageInput) -> Result<Self, Self::Error> {
         if let Some(WelcomeMessageVersion::V1(ref version)) = req.version {
@@ -161,9 +204,10 @@ impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
                 payload: Some(Payload::WelcomeMessage(req)),
             })
         } else {
-            Err(crate::ProtoError::NotFound(
-                "payload welcome message".into(),
-            ))
+            Err(ConversionError::Missing {
+                item: "welcome_message",
+                r#type: std::any::type_name::<WelcomeMessageInput>(),
+            })
         }
     }
 }
