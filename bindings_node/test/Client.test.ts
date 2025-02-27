@@ -44,16 +44,16 @@ describe('Client', () => {
     ])
     expect(canMessage).toEqual({
       [{
-        identifier: user.account.address,
+        identifier: user.account.address.toLowerCase(),
         identifierKind: PublicIdentifierKind.Ethereum,
-      }.toLowerCase()]: true,
+      }]: true,
     })
   })
 
   it('should find an inbox ID from an address', async () => {
     const user = createUser()
     const client = await createRegisteredClient(user)
-    const inboxId = await client.findInboxIdByAddress({
+    const inboxId = await client.findInboxIdByIdentifier({
       identifier: user.account.address,
       identifierKind: PublicIdentifierKind.Ethereum,
     })
