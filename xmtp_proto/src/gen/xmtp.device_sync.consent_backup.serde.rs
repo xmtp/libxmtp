@@ -1,4 +1,78 @@
 // @generated
+impl serde::Serialize for ConsentIdentityKindSave {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "CONSENT_IDENTITY_KIND_SAVE_UNSPECIFIED",
+            Self::Ethereum => "CONSENT_IDENTITY_KIND_SAVE_ETHEREUM",
+            Self::Passkey => "CONSENT_IDENTITY_KIND_SAVE_PASSKEY",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConsentIdentityKindSave {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "CONSENT_IDENTITY_KIND_SAVE_UNSPECIFIED",
+            "CONSENT_IDENTITY_KIND_SAVE_ETHEREUM",
+            "CONSENT_IDENTITY_KIND_SAVE_PASSKEY",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConsentIdentityKindSave;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "CONSENT_IDENTITY_KIND_SAVE_UNSPECIFIED" => Ok(ConsentIdentityKindSave::Unspecified),
+                    "CONSENT_IDENTITY_KIND_SAVE_ETHEREUM" => Ok(ConsentIdentityKindSave::Ethereum),
+                    "CONSENT_IDENTITY_KIND_SAVE_PASSKEY" => Ok(ConsentIdentityKindSave::Passkey),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ConsentSave {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -16,6 +90,9 @@ impl serde::Serialize for ConsentSave {
         if !self.entity.is_empty() {
             len += 1;
         }
+        if self.identity_kind.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.consent_backup.ConsentSave", len)?;
         if self.entity_type != 0 {
             let v = ConsentTypeSave::try_from(self.entity_type)
@@ -29,6 +106,11 @@ impl serde::Serialize for ConsentSave {
         }
         if !self.entity.is_empty() {
             struct_ser.serialize_field("entity", &self.entity)?;
+        }
+        if let Some(v) = self.identity_kind.as_ref() {
+            let v = ConsentIdentityKindSave::try_from(*v)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+            struct_ser.serialize_field("identityKind", &v)?;
         }
         struct_ser.end()
     }
@@ -44,6 +126,8 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
             "entityType",
             "state",
             "entity",
+            "identity_kind",
+            "identityKind",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -51,6 +135,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
             EntityType,
             State,
             Entity,
+            IdentityKind,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -75,6 +160,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             "entityType" | "entity_type" => Ok(GeneratedField::EntityType),
                             "state" => Ok(GeneratedField::State),
                             "entity" => Ok(GeneratedField::Entity),
+                            "identityKind" | "identity_kind" => Ok(GeneratedField::IdentityKind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -97,6 +183,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                 let mut entity_type__ = None;
                 let mut state__ = None;
                 let mut entity__ = None;
+                let mut identity_kind__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::EntityType => {
@@ -117,12 +204,19 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             }
                             entity__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::IdentityKind => {
+                            if identity_kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identityKind"));
+                            }
+                            identity_kind__ = map_.next_value::<::std::option::Option<ConsentIdentityKindSave>>()?.map(|x| x as i32);
+                        }
                     }
                 }
                 Ok(ConsentSave {
                     entity_type: entity_type__.unwrap_or_default(),
                     state: state__.unwrap_or_default(),
                     entity: entity__.unwrap_or_default(),
+                    identity_kind: identity_kind__,
                 })
             }
         }

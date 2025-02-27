@@ -241,6 +241,14 @@ pub enum ConversionError {
     // we keep Ed signature bytes on ProtoBuf definitions
     #[error(transparent)]
     EdSignature(#[from] ed25519_dalek::ed25519::Error),
+
+    #[error("{} is invalid: {:?}", .description, .value)]
+    InvalidPublicKey {
+        // What kind of key is invalid
+        description: &'static str,
+        // What is the value
+        value: Option<String>,
+    },
 }
 
 /// Error resulting from proto conversions/mutations

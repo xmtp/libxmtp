@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
+pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
@@ -9,6 +10,7 @@ pub use crate::inbox_owner::SigningError;
 use inbox_owner::FfiInboxOwner;
 pub use mls::*;
 use std::error::Error;
+use xmtp_cryptography::signature::IdentifierValidationError;
 
 extern crate tracing as log;
 
@@ -64,6 +66,8 @@ pub enum GenericError {
     ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
     #[error(transparent)]
     Grpc(#[from] xmtp_api_grpc::GrpcError),
+    #[error(transparent)]
+    AddressValidation(#[from] IdentifierValidationError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

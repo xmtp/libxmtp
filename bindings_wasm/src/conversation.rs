@@ -6,6 +6,7 @@ use xmtp_mls::storage::group::ConversationType;
 use crate::client::RustXmtpClient;
 use crate::conversations::MessageDisappearingSettings;
 use crate::encoded_content::EncodedContent;
+use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -58,8 +59,8 @@ pub struct GroupMember {
   #[serde(rename = "inboxId")]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountAddresses)]
-  #[serde(rename = "accountAddresses")]
-  pub account_addresses: Vec<String>,
+  #[serde(rename = "accountIdentifiers")]
+  pub account_identifiers: Vec<PublicIdentifier>,
   #[wasm_bindgen(js_name = installationIds)]
   #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
@@ -76,14 +77,14 @@ impl GroupMember {
   #[wasm_bindgen(constructor)]
   pub fn new(
     inbox_id: String,
-    account_addresses: Vec<String>,
+    account_identifiers: Vec<PublicIdentifier>,
     installation_ids: Vec<String>,
     permission_level: PermissionLevel,
     consent_state: ConsentState,
   ) -> Self {
     Self {
       inbox_id,
-      account_addresses,
+      account_identifiers,
       installation_ids,
       permission_level,
       consent_state,
@@ -228,7 +229,12 @@ impl Conversation {
       .into_iter()
       .map(|member| GroupMember {
         inbox_id: member.inbox_id,
-        account_addresses: member.account_addresses,
+        account_identifiers: member
+          .account_identifiers
+          .iter()
+          .cloned()
+          .map(Into::into)
+          .collect(),
         installation_ids: member
           .installation_ids
           .into_iter()
@@ -287,11 +293,14 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = addMembers)]
-  pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), JsError> {
+  pub async fn add_members(
+    &self,
+    account_identifiers: Vec<PublicIdentifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .add_members(&account_addresses)
+      .add_members(&account_identifiers.to_internal()?)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -369,11 +378,14 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = removeMembers)]
-  pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), JsError> {
+  pub async fn remove_members(
+    &self,
+    account_identifiers: Vec<PublicIdentifier>,
+  ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .remove_members(&account_addresses)
+      .remove_members(&account_identifiers.to_internal()?)
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
