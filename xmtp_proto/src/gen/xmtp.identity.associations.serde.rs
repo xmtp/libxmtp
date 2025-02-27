@@ -16,6 +16,9 @@ impl serde::Serialize for AddAssociation {
         if self.new_member_signature.is_some() {
             len += 1;
         }
+        if self.relying_partner.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AddAssociation", len)?;
         if let Some(v) = self.new_member_identifier.as_ref() {
             struct_ser.serialize_field("newMemberIdentifier", v)?;
@@ -25,6 +28,9 @@ impl serde::Serialize for AddAssociation {
         }
         if let Some(v) = self.new_member_signature.as_ref() {
             struct_ser.serialize_field("newMemberSignature", v)?;
+        }
+        if let Some(v) = self.relying_partner.as_ref() {
+            struct_ser.serialize_field("relyingPartner", v)?;
         }
         struct_ser.end()
     }
@@ -42,6 +48,8 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
             "existingMemberSignature",
             "new_member_signature",
             "newMemberSignature",
+            "relying_partner",
+            "relyingPartner",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -49,6 +57,7 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
             NewMemberIdentifier,
             ExistingMemberSignature,
             NewMemberSignature,
+            RelyingPartner,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -73,6 +82,7 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                             "newMemberIdentifier" | "new_member_identifier" => Ok(GeneratedField::NewMemberIdentifier),
                             "existingMemberSignature" | "existing_member_signature" => Ok(GeneratedField::ExistingMemberSignature),
                             "newMemberSignature" | "new_member_signature" => Ok(GeneratedField::NewMemberSignature),
+                            "relyingPartner" | "relying_partner" => Ok(GeneratedField::RelyingPartner),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -95,6 +105,7 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                 let mut new_member_identifier__ = None;
                 let mut existing_member_signature__ = None;
                 let mut new_member_signature__ = None;
+                let mut relying_partner__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::NewMemberIdentifier => {
@@ -115,12 +126,19 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                             }
                             new_member_signature__ = map_.next_value()?;
                         }
+                        GeneratedField::RelyingPartner => {
+                            if relying_partner__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relyingPartner"));
+                            }
+                            relying_partner__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(AddAssociation {
                     new_member_identifier: new_member_identifier__,
                     existing_member_signature: existing_member_signature__,
                     new_member_signature: new_member_signature__,
+                    relying_partner: relying_partner__,
                 })
             }
         }
@@ -422,6 +440,9 @@ impl serde::Serialize for ChangeRecoveryAddress {
         if self.new_recovery_identifier_kind != 0 {
             len += 1;
         }
+        if self.relying_partner.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.ChangeRecoveryAddress", len)?;
         if !self.new_recovery_identifier.is_empty() {
             struct_ser.serialize_field("newRecoveryIdentifier", &self.new_recovery_identifier)?;
@@ -433,6 +454,9 @@ impl serde::Serialize for ChangeRecoveryAddress {
             let v = IdentifierKind::try_from(self.new_recovery_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.new_recovery_identifier_kind)))?;
             struct_ser.serialize_field("newRecoveryIdentifierKind", &v)?;
+        }
+        if let Some(v) = self.relying_partner.as_ref() {
+            struct_ser.serialize_field("relyingPartner", v)?;
         }
         struct_ser.end()
     }
@@ -450,6 +474,8 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
             "existingRecoveryIdentifierSignature",
             "new_recovery_identifier_kind",
             "newRecoveryIdentifierKind",
+            "relying_partner",
+            "relyingPartner",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -457,6 +483,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
             NewRecoveryIdentifier,
             ExistingRecoveryIdentifierSignature,
             NewRecoveryIdentifierKind,
+            RelyingPartner,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -481,6 +508,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                             "newRecoveryIdentifier" | "new_recovery_identifier" => Ok(GeneratedField::NewRecoveryIdentifier),
                             "existingRecoveryIdentifierSignature" | "existing_recovery_identifier_signature" => Ok(GeneratedField::ExistingRecoveryIdentifierSignature),
                             "newRecoveryIdentifierKind" | "new_recovery_identifier_kind" => Ok(GeneratedField::NewRecoveryIdentifierKind),
+                            "relyingPartner" | "relying_partner" => Ok(GeneratedField::RelyingPartner),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -503,6 +531,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                 let mut new_recovery_identifier__ = None;
                 let mut existing_recovery_identifier_signature__ = None;
                 let mut new_recovery_identifier_kind__ = None;
+                let mut relying_partner__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::NewRecoveryIdentifier => {
@@ -523,12 +552,19 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                             }
                             new_recovery_identifier_kind__ = Some(map_.next_value::<IdentifierKind>()? as i32);
                         }
+                        GeneratedField::RelyingPartner => {
+                            if relying_partner__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relyingPartner"));
+                            }
+                            relying_partner__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(ChangeRecoveryAddress {
                     new_recovery_identifier: new_recovery_identifier__.unwrap_or_default(),
                     existing_recovery_identifier_signature: existing_recovery_identifier_signature__,
                     new_recovery_identifier_kind: new_recovery_identifier_kind__.unwrap_or_default(),
+                    relying_partner: relying_partner__,
                 })
             }
         }
@@ -555,6 +591,9 @@ impl serde::Serialize for CreateInbox {
         if self.initial_identifier_kind != 0 {
             len += 1;
         }
+        if self.relying_partner.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.CreateInbox", len)?;
         if !self.initial_identifier.is_empty() {
             struct_ser.serialize_field("initialIdentifier", &self.initial_identifier)?;
@@ -571,6 +610,9 @@ impl serde::Serialize for CreateInbox {
             let v = IdentifierKind::try_from(self.initial_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.initial_identifier_kind)))?;
             struct_ser.serialize_field("initialIdentifierKind", &v)?;
+        }
+        if let Some(v) = self.relying_partner.as_ref() {
+            struct_ser.serialize_field("relyingPartner", v)?;
         }
         struct_ser.end()
     }
@@ -589,6 +631,8 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
             "initialIdentifierSignature",
             "initial_identifier_kind",
             "initialIdentifierKind",
+            "relying_partner",
+            "relyingPartner",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -597,6 +641,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
             Nonce,
             InitialIdentifierSignature,
             InitialIdentifierKind,
+            RelyingPartner,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -622,6 +667,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                             "nonce" => Ok(GeneratedField::Nonce),
                             "initialIdentifierSignature" | "initial_identifier_signature" => Ok(GeneratedField::InitialIdentifierSignature),
                             "initialIdentifierKind" | "initial_identifier_kind" => Ok(GeneratedField::InitialIdentifierKind),
+                            "relyingPartner" | "relying_partner" => Ok(GeneratedField::RelyingPartner),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -645,6 +691,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                 let mut nonce__ = None;
                 let mut initial_identifier_signature__ = None;
                 let mut initial_identifier_kind__ = None;
+                let mut relying_partner__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InitialIdentifier => {
@@ -673,6 +720,12 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                             }
                             initial_identifier_kind__ = Some(map_.next_value::<IdentifierKind>()? as i32);
                         }
+                        GeneratedField::RelyingPartner => {
+                            if relying_partner__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relyingPartner"));
+                            }
+                            relying_partner__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(CreateInbox {
@@ -680,6 +733,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                     nonce: nonce__.unwrap_or_default(),
                     initial_identifier_signature: initial_identifier_signature__,
                     initial_identifier_kind: initial_identifier_kind__.unwrap_or_default(),
+                    relying_partner: relying_partner__,
                 })
             }
         }
@@ -1312,10 +1366,8 @@ impl serde::Serialize for MemberIdentifier {
                     #[allow(clippy::needless_borrows_for_generic_args)]
                     struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
-                member_identifier::Kind::PasskeyPublicKey(v) => {
-                    #[allow(clippy::needless_borrow)]
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("passkeyPublicKey", pbjson::private::base64::encode(&v).as_str())?;
+                member_identifier::Kind::Passkey(v) => {
+                    struct_ser.serialize_field("passkey", v)?;
                 }
             }
         }
@@ -1333,15 +1385,14 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
             "ethereumAddress",
             "installation_public_key",
             "installationPublicKey",
-            "passkey_public_key",
-            "passkeyPublicKey",
+            "passkey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             EthereumAddress,
             InstallationPublicKey,
-            PasskeyPublicKey,
+            Passkey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1365,7 +1416,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                         match value {
                             "ethereumAddress" | "ethereum_address" => Ok(GeneratedField::EthereumAddress),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
-                            "passkeyPublicKey" | "passkey_public_key" => Ok(GeneratedField::PasskeyPublicKey),
+                            "passkey" => Ok(GeneratedField::Passkey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1400,11 +1451,12 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                             }
                             kind__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| member_identifier::Kind::InstallationPublicKey(x.0));
                         }
-                        GeneratedField::PasskeyPublicKey => {
+                        GeneratedField::Passkey => {
                             if kind__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("passkeyPublicKey"));
+                                return Err(serde::de::Error::duplicate_field("passkey"));
                             }
-                            kind__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| member_identifier::Kind::PasskeyPublicKey(x.0));
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(member_identifier::Kind::Passkey)
+;
                         }
                     }
                 }
@@ -1522,6 +1574,119 @@ impl<'de> serde::Deserialize<'de> for MemberMap {
             }
         }
         deserializer.deserialize_struct("xmtp.identity.associations.MemberMap", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for Passkey {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.key.is_empty() {
+            len += 1;
+        }
+        if self.relying_partner.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Passkey", len)?;
+        if !self.key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("key", pbjson::private::base64::encode(&self.key).as_str())?;
+        }
+        if let Some(v) = self.relying_partner.as_ref() {
+            struct_ser.serialize_field("relyingPartner", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Passkey {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "key",
+            "relying_partner",
+            "relyingPartner",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Key,
+            RelyingPartner,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "key" => Ok(GeneratedField::Key),
+                            "relyingPartner" | "relying_partner" => Ok(GeneratedField::RelyingPartner),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Passkey;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.identity.associations.Passkey")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Passkey, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key__ = None;
+                let mut relying_partner__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Key => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("key"));
+                            }
+                            key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RelyingPartner => {
+                            if relying_partner__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("relyingPartner"));
+                            }
+                            relying_partner__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(Passkey {
+                    key: key__.unwrap_or_default(),
+                    relying_partner: relying_partner__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.identity.associations.Passkey", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {

@@ -62,9 +62,10 @@ impl StoredConsentRecord {
             StoredIdentityKind::Ethereum => {
                 PublicIdentifier::Ethereum(ident::Ethereum(entity.clone()))
             }
-            StoredIdentityKind::Passkey => {
-                PublicIdentifier::Passkey(ident::Passkey(hex::decode(entity).ok()?))
-            }
+            StoredIdentityKind::Passkey => PublicIdentifier::Passkey(ident::Passkey {
+                key: hex::decode(entity).ok()?,
+                relying_partner: None,
+            }),
         };
         Some(ident)
     }

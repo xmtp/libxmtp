@@ -36,7 +36,7 @@ use xmtp_proto::xmtp::{
             IdentityUpdate as IdentityUpdateProto,
             LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
             RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
@@ -275,26 +275,40 @@ impl From<UnverifiedAction> for IdentityActionProto {
             UnverifiedAction::CreateInbox(action) => {
                 let account_identifier = action.unsigned_action.account_identifier;
                 let initial_identifier = format!("{account_identifier}");
+                let relying_partner = match &account_identifier {
+                    PublicIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
                 let initial_identifier_kind: IdentifierKind = account_identifier.into();
                 IdentityActionKindProto::CreateInbox(CreateInboxProto {
                     nonce: action.unsigned_action.nonce,
                     initial_identifier,
                     initial_identifier_kind: initial_identifier_kind as i32,
                     initial_identifier_signature: Some(action.initial_identifier_signature.into()),
+                    relying_partner,
                 })
             }
             UnverifiedAction::AddAssociation(action) => {
+                let relying_partner = match &action.unsigned_action.new_member_identifier {
+                    MemberIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
                 IdentityActionKindProto::Add(AddAssociationProto {
                     new_member_identifier: Some(
                         action.unsigned_action.new_member_identifier.into(),
                     ),
                     existing_member_signature: Some(action.existing_member_signature.into()),
                     new_member_signature: Some(action.new_member_signature.into()),
+                    relying_partner,
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
                 let new_recovery_identifier = action.unsigned_action.new_recovery_identifier;
                 let new_recovery_identifier_string = format!("{new_recovery_identifier}");
+                let relying_partner = match &new_recovery_identifier {
+                    PublicIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
                 let new_recovery_identifier_kind: IdentifierKind = new_recovery_identifier.into();
                 IdentityActionKindProto::ChangeRecoveryAddress(ChangeRecoveryAddressProto {
                     new_recovery_identifier: new_recovery_identifier_string,
@@ -302,6 +316,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     existing_recovery_identifier_signature: Some(
                         action.recovery_identifier_signature.into(),
                     ),
+                    relying_partner,
                 })
             }
             UnverifiedAction::RevokeAssociation(action) => {
@@ -405,7 +420,13 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
             MemberIdentifierKindProto::InstallationPublicKey(public_key) => {
                 Self::Installation(ident::Installation(public_key))
             }
-            MemberIdentifierKindProto::PasskeyPublicKey(key) => Self::Passkey(ident::Passkey(key)),
+            MemberIdentifierKindProto::Passkey(PasskeyProto {
+                key,
+                relying_partner,
+            }) => Self::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            }),
         }
     }
 }
@@ -451,8 +472,14 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
                     kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
                 }
             }
-            MemberIdentifier::Passkey(ident::Passkey(key)) => MemberIdentifierProto {
-                kind: Some(MemberIdentifierKindProto::PasskeyPublicKey(key.to_vec())),
+            MemberIdentifier::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            }) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                    key,
+                    relying_partner,
+                })),
             },
         }
     }
@@ -469,9 +496,13 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => Ok(
                 MemberIdentifier::Installation(ident::Installation(public_key)),
             ),
-            Some(MemberIdentifierKindProto::PasskeyPublicKey(key)) => {
-                Ok(MemberIdentifier::Passkey(ident::Passkey(key)))
-            }
+            Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                key,
+                relying_partner,
+            })) => Ok(MemberIdentifier::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            })),
             None => Err(ConversionError::Missing {
                 item: "member_identifier",
                 r#type: std::any::type_name::<MemberIdentifierKindProto>(),

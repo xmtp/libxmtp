@@ -119,12 +119,21 @@ impl PublicIdentifier {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
-    pub fn passkey(key: Vec<u8>) -> Self {
-        Self::Passkey(ident::Passkey(key))
+    pub fn passkey(key: Vec<u8>, relying_partner: Option<String>) -> Self {
+        Self::Passkey(ident::Passkey {
+            key,
+            relying_partner: relying_partner,
+        })
     }
 
-    pub fn passkey_str(key: &str) -> Result<Self, IdentifierValidationError> {
-        Ok(Self::passkey(hex::decode(key)?))
+    pub fn passkey_str(
+        key: impl AsRef<str>,
+        relying_partner: Option<impl ToString>,
+    ) -> Result<Self, IdentifierValidationError> {
+        Ok(Self::Passkey(ident::Passkey {
+            key: hex::decode(key.as_ref())?,
+            relying_partner: relying_partner.map(|rp| rp.to_string()),
+        }))
     }
 
     pub fn from_proto(
@@ -136,14 +145,14 @@ impl PublicIdentifier {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
                 Self::Ethereum(ident::Ethereum(ident.to_string()))
             }
-            IdentifierKind::Passkey => {
-                Self::Passkey(ident::Passkey(hex::decode(ident).map_err(|_| {
-                    ConversionError::InvalidPublicKey {
-                        description: "passkey",
-                        value: None,
-                    }
-                })?))
-            }
+            IdentifierKind::Passkey => Self::Passkey(ident::Passkey {
+                key: hex::decode(ident).map_err(|_| ConversionError::InvalidPublicKey {
+                    description: "passkey",
+                    value: None,
+                })?,
+                // TODO
+                relying_partner: None,
+            }),
         };
         Ok(public_ident)
     }
@@ -229,7 +238,7 @@ impl Debug for MemberIdentifier {
                 .field(&hex::encode(key))
                 .finish(),
             Self::Ethereum(ident::Ethereum(addr)) => f.debug_tuple("Address").field(addr).finish(),
-            Self::Passkey(ident::Passkey(key)) => {
+            Self::Passkey(ident::Passkey { key, .. }) => {
                 f.debug_tuple("Passkey").field(&hex::encode(key)).finish()
             }
         }
@@ -315,9 +324,11 @@ impl TryFrom<ApiIdentifier> for PublicIdentifier {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
                 PublicIdentifier::eth(ident.identifier)?
             }
-            IdentifierKind::Passkey => PublicIdentifier::Passkey(ident::Passkey(
-                hex::decode(ident.identifier).map_err(|_| DeserializationError::InvalidPasskey)?,
-            )),
+            IdentifierKind::Passkey => PublicIdentifier::Passkey(ident::Passkey {
+                key: hex::decode(ident.identifier)
+                    .map_err(|_| DeserializationError::InvalidPasskey)?,
+                relying_partner: None,
+            }),
         };
         Ok(ident)
     }
