@@ -97,8 +97,6 @@ pub enum ApiError<E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
-    #[error("Generic error")]
-    Generic, //todo: just for now to map the grpc
     /// The client encountered an error.
     #[error("client error: {}", source)]
     Client {
@@ -114,7 +112,7 @@ where
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
     #[error(transparent)]
-    ProtoError(#[from] ProtoError), //should we combine it with Body error?
+    ProtoError(#[from] ProtoError),
 }
 
 impl<E> XmtpApiError for ApiError<E>
@@ -146,8 +144,7 @@ where
             Http(_) => true,
             DecodeError(_) => false,
             Conversion(_) => false,
-            ProtoError(_) => false,
-            Generic => false,
+            ProtoError(_) => false
         }
     }
 }
