@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 pub struct QueryWelcomeMessages {
     #[builder(setter(into))]
     installation_key: Vec<u8>,
-    #[builder(setter(into))]
+    #[builder(setter(skip))]
     paging_info: Option<PagingInfo>,
 }
 
@@ -39,5 +39,39 @@ impl Endpoint for QueryWelcomeMessages {
             paging_info: self.paging_info,
         }
         .encode_to_vec())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::v3::QueryWelcomeMessages;
+    use xmtp_api_grpc::grpc_client::GrpcClient;
+    use xmtp_api_grpc::LOCALHOST_ADDRESS;
+    use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::traits::Query;
+    use xmtp_proto::xmtp::mls::api::v1::{
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, FILE_DESCRIPTOR_SET,
+    };
+
+    #[test]
+    fn test_file_descriptor() {
+        let pnq = crate::path_and_query::<QueryWelcomeMessagesRequest>(FILE_DESCRIPTOR_SET);
+        println!("{}", pnq);
+    }
+
+    #[tokio::test]
+    async fn test_get_identity_updates_v2() {
+        let mut client = GrpcClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_tls(false);
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = client.build().await.unwrap();
+        let endpoint = QueryWelcomeMessages::builder()
+            .installation_key(vec![1, 2, 3])
+            .build()
+            .unwrap();
+
+        let result: QueryWelcomeMessagesResponse = endpoint.query(&client).await.unwrap();
+        assert_eq!(result.messages.len(), 0);
     }
 }
