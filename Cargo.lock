@@ -1330,19 +1330,20 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.4"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
  "libsqlite3-sys",
  "r2d2",
+ "sqlite-wasm-rs",
  "time",
 ]
 
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1354,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1364,7 +1365,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "syn 2.0.90",
 ]
@@ -1479,7 +1480,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "darling",
  "either",
@@ -3283,7 +3284,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3464,7 +3465,7 @@ dependencies = [
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3473,7 +3474,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#b3cca0b44faf7679f307a19bcb08bf51f090c4a1"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3578,7 +3579,7 @@ dependencies = [
  "openmls_rust_crypto",
  "parking_lot 0.12.3",
  "rand",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tonic",
  "tracing",
@@ -4768,7 +4769,7 @@ checksum = "dd6f9d3d47bdd2ad6945c5015a226ec6155d0bcdfd8f7cd29f86b71f8de99d2b"
 dependencies = [
  "getrandom",
  "libredox",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -5613,12 +5614,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
-name = "spinach"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bb127edbed8b91951c7a35237d0c4ba5f01338bb11ecc2a75e5a93365b24302"
-
-[[package]]
 name = "spki"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5639,21 +5634,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlite-web"
-version = "0.0.1"
-source = "git+https://github.com/xmtp/sqlite-web-rs?branch=main#dbbc9657eb79a1f8e2fc3fed818f5bcf8c6cf281"
+name = "sqlite-wasm-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84473e8335ed2f167c6f8040970d976990fb66aa62292ae58735de6d61ecfb73"
 dependencies = [
- "diesel",
- "diesel_derives",
+ "fragile",
  "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "talc",
- "thiserror 2.0.6",
+ "once_cell",
+ "parking_lot 0.12.3",
+ "thiserror 2.0.11",
  "tokio",
- "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
+ "xshell",
 ]
 
 [[package]]
@@ -5826,15 +5821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "talc"
-version = "4.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fcad3be1cfe36eb7d716a04791eba36a197da9d9b6ea1e28e64ac569da3701d"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5891,11 +5877,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.6"
+version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fec2a1820ebd077e2b90c4df007bebf344cd394098a13c563957d0afc83ea47"
+checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
 dependencies = [
- "thiserror-impl 2.0.6",
+ "thiserror-impl 2.0.11",
 ]
 
 [[package]]
@@ -5911,9 +5897,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.6"
+version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d65750cab40f4ff1929fb1ba509e9914eb756131cef4210da8d5d700d26f6312"
+checksum = "26afc1baea8a989337eeb52b6e72a039780ce45c3edfcc9c5b9d112feeb173c2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7403,7 +7389,7 @@ dependencies = [
  "redb",
  "speedy",
  "tempfile",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -7421,21 +7407,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xflags"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d9e15fbb3de55454b0106e314b28e671279009b363e6f1d8e39fdc3bf048944"
-dependencies = [
- "xflags-macros",
-]
-
-[[package]]
-name = "xflags-macros"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "672423d4fea7ffa2f6c25ba60031ea13dc6258070556f125cc4d790007d4a155"
-
-[[package]]
 name = "xmtp_api"
 version = "0.1.0"
 dependencies = [
@@ -7444,7 +7415,7 @@ dependencies = [
  "futures",
  "hex",
  "mockall",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "wasm-bindgen-test",
@@ -7480,7 +7451,7 @@ dependencies = [
  "hex",
  "http 1.2.0",
  "prost",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tonic",
  "tracing",
@@ -7503,7 +7474,7 @@ dependencies = [
  "reqwest 0.12.12",
  "serde",
  "serde_json",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "wasm-bindgen-test",
@@ -7526,7 +7497,7 @@ dependencies = [
  "prost",
  "serde",
  "serde_json",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "timeago",
  "tokio",
  "tracing",
@@ -7558,7 +7529,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.3",
  "rand",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -7584,7 +7555,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tonic",
  "tracing",
  "xmtp_common",
@@ -7613,7 +7584,7 @@ dependencies = [
  "serde",
  "sha2 0.10.8",
  "sha3",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tls_codec",
  "tracing",
  "wasm-bindgen-futures",
@@ -7643,7 +7614,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "url",
@@ -7703,9 +7674,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.8",
- "sqlite-web",
+ "sqlite-wasm-rs",
  "tempfile",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tls_codec",
  "tokio",
  "tokio-stream",
@@ -7745,7 +7716,7 @@ dependencies = [
  "pbjson-types",
  "prost",
  "serde",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tonic",
  "tracing",
  "trait-variant",
@@ -7793,7 +7764,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "prost",
  "rand",
- "thiserror 2.0.6",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
  "tracing-oslog",
@@ -7827,16 +7798,6 @@ name = "xshell-macros"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
-
-[[package]]
-name = "xtask"
-version = "0.1.0"
-dependencies = [
- "color-eyre",
- "spinach",
- "xflags",
- "xshell",
-]
 
 [[package]]
 name = "xxhash-rust"

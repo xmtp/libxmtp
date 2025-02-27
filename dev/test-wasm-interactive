@@ -12,10 +12,10 @@ fi
 PACKAGE=$1
 
 export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals,+atomics ${RUSTFLAGS:=}"
-WASM_BINDGEN_SPLIT_LINKED_MODULES=1 \
-  WASM_BINDGEN_TEST_ONLY_WEB=1 \
-  NO_HEADLESS=1 \
-  cargo test --target wasm32-unknown-unknown --release \
+export WASM_BINDGEN_TEST_ONLY_WEB=1
+export NO_HEADLESS=1
+
+cargo test --target wasm32-unknown-unknown --release \
   -p $PACKAGE -- \
   --skip xmtp_mls::storage::encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
   --skip xmtp_mls::groups::tests::process_messages_abort_on_retryable_error \

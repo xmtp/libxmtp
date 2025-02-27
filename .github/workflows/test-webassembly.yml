@@ -38,8 +38,16 @@ jobs:
             .
       - name: Start Docker containers
         run: dev/up
+      - name: Install emscripten toolchains
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
       - name: Build WebAssembly Packages
-        run: cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common
+        run: |
+          source ./emsdk/emsdk_env.sh
+          cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common
       - name: test with chrome
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -- \

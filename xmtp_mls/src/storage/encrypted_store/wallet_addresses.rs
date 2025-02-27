@@ -4,8 +4,6 @@ use crate::{impl_fetch, impl_fetch_list_with_key, impl_store, FetchListWithKey};
 use diesel::prelude::*;
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-#[cfg(target_arch = "wasm32")]
-use sqlite_web::dsl::RunQueryDsl;
 use xmtp_id::{InboxId, WalletAddress};
 
 #[derive(Insertable, Queryable, Debug, Clone, Deserialize, Serialize)]
