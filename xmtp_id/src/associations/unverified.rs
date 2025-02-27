@@ -411,9 +411,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::{
-        member::PublicIdentifier, unsigned_actions::UnsignedCreateInbox, MemberIdentifier,
-    };
+    use crate::associations::{member::PublicIdentifier, unsigned_actions::UnsignedCreateInbox};
 
     use super::{
         UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
