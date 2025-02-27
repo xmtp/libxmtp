@@ -4,9 +4,9 @@
 #![allow(unused)]
 
 use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
-use xmtp_api_grpc::GrpcError;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
+use xmtp_proto::ProtoError;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
 use xmtp_proto::v4_utils::{
@@ -53,7 +53,6 @@ where
         + Send
         + Sync
         + 'static,
-    ApiError<E>: From<GrpcError>,
 {
     type Error = ApiError<E>;
 
@@ -61,7 +60,7 @@ where
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        let envelope: ClientEnvelope = request.try_into().map_err(GrpcError::from)?;
+        let envelope: ClientEnvelope = request.try_into().map_err(|e| ApiError::<E>::ProtoError(e))?;
 
         PublishClientEnvelopes::builder()
             .envelopes(vec![envelope])
@@ -109,7 +108,7 @@ where
         let envelopes: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
-            .map(|message| message.try_into().map_err(GrpcError::from))
+            .map(|message| message.try_into().map_err(|e| ApiError::<E>::ProtoError(e)))
             .collect::<Result<_, _>>()?;
 
         PublishClientEnvelopes::builder()
@@ -128,7 +127,7 @@ where
         let envelope: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
-            .map(|message| message.try_into().map_err(GrpcError::from))
+            .map(|message| message.try_into().map_err(|e| ApiError::<E>::ProtoError(e)))
             .collect::<Result<_, _>>()?;
 
         PublishClientEnvelopes::builder()
@@ -168,12 +167,10 @@ where
             .map(|envelope| {
                 let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope)?;
                 let client_envelope = extract_client_envelope(&envelope)?;
-                let payload = client_envelope.payload.ok_or(GrpcError::MissingPayload)?;
+                let payload = client_envelope.payload.ok_or(ApiError::<E>::ProtoError(ProtoError::NotFound("Missing Payload".into())))?;
 
                 if let Payload::GroupMessage(group_message) = payload {
-                    if let Some(group_message_input::Version::V1(v1_group_message)) =
-                        group_message.version
-                    {
+                    if let Some(group_message_input::Version::V1(v1_group_message)) = group_message.version {
                         return Ok(GroupMessage {
                             version: Some(group_message::Version::V1(group_message::V1 {
                                 id: unsigned_originator_envelope.originator_sequence_id,
@@ -186,7 +183,7 @@ where
                     }
                 }
 
-                Err(GrpcError::MissingPayload)
+                Err(ApiError::<E>::ProtoError(ProtoError::NotFound("Invalid Payload Type".into())))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -244,7 +241,7 @@ where
                     }
                 }
 
-                Some(Err(GrpcError::MissingPayload))
+                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound("Missing Payload".into()))))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -266,7 +263,6 @@ where
         + Send
         + Sync
         + 'static,
-    xmtp_proto::traits::ApiError<E>: From<GrpcError>,
 {
     type Error = ApiError<E>;
 
@@ -275,7 +271,7 @@ where
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         let result = PublishClientEnvelopes::builder()
-            .envelopes(vec![request.try_into().map_err(GrpcError::from)?])
+            .envelopes(vec![request.try_into().map_err(|e| ApiError::<E>::ProtoError(e))?])
             .build()
             .unwrap()
             .query(&self.payer_client)
@@ -293,7 +289,7 @@ where
             .iter()
             .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(GrpcError::from)
+            .map_err(|e| ApiError::<E>::ProtoError(e))
             .unwrap();
 
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
@@ -317,7 +313,7 @@ where
             .into_iter()
             .map(|(envelopes, inner_req)| {
                 let identity_update_log: IdentityUpdateLog =
-                    envelopes.try_into().map_err(GrpcError::from).unwrap(); //todo: handle
+                    envelopes.try_into().map_err(|e| ApiError::<E>::ProtoError(e)).unwrap(); //todo: handle
                 Response {
                     inbox_id: inner_req.inbox_id.clone(),
                     updates: vec![identity_update_log],
