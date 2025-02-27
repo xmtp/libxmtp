@@ -70,6 +70,7 @@ mod test {
             .build()
             .unwrap();
 
+        //todo: fix later when it was implemented
         let result = endpoint.query(&client).await;
         assert!(result.is_err());
     }

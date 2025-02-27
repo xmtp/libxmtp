@@ -41,15 +41,13 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use crate::d14n::PublishClientEnvelopes;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-    use xmtp_proto::xmtp::xmtpv4::payer_api::{
-        PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET,
-    };
-    use crate::d14n::PublishClientEnvelopes;
+    use xmtp_proto::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET};
 
     #[test]
     fn test_file_descriptor() {

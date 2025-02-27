@@ -83,6 +83,7 @@ impl Endpoint for QueryEnvelopes {
 
 #[cfg(test)]
 mod test {
+    use crate::d14n::QueryEnvelopes;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
@@ -90,7 +91,6 @@ mod test {
     use xmtp_proto::xmtp::xmtpv4::message_api::{
         EnvelopesQuery, QueryEnvelopesRequest, FILE_DESCRIPTOR_SET,
     };
-    use crate::d14n::QueryEnvelopes;
 
     #[test]
     fn test_file_descriptor() {
