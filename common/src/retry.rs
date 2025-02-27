@@ -24,6 +24,10 @@ use std::sync::{
     Arc,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxedRetry = Retry<Box<dyn Strategy + Send + Sync>, Box<dyn Strategy + Send + Sync>>;
+
+#[cfg(target_arch = "wasm32")]
 pub type BoxedRetry = Retry<Box<dyn Strategy>, Box<dyn Strategy>>;
 
 pub struct NotSpecialized;

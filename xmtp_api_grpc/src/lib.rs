@@ -9,6 +9,7 @@ pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 use thiserror::Error;
+use xmtp_proto::ConversionError;
 
 #[derive(Debug, Error)]
 pub struct Error {
@@ -83,6 +84,14 @@ pub enum GrpcError {
     Proto(#[from] xmtp_proto::ProtoError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error("unreachable (Infallible)")]
+    Unreachable,
+}
+
+impl From<ConversionError> for GrpcError {
+    fn from(error: ConversionError) -> Self {
+        GrpcError::NotFound(error.to_string())
+    }
 }
 
 impl xmtp_common::retry::RetryableError for Error {
