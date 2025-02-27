@@ -3,7 +3,7 @@
 //TODO: Remove once d14n integration complete
 #![allow(unused)]
 
-use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
+use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 use xmtp_proto::traits::Client;
@@ -165,8 +165,7 @@ where
             .envelopes
             .into_iter()
             .filter_map(|envelope| {
-                let unsigned_originator_envelope =
-                    extract_unsigned_originator_envelope(&envelope).ok()?;
+                let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope).ok()?;
                 let client_envelope = extract_client_envelope(&envelope).ok()?;
                 let payload = client_envelope.payload?;
 
@@ -174,7 +173,7 @@ where
                     if let Some(group_message_input::Version::V1(v1_group_message)) =
                         group_message.version
                     {
-                        return Some(Ok(GroupMessage {
+                        return Some(GroupMessage {
                             version: Some(group_message::Version::V1(group_message::V1 {
                                 id: unsigned_originator_envelope.originator_sequence_id,
                                 created_ns: unsigned_originator_envelope.originator_ns as u64,
@@ -182,15 +181,13 @@ where
                                 data: v1_group_message.data,
                                 sender_hmac: v1_group_message.sender_hmac,
                             })),
-                        }));
+                        });
                     }
                 }
 
-                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound(
-                    "Invalid Payload Type".into(),
-                ))))
+                None
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         Ok(QueryGroupMessagesResponse {
             messages,
@@ -234,7 +231,7 @@ where
                     if let Some(welcome_message_input::Version::V1(v1_welcome_message)) =
                         welcome_message.version
                     {
-                        return Some(Ok(WelcomeMessage {
+                        return Some(WelcomeMessage {
                             version: Some(welcome_message::Version::V1(welcome_message::V1 {
                                 id: unsigned_originator_envelope.originator_sequence_id,
                                 created_ns: unsigned_originator_envelope.originator_ns as u64,
@@ -242,15 +239,13 @@ where
                                 data: v1_welcome_message.data,
                                 hpke_public_key: v1_welcome_message.hpke_public_key,
                             })),
-                        }));
+                        });
                     }
                 }
 
-                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound(
-                    "Missing Payload".into(),
-                ))))
+                None
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         Ok(QueryWelcomeMessagesResponse {
             messages,
