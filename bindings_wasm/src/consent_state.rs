@@ -200,7 +200,7 @@ impl ConsentEntityConstruct for ConsentEntity {
         };
         let ident = match identity_kind {
           ConsentIdentityKind::Ethereum => PublicIdentifier::eth(entity),
-          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity),
+          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity, None),
         }
         .map_err(|err| JsError::new(&err.to_string()))?;
         ConsentEntity::Identity(ident)

@@ -1,8 +1,3 @@
-use std::sync::Arc;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_mls::storage::group::ConversationType;
-
 use crate::client::RustXmtpClient;
 use crate::conversations::MessageDisappearingSettings;
 use crate::encoded_content::EncodedContent;
@@ -11,12 +6,16 @@ use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
+use std::sync::Arc;
+use wasm_bindgen::JsValue;
+use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
   intents::PermissionUpdateType as XmtpPermissionUpdateType,
   members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
+use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 

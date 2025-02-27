@@ -7,6 +7,7 @@ use xmtp_id::associations::{ident, PublicIdentifier as XMTPPublicIdentifier};
 pub struct PublicIdentifier {
   pub identifier: String,
   pub identifier_kind: PublicIdentifierKind,
+  pub relying_partner: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -21,6 +22,7 @@ pub enum PublicIdentifierKind {
 pub struct RootIdentifier {
   pub identifier: String,
   pub identifier_kind: RootIdentifierKind,
+  pub relying_partner: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -41,6 +43,7 @@ impl From<RootIdentifier> for PublicIdentifier {
     Self {
       identifier: ident.identifier,
       identifier_kind: ident.identifier_kind.into(),
+      relying_partner: ident.relying_partner,
     }
   }
 }
@@ -60,10 +63,15 @@ impl From<XMTPPublicIdentifier> for PublicIdentifier {
       XMTPPublicIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
         identifier: addr,
         identifier_kind: PublicIdentifierKind::Ethereum,
+        relying_partner: None,
       },
-      XMTPPublicIdentifier::Passkey(ident::Passkey(key)) => Self {
+      XMTPPublicIdentifier::Passkey(ident::Passkey {
+        key,
+        relying_partner,
+      }) => Self {
         identifier: hex::encode(key),
         identifier_kind: PublicIdentifierKind::Passkey,
+        relying_partner,
       },
     }
   }
@@ -74,7 +82,7 @@ impl TryFrom<PublicIdentifier> for XMTPPublicIdentifier {
   fn try_from(ident: PublicIdentifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
       PublicIdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-      PublicIdentifierKind::Passkey => Self::passkey_str(&ident.identifier)?,
+      PublicIdentifierKind::Passkey => Self::passkey_str(&ident.identifier, ident.relying_partner)?,
     };
     Ok(ident)
   }
@@ -84,8 +92,8 @@ impl TryFrom<PublicIdentifier> for RootIdentifier {
   fn try_from(ident: PublicIdentifier) -> Result<Self, Self::Error> {
     let ident = Self {
       identifier: ident.identifier,
-
       identifier_kind: ident.identifier_kind.try_into()?,
+      relying_partner: ident.relying_partner,
     };
     Ok(ident)
   }

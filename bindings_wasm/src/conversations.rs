@@ -1,3 +1,9 @@
+use crate::consent_state::ConsentState;
+use crate::identity::{IdentityExt, PublicIdentifier};
+use crate::messages::Message;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{StreamCallback, StreamCloser};
+use crate::{client::RustXmtpClient, conversation::Conversation};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -9,14 +15,6 @@ use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
-
-use crate::consent_state::ConsentState;
-use crate::conversation::MessageDisappearingSettings;
-use crate::identity::{IdentityExt, PublicIdentifier};
-use crate::messages::Message;
-use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{StreamCallback, StreamCloser};
-use crate::{client::RustXmtpClient, conversation::Conversation};
 
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
