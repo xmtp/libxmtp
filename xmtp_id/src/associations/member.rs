@@ -127,12 +127,12 @@ impl PublicIdentifier {
     }
 
     pub fn passkey_str(
-        key: impl AsRef<str>,
-        relying_partner: Option<impl ToString>,
+        key: &str,
+        relying_partner: Option<String>,
     ) -> Result<Self, IdentifierValidationError> {
         Ok(Self::Passkey(ident::Passkey {
-            key: hex::decode(key.as_ref())?,
-            relying_partner: relying_partner.map(|rp| rp.to_string()),
+            key: hex::decode(key)?,
+            relying_partner: relying_partner,
         }))
     }
 

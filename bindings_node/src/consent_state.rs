@@ -155,7 +155,7 @@ impl Client {
           return Err(ErrorWrapper::from(MissingRequired::IdentifierKind))?;
         };
         let ident = match kind {
-          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity),
+          ConsentIdentityKind::Passkey => PublicIdentifier::passkey_str(&entity, None),
           ConsentIdentityKind::Ethereum => PublicIdentifier::eth(&entity),
         }
         .map_err(ErrorWrapper::from)?;
