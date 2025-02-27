@@ -144,7 +144,7 @@ where
             Http(_) => true,
             DecodeError(_) => false,
             Conversion(_) => false,
-            ProtoError(_) => false
+            ProtoError(_) => false,
         }
     }
 }

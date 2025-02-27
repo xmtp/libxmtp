@@ -42,6 +42,7 @@ mod test {
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::mls::api::v1::{
         welcome_message_input, SendWelcomeMessagesRequest, WelcomeMessageInput, FILE_DESCRIPTOR_SET,
     };
@@ -67,7 +68,8 @@ mod test {
             .build()
             .unwrap();
 
-        // let result: () = endpoint.query(&client).await.unwrap();
-        // assert_eq!(result, ());
+        //todo: fix later when it was implemented
+        let result = endpoint.query(&client).await;
+        assert!(result.is_err());
     }
 }

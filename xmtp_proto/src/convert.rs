@@ -1,12 +1,14 @@
-use prost::Message;
-use crate::xmtp::identity::api::v1::{PublishIdentityUpdateRequest};
+use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
 use crate::xmtp::mls::api::v1::{
     group_message_input::Version as GroupMessageInputVersion,
     welcome_message_input::Version as WelcomeMessageVersion, GroupMessageInput,
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope};
+use crate::xmtp::xmtpv4::envelopes::{
+    AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
+};
+use prost::Message;
 
 use crate::v4_utils::{
     build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
@@ -75,8 +77,12 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
 
     fn try_from(envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
         let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
-        let originator_envelope = UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)
-            .map_err(|_| crate::ProtoError::NotFound("Failed to decode UnsignedOriginatorEnvelope".into()))?;
+        let originator_envelope = UnsignedOriginatorEnvelope::decode(
+            &mut unsigned_originator_envelope,
+        )
+        .map_err(|_| {
+            crate::ProtoError::NotFound("Failed to decode UnsignedOriginatorEnvelope".into())
+        })?;
 
         let payer_envelope = originator_envelope
             .payer_envelope
@@ -93,7 +99,11 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
 
         let identity_update = match payload {
             Payload::IdentityUpdate(update) => update,
-            _ => return Err(crate::ProtoError::NotFound("Expected IdentityUpdate payload".into())),
+            _ => {
+                return Err(crate::ProtoError::NotFound(
+                    "Expected IdentityUpdate payload".into(),
+                ))
+            }
         };
 
         Ok(IdentityUpdateLog {

@@ -46,6 +46,7 @@ mod test {
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::mls::api::v1::{
         KeyPackageUpload, UploadKeyPackageRequest, FILE_DESCRIPTOR_SET,
     };
@@ -71,7 +72,8 @@ mod test {
             .build()
             .unwrap();
 
-        // let _ = endpoint.query(&client).await.is_err();
-        // assert_eq!(result.is_err(), true);
+        //todo: fix later when it was implemented
+        let result = endpoint.query(&client).await;
+        assert!(result.is_err());
     }
 }
