@@ -42,12 +42,7 @@ describe('Client', () => {
         identifierKind: PublicIdentifierKind.Ethereum,
       },
     ])
-    expect(canMessage).toEqual({
-      [{
-        identifier: user.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
-      }]: true,
-    })
+    expect(canMessage).toEqual([true])
   })
 
   it('should find an inbox ID from an address', async () => {
@@ -76,7 +71,7 @@ describe('Client', () => {
         identifierKind: PublicIdentifierKind.Ethereum,
       },
     ])
-    expect(inboxState.recoveryIdentifier).toBe({
+    expect(inboxState.recoveryIdentifier).toStrictEqual({
       identifier: user.account.address.toLowerCase(),
       identifierKind: PublicIdentifierKind.Ethereum,
     })
@@ -123,11 +118,11 @@ describe('Client', () => {
     await client.applySignatureRequests()
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers.length).toEqual(2)
-    expect(inboxState.identifiers).toContain({
+    expect(inboxState.identifiers).toContainEqual({
       identifier: user.account.address.toLowerCase(),
       identifierKind: PublicIdentifierKind.Ethereum,
     })
-    expect(inboxState.identifiers).toContain({
+    expect(inboxState.identifiers).toContainEqual({
       identifier: user2.account.address.toLowerCase(),
       identifierKind: PublicIdentifierKind.Ethereum,
     })
