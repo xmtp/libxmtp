@@ -16,7 +16,7 @@ pub struct Ciphertext {
 
 pub fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
     let hk = Hkdf::<Sha256>::new(Some(salt), secret);
-    let mut okm = [0u8; 42];
+    let mut okm = [0u8; 32];
     let res = hk.expand(&[], &mut okm);
     if res.is_err() {
         return Err(res.err().unwrap().to_string());
