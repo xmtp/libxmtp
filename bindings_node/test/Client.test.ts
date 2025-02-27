@@ -91,7 +91,7 @@ describe('Client', () => {
         identifierKind: PublicIdentifierKind.Ethereum,
       },
     ])
-    expect(inboxState2.recoveryIdentifier).toBe({
+    expect(inboxState2.recoveryIdentifier).toEqual({
       identifier: user.account.address.toLowerCase(),
       identifierKind: PublicIdentifierKind.Ethereum,
     })
