@@ -9,7 +9,10 @@ use xmtp_id::associations::{
   verify_signed_with_public_context, PublicIdentifier as XmtpPublicIdentifier,
 };
 
-use crate::{client::Client, identity::RootIdentifierKind};
+use crate::{
+  client::Client,
+  identity::{RootIdentifier, RootIdentifierKind},
+};
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
@@ -59,11 +62,11 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = addWalletSignatureText)]
-  pub async fn add_wallet_signature_text(
+  pub async fn add_identifier_signature_text(
     &mut self,
-    new_wallet_address: String,
+    new_identifier: RootIdentifier,
   ) -> Result<String, JsError> {
-    let ident = XmtpPublicIdentifier::eth(new_wallet_address)?;
+    let ident = new_identifier.to_public().try_into()?;
     let signature_request = self
       .inner_client()
       .associate_identity(ident)
@@ -79,11 +82,11 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = revokeWalletSignatureText)]
-  pub async fn revoke_wallet_signature_text(
+  pub async fn revoke_identifier_signature_text(
     &mut self,
-    wallet_address: String,
+    identifier: RootIdentifier,
   ) -> Result<String, JsError> {
-    let ident = XmtpPublicIdentifier::eth(wallet_address)?;
+    let ident = identifier.to_public().try_into()?;
     let signature_request = self
       .inner_client()
       .revoke_identities(vec![ident])

@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::identity::RootIdentifierKind;
+use crate::identity::{RootIdentifier, RootIdentifierKind};
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -59,8 +59,12 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_wallet_signature_text(&self, new_wallet_address: String) -> Result<String> {
-    let ident = XmtpPublicIdentifier::eth(new_wallet_address).map_err(ErrorWrapper::from)?;
+  pub async fn add_identifier_signature_text(
+    &self,
+    new_identifier: RootIdentifier,
+  ) -> Result<String> {
+    let ident = new_identifier.to_public().try_into()?;
+
     let signature_request = self
       .inner_client()
       .associate_identity(ident)
@@ -75,8 +79,12 @@ impl Client {
   }
 
   #[napi]
-  pub async fn revoke_wallet_signature_text(&self, wallet_address: String) -> Result<String> {
-    let ident = XmtpPublicIdentifier::eth(wallet_address).map_err(ErrorWrapper::from)?;
+  pub async fn revoke_identifier_signature_text(
+    &self,
+    identifier: RootIdentifier,
+  ) -> Result<String> {
+    let ident = identifier.to_public().try_into()?;
+
     let signature_request = self
       .inner_client()
       .revoke_identities(vec![ident])
