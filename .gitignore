@@ -166,3 +166,6 @@ ecies_bindings_wasm/
 **/tracing-flamegraph.svg
 
 chain_urls.json
+
+test_data*/**
+identity.json
