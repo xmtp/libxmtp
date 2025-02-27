@@ -37,7 +37,7 @@ impl Endpoint for GetIdentityUpdatesV2 {
 }
 #[cfg(test)]
 mod test {
-    use crate::GetIdentityUpdatesV2;
+    use crate::v3::GetIdentityUpdatesV2;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

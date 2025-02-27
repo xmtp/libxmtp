@@ -6,7 +6,6 @@
 use crate::{endpoints::d14n::GetInboxIds, PublishClientEnvelopes, QueryEnvelopes};
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::ProtoError;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiError, Query};
 use xmtp_proto::v4_utils::{
@@ -33,6 +32,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
+use xmtp_proto::ProtoError;
 
 const DEFAULT_PAGINATION_LIMIT: u32 = 100;
 
@@ -60,7 +60,7 @@ where
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        let envelope: ClientEnvelope = request.try_into().map_err(|e| ApiError::<E>::ProtoError(e))?;
+        let envelope: ClientEnvelope = request.try_into()?;
 
         PublishClientEnvelopes::builder()
             .envelopes(vec![envelope])
@@ -108,7 +108,7 @@ where
         let envelopes: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
-            .map(|message| message.try_into().map_err(|e| ApiError::<E>::ProtoError(e)))
+            .map(|message| message.try_into())
             .collect::<Result<_, _>>()?;
 
         PublishClientEnvelopes::builder()
@@ -127,7 +127,7 @@ where
         let envelope: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
-            .map(|message| message.try_into().map_err(|e| ApiError::<E>::ProtoError(e)))
+            .map(|message| message.try_into())
             .collect::<Result<_, _>>()?;
 
         PublishClientEnvelopes::builder()
@@ -157,21 +157,24 @@ where
                     .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
             ) // Defaulting limit to 100
             .build()
-            .map_err(|err| ApiError::<E>::Generic)?
+            .unwrap()
             .query(&self.message_client)
             .await?;
 
         let messages = response_envelopes
             .envelopes
             .into_iter()
-            .map(|envelope| {
-                let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope)?;
-                let client_envelope = extract_client_envelope(&envelope)?;
-                let payload = client_envelope.payload.ok_or(ApiError::<E>::ProtoError(ProtoError::NotFound("Missing Payload".into())))?;
+            .filter_map(|envelope| {
+                let unsigned_originator_envelope =
+                    extract_unsigned_originator_envelope(&envelope).ok()?;
+                let client_envelope = extract_client_envelope(&envelope).ok()?;
+                let payload = client_envelope.payload?;
 
                 if let Payload::GroupMessage(group_message) = payload {
-                    if let Some(group_message_input::Version::V1(v1_group_message)) = group_message.version {
-                        return Ok(GroupMessage {
+                    if let Some(group_message_input::Version::V1(v1_group_message)) =
+                        group_message.version
+                    {
+                        return Some(Ok(GroupMessage {
                             version: Some(group_message::Version::V1(group_message::V1 {
                                 id: unsigned_originator_envelope.originator_sequence_id,
                                 created_ns: unsigned_originator_envelope.originator_ns as u64,
@@ -179,11 +182,13 @@ where
                                 data: v1_group_message.data,
                                 sender_hmac: v1_group_message.sender_hmac,
                             })),
-                        });
+                        }));
                     }
                 }
 
-                Err(ApiError::<E>::ProtoError(ProtoError::NotFound("Invalid Payload Type".into())))
+                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound(
+                    "Invalid Payload Type".into(),
+                ))))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -212,7 +217,7 @@ where
                     .map_or(DEFAULT_PAGINATION_LIMIT, |paging| paging.limit),
             ) // Defaulting limit to 100
             .build()
-            .map_err(|err| ApiError::<E>::Generic)?
+            .unwrap()
             .query(&self.message_client)
             .await?;
 
@@ -241,7 +246,9 @@ where
                     }
                 }
 
-                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound("Missing Payload".into()))))
+                Some(Err(ApiError::<E>::ProtoError(ProtoError::NotFound(
+                    "Missing Payload".into(),
+                ))))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -271,7 +278,9 @@ where
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         let result = PublishClientEnvelopes::builder()
-            .envelopes(vec![request.try_into().map_err(|e| ApiError::<E>::ProtoError(e))?])
+            .envelopes(vec![request
+                .try_into()
+                .map_err(|e| ApiError::<E>::ProtoError(e))?])
             .build()
             .unwrap()
             .query(&self.payer_client)
@@ -288,9 +297,7 @@ where
             .requests
             .iter()
             .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| ApiError::<E>::ProtoError(e))
-            .unwrap();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
@@ -312,14 +319,13 @@ where
         let responses: Vec<Response> = joined_data
             .into_iter()
             .map(|(envelopes, inner_req)| {
-                let identity_update_log: IdentityUpdateLog =
-                    envelopes.try_into().map_err(|e| ApiError::<E>::ProtoError(e)).unwrap(); //todo: handle
-                Response {
+                let identity_update_log: IdentityUpdateLog = envelopes.try_into()?; // Handle fallible conversion
+                Ok(Response {
                     inbox_id: inner_req.inbox_id.clone(),
                     updates: vec![identity_update_log],
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(GetIdentityUpdatesResponse { responses })
     }

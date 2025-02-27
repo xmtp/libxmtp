@@ -44,7 +44,7 @@ impl Endpoint for QueryWelcomeMessages {
 
 #[cfg(test)]
 mod test {
-    use crate::QueryWelcomeMessages;
+    use crate::v3::QueryWelcomeMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

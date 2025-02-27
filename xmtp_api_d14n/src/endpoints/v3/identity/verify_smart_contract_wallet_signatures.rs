@@ -41,7 +41,7 @@ impl Endpoint for VerifySmartContractWalletSignatures {
 
 #[cfg(test)]
 mod test {
-    use crate::VerifySmartContractWalletSignatures;
+    use crate::v3::VerifySmartContractWalletSignatures;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

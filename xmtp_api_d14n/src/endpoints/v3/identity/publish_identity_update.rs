@@ -40,7 +40,7 @@ impl Endpoint for PublishIdentityUpdate {
 
 #[cfg(test)]
 mod test {
-    use crate::PublishIdentityUpdate;
+    use crate::v3::PublishIdentityUpdate;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::{GrpcError, LOCALHOST_ADDRESS};
     use xmtp_common::time::now_ns;

@@ -38,7 +38,7 @@ impl Endpoint for SendGroupMessages {
 
 #[cfg(test)]
 mod test {
-    use crate::SendGroupMessages;
+    use crate::v3::SendGroupMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

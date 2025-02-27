@@ -43,7 +43,7 @@ impl Endpoint for QueryGroupMessages {
 
 #[cfg(test)]
 mod test {
-    use crate::QueryGroupMessages;
+    use crate::v3::QueryGroupMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

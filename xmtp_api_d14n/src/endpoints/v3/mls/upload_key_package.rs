@@ -34,7 +34,7 @@ impl Endpoint for UploadKeyPackage {
     fn body(&self) -> Result<Vec<u8>, BodyError> {
         Ok(UploadKeyPackageRequest {
             key_package: self.key_package.clone(),
-            is_inbox_id_credential: self.is_inbox_id_credential.into(),
+            is_inbox_id_credential: self.is_inbox_id_credential,
         }
         .encode_to_vec())
     }
@@ -42,7 +42,7 @@ impl Endpoint for UploadKeyPackage {
 
 #[cfg(test)]
 mod test {
-    use crate::UploadKeyPackage;
+    use crate::v3::UploadKeyPackage;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;

@@ -38,7 +38,7 @@ impl Endpoint for SendWelcomeMessages {
 
 #[cfg(test)]
 mod test {
-    use crate::SendWelcomeMessages;
+    use crate::v3::SendWelcomeMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
