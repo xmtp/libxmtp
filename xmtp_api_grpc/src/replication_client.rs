@@ -570,7 +570,7 @@ impl ClientV4 {
     }
 }
 
-fn convert_v4_envelope_to_identity_update(
+pub fn convert_v4_envelope_to_identity_update(
     envelope: &OriginatorEnvelope,
 ) -> Result<IdentityUpdateLog, crate::GrpcError> {
     let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();

@@ -2,10 +2,8 @@ use derive_builder::Builder;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
-use xmtp_proto::xmtp::xmtpv4::message_api::{
-    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse,
+use xmtp_proto::xmtp::identity::api::v1::{
+    get_inbox_ids_request::Request, GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
 };
 
 #[derive(Debug, Builder, Default)]
@@ -23,7 +21,6 @@ impl GetInboxIds {
 
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
-
     fn http_endpoint(&self) -> Cow<'static, str> {
         todo!()
     }
@@ -38,10 +35,7 @@ impl Endpoint for GetInboxIds {
                 .addresses
                 .iter()
                 .cloned()
-                .map(|i| get_inbox_ids_request::Request {
-                    identifier: i,
-                    identifier_kind: IdentifierKind::Ethereum as i32,
-                })
+                .map(|i| Request { address: i })
                 .collect(),
         }
         .encode_to_vec())
@@ -50,12 +44,14 @@ impl Endpoint for GetInboxIds {
 
 #[cfg(test)]
 mod test {
-    use crate::d14n::GetInboxIds;
+    use crate::v3::identity::GetInboxIds;
     use xmtp_api_grpc::grpc_client::GrpcClient;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::xmtpv4::message_api::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
+    use xmtp_proto::xmtp::identity::api::v1::{
+        GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
+    };
 
     #[test]
     fn test_file_descriptor() {
@@ -76,8 +72,7 @@ mod test {
             .build()
             .unwrap();
 
-        //todo: fix later when it was implemented
-        let result = endpoint.query(&client).await;
-        assert!(result.is_err());
+        let result: GetInboxIdsResponse = endpoint.query(&client).await.unwrap();
+        assert_eq!(result.responses.len(), 0);
     }
 }

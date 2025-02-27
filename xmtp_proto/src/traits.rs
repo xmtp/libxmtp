@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
 
-use crate::{ApiEndpoint, Code, XmtpApiError};
+use crate::{ApiEndpoint, Code, ProtoError, XmtpApiError};
 
 pub trait Endpoint {
     type Output: prost::Message + Default;
@@ -26,7 +26,8 @@ where
 }
 */
 
-#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Client {
     type Error: std::error::Error + Send + Sync + 'static;
     type Stream: futures::Stream;
@@ -45,10 +46,12 @@ pub trait Client {
 }
 
 // query can return a Wrapper XmtpResponse<T> that implements both Future and Stream. If stream is used on singular response, just a stream of one item. This lets us re-use query for everything.
-#[allow(async_fn_in_trait)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Query<T, C>
 where
-    C: Client,
+    C: Client + Send + Sync,
+    T: Send,
 {
     async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>>;
 
@@ -61,12 +64,16 @@ where
 }
 
 // blanket Query implementation for a bare Endpoint
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<E, T, C> Query<T, C> for E
 where
-    E: Endpoint,
-    C: Client,
-    T: TryFrom<E::Output>,
-    ApiError<<C as Client>::Error>: From<<T as TryFrom<E::Output>>::Error>,
+    E: Endpoint<Output = T> + Sync,
+    C: Client + Sync + Send,
+    T: Default + prost::Message,
+    // TODO: figure out how to get conversions rightfigure out how to get conversions right
+    // T: TryFrom<E::Output>,
+    // ApiError<<C as Client>::Error>: From<<T as TryFrom<E::Output>>::Error>,
 {
     async fn query(&self, client: &C) -> Result<T, ApiError<C::Error>> {
         let mut request = http::Request::builder();
@@ -80,7 +87,7 @@ where
         let request = request.uri(endpoint.as_ref());
         let rsp = client.request(request, self.body()?).await?;
         let rsp: E::Output = prost::Message::decode(rsp.into_body())?;
-        Ok(rsp.try_into()?)
+        Ok(rsp)
     }
 }
 
@@ -104,6 +111,8 @@ where
     DecodeError(#[from] prost::DecodeError),
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
+    #[error(transparent)]
+    ProtoError(#[from] ProtoError),
 }
 
 impl<E> XmtpApiError for ApiError<E>
@@ -135,6 +144,7 @@ where
             Http(_) => true,
             DecodeError(_) => false,
             Conversion(_) => false,
+            ProtoError(_) => false,
         }
     }
 }
