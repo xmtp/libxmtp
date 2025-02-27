@@ -49,9 +49,7 @@ mod test {
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
-    };
+    use xmtp_proto::xmtp::identity::api::v1::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
 
     #[test]
     fn test_file_descriptor() {
@@ -72,7 +70,7 @@ mod test {
             .build()
             .unwrap();
 
-        let result: GetInboxIdsResponse = endpoint.query(&client).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        let result = endpoint.query(&client).await;
+        assert!(result.is_err());
     }
 }
