@@ -35,11 +35,12 @@ impl From<ConsentState> for XmtpConsentState {
 }
 
 #[wasm_bindgen]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(u16)]
 pub enum ConsentEntityType {
-  GroupId,
-  InboxId,
-  Address,
+  GroupId = 0,
+  InboxId = 1,
+  Address = 2,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -52,11 +53,19 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
+fn entity_to_u16<S>(consent_entity_type: &ConsentEntityType, s: S) -> Result<S::Ok, S::Error>
+where
+  S: serde::Serializer,
+{
+  let num: u16 = (*consent_entity_type) as u16;
+  s.serialize_u16(num)
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Consent {
   #[wasm_bindgen(js_name = entityType)]
-  #[serde(rename = "entityType")]
+  #[serde(rename = "entityType", serialize_with = "entity_to_u16")]
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
   pub entity: String,
