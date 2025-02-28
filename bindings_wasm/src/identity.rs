@@ -116,6 +116,6 @@ pub trait IdentityExt<T, U> {
 impl IdentityExt<PublicIdentifier, XMTPPublicIdentifier> for Vec<PublicIdentifier> {
   fn to_internal(self) -> Result<Vec<XMTPPublicIdentifier>, JsError> {
     let ident: Result<Vec<_>, JsError> = self.into_iter().map(|ident| ident.try_into()).collect();
-    Ok(ident?)
+    ident
   }
 }
