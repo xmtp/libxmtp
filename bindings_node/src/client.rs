@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::{IdentityExt, PublicIdentifier, RootIdentifier};
+use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -26,7 +26,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
-  pub account_identifier: RootIdentifier,
+  pub account_identifier: PublicIdentifier,
 }
 
 impl Client {
@@ -122,13 +122,12 @@ pub async fn create_client(
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
-  account_identifier: RootIdentifier,
+  account_identifier: PublicIdentifier,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
-  let account_identifier = account_identifier.into_public();
 
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(&host, is_secure)

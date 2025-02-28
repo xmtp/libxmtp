@@ -1,5 +1,4 @@
 use crate::identity::PublicIdentifier;
-use crate::identity::RootIdentifier;
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::Result;
 use napi::bindgen_prelude::Uint8Array;
@@ -39,10 +38,10 @@ pub async fn get_inbox_id_for_identifier(
 }
 
 #[napi]
-pub fn generate_inbox_id(account_ident: RootIdentifier) -> Result<String> {
+pub fn generate_inbox_id(account_ident: PublicIdentifier) -> Result<String> {
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
-  let ident: XmtpPublicIdentifier = account_ident.into_public().try_into()?;
+  let ident: XmtpPublicIdentifier = account_ident.try_into()?;
   Ok(ident.inbox_id(1).map_err(ErrorWrapper::from)?)
 }
 
