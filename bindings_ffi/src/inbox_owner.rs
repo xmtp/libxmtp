@@ -46,7 +46,7 @@ impl xmtp_mls::InboxOwner for RustInboxOwner {
             .ffi_inbox_owner
             .get_identifier()
             .map_err(|err| IdentifierValidationError::Generic(err.to_string()))?;
-        Ok(ident.try_into()?)
+        ident.try_into()
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {

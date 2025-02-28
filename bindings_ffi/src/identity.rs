@@ -34,7 +34,7 @@ impl FfiPublicIdentifier {
     pub fn into_root(self) -> Option<FfiRootIdentifier> {
         Some(FfiRootIdentifier {
             identifier: self.identifier,
-            identifier_kind: self.identifier_kind.to_root()?,
+            identifier_kind: self.identifier_kind.into_root()?,
             relying_partner: self.relying_partner,
         })
     }
@@ -52,7 +52,7 @@ impl FfiRootIdentifier {
 }
 
 impl FfiPublicIdentifierKind {
-    fn to_root(self) -> Option<FfiRootIdentifierKind> {
+    fn into_root(self) -> Option<FfiRootIdentifierKind> {
         Some(match self {
             Self::Ethereum => FfiRootIdentifierKind::Ethereum,
             Self::Passkey => FfiRootIdentifierKind::Passkey,
@@ -170,7 +170,7 @@ impl IdentityExt<FfiPublicIdentifier, PublicIdentifier> for Vec<FfiPublicIdentif
     fn to_internal(self) -> Result<Vec<PublicIdentifier>, IdentifierValidationError> {
         let ident: Result<Vec<_>, IdentifierValidationError> =
             self.into_iter().map(|ident| ident.try_into()).collect();
-        Ok(ident?)
+        ident
     }
 }
 
