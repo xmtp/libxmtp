@@ -71,6 +71,7 @@ mkShell {
       openssl
       sqlite
 
+      trunk
       mktemp
       jdk21
       kotlin

@@ -1,8 +1,5 @@
-{ openssl
-, sqlite
-, emscriptenStdenv
+{ emscripten
 , stdenv
-  # , fetchFromGitHub
 , filesets
 , lib
 , pkg-config
@@ -10,9 +7,10 @@
 , fenix
 , wasm-bindgen-cli_0_2_100
 , wasm-pack
-  # , fetchCrate
-  # , rustPlatform
+, binaryen
+, zstd
 , craneLib
+, llvmPackages_19
 }:
 let
   inherit (stdenv) hostPlatform;
@@ -38,11 +36,16 @@ let
   commonArgs = {
     src = workspaceFileset;
     strictDeps = true;
-    stdenv = emscriptenStdenv;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
     preConfigure = ''
       export HOME=$TMPDIR
+      mkdir -p .cargo
+      cat > .cargo/config.toml << EOF
+      [target.wasm32-unknown-unknown]
+      rustflags = ["-C", "target-feature=+bulk-memory,+mutable-globals", "-C", "link-arg=-fuse-ld=lld"]
+      linker = "${llvmPackages_19.lld}/bin/lld"
+      EOF
     '';
     preBuild = ''
       export HOME=$TMPDIR
@@ -50,8 +53,8 @@ let
       export EMCC_DEBUG=2
     '';
 
-    nativeBuildInputs = [ pkg-config ];
-    buildInputs = [ openssl sqlite wasm-bindgen-cli_0_2_100 wasm-pack ] ++ lib.optionals hostPlatform.isDarwin
+    nativeBuildInputs = [ pkg-config wasm-pack emscripten llvmPackages_19.lld binaryen wasm-bindgen-cli_0_2_100 ];
+    buildInputs = [ zstd ] ++ lib.optionals hostPlatform.isDarwin
       [
         darwin.apple_sdk.frameworks.Security
         darwin.apple_sdk.frameworks.SystemConfiguration
@@ -72,8 +75,9 @@ let
       inherit cargoArtifacts;
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
+        cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
-        wasm-pack build --target web --out-dir $out/dist --no-pack --release $src
+        HOME=$(mktemp -d fake-homeXXXX) wasm-pack build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
     });
 in
@@ -81,3 +85,7 @@ in
   inherit bin;
   # inherit bin devShell;
 }
+
+
+
+
