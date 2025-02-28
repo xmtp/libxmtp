@@ -58,9 +58,7 @@ impl From<AssociationState> for InboxState {
     let ident: PublicIdentifier = state.recovery_identifier().clone().into();
     Self {
       inbox_id: state.inbox_id().to_string(),
-      recovery_identifier: ident
-        .try_into()
-        .expect("Recovery identifier should always be a root identifier"),
+      recovery_identifier: ident,
       installations: state
         .members()
         .into_iter()

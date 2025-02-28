@@ -20,10 +20,10 @@ pub struct InboxState {
 
 impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
-    let root_ident: PublicIdentifier = state.recovery_identifier().clone().into();
+    let ident: PublicIdentifier = state.recovery_identifier().clone().into();
     Self {
       inbox_id: state.inbox_id().to_string(),
-      recovery_identifier: root_ident.into(),
+      recovery_identifier: ident,
       installations: state
         .members()
         .into_iter()
