@@ -24,10 +24,11 @@ cargo run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib \
+  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/LibXMTPKotlinFFI.zip \
   --language kotlin
 
 cd $BINDINGS_PATH
+mkdir -p src/uniffi/xmtpv3
 make libxmtp-version
 cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
 
