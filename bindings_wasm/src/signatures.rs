@@ -66,7 +66,7 @@ impl Client {
     &mut self,
     new_identifier: RootIdentifier,
   ) -> Result<String, JsError> {
-    let ident = new_identifier.to_public().try_into()?;
+    let ident = new_identifier.into_public().try_into()?;
     let signature_request = self
       .inner_client()
       .associate_identity(ident)
@@ -86,7 +86,7 @@ impl Client {
     &mut self,
     identifier: RootIdentifier,
   ) -> Result<String, JsError> {
-    let ident = identifier.to_public().try_into()?;
+    let ident = identifier.into_public().try_into()?;
     let signature_request = self
       .inner_client()
       .revoke_identities(vec![ident])
@@ -186,7 +186,7 @@ impl Client {
     };
 
     let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let ident: XmtpPublicIdentifier = self.account_identifier().clone().to_public().try_into()?;
+    let ident: XmtpPublicIdentifier = self.account_identifier().clone().into_public().try_into()?;
     let address = ident.to_string();
 
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {

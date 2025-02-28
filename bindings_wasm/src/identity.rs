@@ -33,7 +33,7 @@ pub enum RootIdentifierKind {
 }
 
 impl RootIdentifier {
-  pub fn to_public(self) -> PublicIdentifier {
+  pub fn into_public(self) -> PublicIdentifier {
     self.into()
   }
 }

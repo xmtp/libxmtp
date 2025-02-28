@@ -28,7 +28,7 @@ pub async fn get_inbox_id_for_address(
 pub fn generate_inbox_id(account_identifier: RootIdentifier) -> Result<String, JsError> {
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
-  let ident: XmtpPublicIdentifier = account_identifier.to_public().try_into()?;
+  let ident: XmtpPublicIdentifier = account_identifier.into_public().try_into()?;
 
   ident
     .inbox_id(1)

@@ -36,7 +36,7 @@ pub enum RootIdentifierKind {
 }
 
 impl RootIdentifier {
-  pub fn to_public(self) -> PublicIdentifier {
+  pub fn into_public(self) -> PublicIdentifier {
     self.into()
   }
 }
@@ -118,6 +118,6 @@ impl IdentityExt<PublicIdentifier, XMTPPublicIdentifier> for Vec<PublicIdentifie
   ) -> Result<Vec<XMTPPublicIdentifier>, ErrorWrapper<IdentifierValidationError>> {
     let ident: Result<Vec<_>, ErrorWrapper<IdentifierValidationError>> =
       self.into_iter().map(|ident| ident.try_into()).collect();
-    Ok(ident?)
+    ident
   }
 }

@@ -153,7 +153,7 @@ pub async fn create_client(
 
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
-    account_identifier.clone().to_public().try_into()?,
+    account_identifier.clone().into_public().try_into()?,
     // this is a temporary solution
     1,
     None,

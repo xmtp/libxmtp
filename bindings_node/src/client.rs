@@ -128,7 +128,7 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
-  let account_identifier = account_identifier.to_public();
+  let account_identifier = account_identifier.into_public();
 
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(&host, is_secure)

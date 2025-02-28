@@ -63,7 +63,7 @@ impl Client {
     &self,
     new_identifier: RootIdentifier,
   ) -> Result<String> {
-    let ident = new_identifier.to_public().try_into()?;
+    let ident = new_identifier.into_public().try_into()?;
 
     let signature_request = self
       .inner_client()
@@ -83,7 +83,7 @@ impl Client {
     &self,
     identifier: RootIdentifier,
   ) -> Result<String> {
-    let ident = identifier.to_public().try_into()?;
+    let ident = identifier.into_public().try_into()?;
 
     let signature_request = self
       .inner_client()
@@ -185,7 +185,7 @@ impl Client {
     };
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident = self.account_identifier.clone().to_public();
+      let ident = self.account_identifier.clone().into_public();
       let ident: XmtpPublicIdentifier = ident.try_into()?;
       let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
       let signature = NewUnverifiedSmartContractWalletSignature::new(

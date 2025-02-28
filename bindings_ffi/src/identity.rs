@@ -31,7 +31,7 @@ pub enum FfiRootIdentifierKind {
 }
 
 impl FfiPublicIdentifier {
-    pub fn to_root(self) -> Option<FfiRootIdentifier> {
+    pub fn into_root(self) -> Option<FfiRootIdentifier> {
         Some(FfiRootIdentifier {
             identifier: self.identifier,
             identifier_kind: self.identifier_kind.to_root()?,
@@ -44,7 +44,7 @@ impl FfiRootIdentifier {
     pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
         let ident: PublicIdentifier = self
             .clone()
-            .to_public()
+            .into_public()
             .try_into()
             .map_err(GenericError::from_error)?;
         Ok(ident.inbox_id(nonce)?)
@@ -71,7 +71,7 @@ impl Display for FfiPublicIdentifier {
 
 impl Display for FfiRootIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.clone().to_public())
+        write!(f, "{}", self.clone().into_public())
     }
 }
 
@@ -84,7 +84,7 @@ pub fn generate_inbox_id(
     account_identifier.inbox_id(nonce)
 }
 impl FfiRootIdentifier {
-    pub fn to_public(self) -> FfiPublicIdentifier {
+    pub fn into_public(self) -> FfiPublicIdentifier {
         self.into()
     }
 }
