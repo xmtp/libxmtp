@@ -337,7 +337,7 @@ impl Identity {
                 ));
             }
             let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone().into(), nonce);
+            builder = builder.create_inbox(identifier.clone(), nonce);
             let mut signature_request = builder
                 .add_association(
                     MemberIdentifier::installation(installation_keys.public_slice().to_vec()),

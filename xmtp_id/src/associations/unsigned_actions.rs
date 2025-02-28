@@ -170,7 +170,7 @@ pub(crate) mod tests {
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::eth(new_member_address).unwrap().into(),
+            revoked_member: MemberIdentifier::eth(new_member_address).unwrap(),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {

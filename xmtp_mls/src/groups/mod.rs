@@ -1043,10 +1043,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         account_addresses_to_remove: &[PublicIdentifier],
     ) -> Result<(), GroupError> {
-        let account_addresses_to_remove = account_addresses_to_remove
-            .into_iter()
-            .map(Into::into)
-            .collect();
+        let account_addresses_to_remove =
+            account_addresses_to_remove.iter().map(Into::into).collect();
 
         let inbox_id_map = self
             .client

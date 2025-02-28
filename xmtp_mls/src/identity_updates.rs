@@ -957,7 +957,7 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
-            .revoke_identities(vec![second_wallet.public_identifier().into()])
+            .revoke_identities(vec![second_wallet.public_identifier()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
