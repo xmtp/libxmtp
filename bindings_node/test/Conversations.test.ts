@@ -195,12 +195,10 @@ describe('Conversations', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const group = await client1
-      .conversations()
-      .createDm({
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      })
+    const group = await client1.conversations().createDm({
+      identifier: user2.account.address,
+      identifierKind: PublicIdentifierKind.Ethereum,
+    })
     expect(group).toBeDefined()
     expect(group.id()).toBeDefined()
     expect(group.createdAtNs()).toBeTypeOf('number')
