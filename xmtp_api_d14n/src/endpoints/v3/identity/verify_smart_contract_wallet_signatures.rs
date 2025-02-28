@@ -38,7 +38,7 @@ impl Endpoint for VerifySmartContractWalletSignatures {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::VerifySmartContractWalletSignatures;
     use xmtp_api_grpc::grpc_client::GrpcClient;

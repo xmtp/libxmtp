@@ -40,7 +40,7 @@ impl Endpoint for UploadKeyPackage {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::UploadKeyPackage;
     use xmtp_api_grpc::grpc_client::GrpcClient;

@@ -35,7 +35,8 @@ impl Endpoint for GetIdentityUpdatesV2 {
         .encode_to_vec())
     }
 }
-#[cfg(test)]
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::GetIdentityUpdatesV2;
     use xmtp_api_grpc::grpc_client::GrpcClient;
