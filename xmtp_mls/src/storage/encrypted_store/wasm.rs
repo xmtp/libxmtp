@@ -26,8 +26,10 @@ impl std::fmt::Debug for WasmDb {
 impl WasmDb {
     pub fn new(opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
+        let name = xmtp_common::rand_string::<12>();
+        let name = format!("file:/xmtp-test-{}.db?vfs=memdb", name);
         let conn = match opts {
-            Ephemeral => SqliteConnection::establish(":memory:"),
+            Ephemeral => SqliteConnection::establish(name.as_str()),
             Persistent(ref db_path) => SqliteConnection::establish(db_path),
         }?;
         Ok(Self {

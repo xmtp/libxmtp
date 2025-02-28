@@ -67,7 +67,7 @@ jobs:
         with:
           name: xmtp
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-      - name: Cache
+      - name: cache rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
