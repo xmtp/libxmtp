@@ -950,10 +950,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_addresses: &[PublicIdentifier],
+        account_identifiers: &[PublicIdentifier],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         // Fetch the associated inbox_ids
-        let requests = account_addresses.iter().map(Into::into).collect();
+        let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<PublicIdentifier, String> = self
             .client
             .api()
@@ -970,9 +970,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Err(GroupError::UserLimitExceeded);
         }
 
-        if inbox_id_map.len() != account_addresses.len() {
+        if inbox_id_map.len() != account_identifiers.len() {
             let found_addresses: HashSet<&PublicIdentifier> = inbox_id_map.keys().collect();
-            let to_add_hashset = HashSet::from_iter(account_addresses.iter());
+            let to_add_hashset = HashSet::from_iter(account_identifiers.iter());
 
             let missing_addresses = found_addresses.difference(&to_add_hashset);
             return Err(GroupError::AddressNotFound(

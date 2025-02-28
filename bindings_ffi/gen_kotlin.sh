@@ -24,7 +24,7 @@ cargo run --bin ffi-uniffi-bindgen \
   --manifest-path $BINDINGS_MANIFEST \
   --features uniffi/cli --release -- \
   generate \
-  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib $BINDINGS_PATH/src/$PROJECT_NAME.udl \
+  --lib-file $TARGET_DIR/release/lib$PROJECT_NAME.dylib \
   --language kotlin
 
 cd $BINDINGS_PATH
@@ -71,4 +71,3 @@ unzip -o LibXMTPKotlinFFI.zip
 cd ../../..
 
 cp -r $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/jniLibs/* ~/XMTP/xmtp-android/library/src/main/jniLibs
-
