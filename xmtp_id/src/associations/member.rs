@@ -140,6 +140,7 @@ impl PublicIdentifier {
     pub fn from_proto(
         ident: impl AsRef<str>,
         kind: IdentifierKind,
+        relying_partner: Option<String>,
     ) -> Result<Self, ConversionError> {
         let ident = ident.as_ref();
         let public_ident = match kind {
@@ -151,8 +152,7 @@ impl PublicIdentifier {
                     description: "passkey",
                     value: None,
                 })?,
-                // TODO
-                relying_partner: None,
+                relying_partner,
             }),
         };
         Ok(public_ident)

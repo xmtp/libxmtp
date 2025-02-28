@@ -141,8 +141,11 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     IdentifierKind::Unspecified => IdentifierKind::Ethereum,
                     kind => kind,
                 };
-                let account_identifier =
-                    PublicIdentifier::from_proto(&action_proto.initial_identifier, kind)?;
+                let account_identifier = PublicIdentifier::from_proto(
+                    &action_proto.initial_identifier,
+                    kind,
+                    action_proto.relying_partner,
+                )?;
 
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                     initial_identifier_signature: action_proto
@@ -159,8 +162,11 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     IdentifierKind::Unspecified => IdentifierKind::Ethereum,
                     kind => kind,
                 };
-                let new_recovery_identifier =
-                    PublicIdentifier::from_proto(&action_proto.new_recovery_identifier, kind)?;
+                let new_recovery_identifier = PublicIdentifier::from_proto(
+                    &action_proto.new_recovery_identifier,
+                    kind,
+                    action_proto.relying_partner,
+                )?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
                     recovery_identifier_signature: action_proto
                         .existing_recovery_identifier_signature
@@ -523,6 +529,12 @@ impl From<AssociationState> for AssociationStateProto {
             .collect();
 
         let kind: IdentifierKind = (&state.recovery_identifier).into();
+        let relying_partner = match &state.recovery_identifier {
+            PublicIdentifier::Passkey(ident::Passkey {
+                relying_partner, ..
+            }) => relying_partner.clone(),
+            _ => None,
+        };
 
         AssociationStateProto {
             inbox_id: state.inbox_id,
@@ -530,6 +542,7 @@ impl From<AssociationState> for AssociationStateProto {
             recovery_identifier: state.recovery_identifier.to_string(),
             recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
+            relying_partner,
         }
     }
 }
@@ -542,7 +555,8 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             IdentifierKind::Unspecified => IdentifierKind::Ethereum,
             kind => kind,
         };
-        let recovery_identifier = PublicIdentifier::from_proto(&proto.recovery_identifier, kind)?;
+        let recovery_identifier =
+            PublicIdentifier::from_proto(&proto.recovery_identifier, kind, proto.relying_partner)?;
 
         let members = proto
             .members
