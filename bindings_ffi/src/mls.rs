@@ -1,6 +1,4 @@
-use crate::identity::{
-    FfiCollectionExt, FfiCollectionTryExt, FfiPublicIdentifier, FfiRootIdentifier,
-};
+use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiPublicIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
@@ -117,12 +115,12 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    let ident = account_identifier.clone().into_public();
+    let ident = account_identifier.clone();
     init_logger();
 
     log::info!(
@@ -179,9 +177,9 @@ pub async fn create_client(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
 ) -> Result<Option<String>, GenericError> {
-    let account_identifier = account_identifier.into_public();
+    let account_identifier = account_identifier;
 
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
@@ -264,7 +262,7 @@ impl FfiSignatureRequest {
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
     #[allow(dead_code)]
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -2696,7 +2694,7 @@ mod tests {
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
-        identity::{FfiPublicIdentifier, FfiRootIdentifier, FfiRootIdentifierKind},
+        identity::{FfiPublicIdentifier, FfiPublicIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind, FfiConsentState, FfiContentType,
         FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -2753,9 +2751,8 @@ mod tests {
             Self { wallet }
         }
 
-        pub fn root_identifier(&self) -> FfiRootIdentifier {
-            let pub_ident: FfiPublicIdentifier = self.wallet.public_identifier().into();
-            pub_ident.into_root().expect("Wallet will always be eth")
+        pub fn public_identifier(&self) -> FfiPublicIdentifier {
+            self.wallet.public_identifier().into()
         }
 
         pub fn new() -> Self {
@@ -2929,7 +2926,7 @@ mod tests {
         history_sync_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
-        let ident = ffi_inbox_owner.root_identifier();
+        let ident = ffi_inbox_owner.public_identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -2995,9 +2992,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_legacy_identity() {
-        let ident = FfiRootIdentifier {
+        let ident = FfiPublicIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
-            identifier_kind: FfiRootIdentifierKind::Ethereum,
+            identifier_kind: FfiPublicIdentifierKind::Ethereum,
             relying_partner: None,
         };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
@@ -3026,7 +3023,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let ident = ffi_inbox_owner.root_identifier();
+        let ident = ffi_inbox_owner.public_identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -3039,7 +3036,7 @@ mod tests {
             Some(path.clone()),
             None,
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3058,7 +3055,7 @@ mod tests {
             Some(path),
             None,
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3079,7 +3076,7 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let ident = ffi_inbox_owner.root_identifier();
+        let ident = ffi_inbox_owner.public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
@@ -3093,7 +3090,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3113,7 +3110,7 @@ mod tests {
             Some(path),
             Some(other_key.to_vec()),
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3154,7 +3151,7 @@ mod tests {
     async fn test_can_add_wallet_to_inbox() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let ident = ffi_inbox_owner.root_identifier();
+        let ident = ffi_inbox_owner.public_identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -3167,7 +3164,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3222,7 +3219,7 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let ident = ffi_inbox_owner.root_identifier();
+        let ident = ffi_inbox_owner.public_identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
@@ -3234,7 +3231,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.root_identifier(),
+            ffi_inbox_owner.public_identifier(),
             nonce,
             None,
             None,
@@ -3311,7 +3308,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
-        let ident = inbox_owner.root_identifier();
+        let ident = inbox_owner.public_identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
@@ -3323,7 +3320,7 @@ mod tests {
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
-            inbox_owner.root_identifier(),
+            inbox_owner.public_identifier(),
             nonce,
             None, // v2_signed_private_key_proto
             None,
@@ -3338,12 +3335,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
-        let amal_ident = amal.root_identifier();
+        let amal_ident = amal.public_identifier();
         let nonce = 1;
         let amal_inbox_id = amal_ident.inbox_id(nonce).unwrap();
 
         let bola = LocalWalletInboxOwner::new();
-        let bola_ident = bola.root_identifier();
+        let bola_ident = bola.public_identifier();
         let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
@@ -3354,7 +3351,7 @@ mod tests {
             Some(path.clone()),
             None,
             &amal_inbox_id,
-            amal.root_identifier(),
+            amal.public_identifier(),
             nonce,
             None,
             None,
@@ -3362,13 +3359,13 @@ mod tests {
         .await
         .unwrap();
         let can_message_result = client_amal
-            .can_message(vec![bola.root_identifier().into_public()])
+            .can_message(vec![bola.public_identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result
-                .get(&bola.root_identifier().into_public())
+                .get(&bola.public_identifier())
                 .map(|&value| !value)
                 .unwrap_or(false),
             "Expected the can_message result to be false for the address"
@@ -3381,7 +3378,7 @@ mod tests {
             Some(path.clone()),
             None,
             &bola_inbox_id,
-            bola.root_identifier(),
+            bola.public_identifier(),
             nonce,
             None,
             None,
@@ -3391,13 +3388,13 @@ mod tests {
         register_client(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
-            .can_message(vec![bola.root_identifier().into_public()])
+            .can_message(vec![bola.public_identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result2
-                .get(&bola.root_identifier().into_public())
+                .get(&bola.public_identifier())
                 .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
@@ -3412,7 +3409,7 @@ mod tests {
         let group = amal
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3433,7 +3430,7 @@ mod tests {
         let group = amal
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
@@ -3492,7 +3489,7 @@ mod tests {
         let group = alix_client_1
             .conversations()
             .create_group(
-                vec![bola_client_1.account_identifier.clone().into_public()],
+                vec![bola_client_1.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3665,7 +3662,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3703,7 +3700,7 @@ mod tests {
         let dm = bo
             .conversations()
             .find_or_create_dm(
-                alix.account_identifier.clone().into_public(),
+                alix.account_identifier.clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -3740,7 +3737,7 @@ mod tests {
         // Create a group
         let group = alix_conversations
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3791,7 +3788,7 @@ mod tests {
         // Step 2: Create a group with Bo but do not send messages
         alix_conversations
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4093,7 +4090,7 @@ mod tests {
         for _i in 0..30 {
             alix.conversations()
                 .create_group(
-                    vec![bo.account_identifier.clone().into_public()],
+                    vec![bo.account_identifier.clone()],
                     FfiCreateGroupOptions::default(),
                 )
                 .await
@@ -4162,7 +4159,7 @@ mod tests {
         for _i in 0..30 {
             alix.conversations()
                 .create_group(
-                    vec![bo.account_identifier.clone().into_public()],
+                    vec![bo.account_identifier.clone()],
                     FfiCreateGroupOptions::default(),
                 )
                 .await
@@ -4184,7 +4181,7 @@ mod tests {
         {
             group
                 .conversation
-                .remove_members(vec![bo.account_identifier.clone().into_public()])
+                .remove_members(vec![bo.account_identifier.clone()])
                 .await
                 .unwrap();
         }
@@ -4218,7 +4215,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4237,22 +4234,22 @@ mod tests {
         // configured to 3) without Bo syncing
         alix_group
             .add_members(vec![
-                caro.account_identifier.clone().into_public(),
-                davon.account_identifier.clone().into_public(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .remove_members(vec![
-                caro.account_identifier.clone().into_public(),
-                davon.account_identifier.clone().into_public(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .add_members(vec![
-                eri.account_identifier.clone().into_public(),
-                frankie.account_identifier.clone().into_public(),
+                eri.account_identifier.clone(),
+                frankie.account_identifier.clone(),
             ])
             .await
             .unwrap();
@@ -4298,7 +4295,7 @@ mod tests {
         let group = client1
             .conversations()
             .create_group(
-                vec![client2.account_identifier.clone().into_public()],
+                vec![client2.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4365,7 +4362,7 @@ mod tests {
         let dm_group = client1
             .conversations()
             .find_or_create_dm(
-                client2.account_identifier.clone().into_public(),
+                client2.account_identifier.clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -4457,8 +4454,8 @@ mod tests {
             .conversations()
             .create_group(
                 vec![
-                    bo.account_identifier.clone().into_public(),
-                    caro.account_identifier.clone().into_public(),
+                    bo.account_identifier.clone(),
+                    caro.account_identifier.clone(),
                 ],
                 FfiCreateGroupOptions::default(),
             )
@@ -4576,7 +4573,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4650,7 +4647,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4666,26 +4663,26 @@ mod tests {
         // configured to 3) without Bo syncing
         alix_group
             .add_members(vec![
-                caro.account_identifier.clone().into_public(),
-                davon.account_identifier.clone().into_public(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .remove_members(vec![
-                caro.account_identifier.clone().into_public(),
-                davon.account_identifier.clone().into_public(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
-            .add_members(vec![eri.account_identifier.clone().into_public()])
+            .add_members(vec![eri.account_identifier.clone()])
             .await
             .unwrap();
 
         // Bo adds a member while 3 epochs behind
         bo_group
-            .add_members(vec![frankie.account_identifier.clone().into_public()])
+            .add_members(vec![frankie.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -4706,7 +4703,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4730,7 +4727,7 @@ mod tests {
         assert_eq!(bo_messages.len(), 0);
 
         alix_group
-            .remove_members(vec![bo.account_identifier.clone().into_public()])
+            .remove_members(vec![bo.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -4777,7 +4774,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4854,7 +4851,7 @@ mod tests {
 
         amal.conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4866,7 +4863,7 @@ mod tests {
         // Create another group and add bola
         amal.conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4890,7 +4887,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![caro.account_identifier.clone().into_public()],
+                vec![caro.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4910,7 +4907,7 @@ mod tests {
         let bo_group = bo
             .conversations()
             .create_group(
-                vec![caro.account_identifier.clone().into_public()],
+                vec![caro.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4943,7 +4940,7 @@ mod tests {
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4986,7 +4983,7 @@ mod tests {
         let amal_group = amal
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5021,7 +5018,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .add_members(vec![bola.account_identifier.clone().into_public()])
+            .add_members(vec![bola.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -5047,7 +5044,7 @@ mod tests {
         // Amal creates a group and adds Bola to the group
         amal.conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5098,7 +5095,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5129,10 +5126,7 @@ mod tests {
         };
         let alix_group_admin_only = alix
             .conversations()
-            .create_group(
-                vec![bo.account_identifier.clone().into_public()],
-                admin_only_options,
-            )
+            .create_group(vec![bo.account_identifier.clone()], admin_only_options)
             .await
             .unwrap();
 
@@ -5161,10 +5155,7 @@ mod tests {
         };
         let alix_group_all_members = alix
             .conversations()
-            .create_group(
-                vec![bo.account_identifier.clone().into_public()],
-                all_members_options,
-            )
+            .create_group(vec![bo.account_identifier.clone()], all_members_options)
             .await
             .unwrap();
 
@@ -5194,10 +5185,7 @@ mod tests {
 
         let alix_group_admin_only = alix
             .conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -5226,10 +5214,7 @@ mod tests {
         };
         let alix_group_all_members = alix
             .conversations()
-            .create_group(
-                vec![bo.account_identifier.clone().into_public()],
-                all_members_options,
-            )
+            .create_group(vec![bo.account_identifier.clone()], all_members_options)
             .await
             .unwrap();
 
@@ -5263,10 +5248,7 @@ mod tests {
         };
         let alix_group = alix
             .conversations()
-            .create_group(
-                vec![bola.account_identifier.clone().into_public()],
-                admin_only_options,
-            )
+            .create_group(vec![bola.account_identifier.clone()], admin_only_options)
             .await
             .unwrap();
 
@@ -5361,7 +5343,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5504,7 +5486,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
@@ -5562,7 +5544,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .find_or_create_dm(
-                bola.account_identifier.clone().into_public(),
+                bola.account_identifier.clone(),
                 FfiCreateDMOptions::new(disappearing_settings.clone()),
             )
             .await
@@ -5632,10 +5614,7 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(
-                vec![bola.account_identifier.clone().into_public()],
-                create_group_options,
-            )
+            .create_group(vec![bola.account_identifier.clone()], create_group_options)
             .await
             .unwrap();
 
@@ -5713,7 +5692,7 @@ mod tests {
 
         // Verify that Alix can not remove bola even though they are a super admin
         let result = alix_group
-            .remove_members(vec![bola.account_identifier.clone().into_public()])
+            .remove_members(vec![bola.account_identifier.clone()])
             .await;
         assert!(result.is_err());
     }
@@ -5758,7 +5737,7 @@ mod tests {
         let results_1 = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_1,
             )
             .await;
@@ -5777,7 +5756,7 @@ mod tests {
         let results_2 = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_2,
             )
             .await;
@@ -5796,7 +5775,7 @@ mod tests {
         let results_3 = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_3,
             )
             .await;
@@ -5815,7 +5794,7 @@ mod tests {
         let results_4 = alix
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_valid,
             )
             .await;
@@ -5938,7 +5917,7 @@ mod tests {
 
         let _alix_dm = alix_conversations
             .find_or_create_dm(
-                bola.account_identifier.clone().into_public(),
+                bola.account_identifier.clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -5998,7 +5977,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6008,10 +5987,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -6030,7 +6006,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6040,10 +6016,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -6058,10 +6031,7 @@ mod tests {
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
         caro.conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -6069,7 +6039,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6089,17 +6059,14 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6297,7 +6264,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6336,10 +6303,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6376,10 +6340,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6401,7 +6362,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6446,10 +6407,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(
-                bo.account_identifier.clone().into_public(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6457,7 +6415,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6541,7 +6499,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6580,7 +6538,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6647,7 +6605,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6682,7 +6640,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6704,7 +6662,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6723,7 +6681,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6753,7 +6711,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident.into_root().expect("is eth"),
+            ffi_public_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6784,7 +6742,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6875,7 +6833,7 @@ mod tests {
         let alix_conversation = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -7002,7 +6960,7 @@ mod tests {
         let amal_group = amal
             .conversations()
             .create_group(
-                vec![bola.account_identifier.clone().into_public()],
+                vec![bola.account_identifier.clone()],
                 admin_only_options.clone(),
             )
             .await
@@ -7134,7 +7092,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_identifier.clone().into_public()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
