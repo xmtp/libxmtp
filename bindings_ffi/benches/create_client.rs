@@ -10,9 +10,9 @@ use xmtp_common::{
     bench::{bench_async_setup, BENCH_ROOT_SPAN},
     tmp_path,
 };
-use xmtp_id::{associations::test_utils::WalletTestExt, InboxOwner};
+use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_mls::utils::test::HISTORY_SYNC_URL;
-use xmtpv3::generate_inbox_id;
+use xmtpv3::identity::FfiPublicIdentifier;
 
 #[macro_use]
 extern crate tracing;
@@ -52,8 +52,9 @@ fn create_ffi_client(c: &mut Criterion) {
             || {
                 bench_async_setup(|| async {
                     let wallet = xmtp_cryptography::utils::generate_local_wallet();
+                    let ident = wallet.public_identifier();
                     let nonce = 1;
-                    let inbox_id = generate_inbox_id(wallet.public_identifier(), nonce).unwrap();
+                    let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
                     let (url, is_secure) = network_url();
                     let api = xmtpv3::mls::connect_to_backend(url, is_secure)
@@ -69,13 +70,14 @@ fn create_ffi_client(c: &mut Criterion) {
                     )
                 })
             },
-            |(api, inbox_id, address, nonce, path, span)| async move {
+            |(api, inbox_id, ident, nonce, path, span)| async move {
+                let ffi_ident: FfiPublicIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
                     Some(path),
                     Some(vec![0u8; 32]),
                     &inbox_id,
-                    address,
+                    ffi_ident.into_root().expect("is eth"),
                     nonce,
                     None,
                     Some(HISTORY_SYNC_URL.to_string()),
@@ -99,8 +101,10 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let _ = fdlimit::raise_fd_limit();
     let mut benchmark_group = c.benchmark_group("create_client_from_cached");
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let ident = wallet.public_identifier();
+    let inbox_id = ident.inbox_id(nonce).unwrap();
+    let ffi_ident: FfiPublicIdentifier = ident.into();
     let nonce = 1;
-    let inbox_id = generate_inbox_id(wallet.public_identifier(), nonce).unwrap();
     let address = wallet.public_identifier();
     let path = tmp_path();
     let (url, is_secure) = network_url();
@@ -113,7 +117,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
             Some(path.clone()),
             Some(vec![0u8; 32]),
             &inbox_id.clone(),
-            address.clone(),
+            ffi_ident.into_root().expect("is eth"),
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -138,13 +142,14 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     span.clone(),
                 )
             },
-            |(api, inbox_id, address, nonce, path, history_sync, span)| async move {
+            |(api, inbox_id, ident, nonce, path, history_sync, span)| async move {
+                let ffi_ident: FfiPublicIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
                     Some(path),
                     Some(vec![0u8; 32]),
                     &inbox_id,
-                    address,
+                    ffi_ident.into_root().expect("is eth"),
                     nonce,
                     None,
                     Some(history_sync),
