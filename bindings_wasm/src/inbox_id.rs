@@ -1,5 +1,5 @@
-use crate::identity::{PublicIdentifier, RootIdentifier};
-use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use crate::identity::PublicIdentifier;
+use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
@@ -25,10 +25,10 @@ pub async fn get_inbox_id_for_address(
 }
 
 #[wasm_bindgen(js_name = generateInboxId)]
-pub fn generate_inbox_id(account_identifier: RootIdentifier) -> Result<String, JsError> {
+pub fn generate_inbox_id(account_identifier: PublicIdentifier) -> Result<String, JsError> {
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
-  let ident: XmtpPublicIdentifier = account_identifier.into_public().try_into()?;
+  let ident: XmtpPublicIdentifier = account_identifier.try_into()?;
 
   ident
     .inbox_id(1)

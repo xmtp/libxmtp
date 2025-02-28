@@ -1,7 +1,4 @@
-use crate::{
-  client::Client,
-  identity::{PublicIdentifier, RootIdentifier},
-};
+use crate::{client::Client, identity::PublicIdentifier};
 use js_sys::Uint8Array;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
@@ -32,7 +29,7 @@ pub struct InboxState {
   #[wasm_bindgen(js_name = inboxId)]
   pub inbox_id: String,
   #[wasm_bindgen(js_name = recoveryIdentifier)]
-  pub recovery_identifier: RootIdentifier,
+  pub recovery_identifier: PublicIdentifier,
   pub installations: Vec<Installation>,
   #[wasm_bindgen(js_name = accountAddresses)]
   pub account_identifiers: Vec<PublicIdentifier>,
@@ -43,7 +40,7 @@ impl InboxState {
   #[wasm_bindgen(constructor)]
   pub fn new(
     inbox_id: String,
-    recovery_identifier: RootIdentifier,
+    recovery_identifier: PublicIdentifier,
     installations: Vec<Installation>,
     account_identifiers: Vec<PublicIdentifier>,
   ) -> Self {

@@ -1,3 +1,7 @@
+use crate::{
+  client::Client,
+  identity::{PublicIdentifier, PublicIdentifierKind},
+};
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
@@ -7,11 +11,6 @@ use xmtp_id::associations::{
 };
 use xmtp_id::associations::{
   verify_signed_with_public_context, PublicIdentifier as XmtpPublicIdentifier,
-};
-
-use crate::{
-  client::Client,
-  identity::{RootIdentifier, RootIdentifierKind},
 };
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
@@ -64,9 +63,9 @@ impl Client {
   #[wasm_bindgen(js_name = addWalletSignatureText)]
   pub async fn add_identifier_signature_text(
     &mut self,
-    new_identifier: RootIdentifier,
+    new_identifier: PublicIdentifier,
   ) -> Result<String, JsError> {
-    let ident = new_identifier.into_public().try_into()?;
+    let ident = new_identifier.try_into()?;
     let signature_request = self
       .inner_client()
       .associate_identity(ident)
@@ -84,9 +83,9 @@ impl Client {
   #[wasm_bindgen(js_name = revokeWalletSignatureText)]
   pub async fn revoke_identifier_signature_text(
     &mut self,
-    identifier: RootIdentifier,
+    identifier: PublicIdentifier,
   ) -> Result<String, JsError> {
-    let ident = identifier.into_public().try_into()?;
+    let ident = identifier.try_into()?;
     let signature_request = self
       .inner_client()
       .revoke_identities(vec![ident])
@@ -179,14 +178,14 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
-    let RootIdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
+    let PublicIdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
       return Err(JsError::new(
         "Account identifier must be an ethereum address.",
       ));
     };
 
     let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let ident: XmtpPublicIdentifier = self.account_identifier().clone().into_public().try_into()?;
+    let ident: XmtpPublicIdentifier = self.account_identifier().clone().try_into()?;
     let address = ident.to_string();
 
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
