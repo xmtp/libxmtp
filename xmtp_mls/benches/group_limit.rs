@@ -53,7 +53,7 @@ fn add_to_empty_group(c: &mut Criterion) {
     benchmark_group.sample_size(SAMPLE_SIZE);
 
     let (client, identities, runtime) = setup();
-    let addresses: Vec<String> = identities.into_iter().map(|i| i.address).collect();
+    let addresses: Vec<String> = identities.into_iter().map(|i| i.identifier).collect();
 
     let mut map = HashMap::<usize, Vec<String>>::new();
     for size in IDENTITY_SAMPLES {

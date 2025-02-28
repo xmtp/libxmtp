@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::{fmt::Display, hash::Hash};
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct Passkey {
     pub key: Vec<u8>,
     pub relying_partner: Option<String>,

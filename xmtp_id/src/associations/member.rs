@@ -1,5 +1,6 @@
 use super::{ident, AssociationError, DeserializationError};
 use ed25519_dalek::VerifyingKey;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fmt::{Debug, Display},
@@ -23,7 +24,7 @@ pub enum MemberIdentifier {
     Passkey(ident::Passkey),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 /// MemberIdentifier without the installation variant
 /// is uesd to enforce parameters.
 /// Not everything in this enum will be able to sign,

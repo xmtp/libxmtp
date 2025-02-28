@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-
 use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Ethereum(pub String);
 
 impl Ethereum {
