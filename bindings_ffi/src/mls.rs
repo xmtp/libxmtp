@@ -2062,6 +2062,16 @@ impl FfiConversation {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
 
+    pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
+        let keys = self
+            .inner
+            .hmac_keys(-1..=1)?
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        Ok(keys)
+    }
+
     pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
         let conversation_type = self.inner.conversation_type(&provider).await?;
@@ -6105,6 +6115,32 @@ mod tests {
         assert!(matches!(update, FfiPreferenceUpdate::HMAC { .. }));
 
         a_stream.end_and_wait().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_get_hmac_keys() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let hmac_keys = alix_group.get_hmac_keys().unwrap();
+
+        assert!(!hmac_keys.is_empty());
+        assert_eq!(hmac_keys.len(), 3);
+
+        for value in &hmac_keys {
+            assert!(!value.key.is_empty());
+            assert_eq!(value.key.len(), 42);
+            assert!(value.epoch >= 1);
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
