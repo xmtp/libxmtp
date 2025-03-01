@@ -1,5 +1,6 @@
 use base64::Engine;
 use prost::Message;
+use xmtp_cryptography::hash::sign_keccak_256;
 use xmtp_proto::xmtp::message_api::v1::{AuthData, Token};
 use xmtp_proto::xmtp::message_contents::private_key_bundle::Version;
 use xmtp_proto::xmtp::message_contents::signature::{EcdsaCompact, Union as SignatureUnion};
@@ -7,7 +8,6 @@ use xmtp_proto::xmtp::message_contents::{
     private_key::Union as PrivateKeyUnion, PrivateKeyBundle, PrivateKeyBundleV1, PublicKey,
     Signature,
 };
-use xmtp_v2::k256_helper::sign_keccak_256;
 
 fn create_auth_data(wallet_address: String) -> AuthData {
     AuthData {

@@ -13,7 +13,6 @@ on:
       - "xmtp_id/**"
       - "xmtp_mls/**"
       - "xmtp_proto/**"
-      - "xmtp_v2/**"
       - "xmtp_debug/**"
       - "bindings_node/**"
       - "bindings_ffi/**"

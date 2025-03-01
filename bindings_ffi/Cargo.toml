@@ -29,8 +29,6 @@ xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-xmtp_user_preferences = { path = "../xmtp_user_preferences" }
-xmtp_v2 = { path = "../xmtp_v2" }
 
 # Bench
 criterion = { workspace = true, optional = true }
