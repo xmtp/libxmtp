@@ -2067,11 +2067,6 @@ impl FfiConversation {
         let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
     }
-
-    pub async fn epoch(&self) -> Result<u64, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        Ok(self.inner.epoch(&provider).await?)
-    }
 }
 
 #[uniffi::export]
@@ -2378,7 +2373,7 @@ pub fn decode_multi_remote_attachment(
 pub struct FfiMessage {
     pub id: Vec<u8>,
     pub sent_at_ns: i64,
-    pub convo_id: Vec<u8>,
+    pub conversation_id: Vec<u8>,
     pub sender_inbox_id: String,
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
@@ -2390,7 +2385,7 @@ impl From<StoredGroupMessage> for FfiMessage {
         Self {
             id: msg.id,
             sent_at_ns: msg.sent_at_ns,
-            convo_id: msg.group_id,
+            conversation_id: msg.group_id,
             sender_inbox_id: msg.sender_inbox_id,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
@@ -6993,11 +6988,6 @@ mod tests {
         assert_eq!(message_types[1], "group_updated");
         assert_eq!(message_types[2], "text");
 
-        // this assertion is failing even though bo_group has the group_updated msg in the DB (returned from find_messages() call)
-        assert_eq!(
-            alix_group.epoch().await.unwrap(),
-            bo_group.epoch().await.unwrap()
-        );
         assert_eq!(alix_group.group_name().unwrap(), "hello");
         // this assertion will also fail
         assert_eq!(bo_group.group_name().unwrap(), "hello");

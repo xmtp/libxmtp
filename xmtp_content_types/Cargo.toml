@@ -16,7 +16,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing.workspace = true
 xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_v2 = { path = "../xmtp_v2" }
 
 # XMTP/Local
 xmtp_common = { workspace = true }
