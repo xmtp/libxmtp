@@ -19,7 +19,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 use crate::{
   client::RustXmtpClient,
   consent_state::ConsentState,
-  conversations::MessageDisappearingSettings,
+  conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
   identity::{IdentityExt, PublicIdentifier},
   message::{ListMessagesOptions, Message},
@@ -712,5 +712,19 @@ impl Conversation {
         .as_ref()
         .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
     })
+  }
+
+  #[napi]
+  pub fn get_hmac_keys(&self) -> Result<Vec<HmacKey>> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .hmac_keys(-1..=1)
+      .map(|keys| keys.into_iter().map(Into::into).collect())
+      .map_err(|e| napi::Error::from_reason(e.to_string()))
   }
 }
