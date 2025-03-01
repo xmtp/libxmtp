@@ -175,7 +175,7 @@ mod tests {
     use super::*;
     use crate::{
         associations::{
-            sign_with_legacy_key, test_utils::MockSmartContractSignatureVerifier,
+            test_utils::MockSmartContractSignatureVerifier,
             verified_signature::VerifiedSignature, InstallationKeyContext, MemberIdentifier,
             SignatureKind,
         },
@@ -185,10 +185,6 @@ mod tests {
     use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
-    use xmtp_proto::xmtp::message_contents::{
-        signature::Union as SignatureUnion, signed_private_key,
-        SignedPrivateKey as LegacySignedPrivateKeyProto,
-    };
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
