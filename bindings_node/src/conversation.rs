@@ -719,7 +719,7 @@ impl Conversation {
 
     group
       .hmac_keys(-1..=1)
-      .map(|keys| keys.into_iter().map(Into::into).collect::<Vec<_>>())
-      .map_err(|e| napi::Error::from_reason(e.to_string())) // Convert GenericError to napi::Error
+      .map(|keys| keys.into_iter().map(Into::into).collect())
+      .map_err(|e| napi::Error::from_reason(e.to_string()))
   }
 }
