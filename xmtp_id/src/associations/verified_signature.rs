@@ -175,9 +175,8 @@ mod tests {
     use super::*;
     use crate::{
         associations::{
-            test_utils::MockSmartContractSignatureVerifier,
-            verified_signature::VerifiedSignature, InstallationKeyContext, MemberIdentifier,
-            SignatureKind,
+            test_utils::MockSmartContractSignatureVerifier, verified_signature::VerifiedSignature,
+            InstallationKeyContext, MemberIdentifier, SignatureKind,
         },
         InboxOwner,
     };
