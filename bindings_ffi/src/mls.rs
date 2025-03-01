@@ -6123,6 +6123,32 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_get_hmac_keys() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_address.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let hmac_keys = alix_group.get_hmac_keys().unwrap();
+
+        assert!(!hmac_keys.is_empty());
+        assert_eq!(hmac_keys.len(), 3);
+
+        for value in &hmac_keys {
+            assert!(!value.key.is_empty());
+            assert_eq!(value.key.len(), 42);
+            assert!(value.epoch >= 1);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_and_get_group_consent() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
