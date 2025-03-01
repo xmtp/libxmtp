@@ -15,7 +15,6 @@ on:
       - "xmtp_id/**"
       - "xmtp_mls/**"
       - "xmtp_proto/**"
-      - "xmtp_v2/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
