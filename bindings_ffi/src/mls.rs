@@ -6267,7 +6267,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
