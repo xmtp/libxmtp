@@ -47,7 +47,6 @@ openmls.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest", "rand_core"] }
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_v2 = { path = "../xmtp_v2" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 gloo-timers.workspace = true
