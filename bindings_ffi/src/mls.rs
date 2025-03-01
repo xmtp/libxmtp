@@ -2062,6 +2062,16 @@ impl FfiConversation {
         self.inner.dm_inbox_id().map_err(Into::into)
     }
 
+    pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
+        let keys = self
+            .inner
+            .hmac_keys(-1..=1)?
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        Ok(keys)
+    }
+
     pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
         let provider = self.inner.mls_provider()?;
         let conversation_type = self.inner.conversation_type(&provider).await?;
