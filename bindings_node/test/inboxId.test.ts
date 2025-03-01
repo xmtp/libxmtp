@@ -6,7 +6,6 @@ import {
   isAddressAuthorized,
   isInstallationAuthorized,
   PublicIdentifierKind,
-  RootIdentifierKind,
 } from '../dist/index'
 
 describe('generateInboxId', () => {
@@ -14,7 +13,7 @@ describe('generateInboxId', () => {
     const user = createUser()
     const inboxId = generateInboxId({
       identifier: user.account.address,
-      identifierKind: RootIdentifierKind.Ethereum,
+      identifierKind: PublicIdentifierKind.Ethereum,
     })
     expect(inboxId).toBeDefined()
   })

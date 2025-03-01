@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::PublicIdentifier as XmtpRootIdentifier;
+use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
@@ -217,7 +217,7 @@ impl Client {
     &self,
     account_identifiers: Vec<PublicIdentifier>,
   ) -> Result<JsValue, JsError> {
-    let account_identifiers: Result<Vec<XmtpRootIdentifier>, JsError> = account_identifiers
+    let account_identifiers: Result<Vec<XmtpPublicIdentifier>, JsError> = account_identifiers
       .iter()
       .cloned()
       .map(|ident| ident.try_into())
