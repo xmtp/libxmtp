@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
@@ -614,18 +613,14 @@ impl Conversation {
   pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
 
-    let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
-    let id = hex::encode(&group.group_id);
     let keys = group
       .hmac_keys(-1..=1)
       .map_err(|e| JsError::new(&format!("{e}")))?
       .into_iter()
       .map(Into::into)
-      .collect::<Vec<_>>();
+      .collect::<Vec<HmacKey>>();
 
-    hmac_map.insert(id, keys);
-
-    Ok(crate::to_value(&hmac_map)?)
+    Ok(crate::to_value(&keys)?)
   }
 }
 
