@@ -16,8 +16,8 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tracing.workspace = true
 xmtp_common.workspace = true
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 zeroize.workspace = true
 
 # Anything but iOS and Android will use either webpki or native.
