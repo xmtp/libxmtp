@@ -140,7 +140,7 @@ impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
 
 #[napi(object)]
 pub struct HmacKey {
-  pub key: Vec<u8>,
+  pub key: Uint8Array,
   pub epoch: BigInt,
 }
 
@@ -148,7 +148,7 @@ impl From<XmtpHmacKey> for HmacKey {
   fn from(value: XmtpHmacKey) -> Self {
     Self {
       epoch: BigInt::from(value.epoch),
-      key: value.key.to_vec(),
+      key: Uint8Array::from(value.key),
     }
   }
 }
