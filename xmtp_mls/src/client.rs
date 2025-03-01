@@ -567,9 +567,14 @@ where
         dm_target_inbox_id: InboxId,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let start = std::time::Instant::now();
         tracing::info!("creating dm with {}", dm_target_inbox_id);
-        let provider = self.mls_provider()?;
 
+        let provider_start = std::time::Instant::now();
+        let provider = self.mls_provider()?;
+        tracing::info!("mls_provider took: {:?}", provider_start.elapsed());
+
+        let create_start = std::time::Instant::now();
         let group: MlsGroup<Client<ApiClient, V>> = MlsGroup::create_dm_and_insert(
             &provider,
             Arc::new(self.clone()),
@@ -577,16 +582,24 @@ where
             dm_target_inbox_id.clone(),
             opts,
         )?;
+        tracing::info!("create_dm_and_insert took: {:?}", create_start.elapsed());
 
+        let add_members_start = std::time::Instant::now();
         group
             .add_members_by_inbox_id_with_provider(&provider, &[dm_target_inbox_id])
             .await?;
+        tracing::info!(
+            "add_members_by_inbox_id_with_provider took: {:?}",
+            add_members_start.elapsed()
+        );
 
-        // notify any streams of the new group
+        let notify_start = std::time::Instant::now();
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
+        tracing::info!("sending local event took: {:?}", notify_start.elapsed());
 
+        tracing::info!("total create_dm_by_inbox_id took: {:?}", start.elapsed());
         Ok(group)
     }
 
@@ -617,16 +630,37 @@ where
         inbox_id: InboxId,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let start = std::time::Instant::now();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
+
+        let provider_start = std::time::Instant::now();
         let provider = self.mls_provider()?;
+        tracing::info!("mls_provider took: {:?}", provider_start.elapsed());
+
+        let find_start = std::time::Instant::now();
         let group = provider.conn_ref().find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
             member_two_inbox_id: &inbox_id,
         })?;
-        if let Some(group) = group {
-            return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
-        }
-        self.create_dm_by_inbox_id(inbox_id, opts).await
+        tracing::info!("find_dm_group took: {:?}", find_start.elapsed());
+
+        let result = if let Some(group) = group {
+            let new_group_start = std::time::Instant::now();
+            let result = Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
+            tracing::info!(
+                "creating MlsGroup from existing took: {:?}",
+                new_group_start.elapsed()
+            );
+            result
+        } else {
+            self.create_dm_by_inbox_id(inbox_id, opts).await
+        };
+
+        tracing::info!(
+            "total find_or_create_dm_by_inbox_id took: {:?}",
+            start.elapsed()
+        );
+        result
     }
 
     pub(crate) fn create_sync_group(
@@ -1068,8 +1102,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use std::time::Duration;
+
     use super::Client;
     use diesel::RunQueryDsl;
+    use tokio::time::Instant;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{scw_verifier::SmartContractSignatureVerifier, InboxOwner};
 
@@ -1682,5 +1719,26 @@ pub(crate) mod tests {
         let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].group_id, dm1.group_id);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_create_dm_performance() {
+        let alix = ClientBuilder::new_test_client_dev(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client_dev(&generate_local_wallet()).await;
+
+        let start = Instant::now();
+        let _dm = alix
+            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .expect("DM creation should succeed");
+        let elapsed = start.elapsed();
+
+        println!("Created a DM in: {}ms", elapsed.as_millis());
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "DM creation took too long: {}ms",
+            elapsed.as_millis()
+        );
     }
 }

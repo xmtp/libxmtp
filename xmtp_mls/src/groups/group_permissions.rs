@@ -942,6 +942,11 @@ impl PolicySet {
                     || added_inbox_id == &dm_members.member_two_inbox_id)
                     && added_inbox_id != &commit.actor_inbox_id()
                 {
+                    tracing::info!("Added inbox valid was {} ", added_inboxes_valid);
+                    tracing::info!(
+                        "Added inbox valid overrided true since inboxid is a DM member:  {} ",
+                        added_inbox_id
+                    );
                     added_inboxes_valid = true;
                 }
             }
