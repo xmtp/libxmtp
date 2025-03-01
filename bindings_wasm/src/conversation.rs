@@ -4,7 +4,7 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::group::ConversationType;
 
 use crate::client::RustXmtpClient;
-use crate::conversations::MessageDisappearingSettings;
+use crate::conversations::{HmacKey, MessageDisappearingSettings};
 use crate::encoded_content::EncodedContent;
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
@@ -607,6 +607,20 @@ impl Conversation {
         .as_ref()
         .is_some_and(|s| s.from_ns > 0 && s.in_ns > 0)
     })
+  }
+
+  #[wasm_bindgen(js_name = getHmacKeys)]
+  pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+
+    let keys = group
+      .hmac_keys(-1..=1)
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(Into::into)
+      .collect::<Vec<HmacKey>>();
+
+    Ok(crate::to_value(&keys)?)
   }
 }
 
