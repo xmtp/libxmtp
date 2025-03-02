@@ -91,10 +91,6 @@ using code from `xmtp_proto`
 ├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol
 buffers
 
-└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a
-[user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to
-encrypt and exchange messages.
-
 ### Run the benchmarks
 
 **possible benchmarks include:**

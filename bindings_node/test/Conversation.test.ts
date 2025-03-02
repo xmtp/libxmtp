@@ -652,4 +652,23 @@ describe.concurrent('Conversation', () => {
     // verify that the messages are not deleted
     expect((await conversation.findMessages()).length).toBe(5)
   })
+
+  it('should get hmac keys', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
+    const hmacKeys = group.getHmacKeys()
+    expect(hmacKeys).toBeDefined()
+    expect(hmacKeys.length).toBe(3)
+    for (const value of hmacKeys) {
+      expect(value.key).toBeDefined()
+      expect(value.key.length).toBe(42)
+      expect(value.epoch).toBeDefined()
+      expect(typeof value.epoch).toBe('bigint')
+    }
+  })
 })
