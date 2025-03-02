@@ -11,7 +11,6 @@ import {
   LogLevel,
   PublicIdentifier,
   PublicIdentifierKind,
-  RootIdentifierKind,
   SignatureRequestType,
 } from '../dist/index'
 
@@ -44,7 +43,7 @@ export const createClient = async (user: User) => {
     })) ||
     generateInboxId({
       identifier: user.account.address,
-      identifierKind: RootIdentifierKind.Ethereum,
+      identifierKind: PublicIdentifierKind.Ethereum,
     })
   return create(
     TEST_API_URL,
@@ -53,7 +52,7 @@ export const createClient = async (user: User) => {
     inboxId,
     {
       identifier: user.account.address,
-      identifierKind: RootIdentifierKind.Ethereum,
+      identifierKind: PublicIdentifierKind.Ethereum,
     },
     undefined,
     undefined,

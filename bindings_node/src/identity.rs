@@ -19,64 +19,6 @@ pub enum PublicIdentifierKind {
   // more to come...
 }
 
-#[napi(object)]
-#[derive(Clone)]
-/// These are just the PublicIdentifiers that can sign.
-/// Strictly an FFI param type to ensure integrators don't try to
-/// sign with identifier kinds that can't sign.
-pub struct RootIdentifier {
-  pub identifier: String,
-  pub identifier_kind: RootIdentifierKind,
-  pub relying_partner: Option<String>,
-}
-#[napi]
-pub enum RootIdentifierKind {
-  Ethereum,
-  Passkey,
-}
-
-impl RootIdentifier {
-  pub fn into_public(self) -> PublicIdentifier {
-    self.into()
-  }
-}
-
-impl From<RootIdentifier> for PublicIdentifier {
-  fn from(ident: RootIdentifier) -> Self {
-    Self {
-      identifier: ident.identifier,
-      identifier_kind: ident.identifier_kind.into(),
-      relying_partner: ident.relying_partner,
-    }
-  }
-}
-impl From<PublicIdentifier> for RootIdentifier {
-  fn from(ident: PublicIdentifier) -> Self {
-    Self {
-      identifier: ident.identifier,
-      identifier_kind: ident.identifier_kind.into(),
-      relying_partner: ident.relying_partner,
-    }
-  }
-}
-
-impl From<RootIdentifierKind> for PublicIdentifierKind {
-  fn from(kind: RootIdentifierKind) -> Self {
-    match kind {
-      RootIdentifierKind::Ethereum => Self::Ethereum,
-      RootIdentifierKind::Passkey => Self::Passkey,
-    }
-  }
-}
-impl From<PublicIdentifierKind> for RootIdentifierKind {
-  fn from(kind: PublicIdentifierKind) -> Self {
-    match kind {
-      PublicIdentifierKind::Ethereum => Self::Ethereum,
-      PublicIdentifierKind::Passkey => Self::Passkey,
-    }
-  }
-}
-
 impl From<XMTPPublicIdentifier> for PublicIdentifier {
   fn from(ident: XMTPPublicIdentifier) -> Self {
     match ident {

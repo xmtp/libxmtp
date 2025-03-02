@@ -9,21 +9,21 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::builder::SignatureRequest;
-use xmtp_id::associations::PublicIdentifier as XmtpRootIdentifier;
+use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
-use crate::identity::{PublicIdentifier, RootIdentifier};
+use crate::identity::PublicIdentifier;
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 
 #[wasm_bindgen]
 pub struct Client {
-  account_identifier: RootIdentifier,
+  account_identifier: PublicIdentifier,
   inner_client: Arc<RustXmtpClient>,
   pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
@@ -121,7 +121,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 pub async fn create_client(
   host: String,
   inbox_id: String,
-  account_identifier: RootIdentifier,
+  account_identifier: PublicIdentifier,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
@@ -153,7 +153,7 @@ pub async fn create_client(
 
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
-    account_identifier.clone().into_public().try_into()?,
+    account_identifier.clone().try_into()?,
     // this is a temporary solution
     1,
     None,
@@ -187,7 +187,7 @@ pub async fn create_client(
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(getter, js_name = accountAddress)]
-  pub fn account_identifier(&self) -> RootIdentifier {
+  pub fn account_identifier(&self) -> PublicIdentifier {
     self.account_identifier.clone()
   }
 
@@ -217,7 +217,7 @@ impl Client {
     &self,
     account_identifiers: Vec<PublicIdentifier>,
   ) -> Result<JsValue, JsError> {
-    let account_identifiers: Result<Vec<XmtpRootIdentifier>, JsError> = account_identifiers
+    let account_identifiers: Result<Vec<XmtpPublicIdentifier>, JsError> = account_identifiers
       .iter()
       .cloned()
       .map(|ident| ident.try_into())

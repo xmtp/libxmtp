@@ -17,46 +17,6 @@ pub enum PublicIdentifierKind {
   Passkey,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
-pub struct RootIdentifier {
-  pub identifier: String,
-  pub identifier_kind: RootIdentifierKind,
-  pub relying_partner: Option<String>,
-}
-
-#[wasm_bindgen]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
-pub enum RootIdentifierKind {
-  Ethereum,
-  Passkey,
-}
-
-impl RootIdentifier {
-  pub fn into_public(self) -> PublicIdentifier {
-    self.into()
-  }
-}
-
-impl From<RootIdentifier> for PublicIdentifier {
-  fn from(ident: RootIdentifier) -> Self {
-    Self {
-      identifier: ident.identifier,
-      identifier_kind: ident.identifier_kind.into(),
-      relying_partner: ident.relying_partner,
-    }
-  }
-}
-
-impl From<RootIdentifierKind> for PublicIdentifierKind {
-  fn from(kind: RootIdentifierKind) -> Self {
-    match kind {
-      RootIdentifierKind::Ethereum => Self::Ethereum,
-      RootIdentifierKind::Passkey => Self::Passkey,
-    }
-  }
-}
-
 impl From<XMTPPublicIdentifier> for PublicIdentifier {
   fn from(ident: XMTPPublicIdentifier) -> Self {
     match ident {
@@ -85,27 +45,6 @@ impl TryFrom<PublicIdentifier> for XMTPPublicIdentifier {
       PublicIdentifierKind::Passkey => Self::passkey_str(&ident.identifier, ident.relying_partner)?,
     };
     Ok(ident)
-  }
-}
-impl TryFrom<PublicIdentifier> for RootIdentifier {
-  type Error = JsError;
-  fn try_from(ident: PublicIdentifier) -> Result<Self, Self::Error> {
-    let ident = Self {
-      identifier: ident.identifier,
-      identifier_kind: ident.identifier_kind.try_into()?,
-      relying_partner: ident.relying_partner,
-    };
-    Ok(ident)
-  }
-}
-impl TryFrom<PublicIdentifierKind> for RootIdentifierKind {
-  type Error = JsError;
-  fn try_from(kind: PublicIdentifierKind) -> Result<Self, Self::Error> {
-    let kind = match kind {
-      PublicIdentifierKind::Ethereum => Self::Ethereum,
-      PublicIdentifierKind::Passkey => Self::Passkey,
-    };
-    Ok(kind)
   }
 }
 

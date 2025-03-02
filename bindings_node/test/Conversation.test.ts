@@ -658,9 +658,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: PublicIdentifierKind.Ethereum,
+      },
+    ])
     const hmacKeys = group.getHmacKeys()
     expect(hmacKeys).toBeDefined()
     expect(hmacKeys.length).toBe(3)

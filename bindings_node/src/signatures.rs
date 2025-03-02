@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::identity::{RootIdentifier, RootIdentifierKind};
+use crate::identity::{PublicIdentifier, PublicIdentifierKind};
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -61,9 +61,9 @@ impl Client {
   #[napi]
   pub async fn add_identifier_signature_text(
     &self,
-    new_identifier: RootIdentifier,
+    new_identifier: PublicIdentifier,
   ) -> Result<String> {
-    let ident = new_identifier.into_public().try_into()?;
+    let ident = new_identifier.try_into()?;
 
     let signature_request = self
       .inner_client()
@@ -81,9 +81,9 @@ impl Client {
   #[napi]
   pub async fn revoke_identifier_signature_text(
     &self,
-    identifier: RootIdentifier,
+    identifier: PublicIdentifier,
   ) -> Result<String> {
-    let ident = identifier.into_public().try_into()?;
+    let ident = identifier.try_into()?;
 
     let signature_request = self
       .inner_client()
@@ -178,15 +178,14 @@ impl Client {
     block_number: Option<BigInt>,
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
-    let RootIdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
+    let PublicIdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
       return Err(Error::from_reason(
         "Account identifier must be an ethereum address.",
       ));
     };
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident = self.account_identifier.clone().into_public();
-      let ident: XmtpPublicIdentifier = ident.try_into()?;
+      let ident: XmtpPublicIdentifier = self.account_identifier.clone().try_into()?;
       let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.deref().to_vec(),

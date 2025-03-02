@@ -17,46 +17,10 @@ pub enum FfiPublicIdentifierKind {
     Passkey,
 }
 
-#[derive(uniffi::Record, Hash, PartialEq, Eq, Clone)]
-pub struct FfiRootIdentifier {
-    pub identifier: String,
-    pub identifier_kind: FfiRootIdentifierKind,
-    pub relying_partner: Option<String>,
-}
-
-#[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
-pub enum FfiRootIdentifierKind {
-    Ethereum,
-    Passkey,
-}
-
 impl FfiPublicIdentifier {
-    pub fn into_root(self) -> Option<FfiRootIdentifier> {
-        Some(FfiRootIdentifier {
-            identifier: self.identifier,
-            identifier_kind: self.identifier_kind.into_root()?,
-            relying_partner: self.relying_partner,
-        })
-    }
-}
-
-impl FfiRootIdentifier {
     pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
-        let ident: PublicIdentifier = self
-            .clone()
-            .into_public()
-            .try_into()
-            .map_err(GenericError::from_error)?;
+        let ident: PublicIdentifier = self.clone().try_into().map_err(GenericError::from_error)?;
         Ok(ident.inbox_id(nonce)?)
-    }
-}
-
-impl FfiPublicIdentifierKind {
-    fn into_root(self) -> Option<FfiRootIdentifierKind> {
-        Some(match self {
-            Self::Ethereum => FfiRootIdentifierKind::Ethereum,
-            Self::Passkey => FfiRootIdentifierKind::Passkey,
-        })
     }
 }
 
@@ -69,43 +33,13 @@ impl Display for FfiPublicIdentifier {
     }
 }
 
-impl Display for FfiRootIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.clone().into_public())
-    }
-}
-
 #[allow(unused)]
 #[uniffi::export]
 pub fn generate_inbox_id(
-    account_identifier: FfiRootIdentifier,
+    account_identifier: FfiPublicIdentifier,
     nonce: u64,
 ) -> Result<String, GenericError> {
     account_identifier.inbox_id(nonce)
-}
-impl FfiRootIdentifier {
-    pub fn into_public(self) -> FfiPublicIdentifier {
-        self.into()
-    }
-}
-
-impl From<FfiRootIdentifier> for FfiPublicIdentifier {
-    fn from(ident: FfiRootIdentifier) -> Self {
-        Self {
-            identifier: ident.identifier,
-            identifier_kind: ident.identifier_kind.into(),
-            relying_partner: ident.relying_partner,
-        }
-    }
-}
-
-impl From<FfiRootIdentifierKind> for FfiPublicIdentifierKind {
-    fn from(kind: FfiRootIdentifierKind) -> Self {
-        match kind {
-            FfiRootIdentifierKind::Ethereum => Self::Ethereum,
-            FfiRootIdentifierKind::Passkey => Self::Passkey,
-        }
-    }
 }
 
 impl From<PublicIdentifier> for FfiPublicIdentifier {
@@ -138,27 +72,6 @@ impl TryFrom<FfiPublicIdentifier> for PublicIdentifier {
             }
         };
         Ok(ident)
-    }
-}
-impl TryFrom<FfiPublicIdentifier> for FfiRootIdentifier {
-    type Error = IdentifierValidationError;
-    fn try_from(ident: FfiPublicIdentifier) -> Result<Self, Self::Error> {
-        let ident = Self {
-            identifier: ident.identifier,
-            identifier_kind: ident.identifier_kind.try_into()?,
-            relying_partner: ident.relying_partner,
-        };
-        Ok(ident)
-    }
-}
-impl TryFrom<FfiPublicIdentifierKind> for FfiRootIdentifierKind {
-    type Error = IdentifierValidationError;
-    fn try_from(kind: FfiPublicIdentifierKind) -> Result<Self, Self::Error> {
-        let kind = match kind {
-            FfiPublicIdentifierKind::Ethereum => Self::Ethereum,
-            FfiPublicIdentifierKind::Passkey => Self::Passkey,
-        };
-        Ok(kind)
     }
 }
 
