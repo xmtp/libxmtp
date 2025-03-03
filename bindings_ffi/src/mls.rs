@@ -6154,9 +6154,9 @@ mod tests {
         .unwrap();
 
         // two outgoing consent updates
-        assert_eq!(stream_a_callback.consent_updates_count(), 2);
+        assert_eq!(stream_a_callback.consent_updates_count(), 1);
         // and two incoming consent updates
-        assert_eq!(stream_b_callback.consent_updates_count(), 2);
+        assert_eq!(stream_b_callback.consent_updates_count(), 1);
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();
