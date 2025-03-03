@@ -75,6 +75,8 @@ pub enum DeserializationError {
     InvalidHash,
     #[error("A required field is unspecified: {0}")]
     Unspecified(&'static str),
+    #[error("Field is deprecated: {0}")]
+    Deprecated(&'static str),
     #[error("Error creating public key from proto bytes")]
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
     #[error("Unable to deserialize")]

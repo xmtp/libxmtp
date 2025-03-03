@@ -15,7 +15,6 @@ diesel::table! {
         entity_type -> Integer,
         state -> Integer,
         entity -> Text,
-        identity_kind -> Nullable<Integer>,
     }
 }
 

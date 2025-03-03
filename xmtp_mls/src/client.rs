@@ -1,6 +1,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::{ConversationListItem, DMMetadataOptions};
+use crate::storage::consent_record::ConsentType;
 use crate::GroupCommitLock;
 use crate::{
     groups::{
@@ -23,10 +25,6 @@ use crate::{
     types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     Fetch, XmtpApi,
-};
-use crate::{
-    groups::{ConversationListItem, DMMetadataOptions},
-    storage::consent_record::ConsentEntity,
 };
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
@@ -401,34 +399,7 @@ where
         records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
         let conn = self.store().conn()?;
-
-        let mut new_records = Vec::new();
-        let mut addresses_to_lookup = Vec::new();
-        let mut record_indices = Vec::new();
-
-        for (index, record) in records.iter().enumerate() {
-            if let Some(ident) = record.public_identifier() {
-                addresses_to_lookup.push(ident);
-                record_indices.push(index);
-            }
-        }
-
-        let inbox_ids = self
-            .find_inbox_ids_from_identifiers(&conn, &addresses_to_lookup)
-            .await?;
-
-        for (i, inbox_id_opt) in inbox_ids.into_iter().enumerate() {
-            if let Some(inbox_id) = inbox_id_opt {
-                let record = &records[record_indices[i]];
-                new_records.push(StoredConsentRecord::new(
-                    ConsentEntity::InboxId(inbox_id),
-                    record.state,
-                ));
-            }
-        }
-
-        new_records.extend_from_slice(records);
-        let changed_records = conn.insert_or_replace_consent_records(&new_records)?;
+        let changed_records = conn.insert_or_replace_consent_records(records)?;
 
         if self.history_sync_url.is_some() && !changed_records.is_empty() {
             let records = changed_records
@@ -446,26 +417,16 @@ where
     /// Get the consent state for a given entity
     pub async fn get_consent_state(
         &self,
-        mut entity: ConsentEntity,
+        entity_type: ConsentType,
+        entity: String,
     ) -> Result<ConsentState, ClientError> {
         let conn = self.store().conn()?;
+        let record = conn.get_consent_record(entity, entity_type)?;
 
-        // Swap out external identity for inbox_id if we can
-        if let ConsentEntity::Identity(ident) = &entity {
-            if let Some(inbox_id) = self
-                .find_inbox_id_from_identifier(&conn, ident.clone())
-                .await?
-            {
-                entity = ConsentEntity::InboxId(inbox_id);
-            }
+        match record {
+            Some(rec) => Ok(rec.state),
+            None => Ok(ConsentState::Unknown),
         }
-
-        let state = conn
-            .get_consent_record(&entity)?
-            .map(|consent| consent.state)
-            .unwrap_or(ConsentState::Unknown);
-
-        Ok(state)
     }
 
     /// Gets a reference to the client's store
@@ -1064,7 +1025,6 @@ pub(crate) mod tests {
 
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;
-    use crate::storage::consent_record::ConsentEntity;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1497,30 +1457,6 @@ pub(crate) mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_get_and_set_consent_client() {
-        let bo_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-        let record = StoredConsentRecord::new(
-            ConsentEntity::Identity(bo_wallet.public_identifier()),
-            ConsentState::Denied,
-        );
-        alix.set_consent_states(&[record]).await.unwrap();
-        let inbox_consent = alix
-            .get_consent_state(ConsentEntity::InboxId(bo.inbox_id().to_string()))
-            .await
-            .unwrap();
-        let address_consent = alix
-            .get_consent_state(ConsentEntity::Identity(bo_wallet.public_identifier()))
-            .await
-            .unwrap();
-
-        assert_eq!(inbox_consent, ConsentState::Denied);
-        assert_eq!(address_consent, ConsentState::Denied);
     }
 
     async fn get_key_package_init_key<

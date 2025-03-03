@@ -664,7 +664,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         storage::{
-            consent_record::ConsentEntity,
+            consent_record::{ConsentType, StoredConsentRecord},
             encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         },
         Fetch, Store,
@@ -711,6 +711,19 @@ pub(crate) mod tests {
             None,
             None,
         )
+    }
+
+    /// Generate a test consent
+    pub fn generate_consent_record(
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type,
+            state,
+            entity,
+        }
     }
 
     static TARGET_INBOX_ID: AtomicU16 = AtomicU16::new(2);
@@ -999,19 +1012,22 @@ pub(crate) mod tests {
             let test_group_4 = generate_dm(Some(GroupMembershipState::Allowed));
             test_group_4.store(conn).unwrap();
 
-            let test_group_1_consent = StoredConsentRecord::new(
-                ConsentEntity::ConversationId(test_group_1.id.clone()),
+            let test_group_1_consent = generate_consent_record(
+                ConsentType::ConversationId,
                 ConsentState::Allowed,
+                hex::encode(test_group_1.id.clone()),
             );
             test_group_1_consent.store(conn).unwrap();
-            let test_group_2_consent = StoredConsentRecord::new(
-                ConsentEntity::ConversationId(test_group_2.id.clone()),
+            let test_group_2_consent = generate_consent_record(
+                ConsentType::ConversationId,
                 ConsentState::Denied,
+                hex::encode(test_group_2.id.clone()),
             );
             test_group_2_consent.store(conn).unwrap();
-            let test_group_3_consent = StoredConsentRecord::new(
-                ConsentEntity::ConversationId(test_group_3.id.clone()),
+            let test_group_3_consent = generate_consent_record(
+                ConsentType::ConversationId,
                 ConsentState::Allowed,
+                hex::encode(test_group_3.id.clone()),
             );
             test_group_3_consent.store(conn).unwrap();
 

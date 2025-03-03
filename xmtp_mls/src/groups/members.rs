@@ -1,7 +1,7 @@
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
 use crate::storage::{
     association_state::StoredAssociationState,
-    consent_record::{ConsentEntity, ConsentState},
+    consent_record::{ConsentState, ConsentType},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use xmtp_id::{associations::PublicIdentifier, InboxId};
@@ -84,12 +84,13 @@ where
                 return Err(GroupError::InvalidGroupMembership);
             }
         }
+
         let members = association_states
             .into_iter()
             .map(|association_state| {
-                let inbox_id = association_state.inbox_id().to_string();
-                let is_admin = mutable_metadata.is_admin(&inbox_id);
-                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id);
+                let inbox_id_str = association_state.inbox_id().to_string();
+                let is_admin = mutable_metadata.is_admin(&inbox_id_str);
+                let is_super_admin = mutable_metadata.is_super_admin(&inbox_id_str);
                 let permission_level = if is_super_admin {
                     PermissionLevel::SuperAdmin
                 } else if is_admin {
@@ -98,10 +99,11 @@ where
                     PermissionLevel::Member
                 };
 
-                let consent = conn.get_consent_record(&ConsentEntity::InboxId(inbox_id.clone()))?;
+                let consent =
+                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
 
                 Ok(GroupMember {
-                    inbox_id: inbox_id.clone(),
+                    inbox_id: inbox_id_str.clone(),
                     account_identifiers: association_state.identifiers(),
                     installation_ids: association_state.installation_ids(),
                     permission_level,

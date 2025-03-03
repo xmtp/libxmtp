@@ -1,8 +1,13 @@
-use super::consent_record::StoredIdentityKind;
 use super::schema::identity_cache;
 use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_store, Store};
-use diesel::prelude::*;
+use diesel::backend::Backend;
+use diesel::deserialize::{self, FromSql, FromSqlRow};
+use diesel::expression::AsExpression;
+use diesel::serialize::{IsNull, Output, ToSql};
+use diesel::sql_types::Integer;
+use diesel::sqlite::Sqlite;
+use diesel::{prelude::*, serialize};
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
@@ -18,6 +23,15 @@ pub struct IdentityCache {
     inbox_id: InboxId,
     identity: String,
     identity_kind: StoredIdentityKind,
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+/// Type of identity stored
+pub enum StoredIdentityKind {
+    Ethereum = 1,
+    Passkey = 2,
 }
 
 impl_store!(IdentityCache, identity_cache);
@@ -61,11 +75,43 @@ impl DbConnection {
     }
 }
 
+impl ToSql<Integer, Sqlite> for StoredIdentityKind
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for StoredIdentityKind
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(Self::Ethereum),
+            2 => Ok(Self::Passkey),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+impl From<&PublicIdentifier> for StoredIdentityKind {
+    fn from(ident: &PublicIdentifier) -> Self {
+        match ident {
+            PublicIdentifier::Ethereum(_) => Self::Ethereum,
+            PublicIdentifier::Passkey(_) => Self::Passkey,
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::IdentityCache;
     use crate::{
-        storage::{consent_record::StoredIdentityKind, encrypted_store::tests::with_connection},
+        storage::{encrypted_store::tests::with_connection, identity_cache::StoredIdentityKind},
         Store,
     };
     use xmtp_id::associations::PublicIdentifier;

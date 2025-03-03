@@ -39,7 +39,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::storage::consent_record::ConsentEntity;
+use crate::storage::consent_record::ConsentType;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -1396,8 +1396,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context().store().conn()?;
-        let record =
-            conn.get_consent_record(&ConsentEntity::ConversationId(self.group_id.clone()))?;
+        let record = conn.get_consent_record(
+            hex::encode(self.group_id.clone()),
+            ConsentType::ConversationId,
+        )?;
 
         match record {
             Some(rec) => Ok(rec.state),
@@ -1408,8 +1410,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
 
-        let consent_record =
-            StoredConsentRecord::new(ConsentEntity::ConversationId(self.group_id.clone()), state);
+        let consent_record = StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            state,
+            hex::encode(self.group_id.clone()),
+        );
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()

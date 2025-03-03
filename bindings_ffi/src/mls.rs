@@ -30,7 +30,6 @@ use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
-use xmtp_mls::storage::consent_record::{ConsentEntity, StoredIdentityKind};
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
@@ -50,7 +49,7 @@ use xmtp_mls::{
     },
     identity::IdentityStrategy,
     storage::{
-        consent_record::{ConsentState, StoredConsentRecord, StoredConsentType},
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::GroupQueryArgs,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
@@ -402,11 +401,9 @@ impl FfiXmtpClient {
         &self,
         entity_type: FfiConsentEntityType,
         entity: String,
-        identity_kind: Option<FfiConsentIdentityKind>,
     ) -> Result<FfiConsentState, GenericError> {
         let inner = self.inner_client.as_ref();
-        let consent_entity = entity_type.consent_entity(entity, identity_kind)?;
-        let result = inner.get_consent_state(consent_entity).await?;
+        let result = inner.get_consent_state(entity_type.into(), entity).await?;
 
         Ok(result.into())
     }
@@ -1532,12 +1529,10 @@ impl From<StoredConsentRecord> for FfiConsent {
         FfiConsent {
             entity: consent.entity,
             entity_type: match consent.entity_type {
-                StoredConsentType::Identity => FfiConsentEntityType::Identity,
-                StoredConsentType::ConversationId => FfiConsentEntityType::ConversationId,
-                StoredConsentType::InboxId => FfiConsentEntityType::InboxId,
+                ConsentType::ConversationId => FfiConsentEntityType::ConversationId,
+                ConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
             state: consent.state.into(),
-            identity_kind: consent.identity_kind.map(Into::into),
         }
     }
 }
@@ -1604,65 +1599,13 @@ impl From<FfiDeviceSyncKind> for DeviceSyncKind {
 pub enum FfiConsentEntityType {
     ConversationId,
     InboxId,
-    Identity,
 }
 
-impl FfiConsentEntityType {
-    fn consent_entity(
-        self,
-        entity: String,
-        identity_kind: Option<FfiConsentIdentityKind>,
-    ) -> Result<ConsentEntity, GenericError> {
-        let entity = match self {
-            Self::ConversationId => {
-                ConsentEntity::ConversationId(hex::decode(entity).map_err(|_| {
-                    GenericError::Generic {
-                        err: "Consent: Invalid conversation id".to_string(),
-                    }
-                })?)
-            }
-            Self::InboxId => ConsentEntity::InboxId(entity),
-            Self::Identity => match identity_kind {
-                None => {
-                    return Err(GenericError::Generic {
-                        err: "Consent: identity kind is required when entity type is identity."
-                            .to_string(),
-                    })
-                }
-                Some(FfiConsentIdentityKind::Ethereum) => {
-                    ConsentEntity::Identity(PublicIdentifier::eth(entity)?)
-                }
-                Some(FfiConsentIdentityKind::Passkey) => ConsentEntity::Identity(
-                    PublicIdentifier::passkey_str(&entity, None)
-                        .map_err(GenericError::from_error)?,
-                ),
-            },
-        };
-        Ok(entity)
-    }
-}
-
-impl From<FfiConsentEntityType> for StoredConsentType {
+impl From<FfiConsentEntityType> for ConsentType {
     fn from(entity_type: FfiConsentEntityType) -> Self {
         match entity_type {
-            FfiConsentEntityType::ConversationId => StoredConsentType::ConversationId,
-            FfiConsentEntityType::InboxId => StoredConsentType::InboxId,
-            FfiConsentEntityType::Identity => StoredConsentType::Identity,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum FfiConsentIdentityKind {
-    Ethereum,
-    Passkey,
-}
-
-impl From<StoredIdentityKind> for FfiConsentIdentityKind {
-    fn from(kind: StoredIdentityKind) -> Self {
-        match kind {
-            StoredIdentityKind::Ethereum => Self::Ethereum,
-            StoredIdentityKind::Passkey => Self::Passkey,
+            FfiConsentEntityType::ConversationId => ConsentType::ConversationId,
+            FfiConsentEntityType::InboxId => ConsentType::InboxId,
         }
     }
 }
@@ -2507,7 +2450,6 @@ pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
     pub entity: String,
-    pub identity_kind: Option<FfiConsentIdentityKind>,
 }
 
 impl From<FfiConsent> for StoredConsentRecord {
@@ -2516,15 +2458,6 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
-            identity_kind: consent.identity_kind.map(Into::into),
-        }
-    }
-}
-impl From<FfiConsentIdentityKind> for StoredIdentityKind {
-    fn from(kind: FfiConsentIdentityKind) -> Self {
-        match kind {
-            FfiConsentIdentityKind::Ethereum => Self::Ethereum,
-            FfiConsentIdentityKind::Passkey => Self::Passkey,
         }
     }
 }
@@ -2699,8 +2632,8 @@ mod tests {
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
         identity::{FfiPublicIdentifier, FfiPublicIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
-        FfiConsent, FfiConsentEntityType, FfiConsentIdentityKind, FfiConsentState, FfiContentType,
-        FfiConversation, FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
@@ -6198,10 +6131,9 @@ mod tests {
         // consent with bo
         alix_a
             .set_consent_states(vec![FfiConsent {
-                entity: bo.account_identifier.to_string(),
-                entity_type: FfiConsentEntityType::Identity,
+                entity: bo.inbox_id(),
+                entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Allowed,
-                identity_kind: Some(FfiConsentIdentityKind::Ethereum),
             }])
             .await
             .unwrap();
@@ -6317,7 +6249,6 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
-            identity_kind: None,
         }])
         .await
         .unwrap();
@@ -6354,7 +6285,6 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_dm.id()),
-            identity_kind: None,
         }])
         .await
         .unwrap();
@@ -6398,18 +6328,13 @@ mod tests {
             .unwrap();
         alix.set_consent_states(vec![FfiConsent {
             state: FfiConsentState::Allowed,
-            entity_type: FfiConsentEntityType::Identity,
-            entity: format!("{}", bo.account_identifier),
-            identity_kind: Some(FfiConsentIdentityKind::Ethereum),
+            entity_type: FfiConsentEntityType::InboxId,
+            entity: bo.inbox_id(),
         }])
         .await
         .unwrap();
         let bo_consent = alix
-            .get_consent_state(
-                FfiConsentEntityType::Identity,
-                bo.account_identifier.to_string(),
-                Some(FfiConsentIdentityKind::Ethereum),
-            )
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
             .await
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);

@@ -1,9 +1,10 @@
+use crate::{impl_store, storage::StorageError};
+
+use super::Sqlite;
 use super::{
     db_connection::DbConnection,
     schema::consent_records::{self, dsl},
-    Sqlite,
 };
-use crate::{impl_store, storage::StorageError};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -14,7 +15,6 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_id::associations::{ident, PublicIdentifier};
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -22,52 +22,20 @@ use xmtp_id::associations::{ident, PublicIdentifier};
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
     /// Enum, [`ConsentType`] representing the type of consent (conversation_id inbox_id, etc..)
-    pub entity_type: StoredConsentType,
+    pub entity_type: ConsentType,
     /// Enum, [`ConsentState`] representing the state of consent (allowed, denied, etc..)
     pub state: ConsentState,
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
-    // If entity_type is set to "Identity", what kind of identity is it?
-    pub identity_kind: Option<StoredIdentityKind>,
 }
 
 impl StoredConsentRecord {
-    pub fn new(entity: ConsentEntity, state: ConsentState) -> Self {
+    pub fn new(entity_type: ConsentType, state: ConsentState, entity: String) -> Self {
         Self {
+            entity_type,
             state,
-            entity: entity.id(),
-            entity_type: entity.r#type(),
-            identity_kind: entity.kind(),
+            entity,
         }
-    }
-
-    pub fn entity(&self) -> Result<ConsentEntity, StorageError> {
-        let entity = match self.entity_type {
-            StoredConsentType::ConversationId => {
-                ConsentEntity::ConversationId(hex::decode(&self.entity)?)
-            }
-            StoredConsentType::InboxId => ConsentEntity::InboxId(self.entity.clone()),
-            StoredConsentType::Identity => ConsentEntity::Identity(
-                self.public_identifier()
-                    .expect("Field is required in database when type is set to identity"),
-            ),
-        };
-        Ok(entity)
-    }
-
-    pub fn public_identifier(&self) -> Option<PublicIdentifier> {
-        let identity_kind = &self.identity_kind?;
-        let entity = &self.entity;
-        let ident = match identity_kind {
-            StoredIdentityKind::Ethereum => {
-                PublicIdentifier::Ethereum(ident::Ethereum(entity.clone()))
-            }
-            StoredIdentityKind::Passkey => PublicIdentifier::Passkey(ident::Passkey {
-                key: hex::decode(entity).ok()?,
-                relying_partner: None,
-            }),
-        };
-        Some(ident)
     }
 }
 
@@ -77,18 +45,15 @@ impl DbConnection {
     /// Returns the consent_records for the given entity up
     pub fn get_consent_record(
         &self,
-        entity: &ConsentEntity,
+        entity: String,
+        entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
         Ok(self.raw_query_read(|conn| -> diesel::QueryResult<_> {
-            let mut q = dsl::consent_records
-                .filter(dsl::entity.eq(entity.id()))
-                .filter(dsl::entity_type.eq(entity.r#type()))
-                .into_boxed();
-            if let Some(kind) = entity.kind() {
-                q = q.filter(dsl::identity_kind.eq(kind));
-            }
-
-            q.first(conn).optional()
+            dsl::consent_records
+                .filter(dsl::entity.eq(entity))
+                .filter(dsl::entity_type.eq(entity_type))
+                .first(conn)
+                .optional()
         })?)
     }
 
@@ -163,51 +128,18 @@ impl DbConnection {
     }
 }
 
-pub enum ConsentEntity {
-    ConversationId(Vec<u8>),
-    InboxId(String),
-    Identity(PublicIdentifier),
-}
-
-impl ConsentEntity {
-    fn id(&self) -> String {
-        match self {
-            Self::ConversationId(id) => hex::encode(id),
-            Self::InboxId(id) => id.clone(),
-            Self::Identity(ident) => format!("{ident}"),
-        }
-    }
-
-    fn r#type(&self) -> StoredConsentType {
-        match self {
-            Self::ConversationId(_) => StoredConsentType::ConversationId,
-            Self::InboxId(_) => StoredConsentType::InboxId,
-            Self::Identity(_) => StoredConsentType::Identity,
-        }
-    }
-
-    fn kind(&self) -> Option<StoredIdentityKind> {
-        match self {
-            Self::Identity(ident) => Some(ident.into()),
-            _ => None,
-        }
-    }
-}
-
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 /// Type of consent record stored
-pub enum StoredConsentType {
+pub enum ConsentType {
     /// Consent is for a conversation
     ConversationId = 1,
     /// Consent is for an inbox
     InboxId = 2,
-    /// Consent is for an identity
-    Identity = 3,
 }
 
-impl ToSql<Integer, Sqlite> for StoredConsentType
+impl ToSql<Integer, Sqlite> for ConsentType
 where
     i32: ToSql<Integer, Sqlite>,
 {
@@ -217,57 +149,15 @@ where
     }
 }
 
-impl FromSql<Integer, Sqlite> for StoredConsentType
+impl FromSql<Integer, Sqlite> for ConsentType
 where
     i32: FromSql<Integer, Sqlite>,
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
-            1 => Ok(Self::ConversationId),
-            2 => Ok(Self::InboxId),
-            3 => Ok(Self::Identity),
+            1 => Ok(ConsentType::ConversationId),
+            2 => Ok(ConsentType::InboxId),
             x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
-/// Type of identity stored
-pub enum StoredIdentityKind {
-    Ethereum = 1,
-    Passkey = 2,
-}
-
-impl ToSql<Integer, Sqlite> for StoredIdentityKind
-where
-    i32: ToSql<Integer, Sqlite>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for StoredIdentityKind
-where
-    i32: FromSql<Integer, Sqlite>,
-{
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(Self::Ethereum),
-            2 => Ok(Self::Passkey),
-            x => Err(format!("Unrecognized variant {}", x).into()),
-        }
-    }
-}
-
-impl From<&PublicIdentifier> for StoredIdentityKind {
-    fn from(ident: &PublicIdentifier) -> Self {
-        match ident {
-            PublicIdentifier::Ethereum(_) => Self::Ethereum,
-            PublicIdentifier::Passkey(_) => Self::Passkey,
         }
     }
 }
@@ -317,14 +207,27 @@ mod tests {
 
     use super::*;
 
+    fn generate_consent_record(
+        entity_type: ConsentType,
+        state: ConsentState,
+        entity: String,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type,
+            state,
+            entity,
+        }
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
-            let consent_record = StoredConsentRecord::new(
-                ConsentEntity::InboxId(inbox_id.to_string()),
+            let consent_record = generate_consent_record(
+                ConsentType::InboxId,
                 ConsentState::Allowed,
+                inbox_id.to_string(),
             );
             let consent_record_entity = consent_record.entity.clone();
 
@@ -353,14 +256,15 @@ mod tests {
             assert_eq!(result.len(), 1);
 
             let consent_record = conn
-                .get_consent_record(&ConsentEntity::InboxId(inbox_id.to_string()))
+                .get_consent_record(inbox_id.to_owned(), ConsentType::InboxId)
                 .expect("query should work");
 
             assert_eq!(consent_record.unwrap().entity, consent_record_entity);
 
-            let conflict = StoredConsentRecord::new(
-                ConsentEntity::InboxId(inbox_id.to_string()),
+            let conflict = generate_consent_record(
+                ConsentType::InboxId,
                 ConsentState::Allowed,
+                inbox_id.to_string(),
             );
 
             let existing = conn
@@ -372,7 +276,7 @@ mod tests {
             assert_eq!(existing.state, ConsentState::Denied);
 
             let db_cr = conn
-                .get_consent_record(&existing.entity().unwrap())
+                .get_consent_record(existing.entity, existing.entity_type)
                 .unwrap()
                 .unwrap();
             // ensure the db matches the state of what was returned

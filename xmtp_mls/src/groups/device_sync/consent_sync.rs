@@ -33,7 +33,7 @@ pub(crate) mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentEntity, ConsentState},
+        storage::consent_record::{ConsentState, ConsentType},
     };
     use xmtp_common::{
         assert_ok,
@@ -55,8 +55,9 @@ pub(crate) mod tests {
         // create an alix installation and consent with alix
         let alix_wallet = generate_local_wallet();
         let consent_record = StoredConsentRecord::new(
-            ConsentEntity::Identity(alix_wallet.public_identifier()),
+            ConsentType::InboxId,
             ConsentState::Allowed,
+            alix_wallet.get_inbox_id(0),
         );
 
         amal_a.set_consent_states(&[consent_record]).await.unwrap();
@@ -124,20 +125,21 @@ pub(crate) mod tests {
 
         // Ensure bo is not consented with amal_b
         let mut bo_consent_with_amal_b = amal_b_conn
-            .get_consent_record(&ConsentEntity::Identity(bo_wallet.public_identifier()))
+            .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
             .unwrap();
         assert!(bo_consent_with_amal_b.is_none());
 
         // Consent with bo on the amal_a installation
         amal_a
             .set_consent_states(&[StoredConsentRecord::new(
-                ConsentEntity::Identity(bo_wallet.public_identifier()),
+                ConsentType::InboxId,
                 ConsentState::Allowed,
+                bo_wallet.get_inbox_id(0),
             )])
             .await
             .unwrap();
         assert!(amal_a_conn
-            .get_consent_record(&ConsentEntity::Identity(bo_wallet.public_identifier()))
+            .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
             .unwrap()
             .is_some());
         let amal_a_subscription = amal_a.local_events().subscribe();
@@ -147,7 +149,7 @@ pub(crate) mod tests {
         while bo_consent_with_amal_b.is_none() {
             assert_ok!(amal_b_sync_group.sync_with_conn(&amal_b_provider).await);
             bo_consent_with_amal_b = amal_b_conn
-                .get_consent_record(&ConsentEntity::Identity(bo_wallet.public_identifier()))
+                .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
                 .unwrap();
 
             if start.elapsed() > Duration::from_secs(1) {
