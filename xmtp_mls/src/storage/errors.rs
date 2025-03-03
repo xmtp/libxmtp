@@ -50,6 +50,8 @@ pub enum StorageError {
     DbDeserialize,
     #[error("failed to serialize for db")]
     DbSerialize,
+    #[error("tried to reinit sqlcipher and got wrong key")]
+    SqlCipherReinitKeyIncorrect,
 }
 
 #[derive(Error, Debug)]
