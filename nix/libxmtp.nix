@@ -42,7 +42,7 @@ let
         });
 
   rust-toolchain = fenix.fromToolchainFile {
-    file = ./../rust-toolchain;
+    file = ./../rust-toolchain.toml;
     sha256 = "sha256-AJ6LX/Q/Er9kS15bn9iflkUwcgYqRQxiOIL2ToVAXaU=";
   };
 in

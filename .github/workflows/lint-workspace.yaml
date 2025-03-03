@@ -19,7 +19,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
-      - "rust-toolchain"
+      - "rust-toolchain.toml"
       - "rustfmt.toml"
 env:
   CARGO_TERM_COLOR: always

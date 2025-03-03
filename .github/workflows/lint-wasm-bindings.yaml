@@ -8,7 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
-      - "rust-toolchain"
+      - "rust-toolchain.toml"
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -22,7 +22,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Update rust toolchains
-        run: rustup update
+        run: |
+          rustup update
+          rustup target add wasm32-unknown-unknown
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
