@@ -301,11 +301,15 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+    // Correlates with the CARGO_PKG_VERSION in the libxmtp-mls crate
+    pub minimum_supported_protocol_version: Option<String>,
 }
 
 #[derive(Default, Clone)]
 pub struct DMMetadataOptions {
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+    // Correlates with the CARGO_PKG_VERSION in the libxmtp-mls crate
+    pub minimum_supported_protocol_version: Option<String>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -541,6 +545,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             context.inbox_id().to_string(),
             None,
             opts.message_disappearing_settings,
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -600,6 +605,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_two_inbox_id: client.inbox_id().to_string(),
             }),
             opts.message_disappearing_settings,
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -698,6 +704,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     conversation_type,
                     dm_members,
                     disappearing_settings,
+                    None,
                 ),
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
@@ -710,6 +717,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         conversation_type,
                         dm_members,
                         disappearing_settings,
+                        None,
                     )
                 }
                 ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -721,6 +729,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     conversation_type,
                     dm_members,
                     disappearing_settings,
+                    None,
                 ),
             };
 
@@ -1114,6 +1123,26 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent =
             self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
+
+        self.sync_until_intent_resolved(&provider, intent.id).await
+    }
+
+    /// Updates the name of the group. Will error if the user does not have the appropriate permissions
+    /// to perform these updates.
+    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider()?;
+
+        let version = self.client.version_info().pkg_version();
+        tracing::info!(
+            "CAMERONVOELL: AMAL trying to update version to: {:?}",
+            version
+        );
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
+                version.to_string(),
+            )
+            .into();
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1563,6 +1592,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_two_inbox_id: dm_target_inbox_id,
             }),
             None,
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -1980,6 +2010,7 @@ pub(crate) mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
+    use xmtp_content_types::text::TextCodec;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -3156,6 +3187,7 @@ pub(crate) mod tests {
                     message_disappearing_settings: Some(
                         expected_group_message_disappearing_settings.clone(),
                     ),
+                    minimum_supported_protocol_version: None,
                 },
             )
             .unwrap();
@@ -4909,5 +4941,69 @@ pub(crate) mod tests {
                 .unwrap(),
             &valid_image_url
         );
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_can_set_min_supoorted_protocol_version_for_commit() {
+        // Step 1: Create two clients
+        let amal =
+            ClientBuilder::new_test_client_with_version(&generate_local_wallet(), "0.2.0").await;
+        let mut bo =
+            ClientBuilder::new_test_client_with_version(&generate_local_wallet(), "0.1.0").await;
+
+        // Step 2: Amal creates a group and adds bo as a member
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Amal sends a message to the group
+        amal_group
+            .send_message("Hello, world!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 4: Verify that bo can read the message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 1);
+
+        let message_text = String::from_utf8_lossy(&messages[0].decrypted_message_bytes);
+        assert_eq!(message_text, "Hello, world!");
+
+        // Step 5: Amal updates the group to version 0.2.0
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group
+            .send_message("new version only!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 6: Bo should now be unable to sync messages for the group
+        let result = bo_group.sync().await;
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 1);
+
+        // Step 7: Amal updates the version to 0.2.0, and see if we can then download latest messages
+        bo.set_test_version("0.2.0");
+        tracing::info!("Updated Bo's version to: {}", bo.version_info().pkg_version());
+
+        // Refresh Bo's group context
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+
+        bo_group.sync().await.unwrap();
+        let result = bo_group.sync().await;
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 3);
     }
 }

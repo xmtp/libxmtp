@@ -141,6 +141,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
+    pub(crate) version_info: Arc<VersionInfo>,
 
     #[cfg(any(test, feature = "test-utils"))]
     pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
@@ -155,6 +156,7 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
             history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
+            version_info: self.version_info.clone(),
 
             #[cfg(any(test, feature = "test-utils"))]
             sync_worker_handle: self.sync_worker_handle.clone(),
@@ -222,6 +224,18 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    #[cfg(any(test))]
+    pub fn set_test_version(&mut self, version: impl Into<Arc<str>>) {
+        // Get exclusive access to modify the Arc
+        Arc::make_mut(&mut self.version_info).set_test_version(version);
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi,
+    V: SmartContractSignatureVerifier,
+{
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
@@ -231,6 +245,7 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
+        version_info: Option<Arc<VersionInfo>>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -252,11 +267,16 @@ where
             #[cfg(any(test, feature = "test-utils"))]
             sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
+            version_info: version_info.unwrap_or(Arc::new(VersionInfo::default())),
         }
     }
 
     pub fn scw_verifier(&self) -> &Arc<V> {
         &self.scw_verifier
+    }
+
+    pub fn version_info(&self) -> &Arc<VersionInfo> {
+        &self.version_info
     }
 }
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 #[cfg(feature = "bench")]
 pub mod bench;
 #[cfg(any(test, feature = "test-utils"))]
@@ -38,5 +40,36 @@ pub mod id {
 
     pub fn serialize_group_id(group_id: &[u8]) -> String {
         hex::encode(group_id)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct VersionInfo {
+    pkg_version: Arc<str>,
+}
+
+impl Default for VersionInfo {
+    fn default() -> Self {
+        Self {
+            pkg_version: env!("CARGO_PKG_VERSION").into(),
+        }
+    }
+}
+
+impl VersionInfo {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn test_version(version: impl Into<Arc<str>>) -> Self {
+        Self {
+            pkg_version: version.into(),
+        }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_test_version(&mut self, version: impl Into<Arc<str>>) {
+        self.pkg_version = version.into();
+    }
+
+    pub fn pkg_version(&self) -> &str {
+        &self.pkg_version
     }
 }
