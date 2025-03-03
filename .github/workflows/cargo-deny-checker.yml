@@ -5,7 +5,6 @@ on:
       - main
   pull_request:
   workflow_dispatch:
-
 jobs:
   cargo-deny:
     runs-on: warp-ubuntu-latest-x64-16x
@@ -16,12 +15,15 @@ jobs:
           - bans
           - licenses
           - sources
-
     steps:
       - uses: actions/checkout@v4
+      - name: install rust
+        run: |
+          rustup update
+          rustup target add stable-x86_64-unknown-linux-musl
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
-
     # Prevent sudden announcement of a new advisory from failing CI
     continue-on-error: ${{ matrix.checks == 'advisories' }}
+
