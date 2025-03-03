@@ -85,25 +85,19 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 #[napi(object)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
-  pub allowed_states: Option<Vec<GroupMembershipState>>,
   pub consent_states: Option<Vec<ConsentState>>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
   pub include_duplicate_dms: bool,
   pub limit: Option<i64>,
-  pub conversation_type: Option<ConversationType>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
     GroupQueryArgs {
-      allowed_states: opts
-        .allowed_states
-        .map(|vec| vec.into_iter().map(Into::into).collect()),
       consent_states: opts
         .consent_states
         .map(|vec| vec.into_iter().map(Into::into).collect()),
-      conversation_type: opts.conversation_type.map(Into::into),
       created_before_ns: opts.created_before_ns,
       created_after_ns: opts.created_after_ns,
       include_duplicate_dms: opts.include_duplicate_dms,
@@ -534,10 +528,23 @@ impl Conversations {
     &self,
     opts: Option<ListConversationsOptions>,
   ) -> Result<Vec<ConversationListItem>> {
-    self.list(Some(ListConversationsOptions {
-      conversation_type: Some(ConversationType::Group),
-      ..opts.unwrap_or_default()
-    }))
+    let convo_list: Vec<ConversationListItem> = self
+      .inner_client
+      .list_conversations(
+        GroupQueryArgs::from(opts.unwrap_or_default())
+          .conversation_type(XmtpConversationType::Group),
+      )
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(|conversation_item| ConversationListItem {
+        conversation: conversation_item.group.into(),
+        last_message: conversation_item
+          .last_message
+          .map(|stored_message| stored_message.into()),
+      })
+      .collect();
+
+    Ok(convo_list)
   }
 
   #[napi]
@@ -545,10 +552,22 @@ impl Conversations {
     &self,
     opts: Option<ListConversationsOptions>,
   ) -> Result<Vec<ConversationListItem>> {
-    self.list(Some(ListConversationsOptions {
-      conversation_type: Some(ConversationType::Dm),
-      ..opts.unwrap_or_default()
-    }))
+    let convo_list: Vec<ConversationListItem> = self
+      .inner_client
+      .list_conversations(
+        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
+      )
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(|conversation_item| ConversationListItem {
+        conversation: conversation_item.group.into(),
+        last_message: conversation_item
+          .last_message
+          .map(|stored_message| stored_message.into()),
+      })
+      .collect();
+
+    Ok(convo_list)
   }
 
   #[napi]
