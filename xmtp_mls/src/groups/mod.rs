@@ -4944,7 +4944,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
-    async fn test_can_set_min_supoorted_protocol_version_for_commit() {
+    async fn test_can_set_min_supported_protocol_version_for_commit() {
         // Step 1: Create two clients
         let amal =
             ClientBuilder::new_test_client_with_version(&generate_local_wallet(), "0.2.0").await;
