@@ -1,4 +1,5 @@
 use super::schema::identity_cache;
+use super::Sqlite;
 use crate::storage::{DbConnection, StorageError};
 use crate::{impl_fetch, impl_store, Store};
 use diesel::backend::Backend;
@@ -6,7 +7,6 @@ use diesel::deserialize::{self, FromSql, FromSqlRow};
 use diesel::expression::AsExpression;
 use diesel::serialize::{IsNull, Output, ToSql};
 use diesel::sql_types::Integer;
-use diesel::sqlite::Sqlite;
 use diesel::{prelude::*, serialize};
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
