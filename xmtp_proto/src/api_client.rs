@@ -25,8 +25,10 @@ pub trait XmtpTestClient {
     async fn create_dev() -> Self;
 }
 
-pub type BoxedXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
-pub type ArcedXmtpApi<Error> = Arc<dyn trait_impls::BoxableXmtpApi<Error>>;
+pub type BoxedXmtpApi<Error, GroupStream, WelcomeStream> =
+    Box<dyn trait_impls::BoxableXmtpApi<Error, GroupStream, WelcomeStream>>;
+pub type ArcedXmtpApi<Error, GroupStream, WelcomeStream> =
+    Arc<dyn trait_impls::BoxableXmtpApi<Error, GroupStream, WelcomeStream>>;
 
 pub use trait_impls::*;
 
@@ -41,16 +43,31 @@ pub mod trait_impls {
     // native, release
     #[cfg(not(target_arch = "wasm32"))]
     mod inner {
-        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
+        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
 
-        pub trait BoxableXmtpApi<Err>
+        pub trait BoxableXmtpApi<Err, GroupStream, WelcomeStream>
         where
-            Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync,
+            Self: XmtpMlsClient<Error = Err>
+                + XmtpIdentityClient<Error = Err>
+                + XmtpMlsStreams<
+                    Error = Err,
+                    GroupMessageStream = GroupStream,
+                    WelcomeMessageStream = WelcomeStream,
+                > + Send
+                + Sync,
         {
         }
 
-        impl<T, Err> BoxableXmtpApi<Err> for T where
-            T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync + ?Sized
+        impl<T, Err, GroupStream, WelcomeStream> BoxableXmtpApi<Err, GroupStream, WelcomeStream> for T where
+            T: XmtpMlsClient<Error = Err>
+                + XmtpIdentityClient<Error = Err>
+                + XmtpMlsStreams<
+                    Error = Err,
+                    GroupMessageStream = GroupStream,
+                    WelcomeMessageStream = WelcomeStream,
+                > + Send
+                + Sync
+                + ?Sized
         {
         }
 
@@ -311,23 +328,20 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait XmtpMlsStreams {
-    type GroupMessageStream<'a>: Stream<Item = Result<GroupMessage, Self::Error>> + Send + 'a
-    where
-        Self: 'a;
+    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
 
-    type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send + 'a
-    where
-        Self: 'a;
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
+
     type Error: crate::XmtpApiError + 'static;
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error>;
+    ) -> Result<Self::GroupMessageStream, Self::Error>;
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error>;
+    ) -> Result<Self::WelcomeMessageStream, Self::Error>;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -360,27 +374,21 @@ where
 {
     type Error = <T as XmtpMlsStreams>::Error;
 
-    type GroupMessageStream<'a>
-        = <T as XmtpMlsStreams>::GroupMessageStream<'a>
-    where
-        Self: 'a;
+    type GroupMessageStream = <T as XmtpMlsStreams>::GroupMessageStream;
 
-    type WelcomeMessageStream<'a>
-        = <T as XmtpMlsStreams>::WelcomeMessageStream<'a>
-    where
-        Self: 'a;
+    type WelcomeMessageStream = <T as XmtpMlsStreams>::WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
         (**self).subscribe_group_messages(request).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         (**self).subscribe_welcome_messages(request).await
     }
 }
@@ -393,27 +401,21 @@ where
 {
     type Error = <T as XmtpMlsStreams>::Error;
 
-    type GroupMessageStream<'a>
-        = <T as XmtpMlsStreams>::GroupMessageStream<'a>
-    where
-        Self: 'a;
+    type GroupMessageStream = <T as XmtpMlsStreams>::GroupMessageStream;
 
-    type WelcomeMessageStream<'a>
-        = <T as XmtpMlsStreams>::WelcomeMessageStream<'a>
-    where
-        Self: 'a;
+    type WelcomeMessageStream = <T as XmtpMlsStreams>::WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
         (**self).subscribe_group_messages(request).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         (**self).subscribe_welcome_messages(request).await
     }
 }
