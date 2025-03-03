@@ -12,7 +12,6 @@ members = [
   "bindings_wasm",
   "bindings_node",
   "bindings_ffi",
-  "xtask",
   "xmtp_debug",
   "xmtp_content_types",
   "common",
@@ -79,7 +78,6 @@ serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 sha2 = "0.10.8"
 sha3 = "0.10.8"
-sqlite-web = "0.0.1"
 thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.43.0", default-features = false }
@@ -160,4 +158,4 @@ opt-level = "s"
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
-sqlite-web = { git = "https://github.com/xmtp/sqlite-web-rs", branch = "main" }
+# sqlite-wasm-rs = { git = "https://github.com/insipx/sqlite-wasm-rs", branch = "insipx/update-deps" }

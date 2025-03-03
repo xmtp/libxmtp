@@ -1,7 +1,7 @@
 # Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     fenix = {
       url = "github:nix-community/fenix";
       inputs = { nixpkgs.follows = "nixpkgs"; };
@@ -9,6 +9,7 @@
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
     mkshell-util.url = "github:insipx/mkShell-util.nix";
+    crane.url = "github:ipetkov/crane";
   };
 
   nixConfig = {
@@ -16,7 +17,7 @@
     extra-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, ... }:
+  outputs = inputs@{ flake-parts, fenix, crane, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       perSystem = { pkgs, system, ... }:
@@ -33,6 +34,8 @@
               allowUnfree = true;
             };
           };
+          craneLib = crane.mkLib pkgs;
+          filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
@@ -43,7 +46,11 @@
             android = callPackage pkgs ./nix/android.nix { };
             # Shell for iOS builds
             ios = callPackage pkgs ./nix/ios.nix { };
+            js = callPackage pkgs ./nix/js.nix { };
+            # the environment bindings_wasm is built in
+            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).devShell;
           };
+          packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).bin;
         };
     };
 }

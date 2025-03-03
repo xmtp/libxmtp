@@ -8,9 +8,6 @@ use super::{
 };
 use diesel::{dsl::max, prelude::*};
 
-#[cfg(target_arch = "wasm32")]
-use sqlite_web::dsl::RunQueryDsl;
-
 use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
