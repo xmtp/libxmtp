@@ -14,8 +14,6 @@ let
     (commonCargoSources ./../xmtp_api)
     (commonCargoSources ./../xmtp_api_d14n)
     (commonCargoSources ./../xmtp_proto)
-    (commonCargoSources ./../xmtp_v2)
-    (commonCargoSources ./../xmtp_user_preferences)
     (commonCargoSources ./../common)
     (commonCargoSources ./../xmtp_content_types)
     ./../xmtp_id/src/scw_verifier/chain_urls_default.json

@@ -11,6 +11,7 @@
 , zstd
 , craneLib
 , llvmPackages_19
+, mkShell
 }:
 let
   inherit (stdenv) hostPlatform;
@@ -21,12 +22,6 @@ let
     fenix.targets.wasm32-unknown-unknown.stable.rust-std
   ];
   crane = craneLib.overrideToolchain (p: rust-toolchain);
-
-  crateFileset = crate: lib.fileset.toSource
-    {
-      root = ./../..;
-      fileset = filesets.forCrate crate;
-    };
 
   workspaceFileset = lib.fileset.toSource {
     root = ./../..;
@@ -60,7 +55,7 @@ let
         darwin.apple_sdk.frameworks.SystemConfiguration
       ];
     doCheck = false;
-    cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc --exclude xmtp_v2";
+    cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
     RUSTFLAGS = [ "--cfg" "tracing_unstable" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
   };
@@ -80,10 +75,13 @@ let
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
     });
+  devShell = mkShell {
+    inherit (commonArgs) nativeBuildInputs RUSTFLAGS;
+    buildInputs = commonArgs.buildInputs ++ [ rust-toolchain ];
+  };
 in
 {
-  inherit bin;
-  # inherit bin devShell;
+  inherit bin devShell;
 }
 
 

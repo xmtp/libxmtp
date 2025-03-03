@@ -46,6 +46,9 @@
             android = callPackage pkgs ./nix/android.nix { };
             # Shell for iOS builds
             ios = callPackage pkgs ./nix/ios.nix { };
+            js = callPackage pkgs ./nix/js.nix { };
+            # the environment bindings_wasm is built in
+            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).devShell;
           };
           packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).bin;
         };
