@@ -10,7 +10,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "dev/**"
-      - "rust-toolchain"
+      - "rust-toolchain.toml"
       - ".cargo/**"
 jobs:
   check-swift:

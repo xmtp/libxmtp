@@ -8,7 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".cargo/**"
-      - "rust-toolchain"
+      - "rust-toolchain.toml"
 jobs:
   lint:
     name: Lint
