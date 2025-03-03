@@ -11,6 +11,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     storage::EncryptedMessageStore,
+    utils::VersionInfo,
     StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 use xmtp_api::ApiClientWrapper;
@@ -54,10 +55,12 @@ pub struct ClientBuilder<ApiClient, V> {
     identity_strategy: IdentityStrategy,
     history_sync_url: Option<String>,
     scw_verifier: Option<V>,
+    #[cfg(any(test, feature = "test-utils"))]
+    pub version_info: Option<Arc<VersionInfo>>,
 }
 
 impl Client<(), ()> {
-    /// Ge tthe builder for this [`Client`]
+    /// Get the builder for this [`Client`]
     pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<(), ()> {
         ClientBuilder::<(), ()>::new(strategy)
     }
@@ -73,6 +76,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity_strategy: strategy,
             history_sync_url: None,
             scw_verifier: None,
+            version_info: None,
         }
     }
 }
@@ -89,6 +93,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity_strategy,
             history_sync_url,
             mut scw_verifier,
+            version_info,
             ..
         } = self;
 
@@ -131,7 +136,14 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         )
         .await?;
 
-        let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
+        let client = Client::new(
+            api,
+            identity,
+            store,
+            scw_verifier,
+            history_sync_url.clone(),
+            version_info.clone(),
+        );
 
         if history_sync_url.is_some() {
             client.start_sync_worker();
@@ -173,6 +185,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity_strategy: self.identity_strategy,
             history_sync_url: self.history_sync_url,
             scw_verifier: self.scw_verifier,
+            version_info: self.version_info,
         }
     }
 
@@ -184,6 +197,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store: self.store,
             identity_strategy: self.identity_strategy,
             history_sync_url: self.history_sync_url,
+            version_info: self.version_info,
         }
     }
 
@@ -210,6 +224,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store: self.store,
             identity_strategy: self.identity_strategy,
             history_sync_url: self.history_sync_url,
+            version_info: self.version_info,
         })
     }
 }

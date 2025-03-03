@@ -46,6 +46,7 @@ pub enum MetadataField {
     GroupImageUrlSquare,
     MessageDisappearFromNS,
     MessageDisappearInNS,
+    MinimumSupportedProtocolVersion,
 }
 
 impl MetadataField {
@@ -57,6 +58,7 @@ impl MetadataField {
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
             MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
+            MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
         }
     }
 }
@@ -146,6 +148,13 @@ impl GroupMutableMetadata {
             );
         }
 
+        if let Some(minimum_supported_protocol_version) = opts.minimum_supported_protocol_version {
+            attributes.insert(
+                MetadataField::MinimumSupportedProtocolVersion.to_string(),
+                minimum_supported_protocol_version,
+            );
+        }
+
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -185,7 +194,12 @@ impl GroupMutableMetadata {
                 message_disappearing_settings.in_ns.to_string(),
             );
         }
-
+        if let Some(minimum_supported_protocol_version) = opts.minimum_supported_protocol_version {
+            attributes.insert(
+                MetadataField::MinimumSupportedProtocolVersion.to_string(),
+                minimum_supported_protocol_version,
+            );
+        }
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {
@@ -205,6 +219,7 @@ impl GroupMutableMetadata {
             MetadataField::GroupImageUrlSquare,
             MetadataField::MessageDisappearFromNS,
             MetadataField::MessageDisappearInNS,
+            MetadataField::MinimumSupportedProtocolVersion,
         ]
     }
 

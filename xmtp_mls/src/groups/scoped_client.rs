@@ -1,4 +1,5 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
+use crate::utils::VersionInfo;
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -90,6 +91,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError>;
+
+    fn version_info(&self) -> &Arc<VersionInfo>;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -182,6 +185,10 @@ where
 
     fn history_sync_url(&self) -> &Option<String> {
         &self.history_sync_url
+    }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        &self.version_info
     }
 
     async fn get_installation_diff(
@@ -339,6 +346,10 @@ where
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
     }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
+    }
 }
 
 impl<T> ScopedGroupClient for Arc<T>
@@ -431,6 +442,10 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
+    }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
     }
 }
 

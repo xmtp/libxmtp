@@ -39,6 +39,8 @@ pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
+
+use super::VersionInfo;
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
 
@@ -84,6 +86,23 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             api_client,
             MockSmartContractSignatureVerifier::new(true),
             None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn new_test_client_with_version(
+        owner: &impl InboxOwner,
+        version: &str,
+    ) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+            Some(Arc::new(VersionInfo::test_version(version))),
         )
         .await
     }
@@ -95,6 +114,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
         )
         .await
@@ -111,6 +131,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             api_client,
             MockSmartContractSignatureVerifier::new(true),
             Some(history_sync_url),
+            None,
         )
         .await
     }
@@ -125,6 +146,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
         )
         .await
@@ -190,6 +212,7 @@ async fn build_with_verifier<A, V>(
     api_client: A,
     scw_verifier: V,
     history_sync_url: Option<&str>,
+    version_info: Option<Arc<VersionInfo>>,
 ) -> Client<A, V>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -207,7 +230,8 @@ where
     .temp_store()
     .await
     .api_client(api_client)
-    .with_scw_verifier(scw_verifier);
+    .with_scw_verifier(scw_verifier)
+    .with_version_info(version_info.as_ref().map(|v| v.pkg_version()).unwrap());
 
     if let Some(history_sync_url) = history_sync_url {
         builder = builder.history_sync_url(history_sync_url);
@@ -220,6 +244,19 @@ where
     register_client(&client, owner).await;
 
     client
+}
+
+impl<ApiClient, V> ClientBuilder<ApiClient, V> {
+    pub fn with_version_info(mut self, version: &str) -> Self {
+        tracing::info!(
+            "CAMERONVOELL: test code line 251 trying to set version to: {:?}",
+            version
+        );
+        self.version_info = Some(Arc::new(VersionInfo {
+            pkg_version: version.into(),
+        }));
+        self
+    }
 }
 
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
