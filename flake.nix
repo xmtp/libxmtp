@@ -44,6 +44,9 @@
             # Shell for iOS builds
             ios = callPackage pkgs ./nix/ios.nix { };
           };
+          packages = {
+            browser-sdk = callPackage pkgs ./nix/package/browser-sdk.nix { };
+          };
         };
     };
 }
