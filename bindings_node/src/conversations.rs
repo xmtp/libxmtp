@@ -206,6 +206,7 @@ pub struct CreateGroupOptions {
   pub group_description: Option<String>,
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
+  pub minimum_supported_protocol_version: Option<String>,
 }
 
 impl CreateGroupOptions {
@@ -217,6 +218,7 @@ impl CreateGroupOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      minimum_supported_protocol_version: self.minimum_supported_protocol_version,
     }
   }
 }
@@ -233,6 +235,7 @@ impl CreateDMOptions {
       message_disappearing_settings: self
         .message_disappearing_settings
         .map(|settings| settings.into()),
+      minimum_supported_protocol_version: None,
     }
   }
 }
@@ -261,6 +264,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      minimum_supported_protocol_version: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
@@ -330,6 +334,7 @@ impl Conversations {
       group_description: None,
       custom_permission_policy_set: None,
       message_disappearing_settings: None,
+      minimum_supported_protocol_version: None,
     });
 
     if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {

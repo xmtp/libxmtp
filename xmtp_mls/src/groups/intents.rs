@@ -247,6 +247,13 @@ impl UpdateMetadataIntentData {
             field_value: in_ns.to_string(),
         }
     }
+
+    pub fn new_update_group_min_version_to_match_self(min_version: String) -> Self {
+        Self {
+            field_name: MetadataField::MinimumSupportedProtocolVersion.to_string(),
+            field_value: min_version,
+        }
+    }
 }
 
 impl From<UpdateMetadataIntentData> for Vec<u8> {
