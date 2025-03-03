@@ -1031,9 +1031,7 @@ pub(crate) mod tests {
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         storage::{
-            consent_record::{ConsentState, StoredConsentRecord},
-            group::GroupQueryArgs,
-            group_message::MsgQueryArgs,
+            consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
             schema::identity_updates,
         },
         XmtpApi,
