@@ -21,7 +21,7 @@ on:
       - "!.node-version"
       - "!Cargo.toml"
       - "!Cargo.lock"
-      - "!rust-toolchain"
+      - "!rust-toolchain.toml"
       - "!rustfmt.toml"
 # Test and Lint steps are required for pull requests, but some file changes
 # don't require them to run. These jobs define the required steps for these
