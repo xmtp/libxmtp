@@ -305,7 +305,7 @@ where
     /// Revoke the given wallets from the association state for the client's inbox
     pub async fn revoke_identities(
         &self,
-        wallets_to_revoke: Vec<PublicIdentifier>,
+        identities_to_revoke: Vec<PublicIdentifier>,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.inbox_id();
         let current_state = retry_async!(
@@ -317,7 +317,7 @@ where
         )?;
         let mut builder = SignatureRequestBuilder::new(inbox_id);
 
-        for ident in wallets_to_revoke {
+        for ident in identities_to_revoke {
             builder = builder.revoke_association(
                 current_state.recovery_identifier().clone().into(),
                 ident.into(),

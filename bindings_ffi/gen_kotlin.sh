@@ -28,7 +28,6 @@ cargo run --bin ffi-uniffi-bindgen \
   --language kotlin
 
 cd $BINDINGS_PATH
-mkdir -p src/uniffi/xmtpv3
 make libxmtp-version
 cp libxmtp-version.txt src/uniffi/$PROJECT_NAME/
 
