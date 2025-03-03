@@ -15,7 +15,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     owner = "xmtp";
     repo = "xmtp-js";
     rev = "main";
-    sha256 = "sha256-0000000000000000000000000000000000000000000=";
+    sha256 = "sha256-PLNnS6oxdH4wlgmTQsiObJoLng0AsTCk2yOm3yX5RXU=";
   };
 
   nativeBuildInputs = [ yarn-berry nodejs ];
@@ -58,7 +58,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     dontInstall = true;
 
     outputHashAlgo = "sha256";
-    outputHash = "sha256-0000000000000000000000000000000000000000000=";
+    outputHash = "sha256-K+2PwQYKZgMZ4B87BPUbuYYDMxMxhJI7KKAEFsZ/YBE=";
     outputHashMode = "recursive";
   };
 
@@ -87,7 +87,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p $out/{bin,lib}
+    mkdir -p $out/{lib}
 
     cp -r node_modules $out/lib/
 
@@ -110,5 +110,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   doInstallCheck = true;
   installCheckPhase = ''
     # $out/bin/spectral --version
+    yarn --cwd $out/lib/sdks/browser-sdk test
   '';
 })
