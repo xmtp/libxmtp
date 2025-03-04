@@ -16,14 +16,14 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
-use crate::identity::PublicIdentifier;
+use crate::identity::Identifier;
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
 
 #[wasm_bindgen]
 pub struct Client {
-  account_identifier: PublicIdentifier,
+  account_identifier: Identifier,
   inner_client: Arc<RustXmtpClient>,
   pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
@@ -121,7 +121,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 pub async fn create_client(
   host: String,
   inbox_id: String,
-  account_identifier: PublicIdentifier,
+  account_identifier: Identifier,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
@@ -185,7 +185,7 @@ pub async fn create_client(
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(getter, js_name = accountAddress)]
-  pub fn account_identifier(&self) -> PublicIdentifier {
+  pub fn account_identifier(&self) -> Identifier {
     self.account_identifier.clone()
   }
 
@@ -213,7 +213,7 @@ impl Client {
   /// Output booleans should be zipped with the index of input identifiers
   pub async fn can_message(
     &self,
-    account_identifiers: Vec<PublicIdentifier>,
+    account_identifiers: Vec<Identifier>,
   ) -> Result<JsValue, JsError> {
     let account_identifiers: Result<Vec<XmtpPublicIdentifier>, JsError> = account_identifiers
       .iter()
@@ -289,7 +289,7 @@ impl Client {
   #[wasm_bindgen(js_name = findInboxIdByAddress)]
   pub async fn find_inbox_id_by_identifier(
     &self,
-    identifier: PublicIdentifier,
+    identifier: Identifier,
   ) -> Result<Option<String>, JsError> {
     let conn = self
       .inner_client

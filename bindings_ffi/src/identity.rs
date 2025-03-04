@@ -5,7 +5,7 @@ use xmtp_id::associations::{ident, PublicIdentifier};
 use crate::GenericError;
 
 #[derive(uniffi::Record, Hash, PartialEq, Eq, Clone)]
-pub struct FfiPublicIdentifier {
+pub struct FfiIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiPublicIdentifierKind,
     pub relying_partner: Option<String>,
@@ -17,14 +17,14 @@ pub enum FfiPublicIdentifierKind {
     Passkey,
 }
 
-impl FfiPublicIdentifier {
+impl FfiIdentifier {
     pub fn inbox_id(&self, nonce: u64) -> Result<String, GenericError> {
         let ident: PublicIdentifier = self.clone().try_into().map_err(GenericError::from_error)?;
         Ok(ident.inbox_id(nonce)?)
     }
 }
 
-impl Display for FfiPublicIdentifier {
+impl Display for FfiIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.identifier_kind {
             FfiPublicIdentifierKind::Ethereum => write!(f, "{}", self.identifier),
@@ -36,13 +36,13 @@ impl Display for FfiPublicIdentifier {
 #[allow(unused)]
 #[uniffi::export]
 pub fn generate_inbox_id(
-    account_identifier: FfiPublicIdentifier,
+    account_identifier: FfiIdentifier,
     nonce: u64,
 ) -> Result<String, GenericError> {
     account_identifier.inbox_id(nonce)
 }
 
-impl From<PublicIdentifier> for FfiPublicIdentifier {
+impl From<PublicIdentifier> for FfiIdentifier {
     fn from(ident: PublicIdentifier) -> Self {
         match ident {
             PublicIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
@@ -62,9 +62,9 @@ impl From<PublicIdentifier> for FfiPublicIdentifier {
     }
 }
 
-impl TryFrom<FfiPublicIdentifier> for PublicIdentifier {
+impl TryFrom<FfiIdentifier> for PublicIdentifier {
     type Error = IdentifierValidationError;
-    fn try_from(ident: FfiPublicIdentifier) -> Result<Self, Self::Error> {
+    fn try_from(ident: FfiIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             FfiPublicIdentifierKind::Ethereum => Self::eth(ident.identifier)?,
             FfiPublicIdentifierKind::Passkey => {
@@ -79,7 +79,7 @@ pub trait IdentityExt<T, U> {
     fn to_internal(self) -> Result<Vec<U>, IdentifierValidationError>;
 }
 
-impl IdentityExt<FfiPublicIdentifier, PublicIdentifier> for Vec<FfiPublicIdentifier> {
+impl IdentityExt<FfiIdentifier, PublicIdentifier> for Vec<FfiIdentifier> {
     fn to_internal(self) -> Result<Vec<PublicIdentifier>, IdentifierValidationError> {
         let ident: Result<Vec<_>, IdentifierValidationError> =
             self.into_iter().map(|ident| ident.try_into()).collect();
@@ -90,15 +90,15 @@ impl IdentityExt<FfiPublicIdentifier, PublicIdentifier> for Vec<FfiPublicIdentif
 pub trait FfiCollectionExt<T> {
     fn to_ffi(self) -> Vec<T>;
 }
-impl FfiCollectionExt<FfiPublicIdentifier> for Vec<PublicIdentifier> {
-    fn to_ffi(self) -> Vec<FfiPublicIdentifier> {
+impl FfiCollectionExt<FfiIdentifier> for Vec<PublicIdentifier> {
+    fn to_ffi(self) -> Vec<FfiIdentifier> {
         self.into_iter().map(Into::into).collect()
     }
 }
 pub trait FfiCollectionTryExt<T> {
     fn to_internal(self) -> Result<Vec<T>, IdentifierValidationError>;
 }
-impl FfiCollectionTryExt<PublicIdentifier> for Vec<FfiPublicIdentifier> {
+impl FfiCollectionTryExt<PublicIdentifier> for Vec<FfiIdentifier> {
     fn to_internal(self) -> Result<Vec<PublicIdentifier>, IdentifierValidationError> {
         self.into_iter().map(|ident| ident.try_into()).collect()
     }

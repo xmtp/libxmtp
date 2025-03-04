@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::identity::{PublicIdentifier, PublicIdentifierKind};
+use crate::identity::{Identifier, IdentifierKind};
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
@@ -59,10 +59,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_identifier_signature_text(
-    &self,
-    new_identifier: PublicIdentifier,
-  ) -> Result<String> {
+  pub async fn add_identifier_signature_text(&self, new_identifier: Identifier) -> Result<String> {
     let ident = new_identifier.try_into()?;
 
     let signature_request = self
@@ -79,10 +76,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn revoke_identifier_signature_text(
-    &self,
-    identifier: PublicIdentifier,
-  ) -> Result<String> {
+  pub async fn revoke_identifier_signature_text(&self, identifier: Identifier) -> Result<String> {
     let ident = identifier.try_into()?;
 
     let signature_request = self
@@ -178,7 +172,7 @@ impl Client {
     block_number: Option<BigInt>,
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
-    let PublicIdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
+    let IdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
       return Err(Error::from_reason(
         "Account identifier must be an ethereum address.",
       ));

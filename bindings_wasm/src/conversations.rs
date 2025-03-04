@@ -1,5 +1,5 @@
 use crate::consent_state::ConsentState;
-use crate::identity::{IdentityExt, PublicIdentifier};
+use crate::identity::{IdentityExt, Identifier};
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -288,7 +288,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createGroup)]
   pub async fn create_group(
     &self,
-    account_identifiers: Vec<PublicIdentifier>,
+    account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -426,7 +426,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createDm)]
   pub async fn find_or_create_dm(
     &self,
-    account_identifier: PublicIdentifier,
+    account_identifier: Identifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self

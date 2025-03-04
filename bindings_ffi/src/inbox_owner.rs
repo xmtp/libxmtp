@@ -1,4 +1,4 @@
-use crate::identity::FfiPublicIdentifier;
+use crate::identity::FfiIdentifier;
 use xmtp_cryptography::signature::{
     IdentifierValidationError, RecoverableSignature, SignatureError,
 };
@@ -26,7 +26,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
 // A simplified InboxOwner passed to Rust across the FFI boundary
 #[uniffi::export(with_foreign)]
 pub trait FfiInboxOwner: Send + Sync {
-    fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError>;
+    fn get_identifier(&self) -> Result<FfiIdentifier, IdentityValidationError>;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
 }
 

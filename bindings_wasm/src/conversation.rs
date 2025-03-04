@@ -1,7 +1,7 @@
 use crate::client::RustXmtpClient;
 use crate::conversations::{HmacKey, MessageDisappearingSettings};
 use crate::encoded_content::EncodedContent;
-use crate::identity::{IdentityExt, PublicIdentifier};
+use crate::identity::{IdentityExt, Identifier};
 use crate::messages::{ListMessagesOptions, Message};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -59,7 +59,7 @@ pub struct GroupMember {
   pub inbox_id: String,
   #[wasm_bindgen(js_name = accountAddresses)]
   #[serde(rename = "accountIdentifiers")]
-  pub account_identifiers: Vec<PublicIdentifier>,
+  pub account_identifiers: Vec<Identifier>,
   #[wasm_bindgen(js_name = installationIds)]
   #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
@@ -76,7 +76,7 @@ impl GroupMember {
   #[wasm_bindgen(constructor)]
   pub fn new(
     inbox_id: String,
-    account_identifiers: Vec<PublicIdentifier>,
+    account_identifiers: Vec<Identifier>,
     installation_ids: Vec<String>,
     permission_level: PermissionLevel,
     consent_state: ConsentState,
@@ -294,7 +294,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = addMembers)]
   pub async fn add_members(
     &self,
-    account_identifiers: Vec<PublicIdentifier>,
+    account_identifiers: Vec<Identifier>,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
@@ -379,7 +379,7 @@ impl Conversation {
   #[wasm_bindgen(js_name = removeMembers)]
   pub async fn remove_members(
     &self,
-    account_identifiers: Vec<PublicIdentifier>,
+    account_identifiers: Vec<Identifier>,
   ) -> Result<(), JsError> {
     let group = self.to_mls_group();
 

@@ -1,6 +1,6 @@
 use crate::{
   client::Client,
-  identity::{PublicIdentifier, PublicIdentifierKind},
+  identity::{Identifier, IdentifierKind},
 };
 use js_sys::Uint8Array;
 use std::sync::Arc;
@@ -63,7 +63,7 @@ impl Client {
   #[wasm_bindgen(js_name = addWalletSignatureText)]
   pub async fn add_identifier_signature_text(
     &mut self,
-    new_identifier: PublicIdentifier,
+    new_identifier: Identifier,
   ) -> Result<String, JsError> {
     let ident = new_identifier.try_into()?;
     let signature_request = self
@@ -83,7 +83,7 @@ impl Client {
   #[wasm_bindgen(js_name = revokeWalletSignatureText)]
   pub async fn revoke_identifier_signature_text(
     &mut self,
-    identifier: PublicIdentifier,
+    identifier: Identifier,
   ) -> Result<String, JsError> {
     let ident = identifier.try_into()?;
     let signature_request = self
@@ -178,7 +178,7 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
-    let PublicIdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
+    let IdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
       return Err(JsError::new(
         "Account identifier must be an ethereum address.",
       ));

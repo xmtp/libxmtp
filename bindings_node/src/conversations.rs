@@ -19,7 +19,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{IdentityExt, PublicIdentifier};
+use crate::identity::{IdentityExt, Identifier};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -252,7 +252,7 @@ impl Conversations {
   #[napi]
   pub async fn create_group(
     &self,
-    account_identities: Vec<PublicIdentifier>,
+    account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -394,7 +394,7 @@ impl Conversations {
   #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(
     &self,
-    account_identity: PublicIdentifier,
+    account_identity: Identifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation> {
     let convo = self

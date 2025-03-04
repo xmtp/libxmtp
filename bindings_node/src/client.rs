@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::{IdentityExt, PublicIdentifier};
+use crate::identity::{Identifier, IdentityExt};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -26,7 +26,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
-  pub account_identifier: PublicIdentifier,
+  pub account_identifier: Identifier,
 }
 
 impl Client {
@@ -122,7 +122,7 @@ pub async fn create_client(
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
-  account_identifier: PublicIdentifier,
+  account_identifier: Identifier,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
@@ -215,7 +215,7 @@ impl Client {
   /// The resulting vec will be the same length as the input and should be zipped for the results.
   pub async fn can_message(
     &self,
-    account_identities: Vec<PublicIdentifier>,
+    account_identities: Vec<Identifier>,
   ) -> Result<HashMap<String, bool>> {
     let ident = account_identities.to_internal()?;
     let results = self
@@ -289,7 +289,7 @@ impl Client {
   #[napi]
   pub async fn find_inbox_id_by_identifier(
     &self,
-    identifier: PublicIdentifier,
+    identifier: Identifier,
   ) -> Result<Option<String>> {
     let conn = self
       .inner_client()

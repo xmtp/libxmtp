@@ -1,4 +1,4 @@
-use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiPublicIdentifier};
+use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
@@ -114,7 +114,7 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
-    account_identifier: FfiPublicIdentifier,
+    account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
@@ -176,7 +176,7 @@ pub async fn create_client(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
-    account_identifier: FfiPublicIdentifier,
+    account_identifier: FfiIdentifier,
 ) -> Result<Option<String>, GenericError> {
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
@@ -259,7 +259,7 @@ impl FfiSignatureRequest {
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
     #[allow(dead_code)]
-    account_identifier: FfiPublicIdentifier,
+    account_identifier: FfiIdentifier,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -298,8 +298,8 @@ impl FfiXmtpClient {
 
     pub async fn can_message(
         &self,
-        account_identifiers: Vec<FfiPublicIdentifier>,
-    ) -> Result<HashMap<FfiPublicIdentifier, bool>, GenericError> {
+        account_identifiers: Vec<FfiIdentifier>,
+    ) -> Result<HashMap<FfiIdentifier, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
         let account_identifiers: Result<Vec<PublicIdentifier>, _> = account_identifiers
@@ -332,7 +332,7 @@ impl FfiXmtpClient {
 
     pub async fn find_inbox_id(
         &self,
-        identifier: FfiPublicIdentifier,
+        identifier: FfiIdentifier,
     ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = self.inner_client.store().conn()?;
@@ -502,7 +502,7 @@ impl FfiXmtpClient {
     /// Adds a wallet address to the existing client
     pub async fn add_identity(
         &self,
-        new_identity: FfiPublicIdentifier,
+        new_identity: FfiIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
@@ -532,7 +532,7 @@ impl FfiXmtpClient {
     /// Revokes or removes an identity from the existing client
     pub async fn revoke_identity(
         &self,
-        identifier: FfiPublicIdentifier,
+        identifier: FfiIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let Self {
             ref inner_client, ..
@@ -723,9 +723,9 @@ impl From<HmacKey> for FfiHmacKey {
 #[derive(uniffi::Record)]
 pub struct FfiInboxState {
     pub inbox_id: String,
-    pub recovery_identity: FfiPublicIdentifier,
+    pub recovery_identity: FfiIdentifier,
     pub installations: Vec<FfiInstallation>,
-    pub account_identities: Vec<FfiPublicIdentifier>,
+    pub account_identities: Vec<FfiIdentifier>,
 }
 
 #[derive(uniffi::Record)]
@@ -1018,7 +1018,7 @@ impl From<&FfiMetadataField> for MetadataField {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        account_identities: Vec<FfiPublicIdentifier>,
+        account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         let account_identities: Result<Vec<PublicIdentifier>, _> = account_identities
@@ -1140,7 +1140,7 @@ impl FfiConversations {
 
     pub async fn find_or_create_dm(
         &self,
-        target_identity: FfiPublicIdentifier,
+        target_identity: FfiIdentifier,
         opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
         let target_identity = target_identity.try_into()?;
@@ -1540,7 +1540,7 @@ impl From<StoredConsentRecord> for FfiConsent {
 #[derive(uniffi::Record)]
 pub struct FfiConversationMember {
     pub inbox_id: String,
-    pub account_identifiers: Vec<FfiPublicIdentifier>,
+    pub account_identifiers: Vec<FfiIdentifier>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: FfiPermissionLevel,
     pub consent_state: FfiConsentState,
@@ -1843,7 +1843,7 @@ impl FfiConversation {
 
     pub async fn add_members(
         &self,
-        account_identifiers: Vec<FfiPublicIdentifier>,
+        account_identifiers: Vec<FfiIdentifier>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
         let account_identifiers = account_identifiers.to_internal()?;
         log::info!(
@@ -1877,7 +1877,7 @@ impl FfiConversation {
 
     pub async fn remove_members(
         &self,
-        account_identifiers: Vec<FfiPublicIdentifier>,
+        account_identifiers: Vec<FfiIdentifier>,
     ) -> Result<(), GenericError> {
         self.inner
             .remove_members(&account_identifiers.to_internal()?)
@@ -2630,7 +2630,7 @@ mod tests {
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
-        identity::{FfiPublicIdentifier, FfiPublicIdentifierKind},
+        identity::{FfiIdentifier, FfiPublicIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -2687,7 +2687,7 @@ mod tests {
             Self { wallet }
         }
 
-        pub fn public_identifier(&self) -> FfiPublicIdentifier {
+        pub fn public_identifier(&self) -> FfiIdentifier {
             self.wallet.public_identifier().into()
         }
 
@@ -2699,7 +2699,7 @@ mod tests {
     }
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
-        fn get_identifier(&self) -> Result<FfiPublicIdentifier, IdentityValidationError> {
+        fn get_identifier(&self) -> Result<FfiIdentifier, IdentityValidationError> {
             let ident = self
                 .wallet
                 .get_identifier()
@@ -2928,7 +2928,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_legacy_identity() {
-        let ident = FfiPublicIdentifier {
+        let ident = FfiIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
             identifier_kind: FfiPublicIdentifierKind::Ethereum,
             relying_partner: None,
@@ -6445,7 +6445,7 @@ mod tests {
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiPublicIdentifier = wallet_a.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_a.public_identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6484,7 +6484,7 @@ mod tests {
         let nonce = 1;
         let inbox_id = client_a.inbox_id();
 
-        let ffi_public_ident: FfiPublicIdentifier = wallet_b.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
         let client_b = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6551,7 +6551,7 @@ mod tests {
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
-        let ffi_public_ident: FfiPublicIdentifier = wallet_b.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6586,7 +6586,7 @@ mod tests {
         let wallet_a = generate_local_wallet();
         let ident_a = wallet_a.public_identifier();
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiPublicIdentifier = wallet_a.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_a.public_identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6608,7 +6608,7 @@ mod tests {
         let wallet_b = generate_local_wallet();
         let ident_b = wallet_b.public_identifier();
         let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiPublicIdentifier = wallet_b.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6627,7 +6627,7 @@ mod tests {
         register_client(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
-        let ffi_public_ident: FfiPublicIdentifier = wallet_b.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
         let _client_b2 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6657,7 +6657,7 @@ mod tests {
             .unwrap();
 
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
-        let ffi_public_ident: FfiPublicIdentifier = wallet_b.public_identifier().into();
+        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
         let client_b3 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await

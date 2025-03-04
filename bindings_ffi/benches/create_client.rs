@@ -12,7 +12,7 @@ use xmtp_common::{
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_mls::utils::test::HISTORY_SYNC_URL;
-use xmtpv3::identity::FfiPublicIdentifier;
+use xmtpv3::identity::FfiIdentifier;
 
 #[macro_use]
 extern crate tracing;
@@ -71,7 +71,7 @@ fn create_ffi_client(c: &mut Criterion) {
                 })
             },
             |(api, inbox_id, ident, nonce, path, span)| async move {
-                let ffi_ident: FfiPublicIdentifier = ident.into();
+                let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
                     Some(path),
@@ -104,7 +104,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let ident = wallet.public_identifier();
     let nonce = 1;
     let inbox_id = ident.inbox_id(nonce).unwrap();
-    let ffi_ident: FfiPublicIdentifier = ident.into();
+    let ffi_ident: FfiIdentifier = ident.into();
     let address = wallet.public_identifier();
     let path = tmp_path();
     let (url, is_secure) = network_url();
@@ -143,7 +143,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                 )
             },
             |(api, inbox_id, ident, nonce, path, history_sync, span)| async move {
-                let ffi_ident: FfiPublicIdentifier = ident.into();
+                let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
                     Some(path),

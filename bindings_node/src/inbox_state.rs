@@ -1,4 +1,4 @@
-use crate::{client::Client, identity::PublicIdentifier, ErrorWrapper};
+use crate::{client::Client, identity::Identifier, ErrorWrapper};
 use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
@@ -13,14 +13,14 @@ pub struct Installation {
 #[napi(object)]
 pub struct InboxState {
   pub inbox_id: String,
-  pub recovery_identifier: PublicIdentifier,
+  pub recovery_identifier: Identifier,
   pub installations: Vec<Installation>,
-  pub identifiers: Vec<PublicIdentifier>,
+  pub identifiers: Vec<Identifier>,
 }
 
 impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
-    let ident: PublicIdentifier = state.recovery_identifier().clone().into();
+    let ident: Identifier = state.recovery_identifier().clone().into();
     Self {
       inbox_id: state.inbox_id().to_string(),
       recovery_identifier: ident,
