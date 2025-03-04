@@ -42,7 +42,6 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     {
         // Initialize DB to read the latest table definitions
         let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
-            .await
             .unwrap();
     }
 
