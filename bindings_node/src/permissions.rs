@@ -161,6 +161,7 @@ pub struct PermissionPolicySet {
   pub update_group_description_policy: PermissionPolicy,
   pub update_group_image_url_square_policy: PermissionPolicy,
   pub update_message_disappearing_policy: PermissionPolicy,
+  pub update_minimum_supported_protocol_version_policy: PermissionPolicy,
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -215,6 +216,9 @@ impl GroupPermissions {
       update_message_disappearing_policy: get_policy(
         XmtpMetadataField::MessageDisappearInNS.as_str(),
       ),
+      update_minimum_supported_protocol_version_policy: get_policy(
+        XmtpMetadataField::MinimumSupportedProtocolVersion.as_str(),
+      ),
     })
   }
 }
@@ -240,6 +244,12 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
     metadata_permissions_map.insert(
       XmtpMetadataField::MessageDisappearInNS.to_string(),
       policy_set.update_message_disappearing_policy.try_into()?,
+    );
+    metadata_permissions_map.insert(
+      XmtpMetadataField::MinimumSupportedProtocolVersion.to_string(),
+      policy_set
+        .update_minimum_supported_protocol_version_policy
+        .try_into()?,
     );
 
     Ok(PolicySet {

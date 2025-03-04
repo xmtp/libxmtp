@@ -56,6 +56,8 @@ pub struct StoredGroup {
     pub message_disappear_from_ns: Option<i64>,
     /// How long a message in the group can live in NS
     pub message_disappear_in_ns: Option<i64>,
+    /// The version of the protocol that the group is paused for
+    pub paused_for_version: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -73,6 +75,7 @@ impl StoredGroup {
         conversation_type: ConversationType,
         dm_members: Option<DmMembers<String>>,
         message_disappearing_settings: Option<MessageDisappearingSettings>,
+        paused_for_version: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -87,6 +90,7 @@ impl StoredGroup {
             last_message_ns: Some(now_ns()),
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
+            paused_for_version,
         }
     }
 
@@ -98,6 +102,7 @@ impl StoredGroup {
         added_by_inbox_id: String,
         dm_members: Option<DmMembers<String>>,
         message_disappearing_settings: Option<MessageDisappearingSettings>,
+        paused_for_version: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -115,6 +120,7 @@ impl StoredGroup {
             last_message_ns: Some(now_ns()),
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
+            paused_for_version,
         }
     }
 
@@ -138,6 +144,7 @@ impl StoredGroup {
             last_message_ns: Some(now_ns()),
             message_disappear_from_ns: None,
             message_disappear_in_ns: None,
+            paused_for_version: None,
         }
     }
 }
@@ -551,6 +558,46 @@ impl DbConnection {
             )
         })
     }
+
+    pub fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
+        use crate::storage::schema::groups::dsl;
+
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
+                .set(dsl::paused_for_version.eq(Some(min_version.to_string())))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
+        use crate::storage::schema::groups::dsl;
+
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
+                .set(dsl::paused_for_version.eq::<Option<String>>(None))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn get_group_paused_version(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<String>, StorageError> {
+        use crate::storage::schema::groups::dsl;
+
+        let paused_version = self.raw_query_read(|conn| {
+            dsl::groups
+                .select(dsl::paused_for_version)
+                .filter(dsl::id.eq(group_id))
+                .first::<Option<String>>(conn)
+        })?;
+
+        Ok(paused_version)
+    }
 }
 
 #[repr(i32)]
@@ -690,6 +737,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             None,
             None,
+            None,
         )
     }
 
@@ -708,6 +756,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             welcome_id.unwrap_or(xmtp_common::rand_i64()),
             ConversationType::Group,
+            None,
             None,
             None,
         )
@@ -743,6 +792,7 @@ pub(crate) mod tests {
             state.unwrap_or(GroupMembershipState::Allowed),
             "placeholder_address".to_string(),
             Some(members),
+            None,
             None,
         )
     }
@@ -818,6 +868,7 @@ pub(crate) mod tests {
                     member_two_inbox_id: "some_wise_guy".to_string(),
                 }),
                 None,
+                None,
             );
             dm1.store(conn).unwrap();
 
@@ -830,6 +881,7 @@ pub(crate) mod tests {
                     member_one_inbox_id: "some_wise_guy".to_string(),
                     member_two_inbox_id: "thats_me".to_string(),
                 }),
+                None,
                 None,
             );
             dm2.store(conn).unwrap();

@@ -65,6 +65,7 @@ diesel::table! {
         last_message_ns -> Nullable<BigInt>,
         message_disappear_from_ns -> Nullable<BigInt>,
         message_disappear_in_ns -> Nullable<BigInt>,
+        paused_for_version -> Nullable<Text>,
     }
 }
 
