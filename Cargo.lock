@@ -452,6 +452,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",
+ "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_id",
  "xmtp_mls",
