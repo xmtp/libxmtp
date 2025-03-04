@@ -317,7 +317,7 @@ where
         Ok(results.into_iter().next().flatten())
     }
 
-    /// Calls the server to look up the `inbox_id`s` associated with a list of addresses.
+    /// Calls the server to look up the `inbox_id`s` associated with a list of identifiers.
     /// If no `inbox_id` is found, returns None.
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
