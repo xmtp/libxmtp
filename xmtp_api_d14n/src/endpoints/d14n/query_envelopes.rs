@@ -25,7 +25,7 @@ impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
 
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/mls/v2/query-envelopes")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {

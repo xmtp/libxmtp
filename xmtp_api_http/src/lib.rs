@@ -2,6 +2,7 @@
 
 pub mod constants;
 pub mod error;
+mod http_client;
 mod http_stream;
 pub mod util;
 
