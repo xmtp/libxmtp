@@ -213,20 +213,23 @@ impl Client {
 
   #[napi]
   /// The resulting vec will be the same length as the input and should be zipped for the results.
-  pub async fn can_message(&self, account_identities: Vec<PublicIdentifier>) -> Result<Vec<bool>> {
+  pub async fn can_message(
+    &self,
+    account_identities: Vec<PublicIdentifier>,
+  ) -> Result<HashMap<String, bool>> {
     let ident = account_identities.to_internal()?;
-    let mut results = self
+    let results = self
       .inner_client
       .can_message(&ident)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    let result = ident
-      .iter()
-      .map(|ident| results.remove(ident).unwrap_or(false))
+    let results = results
+      .into_iter()
+      .map(|(k, v)| (format!("{k}"), v))
       .collect();
 
-    Ok(result)
+    Ok(results)
   }
 
   #[napi]

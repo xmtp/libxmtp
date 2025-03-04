@@ -222,18 +222,18 @@ impl Client {
       .collect();
     let account_identifiers = account_identifiers?;
 
-    let mut results = self
+    let results = self
       .inner_client
       .can_message(&account_identifiers)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
-    let result: Vec<bool> = account_identifiers
-      .iter()
-      .map(|ident| results.remove(ident).unwrap_or(false))
+    let results: HashMap<_, _> = results
+      .into_iter()
+      .map(|(k, v)| (format!("{k}"), v))
       .collect();
 
-    Ok(crate::to_value(&result)?)
+    Ok(crate::to_value(&results)?)
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
