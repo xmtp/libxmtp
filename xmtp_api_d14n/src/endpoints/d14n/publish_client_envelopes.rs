@@ -24,7 +24,7 @@ impl PublishClientEnvelopes {
 impl Endpoint for PublishClientEnvelopes {
     type Output = PublishClientEnvelopesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/xmtp.xmtpv4.payer_api.PayerApi/PublishClientEnvelopes")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {

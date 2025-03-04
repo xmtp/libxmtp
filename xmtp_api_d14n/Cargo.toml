@@ -16,6 +16,7 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 [dev-dependencies]
 xmtp_api_grpc.workspace = true
+xmtp_api_http.workspace = true
 tokio.workspace = true
 
 [features]

@@ -25,7 +25,7 @@ impl Endpoint for QueryEnvelope {
     type Output = QueryEnvelopesResponse;
 
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/xmtp.xmtpv4.message_api.ReplicationApi/QueryEnvelopes")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {

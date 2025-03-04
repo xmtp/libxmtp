@@ -24,7 +24,7 @@ impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
 
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/xmtp.xmtpv4.message_api.ReplicationApi/GetInboxIds")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
