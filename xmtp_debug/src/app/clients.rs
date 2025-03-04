@@ -3,7 +3,6 @@
 use super::*;
 use crate::app::types::*;
 use color_eyre::eyre;
-use xmtp_id::associations::{test_utils::WalletTestExt, PublicIdentifier};
 
 pub async fn new_registered_client(
     network: args::BackendOpts,
