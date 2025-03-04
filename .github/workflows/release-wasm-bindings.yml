@@ -14,12 +14,6 @@ jobs:
       - name: Update rust toolchains, add target
         run: |
           rustup update
-      - name: Install emscripten toolchains
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -44,11 +38,17 @@ jobs:
         working-directory: bindings_wasm
         run: |
           yarn
+      - name: Install emscripten toolchains
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+      - name: Source Emscripten
+        run: source ./emsdk/emsdk_env.sh
       - name: Build
         working-directory: bindings_wasm
-        run: |
-          source ./emsdk/emsdk_env.sh
-          yarn build
+        run: yarn build
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
