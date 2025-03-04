@@ -158,7 +158,6 @@ pub async fn create_client(
     internal_account_identifier,
     // this is a temporary solution
     1,
-    None,
   );
 
   let xmtp_client = match history_sync_url {

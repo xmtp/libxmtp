@@ -65,7 +65,6 @@ pub enum IdentityStrategy {
         inbox_id: InboxId,
         identifier: PublicIdentifier,
         nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
     },
     /// Identity that is already in the disk store
     CachedOnly,
@@ -86,17 +85,11 @@ impl IdentityStrategy {
     /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
     /// If an Identity is not found in the local store, creates a new one.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn new(
-        inbox_id: InboxId,
-        identifier: PublicIdentifier,
-        nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
-    ) -> Self {
+    pub fn new(inbox_id: InboxId, identifier: PublicIdentifier, nonce: u64) -> Self {
         Self::CreateIfNotFound {
             inbox_id,
             identifier,
             nonce,
-            legacy_signed_private_key,
         }
     }
 }
@@ -133,7 +126,6 @@ impl IdentityStrategy {
                 inbox_id,
                 identifier,
                 nonce,
-                legacy_signed_private_key,
             } => {
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
