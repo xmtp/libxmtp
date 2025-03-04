@@ -2,9 +2,9 @@
 
 pub mod constants;
 pub mod error;
+mod http_client;
 mod http_stream;
 pub mod util;
-mod http_client;
 
 use futures::stream;
 use http_stream::create_grpc_stream;

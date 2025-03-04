@@ -1,5 +1,6 @@
 use crate::{HttpClientError, XmtpHttpApiClient};
 use bytes::Bytes;
+use http::{Method, Uri};
 use std::pin::Pin;
 use xmtp_proto::traits::{ApiError, Client};
 
@@ -22,9 +23,12 @@ impl Client for XmtpHttpApiClient {
         let request = request.body(body.clone())?;
         let (parts, _) = request.into_parts();
 
-        let req = self
-            .http_client
-            .request(parts.method.clone(), parts.uri.to_string());
+        let url = format!("{}{}", self.host_url, parts.uri);
+        let mut req = self.http_client.request(Method::POST, url);
+
+        for (key, value) in parts.headers.iter() {
+            req = req.header(key, value);
+        }
 
         let response = req
             .body(body)
@@ -37,6 +41,7 @@ impl Client for XmtpHttpApiClient {
         let status = response.status();
         let headers = response.headers().clone();
         let body = response.bytes().await.map_err(HttpClientError::from)?;
+
         let mut http_response = http::Response::new(body);
         *http_response.status_mut() = status;
         *http_response.headers_mut() = headers;
@@ -54,6 +59,4 @@ impl Client for XmtpHttpApiClient {
 }
 
 #[cfg(test)]
-pub mod tests {
-
-}
+pub mod tests {}

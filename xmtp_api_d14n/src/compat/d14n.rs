@@ -165,7 +165,8 @@ where
             .envelopes
             .into_iter()
             .filter_map(|envelope| {
-                let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope).ok()?;
+                let unsigned_originator_envelope =
+                    extract_unsigned_originator_envelope(&envelope).ok()?;
                 let client_envelope = extract_client_envelope(&envelope).ok()?;
                 let payload = client_envelope.payload?;
 
