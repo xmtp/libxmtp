@@ -33,7 +33,9 @@
     "clean": "rm -rf ./dist",
     "clean:release": "rm ./dist/.gitignore",
     "lint": "yarn lint:clippy && yarn lint:fmt",
+    "lint:macos": "yarn lint:clippy:macos && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
+    "lint:clippy:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
     "prepublishOnly": "yarn build",
     "test": "wasm-pack test --chrome --headless"
