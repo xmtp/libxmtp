@@ -1,8 +1,7 @@
+use crate::{client::Client, identity::PublicIdentifier, ErrorWrapper};
 use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
-use xmtp_id::associations::{AssociationState, MemberIdentifier};
-
-use crate::{client::Client, ErrorWrapper};
+use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 
 #[napi(object)]
 pub struct Installation {
@@ -14,29 +13,31 @@ pub struct Installation {
 #[napi(object)]
 pub struct InboxState {
   pub inbox_id: String,
-  pub recovery_address: String,
+  pub recovery_identifier: PublicIdentifier,
   pub installations: Vec<Installation>,
-  pub account_addresses: Vec<String>,
+  pub identifiers: Vec<PublicIdentifier>,
 }
 
 impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
+    let ident: PublicIdentifier = state.recovery_identifier().clone().into();
     Self {
       inbox_id: state.inbox_id().to_string(),
-      recovery_address: state.recovery_address().to_string(),
+      recovery_identifier: ident,
       installations: state
         .members()
         .into_iter()
         .filter_map(|m| match m.identifier {
-          MemberIdentifier::Address(_) => None,
-          MemberIdentifier::Installation(inst) => Some(Installation {
-            bytes: Uint8Array::from(inst.as_slice()),
+          MemberIdentifier::Ethereum(_) => None,
+          MemberIdentifier::Passkey(_) => None,
+          MemberIdentifier::Installation(ident::Installation(key)) => Some(Installation {
+            bytes: Uint8Array::from(key.as_slice()),
             client_timestamp_ns: m.client_timestamp_ns.map(BigInt::from),
-            id: hex::encode(inst),
+            id: hex::encode(key),
           }),
         })
         .collect(),
-      account_addresses: state.account_addresses(),
+      identifiers: state.identifiers().into_iter().map(Into::into).collect(),
     }
   }
 }
