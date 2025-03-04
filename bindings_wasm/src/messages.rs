@@ -7,7 +7,7 @@ use xmtp_mls::storage::group_message::{
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
-use crate::encoded_content::EncodedContent;
+use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
 #[wasm_bindgen]
 #[derive(Clone)]
@@ -72,6 +72,8 @@ impl From<SortDirection> for XmtpSortDirection {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
 pub struct ListMessagesOptions {
+  #[wasm_bindgen(js_name = contentTypes)]
+  pub content_types: Option<Vec<ContentType>>,
   #[wasm_bindgen(js_name = sentBeforeNs)]
   pub sent_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = sentAfterNs)]
@@ -107,6 +109,7 @@ impl ListMessagesOptions {
     limit: Option<i64>,
     delivery_status: Option<DeliveryStatus>,
     direction: Option<SortDirection>,
+    content_types: Option<Vec<ContentType>>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -114,6 +117,7 @@ impl ListMessagesOptions {
       limit,
       delivery_status,
       direction,
+      content_types,
     }
   }
 }
