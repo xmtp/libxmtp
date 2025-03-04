@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::storage::group_message::ContentType as XmtpContentType;
 
+pub mod reaction;
+
 #[wasm_bindgen]
 #[derive(Clone)]
 pub enum ContentType {
