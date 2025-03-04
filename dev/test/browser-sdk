@@ -8,6 +8,11 @@ WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')
 YARN="nix develop -i ${WORKSPACE_PATH}#js --command yarn"
 
+trap ctrl_c INT
+function ctrl_c() {
+  rm -rf $TMP
+}
+
 function run() {
   git clone git@github.com:xmtp/xmtp-js.git $TMP/xmtp-js
 
@@ -22,7 +27,7 @@ function run() {
   nix build .#bindings_wasm
 
   rm -rf $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
-  cp -r result/dist $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings
+  cp --no-preserve=ownership -r result/dist $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings/
 
   $YARN --cwd $TMP/xmtp-js/sdks/browser-sdk test
 
