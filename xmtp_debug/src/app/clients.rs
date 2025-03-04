@@ -28,7 +28,7 @@ pub async fn temp_client(
     };
 
     let tmp_dir = (*crate::constants::TMPDIR).path();
-    let public = hex::encode(local_wallet.get_address());
+    let public = local_wallet.get_identifier()?;
     let name = format!("{public}:{}.db3", u64::from(network));
 
     new_client_inner(
@@ -61,7 +61,8 @@ async fn new_client_inner(
     let api = network.connect().await?;
 
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce)?;
+    let ident = wallet.get_identifier()?;
+    let inbox_id = ident.inbox_id(nonce)?;
 
     let dir = if let Some(p) = db_path {
         p
@@ -73,7 +74,7 @@ async fn new_client_inner(
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
-        wallet.get_address(),
+        wallet.get_identifier()?,
         nonce,
         None,
     ))
@@ -97,10 +98,11 @@ async fn new_client_inner(
 
 pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) -> Result<()> {
     let signature_request = client.context().signature_request();
+    let ident = owner.get_identifier()?;
 
     trace!(
         inbox_id = client.inbox_id(),
-        address = owner.get_address(),
+        ident = format!("{ident:?}"),
         installation_id = hex::encode(client.installation_public_key()),
         "registering client"
     );
@@ -114,7 +116,7 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
 
         client.register_identity(req).await?;
     } else {
-        warn!(address = owner.get_address(), "Signature request empty!");
+        warn!(ident = format!("{ident:?}"), "Signature request empty!");
     }
 
     Ok(())

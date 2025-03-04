@@ -440,7 +440,10 @@ impl XmtpIdentityClient for ClientV4 {
             requests: request
                 .requests
                 .into_iter()
-                .map(|r| get_inbox_ids_request::Request { address: r.address })
+                .map(|r| get_inbox_ids_request::Request {
+                    identifier: r.identifier,
+                    identifier_kind: r.identifier_kind,
+                })
                 .collect(),
         };
 
@@ -452,7 +455,8 @@ impl XmtpIdentityClient for ClientV4 {
                     .responses
                     .into_iter()
                     .map(|r| get_inbox_ids_response::Response {
-                        address: r.address,
+                        identifier: r.identifier,
+                        identifier_kind: r.identifier_kind,
                         inbox_id: r.inbox_id,
                     })
                     .collect(),

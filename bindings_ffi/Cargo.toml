@@ -9,6 +9,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 futures.workspace = true
+hex.workspace = true
 parking_lot.workspace = true
 prost.workspace = true
 thiserror.workspace = true

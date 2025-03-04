@@ -1,10 +1,10 @@
 use crate::utils::test::{TestClient as TestApiClient, HISTORY_SYNC_URL};
 use crate::{client::Client, identity::IdentityStrategy};
 use ethers::signers::LocalWallet;
+use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
-        generate_inbox_id,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     },
     InboxOwner,
@@ -19,7 +19,8 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 
     let nonce = 1;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
-    let inbox_id = generate_inbox_id(&wallet.get_address(), &nonce).unwrap();
+    let ident = wallet.public_identifier();
+    let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let dev = std::env::var("DEV_GRPC");
     let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
@@ -34,7 +35,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
-        wallet.get_address(),
+        wallet.public_identifier(),
         nonce,
         None,
     ));

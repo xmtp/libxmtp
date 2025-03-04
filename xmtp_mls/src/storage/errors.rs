@@ -50,6 +50,8 @@ pub enum StorageError {
     DbDeserialize,
     #[error("failed to serialize for db")]
     DbSerialize,
+    #[error(transparent)]
+    MissingRequired(#[from] MissingRequired),
 }
 
 #[derive(Error, Debug)]
@@ -83,6 +85,12 @@ pub enum NotFound {
     SyncGroup(InstallationId),
     #[error("MLS Group Not Found")]
     MlsGroup,
+}
+
+#[derive(Error, Debug)]
+pub enum MissingRequired {
+    #[error("Identifier kind is required when entity type is Identity")]
+    IdentifierKind,
 }
 
 #[derive(Error, Debug)]

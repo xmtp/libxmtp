@@ -1,3 +1,7 @@
+#!/bin/bash
+
+BRANCH=${PROTO_BRANCH:-main}
+
 pushd xmtp_proto > /dev/null
 if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
     if ! cargo install protoc-gen-prost-crate; then
@@ -5,8 +9,7 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
         exit 1
     fi
 fi
-
-if ! buf generate https://github.com/xmtp/proto.git#branch=main,subdir=proto; then
+if ! buf generate "https://github.com/xmtp/proto.git#branch=${BRANCH},subdir=proto"; then
     echo "Failed to generate protobuf definitions"
     exit 1
 fi

@@ -71,4 +71,3 @@ unzip -o LibXMTPKotlinFFI.zip
 cd ../../..
 
 cp -r $BINDINGS_PATH/src/uniffi/$PROJECT_NAME/jniLibs/* ~/XMTP/xmtp-android/library/src/main/jniLibs
-

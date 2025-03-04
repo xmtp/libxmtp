@@ -38,7 +38,6 @@ impl From<ConsentState> for XmtpConsentState {
 pub enum ConsentEntityType {
   GroupId,
   InboxId,
-  Address,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -46,7 +45,6 @@ impl From<ConsentEntityType> for XmtpConsentType {
     match entity_type {
       ConsentEntityType::GroupId => XmtpConsentType::ConversationId,
       ConsentEntityType::InboxId => XmtpConsentType::InboxId,
-      ConsentEntityType::Address => XmtpConsentType::Address,
     }
   }
 }

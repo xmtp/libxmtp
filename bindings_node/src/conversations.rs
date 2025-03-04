@@ -19,6 +19,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::consent_state::{Consent, ConsentState};
+use crate::identity::{Identifier, IdentityExt};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -251,7 +252,7 @@ impl Conversations {
   #[napi]
   pub async fn create_group(
     &self,
-    account_addresses: Vec<String>,
+    account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -296,7 +297,7 @@ impl Conversations {
       _ => None,
     };
 
-    let convo = if account_addresses.is_empty() {
+    let convo = if account_identities.is_empty() {
       let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
@@ -309,7 +310,11 @@ impl Conversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
+        .create_group_with_members(
+          &account_identities.to_internal()?,
+          group_permissions,
+          metadata_options,
+        )
         .await
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
     };
@@ -389,13 +394,13 @@ impl Conversations {
   #[napi(js_name = "createDm")]
   pub async fn find_or_create_dm(
     &self,
-    account_address: String,
+    account_identity: Identifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation> {
     let convo = self
       .inner_client
       .find_or_create_dm(
-        account_address,
+        account_identity.try_into()?,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await
