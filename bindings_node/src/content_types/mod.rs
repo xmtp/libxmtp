@@ -1,6 +1,7 @@
 use napi_derive::napi;
 use xmtp_mls::storage::group_message::ContentType as XmtpContentType;
 
+pub mod multi_remote_attachment;
 pub mod reaction;
 
 #[napi]
