@@ -19,7 +19,7 @@ use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{IdentityExt, Identifier};
+use crate::identity::{Identifier, IdentityExt};
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;

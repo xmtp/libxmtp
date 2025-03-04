@@ -1,5 +1,5 @@
 use crate::consent_state::ConsentState;
-use crate::identity::{IdentityExt, Identifier};
+use crate::identity::{Identifier, IdentityExt};
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};

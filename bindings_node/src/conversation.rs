@@ -21,7 +21,7 @@ use crate::{
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
-  identity::{IdentityExt, Identifier},
+  identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
