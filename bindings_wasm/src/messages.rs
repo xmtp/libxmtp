@@ -3,7 +3,7 @@ use prost::Message as ProstMessage;
 use wasm_bindgen::prelude::wasm_bindgen;
 use xmtp_mls::storage::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
-  SortDirection as XmtpSortDirection, StoredGroupMessage,
+  SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
@@ -189,6 +189,26 @@ impl From<StoredGroupMessage> for Message {
       content,
       kind: msg.kind.into(),
       delivery_status: msg.delivery_status.into(),
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct MessageWithReactions {
+  pub message: Message,
+  pub reactions: Vec<Message>,
+}
+
+impl From<StoredGroupMessageWithReactions> for MessageWithReactions {
+  fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
+    Self {
+      message: msg_with_reactions.message.into(),
+      reactions: msg_with_reactions
+        .reactions
+        .into_iter()
+        .map(|reaction| reaction.into())
+        .collect(),
     }
   }
 }
