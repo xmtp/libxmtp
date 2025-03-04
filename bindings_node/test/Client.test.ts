@@ -42,7 +42,8 @@ describe('Client', () => {
         identifierKind: PublicIdentifierKind.Ethereum,
       },
     ])
-    expect(canMessage).toEqual([true])
+
+    expect(canMessage).toEqual({ [user.account.address.toLowerCase()]: true })
   })
 
   it('should find an inbox ID from an address', async () => {

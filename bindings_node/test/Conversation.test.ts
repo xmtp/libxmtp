@@ -592,6 +592,8 @@ describe.concurrent('Conversation', () => {
     await conversation.send(encodeTextMessage('gm'))
     await conversation.send(encodeTextMessage('gm2'))
 
+    await sleep(500)
+
     // verify that the messages are sent
     expect((await conversation.findMessages()).length).toBe(3)
 
