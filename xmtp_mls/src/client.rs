@@ -305,7 +305,7 @@ where
         self.history_sync_url.as_ref()
     }
 
-    /// Calls the server to look up the `inbox_id` associated with a given address
+    /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
