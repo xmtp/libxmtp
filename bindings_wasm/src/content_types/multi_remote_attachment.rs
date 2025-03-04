@@ -27,6 +27,7 @@ pub struct RemoteAttachmentInfo {
 #[wasm_bindgen]
 impl RemoteAttachmentInfo {
   #[wasm_bindgen(constructor)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     secret: Uint8Array,
     #[wasm_bindgen(js_name = "contentDigest")] content_digest: String,
