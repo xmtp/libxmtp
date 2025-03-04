@@ -51,7 +51,13 @@ async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
-diesel_migrations.workspace = true
+diesel = { workspace = true, features = [
+  "r2d2",
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
+diesel_migrations = { workspace = true, features = ["sqlite"] }
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
@@ -115,12 +121,6 @@ tokio = { workspace = true, features = [
   "rt-multi-thread",
 ] }
 chrono = { workspace = true, features = ["clock"] }
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-] }
 dyn-clone.workspace = true
 libsqlite3-sys = { workspace = true }
 openmls.workspace = true
@@ -131,21 +131,18 @@ tokio-util = { version = "0.7", default-features = false, features = [
 ] }
 xmtp_api_grpc = { workspace = true, optional = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-chrono = { workspace = true, features = ["wasmbind"] }
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
+  "bundled",
 ] }
+
+chrono = { workspace = true, features = ["wasmbind"] }
 getrandom = { workspace = true, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
-sqlite-web = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
-
-
 [dev-dependencies]
 anyhow.workspace = true
 const_format.workspace = true
@@ -178,7 +175,6 @@ xmtp_api_http = { workspace = true, features = ["test-utils"] }
 console_error_panic_hook = { version = "0.1" }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
-sqlite-web = { workspace = true, features = ["unsafe-debug-query", "r2d2"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true

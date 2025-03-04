@@ -1,0 +1,42 @@
+#!/bin/bash
+set -eou pipefail
+
+TMP=$(mktemp -d 2>/dev/null || mktemp -d -t 'test-browser-tmp')
+CARGO="nix develop -i.#wasmBuild --command cargo"
+WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
+WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
+PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')
+YARN="nix develop -i ${WORKSPACE_PATH}#js --command yarn"
+
+function run() {
+  git clone git@github.com:xmtp/xmtp-js.git $TMP/xmtp-js
+
+  cd $TMP/xmtp-js
+  $YARN install
+  $YARN build
+  $YARN set resolution "playwright@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
+  $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
+
+  cd $WORKSPACE_PATH
+
+  nix build .#bindings_wasm
+
+  rm -rf $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
+  cp -r result/dist $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings
+
+  $YARN --cwd $TMP/xmtp-js/sdks/browser-sdk test
+
+  return 0
+}
+
+run
+RUN_STATUS=$?
+
+rm -rf $TMP
+
+# Check if run was successful
+if [ $RUN_STATUS -eq 0 ]; then
+  echo "Tests completed successfully, cleaning up temporary directory"
+else
+  echo "Tests failed with exit code $RUN_STATUS"
+fi

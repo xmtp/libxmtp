@@ -39,7 +39,7 @@ impl Endpoint for PublishClientEnvelopes {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::d14n::PublishClientEnvelopes;
     use xmtp_api_grpc::grpc_client::GrpcClient;
