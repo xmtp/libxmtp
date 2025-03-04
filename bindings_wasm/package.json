@@ -24,10 +24,11 @@
     "directory": "bindings_wasm"
   },
   "scripts": {
-    "build": "yarn clean && yarn build:web",
+    "build": "yarn clean && yarn build:web && yarn clean:release",
     "build:web": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals\" wasm-pack build --target web --out-dir ./dist --no-pack --release",
     "check:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --target wasm32-unknown-unknown",
     "clean": "rm -rf ./dist",
+    "clean:release": "rm ./dist/.gitignore",
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
