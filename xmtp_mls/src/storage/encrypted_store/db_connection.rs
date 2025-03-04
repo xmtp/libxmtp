@@ -15,7 +15,7 @@ use super::XmtpDb;
 pub type DbConnection = DbConnectionPrivate<super::RawDbConnection>;
 
 #[cfg(target_arch = "wasm32")]
-pub type DbConnection = DbConnectionPrivate<sqlite_web::connection::WasmSqliteConnection>;
+pub type DbConnection = DbConnectionPrivate<diesel::prelude::SqliteConnection>;
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection

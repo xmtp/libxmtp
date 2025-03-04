@@ -36,7 +36,7 @@ impl Endpoint for SendWelcomeMessages {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::SendWelcomeMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;

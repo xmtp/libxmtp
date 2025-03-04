@@ -22,11 +22,27 @@ impl DbConnection {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+static SQLITE_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 /// Initialize the SQLite WebAssembly Library
 #[cfg(target_arch = "wasm32")]
 pub async fn init_sqlite() {
-    sqlite_web::init_sqlite().await;
+    use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
+    SQLITE_INIT
+        .get_or_init(|| async {
+            let cfg = OpfsSAHPoolCfg {
+                vfs_name: "opfs-libxmtp".to_string(),
+                directory: ".opfs-libxmtp-metadata".to_string(),
+                clear_on_init: false,
+                initial_capacity: 6,
+            };
+            sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true)
+                .await
+                .unwrap();
+        })
+        .await;
 }
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn init_sqlite() {}
 

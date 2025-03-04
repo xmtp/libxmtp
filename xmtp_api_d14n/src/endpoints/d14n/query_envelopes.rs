@@ -81,7 +81,7 @@ impl Endpoint for QueryEnvelopes {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::d14n::QueryEnvelopes;
     use xmtp_api_grpc::grpc_client::GrpcClient;
@@ -98,7 +98,8 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_get_inbox_ids() {
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
