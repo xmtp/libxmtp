@@ -302,7 +302,7 @@ where
         Ok(signature_request)
     }
 
-    /// Revoke the given wallets from the association state for the client's inbox
+    /// Revoke the given identities from the association state for the client's inbox
     pub async fn revoke_identities(
         &self,
         identities_to_revoke: Vec<PublicIdentifier>,
