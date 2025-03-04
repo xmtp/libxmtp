@@ -70,7 +70,6 @@ impl<A, V> ClientBuilder<A, V> {
                 StorageOption::Persistent(tmpdb),
                 EncryptedMessageStore::generate_enc_key(),
             )
-            .await
             .unwrap(),
         )
     }

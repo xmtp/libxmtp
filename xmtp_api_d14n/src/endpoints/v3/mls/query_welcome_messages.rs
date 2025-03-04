@@ -42,7 +42,7 @@ impl Endpoint for QueryWelcomeMessages {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::QueryWelcomeMessages;
     use xmtp_api_grpc::grpc_client::GrpcClient;

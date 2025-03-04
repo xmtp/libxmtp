@@ -77,38 +77,28 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default)]
 pub struct ListConversationsOptions {
-  #[wasm_bindgen(js_name = allowedStates)]
-  pub allowed_states: Option<Vec<GroupMembershipState>>,
   #[wasm_bindgen(js_name = consentStates)]
   pub consent_states: Option<Vec<ConsentState>>,
-  #[wasm_bindgen(js_name = conversationType)]
-  pub conversation_type: Option<ConversationType>,
   #[wasm_bindgen(js_name = createdAfterNs)]
   pub created_after_ns: Option<i64>,
   #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = includeDuplicateDms)]
   pub include_duplicate_dms: bool,
-  #[wasm_bindgen(js_name = includeSyncGroups)]
-  pub include_sync_groups: bool,
   pub limit: Option<i64>,
 }
 
 impl From<ListConversationsOptions> for GroupQueryArgs {
   fn from(opts: ListConversationsOptions) -> GroupQueryArgs {
     GroupQueryArgs {
-      allowed_states: opts
-        .allowed_states
-        .map(|states| states.into_iter().map(From::from).collect()),
       consent_states: opts
         .consent_states
         .map(|states| states.into_iter().map(From::from).collect()),
-      conversation_type: opts.conversation_type.map(Into::into),
       created_after_ns: opts.created_after_ns,
       created_before_ns: opts.created_before_ns,
       include_duplicate_dms: opts.include_duplicate_dms,
-      include_sync_groups: opts.include_sync_groups,
       limit: opts.limit,
+      ..Default::default()
     }
   }
 }
@@ -116,25 +106,18 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
 #[wasm_bindgen]
 impl ListConversationsOptions {
   #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
   pub fn new(
-    allowed_states: Option<Vec<GroupMembershipState>>,
     consent_states: Option<Vec<ConsentState>>,
-    conversation_type: Option<ConversationType>,
     created_after_ns: Option<i64>,
     created_before_ns: Option<i64>,
     include_duplicate_dms: bool,
-    include_sync_groups: bool,
     limit: Option<i64>,
   ) -> Self {
     Self {
-      allowed_states,
       consent_states,
-      conversation_type,
       created_after_ns,
       created_before_ns,
       include_duplicate_dms,
-      include_sync_groups,
       limit,
     }
   }
@@ -573,18 +556,43 @@ impl Conversations {
     &self,
     opts: Option<ListConversationsOptions>,
   ) -> Result<js_sys::Array, JsError> {
-    self.list(Some(ListConversationsOptions {
-      conversation_type: Some(ConversationType::Group),
-      ..opts.unwrap_or_default()
-    }))
+    let convo_list: js_sys::Array = self
+      .inner_client
+      .list_conversations(
+        GroupQueryArgs::from(opts.unwrap_or_default())
+          .conversation_type(XmtpConversationType::Group),
+      )
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .into_iter()
+      .map(|group| {
+        JsValue::from(ConversationListItem::new(
+          group.group.into(),
+          group.last_message.map(|m| m.into()),
+        ))
+      })
+      .collect();
+
+    Ok(convo_list)
   }
 
   #[wasm_bindgen(js_name = listDms)]
   pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
-    self.list(Some(ListConversationsOptions {
-      conversation_type: Some(ConversationType::Dm),
-      ..opts.unwrap_or_default()
-    }))
+    let convo_list: js_sys::Array = self
+      .inner_client
+      .list_conversations(
+        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
+      )
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .into_iter()
+      .map(|group| {
+        JsValue::from(ConversationListItem::new(
+          group.group.into(),
+          group.last_message.map(|m| m.into()),
+        ))
+      })
+      .collect();
+
+    Ok(convo_list)
   }
 
   #[wasm_bindgen(js_name = getHmacKeys)]

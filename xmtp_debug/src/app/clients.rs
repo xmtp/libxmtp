@@ -3,6 +3,7 @@
 use super::*;
 use crate::app::types::*;
 use color_eyre::eyre;
+use xmtp_id::associations::{test_utils::WalletTestExt, PublicIdentifier};
 
 pub async fn new_registered_client(
     network: args::BackendOpts,
@@ -72,22 +73,24 @@ async fn new_client_inner(
         dir.join(db_name)
     };
 
-    let client = xmtp_mls::Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
-        .api_client(api)
-        .with_remote_verifier()?
-        .store(
-            EncryptedMessageStore::new(
-                StorageOption::Persistent(
-                    dir.into_os_string()
-                        .into_string()
-                        .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
-                ),
-                [0u8; 32],
-            )
-            .await?,
-        )
-        .build()
-        .await?;
+    let client = xmtp_mls::Client::builder(IdentityStrategy::new(
+        inbox_id,
+        wallet.get_identifier()?,
+        nonce,
+        None,
+    ))
+    .api_client(api)
+    .with_remote_verifier()?
+    .store(EncryptedMessageStore::new(
+        StorageOption::Persistent(
+            dir.into_os_string()
+                .into_string()
+                .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
+        ),
+        [0u8; 32],
+    )?)
+    .build()
+    .await?;
 
     register_client(&client, wallet).await?;
 
@@ -130,8 +133,7 @@ async fn existing_client_inner(
     let store = EncryptedMessageStore::new(
         StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
         [0u8; 32],
-    )
-    .await;
+    );
     if let Err(e) = &store {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }

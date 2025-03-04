@@ -46,7 +46,7 @@ impl Endpoint for GetInboxIds {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::v3::identity::GetInboxIds;
     use xmtp_api_grpc::grpc_client::GrpcClient;

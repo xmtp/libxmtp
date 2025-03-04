@@ -10,8 +10,6 @@ use diesel::sql_types::Integer;
 use diesel::{prelude::*, serialize};
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-#[cfg(target_arch = "wasm32")]
-use sqlite_web::dsl::RunQueryDsl;
 use std::collections::HashMap;
 use xmtp_id::associations::PublicIdentifier;
 use xmtp_id::{InboxId, WalletAddress};

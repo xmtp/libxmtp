@@ -363,14 +363,7 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let timeout = if cfg!(target_arch = "wasm32") {
-            15
-        } else if cfg!(feature = "http-api") {
-            10
-        } else {
-            5
-        };
-
+        let timeout = Duration::from_secs(10);
         loop {
             tokio::select! {
                 Some(msg) = stream.next() => {
@@ -381,7 +374,7 @@ mod tests {
                         }
                     }
                 },
-                _ = xmtp_common::time::sleep(Duration::from_secs(timeout)) => break
+                _ = xmtp_common::time::sleep(timeout) => break
 
             }
         }

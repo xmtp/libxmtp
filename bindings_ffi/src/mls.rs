@@ -139,9 +139,9 @@ pub async fn create_client(
             let key: EncryptionKey = key
                 .try_into()
                 .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            EncryptedMessageStore::new(storage_option, key).await?
+            EncryptedMessageStore::new(storage_option, key)?
         }
-        None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
+        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(

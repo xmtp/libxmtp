@@ -106,7 +106,6 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
-    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_can_deserialize_between_versions() {
         let consent_record = StoredConsentRecord {
             entity: "hello there".to_string(),
@@ -124,7 +123,6 @@ mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
-    #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_hmac_sync() {
         let wallet = generate_local_wallet();
         let amal_a =
