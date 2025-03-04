@@ -1,6 +1,8 @@
 use napi_derive::napi;
 use xmtp_mls::storage::group_message::ContentType as XmtpContentType;
 
+pub mod reaction;
+
 #[napi]
 pub enum ContentType {
   Unknown,
