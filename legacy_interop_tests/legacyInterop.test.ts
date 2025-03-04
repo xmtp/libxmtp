@@ -113,8 +113,7 @@ test("Can communicate in a DM", async () => {
   expect(msgs2Content).toEqual(["hey", "ho"]);
 });
 
-// This test will probably go away when the legacy bindings are updated.
-// We just want to ensure that inboxId generation has not changed during the identity migration.
+// Ensure inboxId generation did not change between versions
 test("Produces the same inboxId", async () => {
   let key = generatePrivateKey();
   let account = privateKeyToAccount(key);
