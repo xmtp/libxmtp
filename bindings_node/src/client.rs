@@ -1,5 +1,4 @@
 use crate::conversations::Conversations;
-use crate::identity::{IdentityExt, PublicIdentifier};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -26,7 +25,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
-  pub account_identifier: PublicIdentifier,
+  pub account_address: String,
 }
 
 impl Client {
@@ -92,6 +91,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
           .json()
           .flatten_event(true)
           .with_level(true)
+          .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
           .with_target(true);
 
         tracing_subscriber::registry().with(filter).with(fmt).init();
@@ -122,13 +122,11 @@ pub async fn create_client(
   is_secure: bool,
   db_path: Option<String>,
   inbox_id: String,
-  account_identifier: PublicIdentifier,
+  account_address: String,
   encryption_key: Option<Uint8Array>,
   history_sync_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
-  let root_identifier = account_identifier.clone();
-
   init_logging(log_options.unwrap_or_default())?;
   let api_client = TonicApiClient::create(&host, is_secure)
     .await
@@ -154,10 +152,9 @@ pub async fn create_client(
       .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
   };
 
-  let internal_account_identifier = account_identifier.clone().try_into()?;
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
-    internal_account_identifier,
+    account_address.clone().to_lowercase(),
     // this is a temporary solution
     1,
     None,
@@ -186,7 +183,7 @@ pub async fn create_client(
 
   Ok(Client {
     inner_client: Arc::new(xmtp_client),
-    account_identifier: root_identifier,
+    account_address,
     signature_requests: Arc::new(Mutex::new(HashMap::new())),
   })
 }
@@ -214,21 +211,14 @@ impl Client {
   }
 
   #[napi]
-  /// The resulting vec will be the same length as the input and should be zipped for the results.
-  pub async fn can_message(&self, account_identities: Vec<PublicIdentifier>) -> Result<Vec<bool>> {
-    let ident = account_identities.to_internal()?;
-    let mut results = self
+  pub async fn can_message(&self, account_addresses: Vec<String>) -> Result<HashMap<String, bool>> {
+    let results: HashMap<String, bool> = self
       .inner_client
-      .can_message(&ident)
+      .can_message(&account_addresses)
       .await
       .map_err(ErrorWrapper::from)?;
 
-    let result = ident
-      .iter()
-      .map(|ident| results.remove(ident).unwrap_or(false))
-      .collect();
-
-    Ok(result)
+    Ok(results)
   }
 
   #[napi]
@@ -286,19 +276,15 @@ impl Client {
   }
 
   #[napi]
-  pub async fn find_inbox_id_by_identifier(
-    &self,
-    identifier: PublicIdentifier,
-  ) -> Result<Option<String>> {
+  pub async fn find_inbox_id_by_address(&self, address: String) -> Result<Option<String>> {
     let conn = self
       .inner_client()
       .store()
       .conn()
       .map_err(ErrorWrapper::from)?;
-
     let inbox_id = self
       .inner_client
-      .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
+      .find_inbox_id_from_address(&conn, address)
       .await
       .map_err(ErrorWrapper::from)?;
 

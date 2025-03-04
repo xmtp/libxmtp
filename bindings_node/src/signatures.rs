@@ -1,10 +1,8 @@
 use crate::client::Client;
-use crate::identity::{PublicIdentifier, PublicIdentifierKind};
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
-use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context, AccountId,
@@ -59,15 +57,10 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_identifier_signature_text(
-    &self,
-    new_identifier: PublicIdentifier,
-  ) -> Result<String> {
-    let ident = new_identifier.try_into()?;
-
+  pub async fn add_wallet_signature_text(&self, new_wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client()
-      .associate_identity(ident)
+      .associate_wallet(new_wallet_address.to_lowercase())
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
@@ -79,15 +72,10 @@ impl Client {
   }
 
   #[napi]
-  pub async fn revoke_identifier_signature_text(
-    &self,
-    identifier: PublicIdentifier,
-  ) -> Result<String> {
-    let ident = identifier.try_into()?;
-
+  pub async fn revoke_wallet_signature_text(&self, wallet_address: String) -> Result<String> {
     let signature_request = self
       .inner_client()
-      .revoke_identities(vec![ident])
+      .revoke_wallets(vec![wallet_address.to_lowercase()])
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
@@ -178,15 +166,10 @@ impl Client {
     block_number: Option<BigInt>,
   ) -> Result<()> {
     let mut signature_requests = self.signature_requests().lock().await;
-    let PublicIdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
-      return Err(Error::from_reason(
-        "Account identifier must be an ethereum address.",
-      ));
-    };
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident: XmtpPublicIdentifier = self.account_identifier.clone().try_into()?;
-      let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
+      let address = self.account_address.clone();
+      let account_id = AccountId::new_evm(chain_id.get_u64().1, address);
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.deref().to_vec(),
         account_id,

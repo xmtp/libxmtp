@@ -7,10 +7,8 @@ import { sepolia } from 'viem/chains'
 import {
   createClient as create,
   generateInboxId,
-  getInboxIdForIdentifier,
+  getInboxIdForAddress,
   LogLevel,
-  PublicIdentifier,
-  PublicIdentifierKind,
   SignatureRequestType,
 } from '../dist/index'
 
@@ -37,23 +35,14 @@ export type User = ReturnType<typeof createUser>
 export const createClient = async (user: User) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
-      identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
-    })) ||
-    generateInboxId({
-      identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
-    })
+    (await getInboxIdForAddress(TEST_API_URL, false, user.account.address)) ||
+    generateInboxId(user.account.address)
   return create(
     TEST_API_URL,
     false,
     dbPath,
     inboxId,
-    {
-      identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
-    },
+    user.account.address,
     undefined,
     undefined,
     { level: LogLevel.off }

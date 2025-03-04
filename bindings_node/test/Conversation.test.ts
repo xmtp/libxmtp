@@ -6,7 +6,6 @@ import {
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-  PublicIdentifierKind,
 } from '@xmtp/node-bindings'
 import { describe, expect, it } from 'vitest'
 import {
@@ -15,7 +14,6 @@ import {
   encodeTextMessage,
   sleep,
 } from '@test/helpers'
-import { createOldRegisteredClient } from './oldHelpers'
 
 describe.concurrent('Conversation', () => {
   it('should update conversation name', async () => {
@@ -23,12 +21,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
     const newName = 'foo'
     await conversation.updateGroupName(newName)
     expect(conversation.groupName()).toBe(newName)
@@ -53,12 +48,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
     const imageUrl = 'https://foo/bar.jpg'
     await conversation.updateGroupImageUrlSquare(imageUrl)
     expect(conversation.groupImageUrlSquare()).toBe(imageUrl)
@@ -83,12 +75,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
     const newDescription = 'foo'
     await conversation.updateGroupDescription(newDescription)
     expect(conversation.groupDescription()).toBe(newDescription)
@@ -115,12 +104,9 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     const members = await conversation.listMembers()
 
@@ -129,12 +115,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembers([
-      {
-        identifier: user3.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    await conversation.addMembers([user3.account.address])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -144,12 +125,7 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds2).toContain(client2.inboxId())
     expect(memberInboxIds2).toContain(client3.inboxId())
 
-    await conversation.removeMembers([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    await conversation.removeMembers([user2.account.address])
 
     const members3 = await conversation.listMembers()
     expect(members3.length).toBe(2)
@@ -167,12 +143,9 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     const members = await conversation.listMembers()
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -206,12 +179,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     await conversation.send(encodeTextMessage('gm'))
 
@@ -236,12 +206,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     conversation.sendOptimistic(encodeTextMessage('gm'))
 
@@ -268,35 +235,14 @@ describe.concurrent('Conversation', () => {
     expect(messages4.length).toBe(1)
   })
 
-  it('should talk between versions', async () => {
-    let user1 = createUser()
-    let user2 = createUser()
-
-    let client1 = await createRegisteredClient(user1)
-    let client2 = await createOldRegisteredClient(user2)
-
-    let dm1 = await client1.conversations().createDm({
-      identifier: client2.accountAddress,
-      identifierKind: PublicIdentifierKind.Ethereum,
-    })
-
-    await dm1.send(encodeTextMessage('hey'))
-
-    let dm2 = await client2.conversations().createDm(user1.account.address)
-    await dm2.send(encodeTextMessage('ho'))
-  })
-
   it('should stream messages', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     await client2.conversations().sync()
     const conversations = client2.conversations().list()
@@ -319,12 +265,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
     expect(conversation.superAdminList().length).toBe(1)
@@ -348,12 +291,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
     expect(conversation.isSuperAdmin(client2.inboxId())).toBe(false)
@@ -379,17 +319,13 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const group = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
     expect(group).toBeDefined()
-    const dmGroup = await client1.conversations().createDm({
-      identifier: user3.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
-    })
+    const dmGroup = await client1
+      .conversations()
+      .createDm(user3.account.address)
     expect(dmGroup).toBeDefined()
 
     await client2.conversations().sync()
@@ -412,12 +348,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const conversation = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address])
 
     expect(conversation.groupPermissions().policySet()).toEqual({
       addMemberPolicy: 0,
@@ -493,17 +426,11 @@ describe.concurrent('Conversation', () => {
     }
 
     // create a group with message disappearing settings
-    const conversation = await client1.conversations().createGroup(
-      [
-        {
-          identifier: user2.account.address,
-          identifierKind: PublicIdentifierKind.Ethereum,
-        },
-      ],
-      {
+    const conversation = await client1
+      .conversations()
+      .createGroup([user2.account.address], {
         messageDisappearingSettings,
-      }
-    )
+      })
 
     // verify that the message disappearing settings are set and enabled
     expect(conversation.messageDisappearingSettings()).toEqual({
@@ -590,15 +517,11 @@ describe.concurrent('Conversation', () => {
     }
 
     // create a group with message disappearing settings
-    const conversation = await client1.conversations().createDm(
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-      {
+    const conversation = await client1
+      .conversations()
+      .createDm(user2.account.address, {
         messageDisappearingSettings,
-      }
-    )
+      })
 
     // verify that the message disappearing settings are set and enabled
     expect(conversation.messageDisappearingSettings()).toEqual({
@@ -677,12 +600,9 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1.conversations().createGroup([
-      {
-        identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
-      },
-    ])
+    const group = await client1
+      .conversations()
+      .createGroup([user2.account.address])
     const hmacKeys = group.getHmacKeys()
     expect(hmacKeys).toBeDefined()
     expect(hmacKeys.length).toBe(3)
