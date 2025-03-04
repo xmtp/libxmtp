@@ -982,7 +982,7 @@ where
     /// Check whether an account_identifier has a key package registered on the network
     ///
     /// Arguments:
-    /// - account_identifier: a list of account addresses to check
+    /// - account_identifier: a list of account identifiers to check
     ///
     /// Returns:
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
