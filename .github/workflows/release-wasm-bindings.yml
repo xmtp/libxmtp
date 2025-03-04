@@ -49,10 +49,14 @@ jobs:
         run: |
           source ./../emsdk/emsdk_env.sh
           yarn build
+      - name: list dist/ dir
+        working-directory: bindings_wasm
+        run: ls -la ./dist/
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_wasm
+          dry-run: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
