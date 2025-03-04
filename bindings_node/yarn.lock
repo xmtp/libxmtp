@@ -1950,7 +1950,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/node-bindings@workspace:.":
+"@xmtp/node-bindings@workspace:., legacy@npm:@xmtp/node-bindings@0.0.38, old@npm:@xmtp/node-bindings@0.0.38":
   version: 0.0.0-use.local
   resolution: "@xmtp/node-bindings@workspace:."
   dependencies:
@@ -1959,6 +1959,8 @@ __metadata:
     "@types/node": "npm:^22.13.0"
     "@types/uuid": "npm:^10.0.0"
     fast-glob: "npm:^3.3.3"
+    legacy: "npm:@xmtp/node-bindings@0.0.38"
+    old: "npm:@xmtp/node-bindings@0.0.38"
     prettier: "npm:^3.5.0"
     prettier-plugin-packagejson: "npm:^2.5.8"
     tsx: "npm:^4.19.3"

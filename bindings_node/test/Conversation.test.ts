@@ -15,6 +15,7 @@ import {
   encodeTextMessage,
   sleep,
 } from '@test/helpers'
+import { createOldRegisteredClient } from './oldHelpers'
 
 describe.concurrent('Conversation', () => {
   it('should update conversation name', async () => {
@@ -265,6 +266,24 @@ describe.concurrent('Conversation', () => {
 
     const messages4 = await conversation2.findMessages()
     expect(messages4.length).toBe(1)
+  })
+
+  it('should talk between versions', async () => {
+    let user1 = createUser()
+    let user2 = createUser()
+
+    let client1 = await createRegisteredClient(user1)
+    let client2 = await createOldRegisteredClient(user2)
+
+    let dm1 = await client1.conversations().createDm({
+      identifier: client2.accountAddress,
+      identifierKind: PublicIdentifierKind.Ethereum,
+    })
+
+    await dm1.send(encodeTextMessage('hey'))
+
+    let dm2 = await client2.conversations().createDm(user1.account.address)
+    await dm2.send(encodeTextMessage('ho'))
   })
 
   it('should stream messages', async () => {

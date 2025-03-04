@@ -13,6 +13,9 @@ import {
   PublicIdentifierKind,
   SignatureRequestType,
 } from "current-bindings";
+import { Conversation } from "current-bindings";
+import { TextDecoder } from "node:util";
+import { GroupMessageKind } from "current-bindings";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const TEST_API_URL = "http://localhost:5556";
@@ -91,6 +94,20 @@ export const encodeTextMessage = (text: string) => {
     },
     content: new TextEncoder().encode(text),
   };
+};
+
+export const decodeGroupMessages = async (conversation: Conversation) => {
+  let msgs = await conversation.findMessages();
+  let result = [];
+  for (let msg of msgs) {
+    if (msg.kind != GroupMessageKind.Application) {
+      continue;
+    }
+    let content = new TextDecoder().decode(msg.content.content);
+    result.push(content);
+  }
+
+  return result;
 };
 
 export function sleep(ms: number) {
