@@ -1,5 +1,6 @@
 pub mod client;
 pub mod consent_state;
+pub mod content_types;
 pub mod conversation;
 pub mod conversations;
 pub mod encoded_content;
