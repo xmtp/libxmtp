@@ -1,5 +1,14 @@
 # @xmtp/wasm-bindings
 
+## 0.0.17
+
+- Fixed HTTP Stream Deserialization
+- HTTP client uses Protobuf for api calls, except in streams
+- Use OPFS-sahpool as the default VFS
+- Removed `allowed_states`, `conversation_type`, and `include_sync_groups` from
+  `ListConversationsOptions`
+- Refactored `list_dms` and `list_groups` methods
+
 ## 0.0.16
 
 - Added `isMessageDisappearingEnabled` method to `Conversation`
@@ -11,7 +20,8 @@
 
 ## 0.0.15
 
-- Added `consent_states`, `include_sync_groups`, and `include_duplicate_dms` to `ListConversationsOptions`
+- Added `consent_states`, `include_sync_groups`, and `include_duplicate_dms` to
+  `ListConversationsOptions`
 - Added `allowed_states` to `GroupQueryArgs`
 - Refactored `MessageDisappearingSettings` struct
 - Added `consent_states` options to `sync_all_conversations`
@@ -60,7 +70,8 @@
 ## 0.0.6
 
 - Added `installation_id_bytes` to `Client`
-- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and `verify_signed_with_public_key` to `Client`
+- Added `sign_with_installation_key`, `verify_signed_with_installation_key`, and
+  `verify_signed_with_public_key` to `Client`
 
 ## 0.0.5
 
@@ -81,9 +92,11 @@
 ## 0.0.2
 
 - Added sort direction to `WasmListMessagesOptions`
-- Added `allowed_states` and `conversation_type` to `WasmListConversationsOptions`
+- Added `allowed_states` and `conversation_type` to
+  `WasmListConversationsOptions`
 - Added `dm_peer_inbox_id` method to `WasmGroup`
-- Added `create_dm`, `find_dm_by_target_inbox_id`, `list_groups`, and `list_dms` methods to `WasmConversations`
+- Added `create_dm`, `find_dm_by_target_inbox_id`, `list_groups`, and `list_dms`
+  methods to `WasmConversations`
 
 ## 0.0.1
 
