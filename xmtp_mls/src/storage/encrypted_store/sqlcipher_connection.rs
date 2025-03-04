@@ -45,6 +45,15 @@ pub struct EncryptedConnection {
 impl EncryptedConnection {
     /// Creates a file for the salt and stores it
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, StorageError> {
+        Self::inner(key, opts)
+    }
+
+    pub fn reinit(self, opts: &StorageOption) -> Result<Self, StorageError> {
+        let key = self.key;
+        Self::inner(key, opts)
+    }
+
+    fn inner(key: EncryptionKey, opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
         Self::check_for_sqlcipher(opts)?;
 

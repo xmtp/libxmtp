@@ -12,44 +12,14 @@ use std::sync::Arc;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
+pub type PoolBuilder = r2d2::Builder<ConnectionManager>;
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
 
 use super::{sqlcipher_connection::EncryptedConnection, EncryptionKey, StorageOption, XmtpDb};
 
-trait XmtpConnection:
-    ValidatedConnection
-    + CustomizeConnection<SqliteConnection, r2d2::Error>
-    + dyn_clone::DynClone
-    + IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>>
-{
-}
-
-impl<T> XmtpConnection for T where
-    T: ValidatedConnection
-        + CustomizeConnection<SqliteConnection, r2d2::Error>
-        + dyn_clone::DynClone
-        + IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>>
-{
-}
-dyn_clone::clone_trait_object!(XmtpConnection);
-
 pub(crate) trait ValidatedConnection {
     fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
         Ok(())
-    }
-}
-
-// we can remove this once https://github.com/rust-lang/rust/issues/65991
-// is merged, which should be happening soon (next ~2 releases)
-trait IntoSuper<Super: ?Sized> {
-    fn into_super(self: Box<Self>) -> Box<Super>;
-}
-
-impl<T: CustomizeConnection<SqliteConnection, r2d2::Error>>
-    IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>> for T
-{
-    fn into_super(self: Box<Self>) -> Box<dyn CustomizeConnection<SqliteConnection, r2d2::Error>> {
-        self
     }
 }
 
@@ -89,13 +59,54 @@ impl StorageOption {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum ConnectionType {
+    Unencrypted(UnencryptedConnection),
+    Encrypted(EncryptedConnection),
+}
+
+impl ConnectionType {
+    fn reinit(self, opts: &StorageOption) -> Result<Self, StorageError> {
+        Ok(match self {
+            Self::Encrypted(c) => Self::Encrypted(c.reinit(opts)?),
+            Self::Unencrypted(_) => Self::Unencrypted(UnencryptedConnection),
+        })
+    }
+}
+
+impl ValidatedConnection for ConnectionType {
+    fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
+        match self {
+            Self::Unencrypted(u) => u.validate(opts),
+            Self::Encrypted(e) => e.validate(opts),
+        }
+    }
+}
+
+impl CustomizeConnection<SqliteConnection, r2d2::Error> for ConnectionType {
+    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
+        match self {
+            Self::Unencrypted(u) => u.on_acquire(conn),
+            Self::Encrypted(e) => e.on_acquire(conn),
+        }
+    }
+
+    fn on_release(&self, conn: SqliteConnection) {
+        match self {
+            Self::Unencrypted(u) => u.on_release(conn),
+            Self::Encrypted(e) => e.on_release(conn),
+        }
+    }
+}
+
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
-    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
+    pub(super) write_conn: Arc<Mutex<Option<RawDbConnection>>>,
+    // ref to global transaction lock
     transaction_lock: Arc<Mutex<()>>,
-    customizer: Option<Box<dyn XmtpConnection>>,
+    customizer: Arc<Mutex<Option<ConnectionType>>>,
     opts: StorageOption,
 }
 
@@ -106,18 +117,39 @@ impl NativeDb {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         let mut builder = Pool::builder();
+        let customizer = Self::new_customizer(opts, enc_key)?;
+        if let Some(ref c) = customizer {
+            builder = builder.connection_customizer(Box::new(c.clone()));
+        }
+        let (pool, write_conn) = Self::new_pool(opts, builder)?;
 
-        let customizer = if let Some(key) = enc_key {
+        Ok(Self {
+            pool: Arc::new(Some(pool).into()),
+            write_conn: Some(Arc::new(Mutex::new(write_conn))),
+            transaction_lock: Arc::new(Mutex::new(())),
+            customizer: Arc::new(Mutex::new(customizer)),
+            opts: opts.clone(),
+        })
+    }
+
+    fn new_customizer(
+        opts: &StorageOption,
+        enc_key: Option<EncryptionKey>,
+    ) -> Result<Option<ConnectionType>, StorageError> {
+        if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
-            builder = builder.connection_customizer(Box::new(enc_connection.clone()));
-            Some(Box::new(enc_connection) as Box<dyn XmtpConnection>)
+            Ok(Some(ConnectionType::Encrypted(enc_connection)))
         } else if matches!(opts, StorageOption::Persistent(_)) {
-            builder = builder.connection_customizer(Box::new(UnencryptedConnection));
-            Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
+            Ok(Some(ConnectionType::Unencrypted(UnencryptedConnection)))
         } else {
-            None
-        };
+            Ok(None)
+        }
+    }
 
+    fn new_pool(
+        opts: &StorageOption,
+        builder: PoolBuilder,
+    ) -> Result<(Pool, RawDbConnection), StorageError> {
         let pool = match opts {
             StorageOption::Ephemeral => builder
                 .max_size(1)
@@ -130,14 +162,7 @@ impl NativeDb {
         // Take one of the connections and use it as the only writer.
         let mut write_conn = pool.get()?;
         write_conn.batch_execute("PRAGMA query_only = OFF;")?;
-
-        Ok(Self {
-            pool: Arc::new(Some(pool).into()),
-            write_conn: Arc::new(Mutex::new(write_conn)),
-            transaction_lock: Arc::new(Mutex::new(())),
-            customizer,
-            opts: opts.clone(),
-        })
+        Ok((pool, write_conn))
     }
 
     fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
@@ -155,6 +180,15 @@ impl NativeDb {
 
         Ok(pool.get()?)
     }
+
+    fn raw_write_conn(&self) -> Result<Arc<Mutex<RawDbConnection>>, StorageError> {
+        let write_conn = self
+            .write_conn
+            .lock();
+            .as_ref()
+            .ok_or(StorageError::PoolNeedsConnection)?;
+        Ok(write_conn.clone())
+    }
 }
 
 impl XmtpDb for NativeDb {
@@ -169,14 +203,14 @@ impl XmtpDb for NativeDb {
         };
 
         Ok(DbConnectionPrivate::from_arc_mutex(
-            self.write_conn.clone(),
+            self.raw_write_conn()?,
             conn.map(|conn| Arc::new(parking_lot::Mutex::new(conn))),
             self.transaction_lock.clone(),
         ))
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
-        if let Some(c) = &self.customizer {
+        if let Some(c) = &*self.customizer.lock() {
             c.validate(opts)
         } else {
             Ok(())
@@ -185,6 +219,8 @@ impl XmtpDb for NativeDb {
 
     fn release_connection(&self) -> Result<(), StorageError> {
         tracing::warn!("released sqlite database connection");
+        let transaction_lock = self.transaction_lock.lock();
+        let write_conn = self.write_conn.take();
         let mut pool_guard = self.pool.write();
         pool_guard.take();
         Ok(())
@@ -192,24 +228,29 @@ impl XmtpDb for NativeDb {
 
     fn reconnect(&self) -> Result<(), StorageError> {
         tracing::info!("reconnecting sqlite database connection");
-        let mut builder = Pool::builder();
-
-        if let Some(ref opts) = self.customizer {
-            builder = builder.connection_customizer(opts.clone().into_super());
+        {
+            let mut transaction_lock = self.transaction_lock.lock();
+            std::mem::swap(&mut *transaction_lock, &mut ())
         }
 
-        let pool = match self.opts {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
-                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-                .build(ConnectionManager::new(path))?,
-        };
-
-        let mut pool_write = self.pool.write();
-        *pool_write = Some(pool);
-
+        {
+            let mut customizer = self.customizer.lock();
+            if let Some(ref mut old_c) = *customizer {
+                let mut new_c = old_c.clone().reinit(&self.opts)?;
+                std::mem::swap(old_c, &mut new_c);
+            }
+        }
+        let builder = Pool::builder();
+        let (mut new_pool, mut new_write_conn) = Self::new_pool(&self.opts, builder)?;
+        {
+            let mut pool_lock = self.pool.write();
+            *pool_lock = Some(new_pool);
+            // pool_lock.map(|mut p| std::mem::swap(&mut p, &mut new_pool));
+        }
+        {
+            self.write_conn.as_ref().map(|w| *w.lock() = new_write_conn);
+            // std::mem::swap(&mut *write_conn, &mut new_write_conn);
+        }
         Ok(())
     }
 }
