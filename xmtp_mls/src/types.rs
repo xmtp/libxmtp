@@ -2,8 +2,17 @@ pub type Address = String;
 
 use std::fmt;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Hash, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationId([u8; 32]);
+
+impl TryFrom<Vec<u8>> for InstallationId {
+    type Error = Vec<u8>;
+
+    fn try_from(v: Vec<u8>) -> Result<InstallationId, Self::Error> {
+        let v: [u8; 32] = v.try_into()?;
+        Ok(InstallationId(v))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(bytes::Bytes);

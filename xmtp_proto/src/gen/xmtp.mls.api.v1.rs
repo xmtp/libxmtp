@@ -4,175 +4,235 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WelcomeMessage {
-    #[prost(oneof="welcome_message::Version", tags="1")]
+    #[prost(oneof = "welcome_message::Version", tags = "1")]
     pub version: ::core::option::Option<welcome_message::Version>,
 }
 /// Nested message and enum types in `WelcomeMessage`.
 pub mod welcome_message {
     /// Version 1 of the WelcomeMessage format
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(uint64, tag="1")]
+        #[prost(uint64, tag = "1")]
         pub id: u64,
-        #[prost(uint64, tag="2")]
+        #[prost(uint64, tag = "2")]
         pub created_ns: u64,
-        #[prost(bytes="vec", tag="3")]
+        #[prost(bytes = "vec", tag = "3")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="4")]
+        #[prost(bytes = "vec", tag = "4")]
         pub data: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="5")]
+        #[prost(bytes = "vec", tag = "5")]
         pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
     }
-impl ::prost::Name for V1 {
-const NAME: &'static str = "V1";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.WelcomeMessage.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.WelcomeMessage.V1".into() }}
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessage.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessage.V1".into()
+        }
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag="1")]
+        #[prost(message, tag = "1")]
         V1(V1),
     }
 }
 impl ::prost::Name for WelcomeMessage {
-const NAME: &'static str = "WelcomeMessage";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.WelcomeMessage".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.WelcomeMessage".into() }}
+    const NAME: &'static str = "WelcomeMessage";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.WelcomeMessage".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.WelcomeMessage".into()
+    }
+}
 /// Input type for a welcome message
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WelcomeMessageInput {
-    #[prost(oneof="welcome_message_input::Version", tags="1")]
+    #[prost(oneof = "welcome_message_input::Version", tags = "1")]
     pub version: ::core::option::Option<welcome_message_input::Version>,
 }
 /// Nested message and enum types in `WelcomeMessageInput`.
 pub mod welcome_message_input {
     /// Version 1 of the WelcomeMessageInput format
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="2")]
+        #[prost(bytes = "vec", tag = "2")]
         pub data: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="3")]
+        #[prost(bytes = "vec", tag = "3")]
         pub hpke_public_key: ::prost::alloc::vec::Vec<u8>,
     }
-impl ::prost::Name for V1 {
-const NAME: &'static str = "V1";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.WelcomeMessageInput.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.WelcomeMessageInput.V1".into() }}
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
+        }
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag="1")]
+        #[prost(message, tag = "1")]
         V1(V1),
     }
 }
 impl ::prost::Name for WelcomeMessageInput {
-const NAME: &'static str = "WelcomeMessageInput";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.WelcomeMessageInput".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.WelcomeMessageInput".into() }}
+    const NAME: &'static str = "WelcomeMessageInput";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.WelcomeMessageInput".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.WelcomeMessageInput".into()
+    }
+}
 /// Full representation of a group message
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMessage {
-    #[prost(oneof="group_message::Version", tags="1")]
+    #[prost(oneof = "group_message::Version", tags = "1")]
     pub version: ::core::option::Option<group_message::Version>,
 }
 /// Nested message and enum types in `GroupMessage`.
 pub mod group_message {
     /// Version 1 of the GroupMessage format
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(uint64, tag="1")]
+        #[prost(uint64, tag = "1")]
         pub id: u64,
-        #[prost(uint64, tag="2")]
+        #[prost(uint64, tag = "2")]
         pub created_ns: u64,
-        #[prost(bytes="vec", tag="3")]
+        #[prost(bytes = "vec", tag = "3")]
         pub group_id: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="4")]
+        #[prost(bytes = "vec", tag = "4")]
         pub data: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="5")]
+        #[prost(bytes = "vec", tag = "5")]
         pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag="6")]
         pub should_push: bool,
     }
-impl ::prost::Name for V1 {
-const NAME: &'static str = "V1";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GroupMessage.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GroupMessage.V1".into() }}
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GroupMessage.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GroupMessage.V1".into()
+        }
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag="1")]
+        #[prost(message, tag = "1")]
         V1(V1),
     }
 }
 impl ::prost::Name for GroupMessage {
-const NAME: &'static str = "GroupMessage";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GroupMessage".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GroupMessage".into() }}
+    const NAME: &'static str = "GroupMessage";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GroupMessage".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GroupMessage".into()
+    }
+}
 /// Input type for a group message
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMessageInput {
-    #[prost(oneof="group_message_input::Version", tags="1")]
+    #[prost(oneof = "group_message_input::Version", tags = "1")]
     pub version: ::core::option::Option<group_message_input::Version>,
 }
 /// Nested message and enum types in `GroupMessageInput`.
 pub mod group_message_input {
     /// Version 1 of the GroupMessageInput payload format
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
         /// Serialized MlsProtocolMessage
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub data: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="2")]
+        #[prost(bytes = "vec", tag = "2")]
         pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag="3")]
         pub should_push: bool,
     }
-impl ::prost::Name for V1 {
-const NAME: &'static str = "V1";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GroupMessageInput.V1".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GroupMessageInput.V1".into() }}
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GroupMessageInput.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GroupMessageInput.V1".into()
+        }
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag="1")]
+        #[prost(message, tag = "1")]
         V1(V1),
     }
 }
 impl ::prost::Name for GroupMessageInput {
-const NAME: &'static str = "GroupMessageInput";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GroupMessageInput".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GroupMessageInput".into() }}
+    const NAME: &'static str = "GroupMessageInput";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GroupMessageInput".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GroupMessageInput".into()
+    }
+}
 /// Send a batch of MLS messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendGroupMessagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<GroupMessageInput>,
 }
 impl ::prost::Name for SendGroupMessagesRequest {
-const NAME: &'static str = "SendGroupMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SendGroupMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SendGroupMessagesRequest".into() }}
+    const NAME: &'static str = "SendGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SendGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SendGroupMessagesRequest".into()
+    }
+}
 /// Send a batch of welcome messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendWelcomeMessagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessageInput>,
 }
 impl ::prost::Name for SendWelcomeMessagesRequest {
-const NAME: &'static str = "SendWelcomeMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SendWelcomeMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SendWelcomeMessagesRequest".into() }}
+    const NAME: &'static str = "SendWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SendWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SendWelcomeMessagesRequest".into()
+    }
+}
 /// A wrapper around the Key Package bytes
 ///
 /// This would be a serialized MLS key package that the node would
@@ -182,52 +242,76 @@ fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SendWelcomeM
 pub struct KeyPackageUpload {
     /// The owner's wallet address would be extracted from the identity
     /// credential in the key package, and all signatures would be validated.
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
 }
 impl ::prost::Name for KeyPackageUpload {
-const NAME: &'static str = "KeyPackageUpload";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.KeyPackageUpload".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.KeyPackageUpload".into() }}
+    const NAME: &'static str = "KeyPackageUpload";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.KeyPackageUpload".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.KeyPackageUpload".into()
+    }
+}
 /// Register a new installation
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstallationRequest {
     /// The Key Package contains all information needed to register an installation
-    #[prost(message, optional, tag="1")]
+    #[prost(message, optional, tag = "1")]
     pub key_package: ::core::option::Option<KeyPackageUpload>,
-    #[prost(bool, tag="2")]
+    #[prost(bool, tag = "2")]
     pub is_inbox_id_credential: bool,
 }
 impl ::prost::Name for RegisterInstallationRequest {
-const NAME: &'static str = "RegisterInstallationRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.RegisterInstallationRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.RegisterInstallationRequest".into() }}
+    const NAME: &'static str = "RegisterInstallationRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RegisterInstallationRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RegisterInstallationRequest".into()
+    }
+}
 /// The response to a RegisterInstallationRequest
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstallationResponse {
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
 }
 impl ::prost::Name for RegisterInstallationResponse {
-const NAME: &'static str = "RegisterInstallationResponse";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.RegisterInstallationResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.RegisterInstallationResponse".into() }}
+    const NAME: &'static str = "RegisterInstallationResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RegisterInstallationResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RegisterInstallationResponse".into()
+    }
+}
 /// Upload a new key packages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UploadKeyPackageRequest {
     /// An individual key package upload request
-    #[prost(message, optional, tag="1")]
+    #[prost(message, optional, tag = "1")]
     pub key_package: ::core::option::Option<KeyPackageUpload>,
-    #[prost(bool, tag="2")]
+    #[prost(bool, tag = "2")]
     pub is_inbox_id_credential: bool,
 }
 impl ::prost::Name for UploadKeyPackageRequest {
-const NAME: &'static str = "UploadKeyPackageRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.UploadKeyPackageRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.UploadKeyPackageRequest".into() }}
+    const NAME: &'static str = "UploadKeyPackageRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.UploadKeyPackageRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.UploadKeyPackageRequest".into()
+    }
+}
 /// Fetch one or more key packages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -235,13 +319,19 @@ pub struct FetchKeyPackagesRequest {
     /// The caller can provide an array of installation keys, and the API
     /// will return one key package for each installation associated with each
     /// installation key
-    #[prost(bytes="vec", repeated, tag="1")]
+    #[prost(bytes = "vec", repeated, tag = "1")]
     pub installation_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 impl ::prost::Name for FetchKeyPackagesRequest {
-const NAME: &'static str = "FetchKeyPackagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.FetchKeyPackagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.FetchKeyPackagesRequest".into() }}
+    const NAME: &'static str = "FetchKeyPackagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.FetchKeyPackagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.FetchKeyPackagesRequest".into()
+    }
+}
 /// The response to a FetchKeyPackagesRequest
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -249,251 +339,359 @@ pub struct FetchKeyPackagesResponse {
     /// Returns one key package per installation in the original order of the
     /// request. If any installations are missing key packages, an empty entry is
     /// left in their respective spots in the array.
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub key_packages: ::prost::alloc::vec::Vec<fetch_key_packages_response::KeyPackage>,
 }
 /// Nested message and enum types in `FetchKeyPackagesResponse`.
 pub mod fetch_key_packages_response {
     /// An individual key package
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct KeyPackage {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
     }
-impl ::prost::Name for KeyPackage {
-const NAME: &'static str = "KeyPackage";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into() }}
+    impl ::prost::Name for KeyPackage {
+        const NAME: &'static str = "KeyPackage";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into()
+        }
+    }
 }
 impl ::prost::Name for FetchKeyPackagesResponse {
-const NAME: &'static str = "FetchKeyPackagesResponse";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.FetchKeyPackagesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.FetchKeyPackagesResponse".into() }}
+    const NAME: &'static str = "FetchKeyPackagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.FetchKeyPackagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.FetchKeyPackagesResponse".into()
+    }
+}
 /// Revoke an installation
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevokeInstallationRequest {
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
     /// All revocations must be validated with a wallet signature over the
     /// installation_id being revoked (and some sort of standard prologue)
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag = "2")]
     pub wallet_signature: ::core::option::Option<super::super::super::message_contents::Signature>,
 }
 impl ::prost::Name for RevokeInstallationRequest {
-const NAME: &'static str = "RevokeInstallationRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.RevokeInstallationRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.RevokeInstallationRequest".into() }}
+    const NAME: &'static str = "RevokeInstallationRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RevokeInstallationRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RevokeInstallationRequest".into()
+    }
+}
 /// Get all updates for an identity since the specified time
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetIdentityUpdatesRequest {
-    #[prost(string, repeated, tag="1")]
+    #[prost(string, repeated, tag = "1")]
     pub account_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(uint64, tag="2")]
+    #[prost(uint64, tag = "2")]
     pub start_time_ns: u64,
 }
 impl ::prost::Name for GetIdentityUpdatesRequest {
-const NAME: &'static str = "GetIdentityUpdatesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesRequest".into() }}
+    const NAME: &'static str = "GetIdentityUpdatesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetIdentityUpdatesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetIdentityUpdatesRequest".into()
+    }
+}
 /// Used to get any new or revoked installations for a list of wallet addresses
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetIdentityUpdatesResponse {
     /// A list of updates (or empty objects if no changes) in the original order
     /// of the request
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub updates: ::prost::alloc::vec::Vec<get_identity_updates_response::WalletUpdates>,
 }
 /// Nested message and enum types in `GetIdentityUpdatesResponse`.
 pub mod get_identity_updates_response {
     /// A new installation key was seen for the first time by the nodes
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct NewInstallationUpdate {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes="vec", tag="2")]
+        #[prost(bytes = "vec", tag = "2")]
         pub credential_identity: ::prost::alloc::vec::Vec<u8>,
     }
-impl ::prost::Name for NewInstallationUpdate {
-const NAME: &'static str = "NewInstallationUpdate";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into() }}
+    impl ::prost::Name for NewInstallationUpdate {
+        const NAME: &'static str = "NewInstallationUpdate";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into()
+        }
+    }
     /// An installation was revoked
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct RevokedInstallationUpdate {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
     }
-impl ::prost::Name for RevokedInstallationUpdate {
-const NAME: &'static str = "RevokedInstallationUpdate";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate".into() }}
+    impl ::prost::Name for RevokedInstallationUpdate {
+        const NAME: &'static str = "RevokedInstallationUpdate";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate".into()
+        }
+    }
     /// A wrapper for any update to the wallet
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Update {
-        #[prost(uint64, tag="1")]
+        #[prost(uint64, tag = "1")]
         pub timestamp_ns: u64,
-        #[prost(oneof="update::Kind", tags="2, 3")]
+        #[prost(oneof = "update::Kind", tags = "2, 3")]
         pub kind: ::core::option::Option<update::Kind>,
     }
     /// Nested message and enum types in `Update`.
     pub mod update {
         #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
+        #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Kind {
-            #[prost(message, tag="2")]
+            #[prost(message, tag = "2")]
             NewInstallation(super::NewInstallationUpdate),
-            #[prost(message, tag="3")]
+            #[prost(message, tag = "3")]
             RevokedInstallation(super::RevokedInstallationUpdate),
         }
     }
-impl ::prost::Name for Update {
-const NAME: &'static str = "Update";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into() }}
+    impl ::prost::Name for Update {
+        const NAME: &'static str = "Update";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into()
+        }
+    }
     /// A wrapper for the updates for a single wallet
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct WalletUpdates {
-        #[prost(message, repeated, tag="1")]
+        #[prost(message, repeated, tag = "1")]
         pub updates: ::prost::alloc::vec::Vec<Update>,
     }
-impl ::prost::Name for WalletUpdates {
-const NAME: &'static str = "WalletUpdates";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into() }}
+    impl ::prost::Name for WalletUpdates {
+        const NAME: &'static str = "WalletUpdates";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into()
+        }
+    }
 }
 impl ::prost::Name for GetIdentityUpdatesResponse {
-const NAME: &'static str = "GetIdentityUpdatesResponse";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.GetIdentityUpdatesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.GetIdentityUpdatesResponse".into() }}
+    const NAME: &'static str = "GetIdentityUpdatesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetIdentityUpdatesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetIdentityUpdatesResponse".into()
+    }
+}
 /// Pagination config for queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PagingInfo {
-    #[prost(enumeration="SortDirection", tag="1")]
+    #[prost(enumeration = "SortDirection", tag = "1")]
     pub direction: i32,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag = "2")]
     pub limit: u32,
-    #[prost(uint64, tag="3")]
+    #[prost(uint64, tag = "3")]
     pub id_cursor: u64,
 }
 impl ::prost::Name for PagingInfo {
-const NAME: &'static str = "PagingInfo";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.PagingInfo".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.PagingInfo".into() }}
+    const NAME: &'static str = "PagingInfo";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.PagingInfo".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.PagingInfo".into()
+    }
+}
 /// Request for group message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryGroupMessagesRequest {
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub group_id: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 impl ::prost::Name for QueryGroupMessagesRequest {
-const NAME: &'static str = "QueryGroupMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.QueryGroupMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.QueryGroupMessagesRequest".into() }}
+    const NAME: &'static str = "QueryGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryGroupMessagesRequest".into()
+    }
+}
 /// Response for group message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryGroupMessagesResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<GroupMessage>,
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 impl ::prost::Name for QueryGroupMessagesResponse {
-const NAME: &'static str = "QueryGroupMessagesResponse";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.QueryGroupMessagesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.QueryGroupMessagesResponse".into() }}
+    const NAME: &'static str = "QueryGroupMessagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryGroupMessagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryGroupMessagesResponse".into()
+    }
+}
 /// Request for welcome message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryWelcomeMessagesRequest {
-    #[prost(bytes="vec", tag="1")]
+    #[prost(bytes = "vec", tag = "1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 impl ::prost::Name for QueryWelcomeMessagesRequest {
-const NAME: &'static str = "QueryWelcomeMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into() }}
+    const NAME: &'static str = "QueryWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into()
+    }
+}
 /// Response for welcome message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryWelcomeMessagesResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessage>,
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 impl ::prost::Name for QueryWelcomeMessagesResponse {
-const NAME: &'static str = "QueryWelcomeMessagesResponse";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into() }}
+    const NAME: &'static str = "QueryWelcomeMessagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into()
+    }
+}
 /// Request for subscribing to group messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeGroupMessagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub filters: ::prost::alloc::vec::Vec<subscribe_group_messages_request::Filter>,
 }
 /// Nested message and enum types in `SubscribeGroupMessagesRequest`.
 pub mod subscribe_group_messages_request {
     /// Subscription filter
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Filter {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub group_id: ::prost::alloc::vec::Vec<u8>,
-        #[prost(uint64, tag="2")]
+        #[prost(uint64, tag = "2")]
         pub id_cursor: u64,
     }
-impl ::prost::Name for Filter {
-const NAME: &'static str = "Filter";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into() }}
+    impl ::prost::Name for Filter {
+        const NAME: &'static str = "Filter";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into()
+        }
+    }
 }
 impl ::prost::Name for SubscribeGroupMessagesRequest {
-const NAME: &'static str = "SubscribeGroupMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into() }}
+    const NAME: &'static str = "SubscribeGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into()
+    }
+}
 /// Request for subscribing to welcome messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeWelcomeMessagesRequest {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub filters: ::prost::alloc::vec::Vec<subscribe_welcome_messages_request::Filter>,
 }
 /// Nested message and enum types in `SubscribeWelcomeMessagesRequest`.
 pub mod subscribe_welcome_messages_request {
     /// Subscription filter
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Filter {
-        #[prost(bytes="vec", tag="1")]
+        #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(uint64, tag="2")]
+        #[prost(uint64, tag = "2")]
         pub id_cursor: u64,
     }
-impl ::prost::Name for Filter {
-const NAME: &'static str = "Filter";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into() }}
+    impl ::prost::Name for Filter {
+        const NAME: &'static str = "Filter";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into()
+        }
+    }
 }
 impl ::prost::Name for SubscribeWelcomeMessagesRequest {
-const NAME: &'static str = "SubscribeWelcomeMessagesRequest";
-const PACKAGE: &'static str = "xmtp.mls.api.v1";
-fn full_name() -> ::prost::alloc::string::String { "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into() }}
+    const NAME: &'static str = "SubscribeWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into()
+    }
+}
 /// Sort direction for queries
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1525,3 +1723,4 @@ pub const FILE_DESCRIPTOR_SET: &[u8] = &[
 include!("xmtp.mls.api.v1.serde.rs");
 include!("xmtp.mls.api.v1.tonic.rs");
 // @@protoc_insertion_point(module)
+

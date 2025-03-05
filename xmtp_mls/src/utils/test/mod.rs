@@ -29,6 +29,11 @@ use crate::{
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
+#[cfg(any(test, feature = "test-utils"))]
+mod local_client;
+#[cfg(any(test, feature = "test-utils"))]
+pub use local_client::*;
+
 // TODO: Dev-Versions of URL
 const HISTORY_SERVER_HOST: &str = "localhost";
 const HISTORY_SERVER_PORT: u16 = 5558;

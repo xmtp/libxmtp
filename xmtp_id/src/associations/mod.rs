@@ -11,6 +11,12 @@ pub mod unsigned_actions;
 pub mod unverified;
 pub mod verified_signature;
 
+use futures::future::try_join_all;
+use unverified::UnverifiedIdentityUpdate;
+
+use crate::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
+
 pub use self::association_log::*;
 pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
@@ -23,6 +29,53 @@ pub fn apply_update(
     update: IdentityUpdate,
 ) -> Result<AssociationState, AssociationError> {
     update.update_state(Some(initial_state), update.client_timestamp_ns)
+}
+
+pub async fn get_association_state(
+    old_updates: Vec<IdentityUpdateProto>,
+    new_updates: Vec<IdentityUpdateProto>,
+    scw_verifier: impl SmartContractSignatureVerifier,
+) -> Result<NewUpdateStateDiff, AssociationError> {
+    let old_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
+    let new_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
+
+    let old_updates = try_join_all(
+        old_unverified_updates
+            .iter()
+            .map(|u| u.to_verified(&scw_verifier)),
+    )
+    .await?;
+    let new_updates = try_join_all(
+        new_unverified_updates
+            .iter()
+            .map(|u| u.to_verified(&scw_verifier)),
+    )
+    .await?;
+    if old_updates.is_empty() {
+        let new_state = get_state(&new_updates)?;
+        return Ok(NewUpdateStateDiff {
+            association_state: new_state.clone().into(),
+            state_diff: new_state.as_diff().into(),
+        });
+    }
+
+    let old_state = get_state(&old_updates)?;
+    let mut new_state = old_state.clone();
+    for update in new_updates {
+        new_state = apply_update(new_state, update)?;
+    }
+
+    let state_diff = old_state.diff(&new_state);
+
+    Ok(NewUpdateStateDiff {
+        association_state: new_state.into(),
+        state_diff: state_diff.into(),
+    })
+}
+
+pub struct NewUpdateStateDiff {
+    pub association_state: AssociationState,
+    pub state_diff: AssociationStateDiff,
 }
 
 /// Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
@@ -726,5 +779,35 @@ pub(crate) mod tests {
                 Err(AssociationError::ChainIdMismatch(_, _))
             ));
         }
+    }
+
+    // this test will panic until signature recovery is added
+    // and `MockSignature` is updated with signatures that can be recovered
+    #[tokio::test]
+    #[should_panic]
+    async fn test_get_association_state() {
+        let account_address = rand_string::<24>();
+        let nonce = rand_u64();
+        let ident = Identifier::eth(&account_address).unwrap();
+        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let update = UnverifiedIdentityUpdate::new_test(
+            vec![UnverifiedAction::new_test_create_inbox(
+                &account_address,
+                &nonce,
+            )],
+            inbox_id.clone(),
+        );
+
+        let updates = vec![update];
+
+        get_association_state(
+            vec![],
+            updates
+                .into_iter()
+                .map(IdentityUpdateProto::from)
+                .collect::<Vec<_>>(),
+            MockSmartContractSignatureVerifier::default(),
+        )
+        .await
     }
 }
