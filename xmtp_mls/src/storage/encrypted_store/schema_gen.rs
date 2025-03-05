@@ -149,5 +149,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     refresh_state,
     user_preferences,
     wallet_addresses,
-    conversation_list,
+    conversation_list
 );
