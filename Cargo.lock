@@ -7412,6 +7412,7 @@ dependencies = [
  "hex",
  "openmls",
  "openmls_traits",
+ "p256",
  "prost",
  "rand",
  "regex",

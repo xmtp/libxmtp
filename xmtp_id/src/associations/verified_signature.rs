@@ -2,6 +2,9 @@
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
+use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use p256::EncodedPoint;
+use sha2::{Digest, Sha256};
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
@@ -9,8 +12,8 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
-    ValidatedLegacySignedPublicKey,
+    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
+    SignatureKind, ValidatedLegacySignedPublicKey,
 };
 
 #[derive(Debug, Clone)]
@@ -95,6 +98,43 @@ impl VerifiedSignature {
         Ok(Self::new(
             MemberIdentifier::installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
+            signature_bytes.to_vec(),
+            None,
+        ))
+    }
+
+    pub fn from_passkey(
+        client_data_json: &str,
+        authenticator_data: &[u8],
+        signature_bytes: &[u8],
+        public_key: &[u8],
+        relying_partner: Option<String>,
+    ) -> Result<Self, SignatureError> {
+        let encoded_point = EncodedPoint::from_bytes(public_key).unwrap();
+        let verifying_key = VerifyingKey::from_encoded_point(&encoded_point).unwrap();
+
+        let mut client_data_hash = Sha256::new();
+        client_data_hash.update(client_data_json.as_bytes());
+        let client_data_hash = client_data_hash.finalize();
+
+        let mut message = Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+        message.extend_from_slice(authenticator_data);
+        message.extend_from_slice(&client_data_hash);
+
+        let mut message_hash = Sha256::new();
+        message_hash.update(&message);
+        let message_hash = message_hash.finalize();
+
+        let signature = Signature::try_from(signature_bytes).unwrap();
+
+        verifying_key.verify(&message_hash, &signature).unwrap();
+
+        Ok(Self::new(
+            MemberIdentifier::Passkey(ident::Passkey {
+                key: public_key.to_vec(),
+                relying_partner,
+            }),
+            SignatureKind::P256,
             signature_bytes.to_vec(),
             None,
         ))

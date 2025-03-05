@@ -246,6 +246,7 @@ pub enum UnverifiedSignature {
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
     SmartContractWallet(UnverifiedSmartContractWalletSignature),
     LegacyDelegated(UnverifiedLegacyDelegatedSignature),
+    Passkey(UnverifiedPasskeySignature),
 }
 
 impl UnverifiedSignature {
@@ -278,6 +279,7 @@ impl UnverifiedSignature {
                 &sig.legacy_key_signature.signature_bytes,
                 sig.signed_public_key_proto.clone(),
             ),
+            UnverifiedSignature::Passkey(sig) => {}
         }
     }
 
@@ -341,6 +343,16 @@ impl UnverifiedInstallationKeySignature {
     pub fn verifying_key_bytes(&self) -> Vec<u8> {
         self.verifying_key.as_ref().as_ref().to_vec()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnverifiedPasskeySignature {
+    // This json string contains the challenge we sent out
+    pub(crate) client_data_json: String,
+    pub(crate) authenticator_data: Vec<u8>,
+    pub(crate) signature_bytes: Vec<u8>,
+
+    pub(crate) relying_party: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
