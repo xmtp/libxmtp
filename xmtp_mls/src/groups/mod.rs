@@ -97,6 +97,7 @@ use tokio::sync::Mutex;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
+use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -378,7 +379,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
             reference_id,
-            should_push: content.should_push(), // TODO I think this needs to come from the protos?
+            should_push: should_push(content_type_id.type_id.to_string()),
         })
     }
 }
