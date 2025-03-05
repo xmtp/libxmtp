@@ -31,12 +31,17 @@ impl UserPreferenceUpdate {
             .collect::<Result<Vec<_>, _>>()?;
         let update_proto = UserPreferenceUpdateProto { contents: updates };
         let content_bytes = serde_json::to_vec(&update_proto)?;
-        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        sync_group.prepare_message(
+            &content_bytes,
+            &provider,
+            |now| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+            false,
+        )?;
 
         sync_group.publish_intents(&provider).await?;
 

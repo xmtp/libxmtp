@@ -438,15 +438,20 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
-            let request = request.clone();
-            move |now| PlaintextEnvelope {
-                content: Some(Content::V2(V2 {
-                    message_type: Some(MessageType::DeviceSyncRequest(request)),
-                    idempotency_key: now.to_string(),
-                })),
-            }
-        })?;
+        let _message_id = sync_group.prepare_message(
+            &content_bytes,
+            provider,
+            {
+                let request = request.clone();
+                move |now| PlaintextEnvelope {
+                    content: Some(Content::V2(V2 {
+                        message_type: Some(MessageType::DeviceSyncRequest(request)),
+                        idempotency_key: now.to_string(),
+                    })),
+                }
+            },
+            false,
+        )?;
 
         // publish the intent
         sync_group.publish_intents(provider).await?;
@@ -507,12 +512,17 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
-            content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::DeviceSyncReply(contents)),
-                idempotency_key: now.to_string(),
-            })),
-        })?;
+        sync_group.prepare_message(
+            &content_bytes,
+            provider,
+            |now| PlaintextEnvelope {
+                content: Some(Content::V2(V2 {
+                    message_type: Some(MessageType::DeviceSyncReply(contents)),
+                    idempotency_key: now.to_string(),
+                })),
+            },
+            false,
+        )?;
 
         sync_group.publish_intents(provider).await?;
 

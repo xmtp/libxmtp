@@ -690,7 +690,6 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            should_push: queryable_content_fields.should_push,
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
@@ -724,7 +723,6 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    should_push: false,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -759,7 +757,6 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    should_push: false,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -1186,7 +1183,6 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            should_push: false, // Don't send pushes for membership changes
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
@@ -1336,7 +1332,7 @@ where
                     payload_to_publish: msg.tls_serialize_detached()?,
                     post_commit_action: None,
                     staged_commit: None,
-                    should_send_push_notification: true,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::KeyUpdate => {
@@ -1350,7 +1346,7 @@ where
                     payload_to_publish: commit.tls_serialize_detached()?,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
-                    should_send_push_notification: false,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::MetadataUpdate => {
@@ -1373,7 +1369,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
-                    should_send_push_notification: false,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::UpdateAdminList => {
@@ -1395,7 +1391,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
-                    should_send_push_notification: false,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::UpdatePermission => {
@@ -1415,7 +1411,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
-                    should_send_push_notification: false,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
         }
@@ -1507,6 +1503,7 @@ where
             provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
+            false,
         )?;
 
         self.sync_until_intent_resolved(provider, intent.id).await

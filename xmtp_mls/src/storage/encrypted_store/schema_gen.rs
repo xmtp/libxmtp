@@ -1,6 +1,6 @@
 // @generated automatically by Diesel CLI.
 
-use crate::storage::schema::conversation_list;
+use super::schema::conversation_list;
 
 diesel::table! {
     association_state (inbox_id, sequence_id) {
@@ -30,6 +30,7 @@ diesel::table! {
         publish_attempts -> Integer,
         staged_commit -> Nullable<Binary>,
         published_in_epoch -> Nullable<BigInt>,
+        should_push -> Bool,
     }
 }
 
@@ -48,7 +49,6 @@ diesel::table! {
         version_major -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        should_push -> Bool,
     }
 }
 

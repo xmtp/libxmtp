@@ -60,8 +60,6 @@ pub struct StoredGroupMessage {
     pub authority_id: String,
     /// The ID of a referenced message
     pub reference_id: Option<Vec<u8>>,
-    /// If this message should send a push notification
-    pub should_push: bool,
 }
 
 pub struct StoredGroupMessageWithReactions {
@@ -511,7 +509,6 @@ pub(crate) mod tests {
             version_minor: 0,
             authority_id: "unknown".to_string(),
             reference_id: None,
-            should_push: false,
         }
     }
 
