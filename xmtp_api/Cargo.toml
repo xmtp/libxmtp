@@ -14,7 +14,13 @@ xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 mockall = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["rt"], optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 # test utils
 [dev-dependencies]
@@ -22,6 +28,7 @@ mockall.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+tokio-stream = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
@@ -38,6 +45,8 @@ test-utils = [
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
   "dep:mockall",
+  "dep:tokio",
+  "dep:tokio-stream",
 ]
 http-api = []
 grpc-api = []
