@@ -220,7 +220,7 @@ impl FfiSignatureRequest {
         verifying_key: Vec<u8>,
         relying_party: Option<String>,
     ) -> Result<(), GenericError> {
-        let inner = self.inner.lock().await;
+        let mut inner = self.inner.lock().await;
 
         let new_signature = UnverifiedSignature::new_passkey(
             client_data_json,
