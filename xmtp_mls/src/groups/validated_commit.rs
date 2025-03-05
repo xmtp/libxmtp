@@ -419,20 +419,16 @@ impl ValidatedCommit {
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
-        tracing::info!(
-            "CAMERONVOELL: about to check version of verified_commit: {:?}",
-            verified_commit
-        );
         if let Some(min_version) = &verified_commit
             .metadata_validation_info
             .minimum_supported_protocol_version
         {
             let current_version = LibXMTPVersion::parse(client.version_info().pkg_version())?;
-            tracing::info!("CAMERONVOELL: current_version: {:?}", current_version);
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
             tracing::info!(
-                "CAMERONVOELL: min_supported_version: {:?}",
-                min_supported_version
+                "Validating commit with min_supported_version: {:?}, current_version: {:?}",
+                min_supported_version,
+                current_version
             );
 
             if min_supported_version > current_version {

@@ -148,13 +148,6 @@ impl GroupMutableMetadata {
             );
         }
 
-        if let Some(minimum_supported_protocol_version) = opts.minimum_supported_protocol_version {
-            attributes.insert(
-                MetadataField::MinimumSupportedProtocolVersion.to_string(),
-                minimum_supported_protocol_version,
-            );
-        }
-
         let admin_list = vec![];
         let super_admin_list = vec![creator_inbox_id.clone()];
         Self {
@@ -194,12 +187,7 @@ impl GroupMutableMetadata {
                 message_disappearing_settings.in_ns.to_string(),
             );
         }
-        if let Some(minimum_supported_protocol_version) = opts.minimum_supported_protocol_version {
-            attributes.insert(
-                MetadataField::MinimumSupportedProtocolVersion.to_string(),
-                minimum_supported_protocol_version,
-            );
-        }
+
         let admin_list = vec![];
         let super_admin_list = vec![];
         Self {

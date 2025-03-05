@@ -57,19 +57,13 @@ impl Default for VersionInfo {
 }
 
 impl VersionInfo {
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn test_version(version: impl Into<Arc<str>>) -> Self {
-        Self {
-            pkg_version: version.into(),
-        }
-    }
-
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn set_test_version(&mut self, version: impl Into<Arc<str>>) {
-        self.pkg_version = version.into();
-    }
-
     pub fn pkg_version(&self) -> &str {
         &self.pkg_version
+    }
+
+    // Test only function to update the version of the client
+    #[cfg(test)]
+    pub fn test_update_version(&mut self, version: &str) {
+        self.pkg_version = version.into();
     }
 }

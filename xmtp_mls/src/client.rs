@@ -230,10 +230,10 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    #[cfg(any(test))]
-    pub fn set_test_version(&mut self, version: impl Into<Arc<str>>) {
-        // Get exclusive access to modify the Arc
-        Arc::make_mut(&mut self.version_info).set_test_version(version);
+    // Test only function to update the version of the client
+    #[cfg(test)]
+    pub fn test_update_version(&mut self, version: &str) {
+        Arc::make_mut(&mut self.version_info).test_update_version(version);
     }
 }
 
@@ -251,7 +251,6 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
-        version_info: Option<Arc<VersionInfo>>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -273,7 +272,7 @@ where
             #[cfg(any(test, feature = "test-utils"))]
             sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
-            version_info: version_info.unwrap_or(Arc::new(VersionInfo::default())),
+            version_info: Arc::new(VersionInfo::default()),
         }
     }
 
