@@ -66,8 +66,8 @@ pub fn should_push(content_type_id: String) -> bool {
     if let Some(content_type) = content_type {
         match content_type {
             ContentType::Text => true,
-            ContentType::GroupMembershipChange => true,
-            ContentType::GroupUpdated => true,
+            ContentType::GroupMembershipChange => false,
+            ContentType::GroupUpdated => false,
             ContentType::Reaction => false,
             ContentType::ReadReceipt => false,
             ContentType::Reply => true,
