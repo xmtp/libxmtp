@@ -819,7 +819,7 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(text_messages.len(), 1);
             assert_eq!(text_messages[0].content_type, ContentType::Text);
-            assert_eq!(should_push(text_messages[0].content_type.to_string()), true);
+            assert!(should_push(text_messages[0].content_type.to_string()));
 
             assert_eq!(text_messages[0].sent_at_ns, 1_000);
 
@@ -852,7 +852,7 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(updated_messages.len(), 1);
             assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
-            assert_eq!(should_push(updated_messages[0].content_type.to_string()), false);
+            assert!(!should_push(updated_messages[0].content_type.to_string()));
             assert_eq!(updated_messages[0].sent_at_ns, 3_000);
         })
         .await
