@@ -199,7 +199,6 @@ where
             self.client.inbox_id(),
             epoch
         );
-        tracing::info!("CAMERONVOELL: client version: {}", self.client.version_info().pkg_version());
         self.maybe_update_installations(&mls_provider, None).await?;
 
         self.sync_with_conn(&mls_provider).await
@@ -214,13 +213,26 @@ where
         let conn = provider.conn_ref();
 
         // Check if group is paused and try to unpause if version requirements are met
-        if let Some(required_version) = conn.get_group_paused_version(&self.group_id)? {
-            let current_version = LibXMTPVersion::parse(self.client.version_info().pkg_version())?;
-            let min_version = LibXMTPVersion::parse(&required_version)?;
+        if let Some(required_min_version_str) = conn.get_group_paused_version(&self.group_id)? {
+            tracing::info!(
+                "Group is paused until version: {}",
+                required_min_version_str
+            );
+            let current_version_str = self.client.version_info().pkg_version();
+            let current_version = LibXMTPVersion::parse(current_version_str)?;
+            let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
-            if min_version <= current_version {
+            if required_min_version <= current_version {
+                tracing::info!("Unpausing group since version requirements are met");
                 conn.unpause_group(&self.group_id)?;
             } else {
+                tracing::info!(
+                    "Skipping sync for paused group since version requirements are not met. \
+                    Required version: {}, \
+                    Current version: {}",
+                    required_min_version_str,
+                    current_version_str
+                );
                 return Ok(()); // Skip sync for paused groups
             }
         }
@@ -1064,6 +1076,9 @@ where
             );
             Err(GroupMessageProcessingError::AlreadyProcessed(msgv1.id))
         } else {
+            // Download all unread welcome messages and convert to groups.
+            // In a database transaction, increment the cursor for a given entity and
+            // apply the update after the provided `ProcessingFn` has completed successfully.
             match self.process_message(provider, msgv1, true).await {
                 Ok(_) => {
                     tracing::info!(
@@ -1117,7 +1132,7 @@ where
                 Ok(_) => {}
                 Err(GroupMessageProcessingError::GroupPaused) => {
                     tracing::info!(
-                        "Group [{}] is paused, skipping remaining messages",
+                        "Group [{}] is paused, skip syncing remaining messages",
                         hex::encode(&self.group_id),
                     );
                     return Ok(());

@@ -223,6 +223,8 @@ pub enum GroupError {
     LockFailedToAcquire,
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    #[error("Group is paused until version {0} is available")]
+    GroupPausedUntilUpdate(String),
 }
 
 impl RetryableError for GroupError {
@@ -277,7 +279,8 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_)
-            | Self::TooManyCharacters { .. } => false,
+            | Self::TooManyCharacters { .. }
+            | Self::GroupPausedUntilUpdate(_) => false,
         }
     }
 }
@@ -301,15 +304,11 @@ pub struct GroupMetadataOptions {
     pub image_url_square: Option<String>,
     pub description: Option<String>,
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-    // Correlates with the CARGO_PKG_VERSION in the libxmtp-mls crate
-    pub minimum_supported_protocol_version: Option<String>,
 }
 
 #[derive(Default, Clone)]
 pub struct DMMetadataOptions {
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-    // Correlates with the CARGO_PKG_VERSION in the libxmtp-mls crate
-    pub minimum_supported_protocol_version: Option<String>,
 }
 
 impl<C> Clone for MlsGroup<C> {
@@ -803,6 +802,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<u8>, GroupError> {
+        self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(provider, update_interval_ns)
             .await?;
@@ -820,6 +820,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -838,6 +839,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
         let provider = self.client.mls_provider()?;
         self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
@@ -1025,6 +1027,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
+        self.ensure_not_paused().await?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
@@ -1091,6 +1094,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[InboxIdRef<'_>],
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.store().conn()?.into();
 
         let intent_data = self
@@ -1110,6 +1115,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_name.len() > MAX_GROUP_NAME_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_NAME_LENGTH,
@@ -1127,16 +1134,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
-    /// Updates the name of the group. Will error if the user does not have the appropriate permissions
-    /// to perform these updates.
+    /// Updates min version of the group to match this client's version.
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.mls_provider()?;
 
         let version = self.client.version_info().pkg_version();
-        tracing::info!(
-            "CAMERONVOELL: AMAL trying to update version to: {:?}",
-            version
-        );
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1154,6 +1158,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1196,6 +1202,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_DESCRIPTION_LENGTH,
@@ -1232,6 +1240,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_IMAGE_URL_LENGTH,
@@ -1272,6 +1282,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         settings: MessageDisappearingSettings,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.mls_provider()?;
 
         self.update_conversation_message_disappear_from_ns(&provider, settings.from_ns)
@@ -1283,6 +1295,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn remove_conversation_message_disappearing_settings(
         &self,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         self.update_conversation_message_disappearing_settings(
             MessageDisappearingSettings::default(),
         )
@@ -1294,6 +1308,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         expire_from_ms: i64,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
                 expire_from_ms,
@@ -1308,11 +1324,35 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         expire_in_ms: i64,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
         let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
         self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    pub async fn is_paused(&self) -> Result<bool, GroupError> {
+        let conn = self.context().store().conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
+        let is_paused = provider
+            .conn_ref()
+            .get_group_paused_version(&self.group_id)?;
+        Ok(is_paused.is_some())
+    }
+
+    async fn ensure_not_paused(&self) -> Result<(), GroupError> {
+        let conn = self.context().store().conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
+        if let Some(min_version) = provider
+            .conn_ref()
+            .get_group_paused_version(&self.group_id)?
+        {
+            Err(GroupError::GroupPausedUntilUpdate(min_version))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn conversation_message_disappearing_settings(
@@ -2010,7 +2050,6 @@ pub(crate) mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
-    use xmtp_content_types::text::TextCodec;
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -3187,7 +3226,6 @@ pub(crate) mod tests {
                     message_disappearing_settings: Some(
                         expected_group_message_disappearing_settings.clone(),
                     ),
-                    minimum_supported_protocol_version: None,
                 },
             )
             .unwrap();
@@ -4943,13 +4981,61 @@ pub(crate) mod tests {
         );
     }
 
+    fn increment_patch_version(version: &str) -> Option<String> {
+        // Split version into numeric part and suffix (if any)
+        let (version_part, suffix) = match version.split_once('-') {
+            Some((v, s)) => (v, Some(s)),
+            None => (version, None),
+        };
+
+        // Split numeric version string into components
+        let mut parts: Vec<&str> = version_part.split('.').collect();
+
+        // Ensure we have exactly 3 parts (major.minor.patch)
+        if parts.len() != 3 {
+            return None;
+        }
+
+        // Parse the patch number and increment it
+        let patch = parts[2].parse::<u32>().ok()?;
+        let new_patch = patch + 1;
+
+        // Replace the patch number with the incremented value
+        let binding = new_patch.to_string();
+        parts[2] = &binding;
+
+        // Join the parts back together with dots and add suffix if it existed
+        let new_version = parts.join(".");
+        match suffix {
+            Some(s) => Some(format!("{}-{}", new_version, s)),
+            None => Some(new_version),
+        }
+    }
+
+    #[test]
+    fn test_increment_patch_version() {
+        assert_eq!(increment_patch_version("1.2.3"), Some("1.2.4".to_string()));
+        assert_eq!(increment_patch_version("0.0.9"), Some("0.0.10".to_string()));
+        assert_eq!(increment_patch_version("1.0.0"), Some("1.0.1".to_string()));
+        assert_eq!(
+            increment_patch_version("1.0.0-alpha"),
+            Some("1.0.1-alpha".to_string())
+        );
+
+        // Invalid inputs should return None
+        assert_eq!(increment_patch_version("1.2"), None);
+        assert_eq!(increment_patch_version("1.2.3.4"), None);
+        assert_eq!(increment_patch_version("invalid"), None);
+    }
+
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
     async fn test_can_set_min_supported_protocol_version_for_commit() {
-        // Step 1: Create two clients
-        let amal =
-            ClientBuilder::new_test_client_with_version(&generate_local_wallet(), "0.2.0").await;
-        let mut bo =
-            ClientBuilder::new_test_client_with_version(&generate_local_wallet(), "0.1.0").await;
+        // Step 1: Create two clients, amal is one version ahead of bo
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Step 2: Amal creates a group and adds bo as a member
         let amal_group = amal
@@ -4989,20 +5075,20 @@ pub(crate) mod tests {
             .unwrap();
 
         // Step 6: Bo should now be unable to sync messages for the group
-        let result = bo_group.sync().await;
+        let _ = bo_group.sync().await;
         let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 1);
 
-        // Step 7: Amal updates the version to 0.2.0, and see if we can then download latest messages
-        bo.set_test_version("0.2.0");
-        tracing::info!("Updated Bo's version to: {}", bo.version_info().pkg_version());
+        // Step 7: Amal updates the version, and see if we can then download latest messages
+        let bo_version = bo.version_info().pkg_version();
+        bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
 
         // Refresh Bo's group context
         let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = binding.first().unwrap();
 
         bo_group.sync().await.unwrap();
-        let result = bo_group.sync().await;
+        let _ = bo_group.sync().await;
         let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(messages.len(), 3);
     }
