@@ -5019,24 +5019,28 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Step 3: Amal sends a message to the group
+        // Step 3: Amal updates the group name and sends a message to the group
+        amal_group
+            .update_group_name("new name".to_string())
+            .await
+            .unwrap();
         amal_group
             .send_message("Hello, world!".as_bytes())
             .await
             .unwrap();
 
-        // Step 4: Verify that bo can read the message
+        // Step 4: Verify that bo can read the message even though they are on different client versions
         bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
         let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = binding.first().unwrap();
         bo_group.sync().await.unwrap();
         let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
 
-        let message_text = String::from_utf8_lossy(&messages[0].decrypted_message_bytes);
+        let message_text = String::from_utf8_lossy(&messages[1].decrypted_message_bytes);
         assert_eq!(message_text, "Hello, world!");
 
-        // Step 5: Amal updates the group to version 0.2.0
+        // Step 5: Amal updates the group version to match their client version
         amal_group
             .update_group_min_version_to_match_self()
             .await
@@ -5050,7 +5054,7 @@ pub(crate) mod tests {
         // Step 6: Bo should now be unable to sync messages for the group
         let _ = bo_group.sync().await;
         let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
 
         // Step 7: Bo updates their client, and see if we can then download latest messages
         let bo_version = bo.version_info().pkg_version();
@@ -5063,7 +5067,7 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
         let _ = bo_group.sync().await;
         let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 4);
     }
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
