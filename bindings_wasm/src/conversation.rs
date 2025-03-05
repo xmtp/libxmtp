@@ -2,7 +2,7 @@ use crate::client::RustXmtpClient;
 use crate::conversations::{HmacKey, MessageDisappearingSettings};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
-use crate::messages::{ListMessagesOptions, Message};
+use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
@@ -211,6 +211,40 @@ impl Conversation {
     let messages: Vec<Message> = group
       .find_messages(&opts)
       .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(Into::into)
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[wasm_bindgen(js_name = findMessagesWithReactions)]
+  pub async fn find_messages_with_reactions(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<MessageWithReactions>, JsError> {
+    let opts = opts.unwrap_or_default();
+    let group = self.to_mls_group();
+    let provider = group
+      .mls_provider()
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let conversation_type = group
+      .conversation_type(&provider)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => None,
+      ConversationType::Sync => None,
+    };
+
+    let opts = MsgQueryArgs {
+      kind,
+      ..opts.into()
+    };
+
+    let messages: Vec<MessageWithReactions> = group
+      .find_messages_with_reactions(&opts)?
       .into_iter()
       .map(Into::into)
       .collect();

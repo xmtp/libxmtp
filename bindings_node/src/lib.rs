@@ -3,6 +3,7 @@
 
 pub mod client;
 mod consent_state;
+pub mod content_types;
 mod conversation;
 mod conversations;
 mod encoded_content;

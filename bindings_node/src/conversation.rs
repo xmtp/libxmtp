@@ -22,7 +22,7 @@ use crate::{
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
   identity::{Identifier, IdentityExt},
-  message::{ListMessagesOptions, Message},
+  message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
   ErrorWrapper,
@@ -185,6 +185,42 @@ impl Conversation {
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|msg| msg.into())
+      .collect();
+
+    Ok(messages)
+  }
+
+  #[napi]
+  pub async fn find_messages_with_reactions(
+    &self,
+    opts: Option<ListMessagesOptions>,
+  ) -> Result<Vec<MessageWithReactions>> {
+    let opts = opts.unwrap_or_default();
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
+    let conversation_type = group
+      .conversation_type(&provider)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    let kind = match conversation_type {
+      ConversationType::Group => None,
+      ConversationType::Dm => None,
+      ConversationType::Sync => None,
+    };
+    let opts = MsgQueryArgs {
+      kind,
+      ..opts.into()
+    };
+
+    let messages: Vec<MessageWithReactions> = group
+      .find_messages_with_reactions(&opts)
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(Into::into)
       .collect();
 
     Ok(messages)

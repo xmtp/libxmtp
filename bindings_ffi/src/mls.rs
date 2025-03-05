@@ -1783,7 +1783,7 @@ impl FfiConversation {
         let direction = opts.direction.map(|dir| dir.into());
         let kind = match self.conversation_type().await? {
             FfiConversationType::Group => None,
-            FfiConversationType::Dm => Some(GroupMessageKind::Application),
+            FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
         };
 
