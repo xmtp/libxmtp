@@ -689,6 +689,7 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
+                            should_push: queryable_content_fields.should_push,
                         }
                         .store_or_ignore(provider.conn_ref())?
                     }
@@ -722,6 +723,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
+                                    should_push: true,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -756,6 +758,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
+                                    should_push: true,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -1182,6 +1185,7 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
+            should_push: false,
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
@@ -1708,6 +1712,7 @@ where
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: payload.to_vec(),
                     sender_hmac: sender_hmac.into_bytes().to_vec(),
+                    should_push: Some(false),
                 })),
             });
         }

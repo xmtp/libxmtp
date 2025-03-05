@@ -337,6 +337,7 @@ pub struct QueryableContentFields {
     pub version_minor: i32,
     pub authority_id: String,
     pub reference_id: Option<Vec<u8>>,
+    pub should_push: Bool,
 }
 
 impl Default for QueryableContentFields {
@@ -347,6 +348,7 @@ impl Default for QueryableContentFields {
             version_minor: 0,
             authority_id: String::new(),
             reference_id: None,
+            should_push: true,
         }
     }
 }
@@ -376,6 +378,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
             reference_id,
+            should_push: content.should_push(), // TODO I think this needs to come from the protos?
         })
     }
 }
@@ -896,6 +899,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
+            should_push: queryable_content_fields.should_push,
         };
         group_message.store(provider.conn_ref())?;
 
