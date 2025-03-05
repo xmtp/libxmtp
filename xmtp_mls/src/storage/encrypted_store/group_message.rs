@@ -61,7 +61,7 @@ pub struct StoredGroupMessage {
     /// The ID of a referenced message
     pub reference_id: Option<Vec<u8>>,
     /// If this message should send a push notification
-    pub should_push: Bool,
+    pub should_push: bool,
 }
 
 pub struct StoredGroupMessageWithReactions {

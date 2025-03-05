@@ -70,6 +70,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
+            should_push: false,
         })
     }
 }

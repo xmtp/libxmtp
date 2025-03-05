@@ -338,7 +338,7 @@ pub struct QueryableContentFields {
     pub version_minor: i32,
     pub authority_id: String,
     pub reference_id: Option<Vec<u8>>,
-    pub should_push: Bool,
+    pub should_push: bool,
 }
 
 impl Default for QueryableContentFields {
@@ -359,8 +359,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 
     fn try_from(content: EncodedContent) -> Result<Self, Self::Error> {
         let content_type_id = content.r#type.unwrap_or_default();
+
+        let type_id_str = content_type_id.type_id.clone();
+
         let reference_id = match (
-            content_type_id.type_id.as_str(),
+            type_id_str.as_str(),
             content_type_id.version_major,
         ) {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
@@ -379,7 +382,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
             reference_id,
-            should_push: should_push(content_type_id.type_id.to_string()),
+            should_push: should_push(type_id_str),
         })
     }
 }
