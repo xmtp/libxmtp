@@ -1,6 +1,5 @@
 use ed25519_dalek::{DigestSigner, Signature, VerifyingKey};
-use ethers::signers::{LocalWallet, Signer};
-use prost::Message;
+use ethers::signers::Signer;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
@@ -8,14 +7,8 @@ use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
 };
-use xmtp_proto::xmtp::message_contents::{
-    signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto,
-};
 
-use super::{
-    unverified::{UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature},
-    verified_signature::VerifiedSignature,
-};
+use super::verified_signature::VerifiedSignature;
 
 use ethers::core::k256::ecdsa::Signature as K256Signature;
 
@@ -185,35 +178,6 @@ impl AccountId {
             .parse::<u64>()
             .map_err(|_| AccountIdError::InvalidChainId)
     }
-}
-
-/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
-pub async fn sign_with_legacy_key(
-    signature_text: String,
-    legacy_signed_private_key: Vec<u8>,
-) -> Result<UnverifiedLegacyDelegatedSignature, SignatureError> {
-    let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
-        .union
-        .ok_or(SignatureError::MalformedLegacyKey(
-            "Missing secp256k1.union field".to_string(),
-        ))?;
-    let legacy_private_key = secp256k1.bytes;
-    let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
-    let signature = wallet.sign_message(signature_text).await?;
-
-    let legacy_signed_public_key_proto =
-        legacy_signed_private_key_proto
-            .public_key
-            .ok_or(SignatureError::MalformedLegacyKey(
-                "Missing public_key field".to_string(),
-            ))?;
-
-    Ok(UnverifiedLegacyDelegatedSignature::new(
-        UnverifiedRecoverableEcdsaSignature::new(signature.to_vec()),
-        legacy_signed_public_key_proto,
-    ))
 }
 
 #[derive(Clone, Debug)]

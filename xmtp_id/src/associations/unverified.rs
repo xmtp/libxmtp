@@ -12,7 +12,6 @@ use super::{
     SignatureError,
 };
 use futures::future::try_join_all;
-use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {
@@ -245,7 +244,6 @@ pub enum UnverifiedSignature {
     InstallationKey(UnverifiedInstallationKeySignature),
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
     SmartContractWallet(UnverifiedSmartContractWalletSignature),
-    LegacyDelegated(UnverifiedLegacyDelegatedSignature),
 }
 
 impl UnverifiedSignature {
@@ -273,11 +271,6 @@ impl UnverifiedSignature {
                 )
                 .await
             }
-            UnverifiedSignature::LegacyDelegated(sig) => VerifiedSignature::from_legacy_delegated(
-                signature_text,
-                &sig.legacy_key_signature.signature_bytes,
-                sig.signed_public_key_proto.clone(),
-            ),
         }
     }
 
@@ -304,16 +297,6 @@ impl UnverifiedSignature {
             signature,
             account_id,
             block_number,
-        ))
-    }
-
-    pub fn new_legacy_delegated(
-        signature: Vec<u8>,
-        signed_public_key_proto: LegacySignedPublicKeyProto,
-    ) -> Self {
-        Self::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
-            UnverifiedRecoverableEcdsaSignature::new(signature),
-            signed_public_key_proto,
         ))
     }
 }
@@ -384,24 +367,6 @@ impl UnverifiedSmartContractWalletSignature {
             signature_bytes,
             account_id,
             block_number,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct UnverifiedLegacyDelegatedSignature {
-    pub(crate) legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
-    pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto,
-}
-
-impl UnverifiedLegacyDelegatedSignature {
-    pub fn new(
-        legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
-        signed_public_key_proto: LegacySignedPublicKeyProto,
-    ) -> Self {
-        Self {
-            legacy_key_signature,
-            signed_public_key_proto,
         }
     }
 }
