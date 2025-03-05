@@ -1,29 +1,19 @@
 use ethers::types::{BlockNumber, U64};
-use futures::future::{join_all, try_join_all};
+use futures::future::join_all;
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::{
-    associations::{
-        self, try_map_vec, unverified::UnverifiedIdentityUpdate, AssociationError,
-        DeserializationError, SignatureError,
-    },
+    associations::{self, AssociationError, DeserializationError, SignatureError},
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse},
 };
-use xmtp_mls::{
-    utils::id::serialize_group_id,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
+use xmtp_mls::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_proto::xmtp::{
-    identity::{
-        api::v1::{
-            verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
-            VerifySmartContractWalletSignatureRequestSignature,
-            VerifySmartContractWalletSignaturesRequest,
-            VerifySmartContractWalletSignaturesResponse,
-        },
-        associations::IdentityUpdate as IdentityUpdateProto,
+    identity::api::v1::{
+        verify_smart_contract_wallet_signatures_response::ValidationResponse as VerifySmartContractWalletSignaturesValidationResponse,
+        VerifySmartContractWalletSignatureRequestSignature,
+        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
@@ -108,8 +98,13 @@ impl ValidationApi for ValidationService {
             new_updates,
         } = request.into_inner();
 
-        get_association_state(old_updates, new_updates, &self.scw_verifier)
+        associations::get_association_state(old_updates, new_updates, &self.scw_verifier)
             .await
+            .map(|d| GetAssociationStateResponse {
+                association_state: Some(d.association_state.into()),
+                state_diff: Some(d.state_diff.into()),
+            })
+            .map_err(GrpcServerError::from)
             .map(Response::new)
             .map_err(Into::into)
     }
@@ -236,48 +231,6 @@ async fn verify_smart_contract_wallet_signatures(
     }))
 }
 
-async fn get_association_state(
-    old_updates: Vec<IdentityUpdateProto>,
-    new_updates: Vec<IdentityUpdateProto>,
-    scw_verifier: impl SmartContractSignatureVerifier,
-) -> Result<GetAssociationStateResponse, GrpcServerError> {
-    let old_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(old_updates)?;
-    let new_unverified_updates: Vec<UnverifiedIdentityUpdate> = try_map_vec(new_updates)?;
-
-    let old_updates = try_join_all(
-        old_unverified_updates
-            .iter()
-            .map(|u| u.to_verified(&scw_verifier)),
-    )
-    .await?;
-    let new_updates = try_join_all(
-        new_unverified_updates
-            .iter()
-            .map(|u| u.to_verified(&scw_verifier)),
-    )
-    .await?;
-    if old_updates.is_empty() {
-        let new_state = associations::get_state(&new_updates)?;
-        return Ok(GetAssociationStateResponse {
-            association_state: Some(new_state.clone().into()),
-            state_diff: Some(new_state.as_diff().into()),
-        });
-    }
-
-    let old_state = associations::get_state(&old_updates)?;
-    let mut new_state = old_state.clone();
-    for update in new_updates {
-        new_state = associations::apply_update(new_state, update)?;
-    }
-
-    let state_diff = old_state.diff(&new_state);
-
-    Ok(GetAssociationStateResponse {
-        association_state: Some(new_state.into()),
-        state_diff: Some(state_diff.into()),
-    })
-}
-
 struct ValidateGroupMessageResult {
     group_id: String,
 }
@@ -291,7 +244,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
         .map_err(|e| e.to_string())?;
 
     Ok(ValidateGroupMessageResult {
-        group_id: serialize_group_id(protocol_message.group_id().as_slice()),
+        group_id: hex::encode(protocol_message.group_id().as_slice()),
     })
 }
 
@@ -372,37 +325,6 @@ mod tests {
             )
             .unwrap();
         kp.key_package().tls_serialize_detached().unwrap()
-    }
-
-    // this test will panic until signature recovery is added
-    // and `MockSignature` is updated with signatures that can be recovered
-    #[tokio::test]
-    #[should_panic]
-    async fn test_get_association_state() {
-        let account_address = rand_string::<24>();
-        let nonce = rand_u64();
-        let ident = Identifier::eth(&account_address).unwrap();
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-        let update = UnverifiedIdentityUpdate::new_test(
-            vec![UnverifiedAction::new_test_create_inbox(
-                &account_address,
-                &nonce,
-            )],
-            inbox_id.clone(),
-        );
-
-        let updates = vec![update];
-
-        ValidationService::default()
-            .get_association_state(Request::new(GetAssociationStateRequest {
-                old_updates: vec![],
-                new_updates: updates
-                    .into_iter()
-                    .map(IdentityUpdateProto::from)
-                    .collect::<Vec<_>>(),
-            }))
-            .await
-            .unwrap();
     }
 
     #[tokio::test]

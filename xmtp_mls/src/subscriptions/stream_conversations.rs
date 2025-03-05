@@ -265,10 +265,9 @@ where
         poll: Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
-        use Poll::*;
         let mut this = self.as_mut().project();
         match poll {
-            Ready(Ok(Some((group, welcome_id)))) => {
+            Poll::Ready(Ok(Some((group, welcome_id)))) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
@@ -278,21 +277,21 @@ where
                     this.known_welcome_ids.insert(id);
                 }
                 this.state.set(ProcessState::Waiting);
-                Ready(Some(Ok(group)))
+                Poll::Ready(Some(Ok(group)))
             }
             // we are ignoring this payload
-            Ready(Ok(None)) => {
+            Poll::Ready(Ok(None)) => {
                 tracing::debug!("ignoring this payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
                 self.poll_next(cx)
             }
-            Ready(Err(e)) => {
+            Poll::Ready(Err(e)) => {
                 this.state.as_mut().set(ProcessState::Waiting);
-                Ready(Some(Err(e)))
+                Poll::Ready(Some(Err(e)))
             }
-            Pending => Pending,
+            Poll::Pending => Pending,
         }
     }
 }
@@ -615,5 +614,10 @@ mod test {
             .unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    async fn stream_continues_after_error() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
     }
 }

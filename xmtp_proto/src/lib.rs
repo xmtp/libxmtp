@@ -5,6 +5,26 @@ mod generated {
 }
 pub use generated::*;
 
+pub mod mls {
+    pub mod api {
+        pub mod v1 {
+            pub mod prelude {
+                pub use crate::xmtp::mls::api::v1::*;
+            }
+        }
+    }
+}
+
+pub mod identity {
+    pub mod api {
+        pub mod v1 {
+            pub mod prelude {
+                pub use crate::xmtp::identity::api::v1::*;
+            }
+        }
+    }
+}
+
 mod error;
 pub use error::*;
 
