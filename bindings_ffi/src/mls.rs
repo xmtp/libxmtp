@@ -105,7 +105,7 @@ pub async fn connect_to_backend(
 /// } // Otherwise, we will just use the inbox and ignore the nonce.
 /// db_path = $inbox_id-$env
 ///
-/// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+/// xmtp.create_client(account_identifier, nonce, inbox_id)
 /// ```
 #[allow(clippy::too_many_arguments)]
 #[uniffi::export(async_runtime = "tokio")]
@@ -116,7 +116,6 @@ pub async fn create_client(
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
     nonce: u64,
-    legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
@@ -144,12 +143,8 @@ pub async fn create_client(
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
     };
     log::info!("Creating XMTP client");
-    let identity_strategy = IdentityStrategy::new(
-        inbox_id.clone(),
-        ident.clone().try_into()?,
-        nonce,
-        legacy_signed_private_key_proto,
-    );
+    let identity_strategy =
+        IdentityStrategy::new(inbox_id.clone(), ident.clone().try_into()?, nonce);
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
@@ -2875,7 +2870,6 @@ mod tests {
             &inbox_id,
             ident,
             nonce,
-            None,
             history_sync_url,
         )
         .await
@@ -2925,37 +2919,6 @@ mod tests {
         assert_eq!(real_inbox_id, from_network);
     }
 
-    #[tokio::test]
-    #[ignore]
-    async fn test_legacy_identity() {
-        let ident = FfiIdentifier {
-            identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
-            identifier_kind: FfiPublicIdentifierKind::Ethereum,
-            relying_partner: None,
-        };
-        let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
-        let nonce = 0;
-
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-
-        let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(tmp_path()),
-            None,
-            &inbox_id,
-            ident,
-            nonce,
-            Some(legacy_keys),
-            None,
-        )
-        .await
-        .unwrap();
-
-        assert!(client.signature_request().is_none());
-    }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
@@ -2975,7 +2938,6 @@ mod tests {
             ffi_inbox_owner.public_identifier(),
             nonce,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -2993,7 +2955,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.public_identifier(),
             nonce,
-            None,
             None,
         )
         .await
@@ -3029,7 +2990,6 @@ mod tests {
             ffi_inbox_owner.public_identifier(),
             nonce,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -3048,7 +3008,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.public_identifier(),
             nonce,
-            None,
             None,
         )
         .await
@@ -3102,7 +3061,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.public_identifier(),
             nonce,
-            None,
             None,
         )
         .await
@@ -3169,7 +3127,6 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.public_identifier(),
             nonce,
-            None,
             None,
         )
         .await
@@ -3258,7 +3215,6 @@ mod tests {
             &inbox_id,
             inbox_owner.public_identifier(),
             nonce,
-            None, // v2_signed_private_key_proto
             None,
         )
         .await
@@ -3290,7 +3246,6 @@ mod tests {
             amal.public_identifier(),
             nonce,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -3316,7 +3271,6 @@ mod tests {
             &bola_inbox_id,
             bola.public_identifier(),
             nonce,
-            None,
             None,
         )
         .await
@@ -6455,7 +6409,6 @@ mod tests {
             &wallet_a_inbox_id,
             ffi_public_ident,
             1,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await
@@ -6494,7 +6447,6 @@ mod tests {
             &inbox_id,
             ffi_public_ident,
             nonce,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await
@@ -6561,7 +6513,6 @@ mod tests {
             &client_b_inbox_id,
             ffi_public_ident,
             nonce,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await;
@@ -6596,7 +6547,6 @@ mod tests {
             &wallet_a_inbox_id,
             ffi_public_ident,
             1,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await
@@ -6618,7 +6568,6 @@ mod tests {
             &wallet_b_inbox_id,
             ffi_public_ident,
             1,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await
@@ -6637,7 +6586,6 @@ mod tests {
             &wallet_b_inbox_id,
             ffi_public_ident,
             1,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await
@@ -6667,7 +6615,6 @@ mod tests {
             &wallet_b_inbox_id,
             ffi_public_ident,
             1,
-            None,
             Some(HISTORY_SYNC_URL.to_string()),
         )
         .await;

@@ -1,16 +1,13 @@
 #![allow(dead_code)]
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
-use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
-use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
     to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
-    ValidatedLegacySignedPublicKey,
 };
 
 #[derive(Debug, Clone)]
@@ -100,34 +97,6 @@ impl VerifiedSignature {
         ))
     }
 
-    /// Verifies a legacy delegated signature and recovers the wallet address responsible
-    /// associated with the signer.
-    pub fn from_legacy_delegated<Text: AsRef<str>>(
-        signature_text: Text,
-        signature_bytes: &[u8],
-        signed_public_key_proto: LegacySignedPublicKeyProto,
-    ) -> Result<Self, SignatureError> {
-        let verified_legacy_signature =
-            Self::from_recoverable_ecdsa(signature_text, signature_bytes)?;
-        let signed_public_key: ValidatedLegacySignedPublicKey =
-            signed_public_key_proto.try_into()?;
-        let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
-        let address = h160addr_to_string(public_key_to_address(&public_key));
-
-        if MemberIdentifier::eth(address)? != verified_legacy_signature.signer {
-            return Err(SignatureError::Invalid);
-        }
-
-        Ok(Self::new(
-            MemberIdentifier::eth(signed_public_key.account_address)?,
-            SignatureKind::LegacyDelegated,
-            // Must use the wallet signature bytes, since those are the ones we care about making unique.
-            // This protects against using the legacy key more than once in the Identity Update Log
-            signed_public_key.wallet_signature.raw_bytes,
-            None,
-        ))
-    }
-
     /// Verifies a smart contract wallet signature using the provided signature verifier.
     pub async fn from_smart_contract_wallet<Text: AsRef<str>>(
         signature_text: Text,
@@ -177,7 +146,6 @@ mod tests {
         InstallationKeyContext, MemberIdentifier, SignatureKind,
     };
     use ethers::signers::{LocalWallet, Signer};
-    use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 
@@ -242,51 +210,6 @@ mod tests {
             XmtpInstallationCredential::new().verifying_key(),
         )
         .expect_err("should fail with incorrect verifying key");
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn validate_good_key_round_trip() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let account_address = "0x220ca99fb7fafa18cb623d924794dde47b4bc2e9";
-
-        let proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should validate successfully");
-        let proto: LegacySignedPublicKeyProto = validated_key.into();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should still validate successfully");
-        assert_eq!(validated_key.account_address(), account_address);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn validate_malformed_key() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let mut proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        proto.key_bytes[0] += 1; // Corrupt the serialized key data
-        assert!(matches!(
-            ValidatedLegacySignedPublicKey::try_from(proto),
-            Err(super::SignatureError::Invalid)
-        ));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

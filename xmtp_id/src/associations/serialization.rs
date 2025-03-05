@@ -10,8 +10,8 @@ use super::{
     unverified::{
         UnverifiedAction, UnverifiedAddAssociation, UnverifiedChangeRecoveryAddress,
         UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature,
-        UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature,
-        UnverifiedRevokeAssociation, UnverifiedSignature, UnverifiedSmartContractWalletSignature,
+        UnverifiedRecoverableEcdsaSignature, UnverifiedRevokeAssociation, UnverifiedSignature,
+        UnverifiedSmartContractWalletSignature,
     },
     verified_signature::VerifiedSignature,
     MemberIdentifier, SignatureError,
@@ -22,31 +22,22 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
-use xmtp_proto::xmtp::{
-    identity::{
-        api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
-        associations::{
-            identity_action::Kind as IdentityActionKindProto,
-            member_identifier::Kind as MemberIdentifierKindProto,
-            signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-            AssociationState as AssociationStateProto,
-            AssociationStateDiff as AssociationStateDiffProto,
-            ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-            IdentifierKind, IdentityAction as IdentityActionProto,
-            IdentityUpdate as IdentityUpdateProto,
-            LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
-            MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
-            RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
-            RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
-            SmartContractWalletSignature as SmartContractWalletSignatureProto,
-        },
-    },
-    message_contents::{
-        signature::{Union, WalletEcdsaCompact},
-        unsigned_public_key, Signature as SignedPublicKeySignatureProto,
-        SignedPublicKey as LegacySignedPublicKeyProto, SignedPublicKey as SignedPublicKeyProto,
-        UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
+use xmtp_proto::xmtp::identity::{
+    api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
+    associations::{
+        identity_action::Kind as IdentityActionKindProto,
+        member_identifier::Kind as MemberIdentifierKindProto,
+        signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
+        AssociationState as AssociationStateProto,
+        AssociationStateDiff as AssociationStateDiffProto,
+        ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
+        IdentifierKind, IdentityAction as IdentityActionProto,
+        IdentityUpdate as IdentityUpdateProto, Member as MemberProto,
+        MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+        Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+        SmartContractWalletSignature as SmartContractWalletSignatureProto,
     },
 };
 use xmtp_proto::ConversionError;
@@ -207,22 +198,6 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
             SignatureKindProto::Erc191(sig) => UnverifiedSignature::RecoverableEcdsa(
                 UnverifiedRecoverableEcdsaSignature::new(sig.bytes),
             ),
-            SignatureKindProto::DelegatedErc191(sig) => {
-                UnverifiedSignature::LegacyDelegated(UnverifiedLegacyDelegatedSignature::new(
-                    UnverifiedRecoverableEcdsaSignature::new(
-                        sig.signature
-                            .ok_or(ConversionError::Missing {
-                                item: "signature",
-                                r#type: std::any::type_name::<RecoverableEcdsaSignatureProto>(),
-                            })?
-                            .bytes,
-                    ),
-                    sig.delegated_key.ok_or(ConversionError::Missing {
-                        item: "delegated_key",
-                        r#type: std::any::type_name::<SignedPublicKeyProto>(),
-                    })?,
-                ))
-            }
             SignatureKindProto::InstallationKey(sig) => {
                 UnverifiedSignature::InstallationKey(UnverifiedInstallationKeySignature::new(
                     sig.bytes,
@@ -236,6 +211,7 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                     sig.block_number,
                 ),
             ),
+            SignatureKindProto::DelegatedErc191(legacy_delegated_signature) => todo!(),
         };
 
         Ok(unverified_sig)
@@ -372,14 +348,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                 bytes: signature_bytes,
                 public_key: verifying_key.as_bytes().to_vec(),
             }),
-            UnverifiedSignature::LegacyDelegated(sig) => {
-                SignatureKindProto::DelegatedErc191(LegacyDelegatedSignatureProto {
-                    delegated_key: Some(sig.signed_public_key_proto),
-                    signature: Some(RecoverableEcdsaSignatureProto {
-                        bytes: sig.legacy_key_signature.signature_bytes,
-                    }),
-                })
-            }
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
                     bytes: sig.signature_bytes,
@@ -609,81 +577,6 @@ pub fn map_vec<A, B: From<A>>(other: Vec<A>) -> Vec<B> {
 /// Useful to convert vectors of structs into protos, like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
 pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryFrom<A>>::Error> {
     other.into_iter().map(B::try_from).collect()
-}
-
-// TODO:nm This doesn't really feel like serialization, maybe should move
-impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
-    type Error = SignatureError;
-
-    fn try_from(proto: LegacySignedPublicKeyProto) -> Result<Self, Self::Error> {
-        let serialized_key_data = proto.key_bytes;
-        let union = proto
-            .signature
-            .ok_or(SignatureError::Invalid)?
-            .union
-            .ok_or(SignatureError::Invalid)?;
-        let wallet_signature = match union {
-            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
-                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
-                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if wallet_signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                wallet_signature
-            }
-            Union::EcdsaCompact(ecdsa_compact) => {
-                let mut signature = ecdsa_compact.bytes.clone();
-                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                signature
-            }
-        };
-        let verified_wallet_signature = VerifiedSignature::from_recoverable_ecdsa(
-            Self::text(&serialized_key_data),
-            &wallet_signature,
-        )?;
-
-        let account_address = verified_wallet_signature.signer.to_string();
-        let account_address = sanitize_evm_addresses(&[account_address])?[0].clone();
-
-        let legacy_unsigned_public_key_proto =
-            LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())
-                .or(Err(SignatureError::Invalid))?;
-        let public_key_bytes = match legacy_unsigned_public_key_proto
-            .union
-            .ok_or(SignatureError::Invalid)?
-        {
-            unsigned_public_key::Union::Secp256k1Uncompressed(secp256k1_uncompressed) => {
-                secp256k1_uncompressed.bytes
-            }
-        };
-        let created_ns = legacy_unsigned_public_key_proto.created_ns;
-
-        Ok(Self {
-            account_address,
-            wallet_signature: verified_wallet_signature,
-            serialized_key_data,
-            public_key_bytes,
-            created_ns,
-        })
-    }
-}
-
-impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
-    fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
-        let signature = validated.wallet_signature.raw_bytes;
-        Self {
-            key_bytes: validated.serialized_key_data,
-            signature: Some(SignedPublicKeySignatureProto {
-                union: Some(Union::WalletEcdsaCompact(WalletEcdsaCompact {
-                    bytes: signature[0..64].to_vec(),
-                    recovery: signature[64] as u32,
-                })),
-            }),
-        }
-    }
 }
 
 impl TryFrom<String> for AccountId {
