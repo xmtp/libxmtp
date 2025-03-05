@@ -21,6 +21,66 @@ pub enum CodecError {
     Decode(String),
 }
 
+pub enum ContentType {
+    Text,
+    GroupMembershipChange,
+    GroupUpdated,
+    Reaction,
+    ReadReceipt,
+    Reply,
+    Attachment,
+    RemoteAttachment,
+    MultiRemoteAttachment,
+    TransactionReference,
+}
+
+impl TryFrom<&str> for ContentType {
+    type Error = String;
+
+    fn try_from(type_id: &str) -> Result<Self, Self::Error> {
+        match type_id {
+            text::TextCodec::TYPE_ID => Ok(Self::Text),
+            membership_change::GroupMembershipChangeCodec::TYPE_ID => {
+                Ok(Self::GroupMembershipChange)
+            }
+            group_updated::GroupUpdatedCodec::TYPE_ID => Ok(Self::GroupUpdated),
+            reaction::ReactionCodec::TYPE_ID => Ok(Self::Reaction),
+            read_receipt::ReadReceiptCodec::TYPE_ID => Ok(Self::ReadReceipt),
+            reply::ReplyCodec::TYPE_ID => Ok(Self::Reply),
+            attachment::AttachmentCodec::TYPE_ID => Ok(Self::Attachment),
+            remote_attachment::RemoteAttachmentCodec::TYPE_ID => Ok(Self::RemoteAttachment),
+            multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID => {
+                Ok(Self::MultiRemoteAttachment)
+            }
+            transaction_reference::TransactionReferenceCodec::TYPE_ID => {
+                Ok(Self::TransactionReference)
+            }
+            _ => Err(format!("Unknown content type ID: {}", type_id)),
+        }
+    }
+}
+
+// Represents whether this message type should send pushed notification when received by a user
+pub fn should_push(content_type_id: String) -> bool {
+    let content_type = ContentType::try_from(content_type_id.as_str()).ok();
+    if let Some(content_type) = content_type {
+        match content_type {
+            ContentType::Text => true,
+            ContentType::GroupMembershipChange => true,
+            ContentType::GroupUpdated => true,
+            ContentType::Reaction => false,
+            ContentType::ReadReceipt => false,
+            ContentType::Reply => true,
+            ContentType::Attachment => true,
+            ContentType::RemoteAttachment => true,
+            ContentType::MultiRemoteAttachment => true,
+            ContentType::TransactionReference => true,
+        }
+    } else {
+        false
+    }
+}
+
 pub trait ContentCodec<T> {
     fn content_type() -> ContentTypeId;
     fn encode(content: T) -> Result<EncodedContent, CodecError>;
