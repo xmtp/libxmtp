@@ -1,5 +1,14 @@
 # @xmtp/wasm-bindings
 
+## 0.0.18
+
+- Added `content_types` option to `ListMessagesOptions`
+- Removed `allowed_states`, `conversation_type`, and `include_sync_groups` from `ListConversationsOptions`
+- Added reaction content type
+- Added multi remote attachment content type
+- Added `find_messages_with_reactions` method to Conversation
+- Added consent and preferences streaming
+
 ## 0.0.17
 
 - Fixed HTTP Stream Deserialization
