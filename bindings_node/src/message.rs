@@ -2,7 +2,7 @@ use napi::bindgen_prelude::Uint8Array;
 use prost::Message as ProstMessage;
 use xmtp_mls::storage::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
-  SortDirection as XmtpSortDirection, StoredGroupMessage,
+  SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
 };
 
 use napi_derive::napi;
@@ -137,6 +137,26 @@ impl From<StoredGroupMessage> for Message {
       content,
       kind: msg.kind.into(),
       delivery_status: msg.delivery_status.into(),
+    }
+  }
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct MessageWithReactions {
+  pub message: Message,
+  pub reactions: Vec<Message>,
+}
+
+impl From<StoredGroupMessageWithReactions> for MessageWithReactions {
+  fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
+    Self {
+      message: msg_with_reactions.message.into(),
+      reactions: msg_with_reactions
+        .reactions
+        .into_iter()
+        .map(|reaction| reaction.into())
+        .collect(),
     }
   }
 }
