@@ -46,9 +46,9 @@ impl Endpoint for GetInboxIds {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
+    use crate::d14n::GetInboxIds;
     use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::xmtpv4::message_api::GetInboxIdsResponse;
-    use crate::d14n::GetInboxIds;
 
     #[test]
     fn test_file_descriptor() {
