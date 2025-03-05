@@ -602,6 +602,21 @@ impl Conversation {
   }
 
   #[napi]
+  pub fn paused_for_version(&self) -> napi::Result<Option<String>> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    Ok(
+      group
+        .paused_for_version(&group.mls_provider().map_err(ErrorWrapper::from)?)
+        .map_err(ErrorWrapper::from)?,
+    )
+  }
+
+  #[napi]
   pub fn added_by_inbox_id(&self) -> Result<String> {
     let group = MlsGroup::new(
       self.inner_client.clone(),

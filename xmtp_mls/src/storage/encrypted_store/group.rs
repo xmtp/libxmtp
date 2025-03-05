@@ -56,7 +56,7 @@ pub struct StoredGroup {
     pub message_disappear_from_ns: Option<i64>,
     /// How long a message in the group can live in NS
     pub message_disappear_in_ns: Option<i64>,
-    /// The version of the protocol that the group is paused for
+    /// The version of the protocol that the group is paused for, None is not paused
     pub paused_for_version: Option<String>,
 }
 

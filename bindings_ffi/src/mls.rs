@@ -2,6 +2,7 @@ use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
+use ethers::providers::Provider;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
@@ -2072,6 +2073,11 @@ impl FfiConversation {
     pub fn is_active(&self) -> Result<bool, GenericError> {
         let provider = self.inner.mls_provider()?;
         self.inner.is_active(&provider).map_err(Into::into)
+    }
+
+    pub fn paused_for_version(&self) -> Result<Option<String>, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        self.inner.paused_for_version(&provider).map_err(Into::into)
     }
 
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
@@ -7166,5 +7172,16 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+}
+
+#[napi]
+impl Conversation {
+    #[napi]
+    pub fn paused_for_version(&self) -> napi::Result<Option<String>> {
+        let provider = self.inner.mls_provider()?;
+        self.inner
+            .paused_for_version(&provider)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
     }
 }

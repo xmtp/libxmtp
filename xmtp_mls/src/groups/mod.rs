@@ -696,10 +696,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
+                    let current_version_str = client.version_info().pkg_version();
                     let current_version =
-                        LibXMTPVersion::parse(client.version_info().pkg_version()).ok()?;
+                        LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
                     if required_min_version > current_version {
+                        tracing::warn!(
+                            "Saving group from welcome as paused since version requirements are not met. \
+                            Group ID: {}, \
+                            Required version: {}, \
+                            Current version: {}",
+                            hex::encode(group_id.clone()),
+                            min_version,
+                            current_version_str
+                        );
                         Some(min_version)
                     } else {
                         None
@@ -1358,13 +1368,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_intent_resolved(provider, intent.id).await
     }
 
-    pub async fn is_paused(&self) -> Result<bool, GroupError> {
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
-        let is_paused = provider
+    /// If group is not paused, will return None, otherwise will return the version that the group is paused for
+    pub async fn paused_for_version(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Option<String>, GroupError> {
+        let paused_for_version = provider
             .conn_ref()
             .get_group_paused_version(&self.group_id)?;
-        Ok(is_paused.is_some())
+        Ok(paused_for_version)
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
@@ -5195,7 +5207,11 @@ pub(crate) mod tests {
         assert!(caro_group.group_id == amal_group.group_id);
 
         // Caro group is paused immediately after joining
-        let is_paused = caro_group.is_paused().await.unwrap();
+        let is_paused = caro_group
+            .paused_for_version(&caro.mls_provider().unwrap())
+            .await
+            .unwrap()
+            .is_some();
         assert!(is_paused);
         let result = caro_group.send_message("Hello from Caro".as_bytes()).await;
         assert!(matches!(result, Err(GroupError::GroupPausedUntilUpdate(_))));
