@@ -60,6 +60,7 @@ impl TryFrom<&str> for ContentType {
     }
 }
 
+// Represents whether this message type should send pushed notification when received by a user
 pub fn should_push(content_type_id: String) -> bool {
     let content_type = ContentType::try_from(content_type_id.as_str()).ok();
     if let Some(content_type) = content_type {
