@@ -81,4 +81,34 @@ mod test {
         let result: GetInboxIdsResponse = endpoint.query(&client).await.unwrap();
         assert_eq!(result.responses.len(), 0);
     }
+
+    #[cfg(feature = "http-api")]
+    #[tokio::test]
+    async fn test_get_inbox_ids_http() {
+        use xmtp_api_http::XmtpHttpApiClient;
+        use xmtp_api_http::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_libxmtp_version("0.0.0".into()).unwrap();
+        client.set_tls(true);
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = client.build().await.unwrap();
+
+        let endpoint = GetInboxIds::builder()
+            .addresses(vec!["".to_string()])
+            .build()
+            .unwrap();
+
+        let result: Result<GetInboxIdsResponse, _> = endpoint.query(&client).await;
+        match result {
+            Ok(response) => {
+                assert_eq!(response.responses.len(), 1);
+            }
+            Err(err) => {
+                panic!("Test failed: {:?}", err);
+            }
+        }
+    }
 }

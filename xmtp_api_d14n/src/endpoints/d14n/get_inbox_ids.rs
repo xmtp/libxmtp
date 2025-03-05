@@ -46,7 +46,6 @@ impl Endpoint for GetInboxIds {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
     use xmtp_proto::traits::Query;
     use xmtp_proto::xmtp::xmtpv4::message_api::GetInboxIdsResponse;
     use crate::d14n::GetInboxIds;
@@ -87,6 +86,7 @@ mod test {
     #[tokio::test]
     async fn test_get_inbox_ids_http() {
         use xmtp_api_http::XmtpHttpApiClient;
+        use xmtp_api_http::LOCALHOST_ADDRESS;
         use xmtp_proto::api_client::ApiBuilder;
 
         let mut client = XmtpHttpApiClient::builder();
@@ -107,7 +107,7 @@ mod test {
                 assert_eq!(response.responses.len(), 0);
             }
             Err(err) => {
-                panic!("Test failed due to HTTP error: {:?}", err);
+                panic!("Test failed: {:?}", err);
             }
         }
     }

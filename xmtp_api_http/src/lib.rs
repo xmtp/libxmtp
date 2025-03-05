@@ -34,6 +34,7 @@ use xmtp_proto::{
 
 use crate::constants::ApiEndpoints;
 pub use crate::error::{Error, ErrorResponse, HttpClientError};
+pub const LOCALHOST_ADDRESS: &str = "http://localhost:5555";
 
 #[cfg(target_arch = "wasm32")]
 fn reqwest_builder() -> reqwest::ClientBuilder {
