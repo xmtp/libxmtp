@@ -2039,7 +2039,7 @@ pub(crate) mod tests {
             serialized_welcome,
         );
         let messages = sender_group
-            .prepare_group_messages(vec![serialized_commit.as_slice()])
+            .prepare_group_messages(vec![(serialized_commit.as_slice(), false)])
             .unwrap();
         sender_client
             .api_client
