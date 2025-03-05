@@ -3,6 +3,7 @@ use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
+use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
     groups::{
