@@ -16,6 +16,7 @@ serde_json = { workspace = true }
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+http = "1.2"
 
 xmtp_common.workspace = true
 

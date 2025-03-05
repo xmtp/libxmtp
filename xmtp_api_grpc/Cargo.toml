@@ -18,6 +18,7 @@ xmtp_common.workspace = true
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 zeroize.workspace = true
+http = "1.2"
 
 # Anything but iOS and Android will use either webpki or native.
 # If native certs are not found, it will fallback to webpki

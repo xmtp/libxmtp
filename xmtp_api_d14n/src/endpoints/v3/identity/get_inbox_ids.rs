@@ -22,7 +22,7 @@ impl GetInboxIds {
 impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/identity/v1/get-inbox-ids")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -44,23 +44,29 @@ impl Endpoint for GetInboxIds {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use crate::v3::identity::GetInboxIds;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
+    use crate::v3::GetInboxIds;
     use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
-    };
+    use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsResponse;
 
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::identity::api::v1::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
+
         let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_get_inbox_ids() {
+        use crate::v3::identity::GetInboxIds;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+        use xmtp_proto::xmtp::identity::api::v1::GetInboxIdsResponse;
+
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);

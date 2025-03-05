@@ -40,27 +40,30 @@ impl Endpoint for VerifySmartContractWalletSignatures {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use crate::v3::VerifySmartContractWalletSignatures;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        VerifySmartContractWalletSignatureRequestSignature,
-        VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
-        FILE_DESCRIPTOR_SET,
-    };
-
+    #[cfg(feature = "grpc-api")]
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::identity::api::v1::{
+            VerifySmartContractWalletSignaturesRequest, FILE_DESCRIPTOR_SET,
+        };
         let pnq = crate::path_and_query::<VerifySmartContractWalletSignaturesRequest>(
             FILE_DESCRIPTOR_SET,
         );
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_verify_smart_contract_wallet_signatures() {
+        use crate::v3::VerifySmartContractWalletSignatures;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+        use xmtp_proto::xmtp::identity::api::v1::{
+            VerifySmartContractWalletSignatureRequestSignature,
+            VerifySmartContractWalletSignaturesResponse,
+        };
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);

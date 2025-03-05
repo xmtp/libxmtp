@@ -32,7 +32,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
-use xmtp_proto::ProtoError;
+use xmtp_proto::ConversionError;
 
 const DEFAULT_PAGINATION_LIMIT: u32 = 100;
 
@@ -273,10 +273,9 @@ where
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        let envelope: ClientEnvelope = request.try_into().map_err(ApiError::Conversion)?;
         let result = PublishClientEnvelopes::builder()
-            .envelopes(vec![request
-                .try_into()
-                .map_err(|e| ApiError::<E>::ProtoError(e))?])
+            .envelopes(vec![envelope])
             .build()
             .unwrap()
             .query(&self.payer_client)

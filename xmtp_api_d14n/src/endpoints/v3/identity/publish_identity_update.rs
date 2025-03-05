@@ -40,25 +40,28 @@ impl Endpoint for PublishIdentityUpdate {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use crate::v3::PublishIdentityUpdate;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::{GrpcError, LOCALHOST_ADDRESS};
-    use xmtp_common::time::now_ns;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET,
-    };
-    use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::identity::api::v1::{
+            PublishIdentityUpdateRequest, FILE_DESCRIPTOR_SET,
+        };
         let pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_publish_identity_update() {
+        use crate::v3::PublishIdentityUpdate;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::{GrpcError, LOCALHOST_ADDRESS};
+        use xmtp_common::time::now_ns;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+        use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateResponse;
+
+        use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);

@@ -2,8 +2,9 @@
 
 pub mod constants;
 pub mod error;
-mod http_client;
-mod http_stream;
+pub mod http_client;
+pub mod http_stream;
+
 pub mod util;
 
 use futures::stream;
@@ -138,7 +139,9 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
     }
 
     // no op for http so far
-    fn set_tls(&mut self, _tls: bool) {}
+    fn set_tls(&mut self, _tls: bool) {
+        self.reqwest = reqwest_builder();
+    }
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
         let http_client = self.reqwest.default_headers(self.headers).build()?;
