@@ -44,7 +44,7 @@ impl RetryableError for LocalEventError {
 
 /// Events local to this client
 /// are broadcast across all senders/receivers of streams
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
@@ -53,7 +53,7 @@ pub enum LocalEvents {
     IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum SyncMessage {
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
@@ -144,7 +144,7 @@ pub(crate) trait StreamMessages {
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
@@ -153,6 +153,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         })
     }
 
+    #[instrument(level = "debug", skip_all)]
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
@@ -161,6 +162,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         })
     }
 
+    #[instrument(level = "debug", skip_all)]
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
@@ -326,7 +328,11 @@ where
 
     pub fn stream_consent_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
+            + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -346,7 +352,11 @@ where
 
     pub fn stream_preferences_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>) + Send + 'static,
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
+            + Send
+            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
+            + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
