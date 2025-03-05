@@ -8,6 +8,7 @@ version.workspace = true
 async-trait.workspace = true
 bytes = "1.9"
 futures = { workspace = true, default-features = false }
+http = "1.2"
 pin-project-lite = "0.2.15"
 prost.workspace = true
 reqwest = { workspace = true, features = ["json"] }
@@ -16,7 +17,6 @@ serde_json = { workspace = true }
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-http = "1.2"
 
 xmtp_common.workspace = true
 
