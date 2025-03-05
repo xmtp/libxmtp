@@ -41,12 +41,12 @@ impl From<RemoteAttachmentInfo> for XmtpRemoteAttachmentInfo {
 impl From<XmtpRemoteAttachmentInfo> for RemoteAttachmentInfo {
   fn from(remote_attachment_info: XmtpRemoteAttachmentInfo) -> Self {
     RemoteAttachmentInfo {
-      secret: Uint8Array::from(remote_attachment_info.secret.as_slice()),
+      secret: Uint8Array::from(remote_attachment_info.secret),
       content_digest: remote_attachment_info.content_digest,
-      nonce: Uint8Array::from(remote_attachment_info.nonce.as_slice()),
+      nonce: Uint8Array::from(remote_attachment_info.nonce),
       scheme: remote_attachment_info.scheme,
       url: remote_attachment_info.url,
-      salt: Uint8Array::from(remote_attachment_info.salt.as_slice()),
+      salt: Uint8Array::from(remote_attachment_info.salt),
       content_length: remote_attachment_info.content_length,
       filename: remote_attachment_info.filename,
     }
@@ -97,7 +97,7 @@ pub fn encode_multi_remote_attachment(
   let mut buf = Vec::new();
   encoded.encode(&mut buf).map_err(ErrorWrapper::from)?;
 
-  Ok(Uint8Array::from(buf.as_slice()))
+  Ok(Uint8Array::from(buf))
 }
 
 #[napi]
