@@ -223,13 +223,19 @@ where
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
             if required_min_version <= current_version {
-                tracing::info!("Unpausing group since version requirements are met");
+                tracing::info!(
+                    "Unpausing group since version requirements are met. \
+                     Group ID: {}",
+                    hex::encode(&self.group_id),
+                );
                 conn.unpause_group(&self.group_id)?;
             } else {
-                tracing::info!(
+                tracing::warn!(
                     "Skipping sync for paused group since version requirements are not met. \
+                    Group ID: {}, \
                     Required version: {}, \
                     Current version: {}",
+                    hex::encode(&self.group_id),
                     required_min_version_str,
                     current_version_str
                 );
