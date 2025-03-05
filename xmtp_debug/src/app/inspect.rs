@@ -41,14 +41,14 @@ impl Inspect {
                     .get_latest_association_state(&conn, &hex::encode(*inbox_id))
                     .await?;
 
-                let public_idents: Vec<_> = state
+                let idents: Vec<_> = state
                     .identifiers()
                     .iter()
                     .map(|ident| format!("{ident:?}"))
                     .collect();
                 info!(
                     inbox_id = state.inbox_id(),
-                    account_addresses = public_idents.as_value(),
+                    account_addresses = idents.as_value(),
                     installations = state
                         .installation_ids()
                         .into_iter()

@@ -144,10 +144,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(
-                caro_wallet.public_identifier(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm(caro_wallet.identifier(), DMMetadataOptions::default())
             .await
             .unwrap();
 

@@ -9,9 +9,7 @@ use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
-use xmtp_id::associations::{
-  verify_signed_with_public_context, PublicIdentifier as XmtpPublicIdentifier,
-};
+use xmtp_id::associations::{verify_signed_with_public_context, Identifier as XmtpIdentifier};
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
@@ -185,7 +183,7 @@ impl Client {
     };
 
     let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let ident: XmtpPublicIdentifier = self.account_identifier().clone().try_into()?;
+    let ident: XmtpIdentifier = self.account_identifier().clone().try_into()?;
     let address = ident.to_string();
 
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {

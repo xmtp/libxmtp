@@ -2,7 +2,7 @@ use crate::identity::FfiIdentifier;
 use xmtp_cryptography::signature::{
     IdentifierValidationError, RecoverableSignature, SignatureError,
 };
-use xmtp_id::associations::PublicIdentifier;
+use xmtp_id::associations::Identifier;
 
 // TODO proper error handling
 #[derive(uniffi::Error, Debug, thiserror::Error)]
@@ -41,7 +41,7 @@ impl RustInboxOwner {
 }
 
 impl xmtp_mls::InboxOwner for RustInboxOwner {
-    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
+    fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError> {
         let ident = self
             .ffi_inbox_owner
             .get_identifier()

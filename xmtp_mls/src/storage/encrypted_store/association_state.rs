@@ -113,7 +113,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use xmtp_id::associations::PublicIdentifier;
+    use xmtp_id::associations::Identifier;
 
     use crate::storage::encrypted_store::tests::with_connection;
 
@@ -124,7 +124,7 @@ pub(crate) mod tests {
     async fn test_batch_read() {
         with_connection(|conn| {
             let association_state = AssociationState::new(
-                PublicIdentifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap(),
+                Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap(),
                 0,
                 None,
             )
@@ -139,7 +139,7 @@ pub(crate) mod tests {
             .unwrap();
 
             let association_state_2 = AssociationState::new(
-                PublicIdentifier::eth("0x4567890abcdef1234567890abcdef12345678123").unwrap(),
+                Identifier::eth("0x4567890abcdef1234567890abcdef12345678123").unwrap(),
                 2,
                 None,
             )

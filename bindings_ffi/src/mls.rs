@@ -12,7 +12,7 @@ use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_id::associations::{
-    ident, verify_signed_with_public_context, DeserializationError, PublicIdentifier,
+    ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
@@ -180,7 +180,7 @@ pub async fn get_inbox_id_for_identifier(
 ) -> Result<Option<String>, GenericError> {
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-    let account_identifier: PublicIdentifier = account_identifier.try_into()?;
+    let account_identifier: Identifier = account_identifier.try_into()?;
     let api_identifier: ApiIdentifier = account_identifier.into();
 
     let results = api
@@ -302,7 +302,7 @@ impl FfiXmtpClient {
     ) -> Result<HashMap<FfiIdentifier, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let account_identifiers: Result<Vec<PublicIdentifier>, _> = account_identifiers
+        let account_identifiers: Result<Vec<Identifier>, _> = account_identifiers
             .into_iter()
             .map(|ident| ident.try_into())
             .collect();
@@ -1021,7 +1021,7 @@ impl FfiConversations {
         account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let account_identities: Result<Vec<PublicIdentifier>, _> = account_identities
+        let account_identities: Result<Vec<Identifier>, _> = account_identities
             .into_iter()
             .map(|ident| ident.try_into())
             .collect();
@@ -2630,7 +2630,7 @@ mod tests {
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
-        identity::{FfiIdentifier, FfiPublicIdentifierKind},
+        identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -2687,8 +2687,8 @@ mod tests {
             Self { wallet }
         }
 
-        pub fn public_identifier(&self) -> FfiIdentifier {
-            self.wallet.public_identifier().into()
+        pub fn identifier(&self) -> FfiIdentifier {
+            self.wallet.identifier().into()
         }
 
         pub fn new() -> Self {
@@ -2862,7 +2862,7 @@ mod tests {
         history_sync_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
-        let ident = ffi_inbox_owner.public_identifier();
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -2930,7 +2930,7 @@ mod tests {
     async fn test_legacy_identity() {
         let ident = FfiIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
-            identifier_kind: FfiPublicIdentifierKind::Ethereum,
+            identifier_kind: FfiIdentifierKind::Ethereum,
             relying_partner: None,
         };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
@@ -2959,7 +2959,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let ident = ffi_inbox_owner.public_identifier();
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -2972,7 +2972,7 @@ mod tests {
             Some(path.clone()),
             None,
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -2991,7 +2991,7 @@ mod tests {
             Some(path),
             None,
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3012,7 +3012,7 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let ident = ffi_inbox_owner.public_identifier();
+        let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
@@ -3026,7 +3026,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3046,7 +3046,7 @@ mod tests {
             Some(path),
             Some(other_key.to_vec()),
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3087,7 +3087,7 @@ mod tests {
     async fn test_can_add_wallet_to_inbox() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let ident = ffi_inbox_owner.public_identifier();
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -3100,7 +3100,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3126,7 +3126,7 @@ mod tests {
 
         // Now, add the second wallet to the client
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.public_identifier();
+        let new_account_address = wallet_to_add.identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -3155,7 +3155,7 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let ident = ffi_inbox_owner.public_identifier();
+        let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
@@ -3167,7 +3167,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.public_identifier(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3194,7 +3194,7 @@ mod tests {
         // Now, add the second wallet to the client
 
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.public_identifier();
+        let new_account_address = wallet_to_add.identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
@@ -3219,7 +3219,7 @@ mod tests {
 
         // Now, revoke the second wallet
         let signature_request = client
-            .revoke_identity(wallet_to_add.public_identifier().into())
+            .revoke_identity(wallet_to_add.identifier().into())
             .await
             .expect("could not revoke wallet");
 
@@ -3244,7 +3244,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
-        let ident = inbox_owner.public_identifier();
+        let ident = inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
@@ -3256,7 +3256,7 @@ mod tests {
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
-            inbox_owner.public_identifier(),
+            inbox_owner.identifier(),
             nonce,
             None, // v2_signed_private_key_proto
             None,
@@ -3271,12 +3271,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
-        let amal_ident = amal.public_identifier();
+        let amal_ident = amal.identifier();
         let nonce = 1;
         let amal_inbox_id = amal_ident.inbox_id(nonce).unwrap();
 
         let bola = LocalWalletInboxOwner::new();
-        let bola_ident = bola.public_identifier();
+        let bola_ident = bola.identifier();
         let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
@@ -3287,7 +3287,7 @@ mod tests {
             Some(path.clone()),
             None,
             &amal_inbox_id,
-            amal.public_identifier(),
+            amal.identifier(),
             nonce,
             None,
             None,
@@ -3295,13 +3295,13 @@ mod tests {
         .await
         .unwrap();
         let can_message_result = client_amal
-            .can_message(vec![bola.public_identifier()])
+            .can_message(vec![bola.identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result
-                .get(&bola.public_identifier())
+                .get(&bola.identifier())
                 .map(|&value| !value)
                 .unwrap_or(false),
             "Expected the can_message result to be false for the address"
@@ -3314,7 +3314,7 @@ mod tests {
             Some(path.clone()),
             None,
             &bola_inbox_id,
-            bola.public_identifier(),
+            bola.identifier(),
             nonce,
             None,
             None,
@@ -3324,13 +3324,13 @@ mod tests {
         register_client(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
-            .can_message(vec![bola.public_identifier()])
+            .can_message(vec![bola.identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result2
-                .get(&bola.public_identifier())
+                .get(&bola.identifier())
                 .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
@@ -6441,11 +6441,11 @@ mod tests {
     async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         // Step 1: Generate wallet A
         let wallet_a = generate_local_wallet();
-        let ident_a = wallet_a.public_identifier();
+        let ident_a = wallet_a.identifier();
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiIdentifier = wallet_a.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6453,7 +6453,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6465,11 +6465,11 @@ mod tests {
 
         // Step 3: Generate wallet B
         let wallet_b = generate_local_wallet();
-        let wallet_b_ident = wallet_b.public_identifier();
+        let wallet_b_ident = wallet_b.identifier();
 
         // Step 4: Associate wallet B to inbox A
         let add_wallet_signature_request = client_a
-            .add_identity(wallet_b.public_identifier().into())
+            .add_identity(wallet_b.identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6484,7 +6484,7 @@ mod tests {
         let nonce = 1;
         let inbox_id = client_a.inbox_id();
 
-        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6492,7 +6492,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6510,10 +6510,7 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .find_or_create_dm(
-                wallet_a.public_identifier().into(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(wallet_a.identifier().into(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6551,7 +6548,7 @@ mod tests {
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
-        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6559,7 +6556,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6584,9 +6581,9 @@ mod tests {
     async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
         // Step 1: Wallet A creates a new client with inbox_id A
         let wallet_a = generate_local_wallet();
-        let ident_a = wallet_a.public_identifier();
+        let ident_a = wallet_a.identifier();
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiIdentifier = wallet_a.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6594,7 +6591,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6606,9 +6603,9 @@ mod tests {
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
-        let ident_b = wallet_b.public_identifier();
+        let ident_b = wallet_b.identifier();
         let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
-        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6616,7 +6613,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6627,7 +6624,7 @@ mod tests {
         register_client(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
-        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6635,7 +6632,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6645,7 +6642,7 @@ mod tests {
 
         // Step 4: Client A adds association to wallet B
         let add_wallet_signature_request = client_a
-            .add_identity(wallet_b.public_identifier().into())
+            .add_identity(wallet_b.identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6657,7 +6654,7 @@ mod tests {
             .unwrap();
 
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
-        let ffi_public_ident: FfiIdentifier = wallet_b.public_identifier().into();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6665,7 +6662,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            ffi_public_ident,
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),

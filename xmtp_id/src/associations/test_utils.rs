@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::{
     builder::SignatureRequest,
-    member::PublicIdentifier,
+    member::Identifier,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
     AccountId, InstallationKeyContext, MemberIdentifier,
@@ -32,17 +32,17 @@ impl MockSmartContractSignatureVerifier {
 pub trait WalletTestExt {
     fn get_inbox_id(&self, nonce: u64) -> String;
     fn member_identifier(&self) -> MemberIdentifier;
-    fn public_identifier(&self) -> PublicIdentifier;
+    fn identifier(&self) -> Identifier;
 }
 
 impl WalletTestExt for LocalWallet {
     fn get_inbox_id(&self, nonce: u64) -> String {
-        self.public_identifier().inbox_id(nonce).unwrap()
+        self.identifier().inbox_id(nonce).unwrap()
     }
     fn member_identifier(&self) -> MemberIdentifier {
-        self.public_identifier().into()
+        self.identifier().into()
     }
-    fn public_identifier(&self) -> PublicIdentifier {
+    fn identifier(&self) -> Identifier {
         self.get_identifier().unwrap()
     }
 }
@@ -102,7 +102,7 @@ impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: PublicIdentifier::eth(account_address)
+                account_identifier: Identifier::eth(account_address)
                     .expect("test account address is invalid"),
                 nonce: *nonce,
             },

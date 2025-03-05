@@ -1,6 +1,6 @@
 use serde::Serialize;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_id::associations::{ident, PublicIdentifier as XMTPPublicIdentifier};
+use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
@@ -17,15 +17,15 @@ pub enum IdentifierKind {
   Passkey,
 }
 
-impl From<XMTPPublicIdentifier> for Identifier {
-  fn from(ident: XMTPPublicIdentifier) -> Self {
+impl From<XmtpIdentifier> for Identifier {
+  fn from(ident: XmtpIdentifier) -> Self {
     match ident {
-      XMTPPublicIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
+      XmtpIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
         identifier: addr,
         identifier_kind: IdentifierKind::Ethereum,
         relying_partner: None,
       },
-      XMTPPublicIdentifier::Passkey(ident::Passkey {
+      XmtpIdentifier::Passkey(ident::Passkey {
         key,
         relying_partner,
       }) => Self {
@@ -37,7 +37,7 @@ impl From<XMTPPublicIdentifier> for Identifier {
   }
 }
 
-impl TryFrom<Identifier> for XMTPPublicIdentifier {
+impl TryFrom<Identifier> for XmtpIdentifier {
   type Error = JsError;
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
@@ -52,8 +52,8 @@ pub trait IdentityExt<T, U> {
   fn to_internal(self) -> Result<Vec<U>, JsError>;
 }
 
-impl IdentityExt<Identifier, XMTPPublicIdentifier> for Vec<Identifier> {
-  fn to_internal(self) -> Result<Vec<XMTPPublicIdentifier>, JsError> {
+impl IdentityExt<Identifier, XmtpIdentifier> for Vec<Identifier> {
+  fn to_internal(self) -> Result<Vec<XmtpIdentifier>, JsError> {
     let ident: Result<Vec<_>, JsError> = self.into_iter().map(|ident| ident.try_into()).collect();
     ident
   }

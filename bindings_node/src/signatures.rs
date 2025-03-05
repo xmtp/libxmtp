@@ -4,7 +4,7 @@ use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
-use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
+use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context, AccountId,
@@ -179,7 +179,7 @@ impl Client {
     };
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident: XmtpPublicIdentifier = self.account_identifier.clone().try_into()?;
+      let ident: XmtpIdentifier = self.account_identifier.clone().try_into()?;
       let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.deref().to_vec(),

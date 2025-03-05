@@ -3,9 +3,9 @@ import { createRegisteredClient, createUser, TEST_API_URL } from '@test/helpers'
 import {
   generateInboxId,
   getInboxIdForIdentifier,
+  IdentifierKind,
   isAddressAuthorized,
   isInstallationAuthorized,
-  PublicIdentifierKind,
 } from '../dist/index'
 
 describe('generateInboxId', () => {
@@ -13,7 +13,7 @@ describe('generateInboxId', () => {
     const user = createUser()
     const inboxId = generateInboxId({
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(inboxId).toBeDefined()
   })
@@ -24,7 +24,7 @@ describe('getInboxIdForIdentifier', () => {
     const user = createUser()
     const inboxId = await getInboxIdForIdentifier(TEST_API_URL, false, {
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(inboxId).toBe(null)
   })
@@ -34,7 +34,7 @@ describe('getInboxIdForIdentifier', () => {
     const client = await createRegisteredClient(user)
     const inboxId = await getInboxIdForIdentifier(TEST_API_URL, false, {
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(inboxId).toBe(client.inboxId())
   })

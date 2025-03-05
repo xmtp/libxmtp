@@ -9,8 +9,8 @@ import {
   generateInboxId,
   getInboxIdForIdentifier,
   LogLevel,
-  PublicIdentifier,
-  PublicIdentifierKind,
+  Identifier,
+  IdentifierKind,
   SignatureRequestType,
 } from "current-bindings";
 import { Conversation } from "current-bindings";
@@ -42,11 +42,11 @@ export const createClient = async (user: User) => {
   const inboxId =
     (await getInboxIdForIdentifier(TEST_API_URL, false, {
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })) ||
     generateInboxId({
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     });
   return create(
     TEST_API_URL,
@@ -55,7 +55,7 @@ export const createClient = async (user: User) => {
     inboxId,
     {
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     },
     undefined,
     undefined,

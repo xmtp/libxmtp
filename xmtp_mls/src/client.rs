@@ -43,7 +43,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
-        AssociationError, AssociationState, MemberIdentifier, PublicIdentifier, SignatureError,
+        AssociationError, AssociationState, Identifier, MemberIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
@@ -309,7 +309,7 @@ where
     pub async fn find_inbox_id_from_identifier(
         &self,
         conn: &DbConnection,
-        identifier: PublicIdentifier,
+        identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
             .find_inbox_ids_from_identifiers(conn, &[identifier])
@@ -322,7 +322,7 @@ where
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
         conn: &DbConnection,
-        identifiers: &[PublicIdentifier],
+        identifiers: &[Identifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
         let mut new_inbox_ids = HashMap::default();
@@ -479,7 +479,7 @@ where
     /// Create a group with an initial set of members added
     pub async fn create_group_with_members(
         &self,
-        account_identifiers: &[PublicIdentifier],
+        account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
         opts: GroupMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
@@ -537,7 +537,7 @@ where
     /// Find or create a Direct Message with the default settings
     pub async fn find_or_create_dm(
         &self,
-        target_identity: PublicIdentifier,
+        target_identity: Identifier,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with address: {target_identity}");
@@ -988,12 +988,12 @@ where
     /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
-        account_identifiers: &[PublicIdentifier],
-    ) -> Result<HashMap<PublicIdentifier, bool>, ClientError> {
+        account_identifiers: &[Identifier],
+    ) -> Result<HashMap<Identifier, bool>, ClientError> {
         let requests = account_identifiers.iter().map(Into::into).collect();
 
         // Get the identities that are on the network, set those to true
-        let mut can_message: HashMap<PublicIdentifier, bool> = self
+        let mut can_message: HashMap<Identifier, bool> = self
             .api_client
             .get_inbox_ids(requests)
             .await?
@@ -1154,10 +1154,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_identifier(
-                    &client.store().conn().unwrap(),
-                    wallet.public_identifier()
-                )
+                .find_inbox_id_from_identifier(&client.store().conn().unwrap(), wallet.identifier())
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())
@@ -1508,7 +1505,7 @@ pub(crate) mod tests {
         assert!(bo_original_from_db.is_ok());
 
         alix.create_group_with_members(
-            &[bo_wallet.public_identifier()],
+            &[bo_wallet.identifier()],
             None,
             GroupMetadataOptions::default(),
         )
@@ -1540,7 +1537,7 @@ pub(crate) mod tests {
         assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(
-            &[bo_wallet.public_identifier()],
+            &[bo_wallet.identifier()],
             None,
             GroupMetadataOptions::default(),
         )

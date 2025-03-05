@@ -1,12 +1,12 @@
 import {
   ConsentState,
   EncodedContent,
+  IdentifierKind,
   Message,
   MessageDisappearingSettings,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
-  PublicIdentifierKind,
 } from '@xmtp/node-bindings'
 import { describe, expect, it } from 'vitest'
 import {
@@ -25,7 +25,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     const newName = 'foo'
@@ -55,7 +55,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     const imageUrl = 'https://foo/bar.jpg'
@@ -85,7 +85,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     const newDescription = 'foo'
@@ -117,7 +117,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -131,7 +131,7 @@ describe.concurrent('Conversation', () => {
     await conversation.addMembers([
       {
         identifier: user3.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -146,7 +146,7 @@ describe.concurrent('Conversation', () => {
     await conversation.removeMembers([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -169,7 +169,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -208,7 +208,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -238,7 +238,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -275,7 +275,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -303,7 +303,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -332,7 +332,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -363,13 +363,13 @@ describe.concurrent('Conversation', () => {
     const group = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     expect(group).toBeDefined()
     const dmGroup = await client1.conversations().createDm({
       identifier: user3.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(dmGroup).toBeDefined()
 
@@ -396,7 +396,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -478,7 +478,7 @@ describe.concurrent('Conversation', () => {
       [
         {
           identifier: user2.account.address,
-          identifierKind: PublicIdentifierKind.Ethereum,
+          identifierKind: IdentifierKind.Ethereum,
         },
       ],
       {
@@ -574,7 +574,7 @@ describe.concurrent('Conversation', () => {
     const conversation = await client1.conversations().createDm(
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
       {
         messageDisappearingSettings,
@@ -663,7 +663,7 @@ describe.concurrent('Conversation', () => {
     const group = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     const hmacKeys = group.getHmacKeys()

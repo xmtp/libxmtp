@@ -19,7 +19,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 
     let nonce = 1;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
-    let ident = wallet.public_identifier();
+    let ident = wallet.identifier();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let dev = std::env::var("DEV_GRPC");
@@ -35,7 +35,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
-        wallet.public_identifier(),
+        wallet.identifier(),
         nonce,
         None,
     ));

@@ -1,4 +1,4 @@
-use super::{member::PublicIdentifier, MemberIdentifier};
+use super::{member::Identifier, MemberIdentifier};
 use crate::associations::{member::HasMemberKind, MemberKind};
 use chrono::DateTime;
 
@@ -12,7 +12,7 @@ pub trait SignatureTextCreator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
-    pub account_identifier: PublicIdentifier,
+    pub account_identifier: Identifier,
 }
 
 impl SignatureTextCreator for UnsignedCreateInbox {
@@ -59,7 +59,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_identifier: PublicIdentifier,
+    pub new_recovery_identifier: Identifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
@@ -148,12 +148,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
         let account_identifier =
-            PublicIdentifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap();
+            Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap();
 
         let client_timestamp_ns: u64 = 12;
         let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
         let new_recovery_identifier =
-            PublicIdentifier::eth("0x7890abcdef1234567890abcdef12345678123456").unwrap();
+            Identifier::eth("0x7890abcdef1234567890abcdef12345678123456").unwrap();
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,

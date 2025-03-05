@@ -1,4 +1,4 @@
-use super::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, PublicIdentifier};
+use super::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 use super::serialization::DeserializationError;
 use super::signature::{SignatureError, SignatureKind};
 use super::state::AssociationState;
@@ -38,7 +38,7 @@ pub enum AssociationError {
     #[error("Invalid account address: Must be 42 hex characters, starting with '0x'.")]
     InvalidAccountAddress,
     #[error("{0} are not a public identifier")]
-    NotPublicIdentifier(String),
+    NotIdentifier(String),
     #[error(transparent)]
     Convert(#[from] xmtp_proto::ConversionError),
 }
@@ -66,7 +66,7 @@ pub trait IdentityAction: Send {
 #[derive(Debug, Clone)]
 pub struct CreateInbox {
     pub nonce: u64,
-    pub account_identifier: PublicIdentifier,
+    pub account_identifier: Identifier,
     pub initial_identifier_signature: VerifiedSignature,
 }
 
@@ -143,11 +143,11 @@ impl IdentityAction for AddAssociation {
         // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
         // Otherwise the client should use the regular wallet signature to create
         let existing_member_identifier = existing_member_identifier.clone();
-        let public_identifier: Option<PublicIdentifier> = existing_member_identifier.clone().into();
-        if let Some(public_identifier) = public_identifier {
+        let identifier: Option<Identifier> = existing_member_identifier.clone().into();
+        if let Some(identifier) = identifier {
             if (is_legacy_signature(&self.new_member_signature)
                 || is_legacy_signature(&self.existing_member_signature))
-                && existing_state.inbox_id() != public_identifier.inbox_id(0)?
+                && existing_state.inbox_id() != identifier.inbox_id(0)?
             {
                 return Err(AssociationError::LegacySignatureReuse);
             }
@@ -278,7 +278,7 @@ impl IdentityAction for RevokeAssociation {
 #[derive(Debug, Clone)]
 pub struct ChangeRecoveryIdentity {
     pub recovery_identifier_signature: VerifiedSignature,
-    pub new_recovery_identifier: PublicIdentifier,
+    pub new_recovery_identifier: Identifier,
 }
 
 impl IdentityAction for ChangeRecoveryIdentity {

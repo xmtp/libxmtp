@@ -6,10 +6,10 @@ import org.web3j.crypto.*
 import uniffi.xmtpv3.*
 
 class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
-    override fun getIdentifier(): FfiPublicIdentifier {
-        // Create a FfiPublicIdentifier from the Ethereum address
-        return FfiPublicIdentifier(
-            identifierKind = FfiPublicIdentifierKind.ETHEREUM,
+    override fun getIdentifier(): FfiIdentifier {
+        // Create a FfiIdentifier from the Ethereum address
+        return FfiIdentifier(
+            identifierKind = FfiIdentifierKind.ETHEREUM,
             identifier = credentials.address,
             relyingPartner = null
         )

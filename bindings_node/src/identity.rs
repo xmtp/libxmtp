@@ -1,7 +1,7 @@
 use crate::ErrorWrapper;
 use napi_derive::napi;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_id::associations::{ident, PublicIdentifier as XMTPPublicIdentifier};
+use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 
 #[napi(object)]
 #[derive(Clone, Hash, PartialEq, Eq)]
@@ -19,15 +19,15 @@ pub enum IdentifierKind {
   // more to come...
 }
 
-impl From<XMTPPublicIdentifier> for Identifier {
-  fn from(ident: XMTPPublicIdentifier) -> Self {
+impl From<XmtpIdentifier> for Identifier {
+  fn from(ident: XmtpIdentifier) -> Self {
     match ident {
-      XMTPPublicIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
+      XmtpIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
         identifier: addr,
         identifier_kind: IdentifierKind::Ethereum,
         relying_partner: None,
       },
-      XMTPPublicIdentifier::Passkey(ident::Passkey {
+      XmtpIdentifier::Passkey(ident::Passkey {
         key,
         relying_partner,
       }) => Self {
@@ -39,7 +39,7 @@ impl From<XMTPPublicIdentifier> for Identifier {
   }
 }
 
-impl TryFrom<Identifier> for XMTPPublicIdentifier {
+impl TryFrom<Identifier> for XmtpIdentifier {
   type Error = ErrorWrapper<IdentifierValidationError>;
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
@@ -54,10 +54,8 @@ pub trait IdentityExt<T, U> {
   fn to_internal(self) -> Result<Vec<U>, ErrorWrapper<IdentifierValidationError>>;
 }
 
-impl IdentityExt<Identifier, XMTPPublicIdentifier> for Vec<Identifier> {
-  fn to_internal(
-    self,
-  ) -> Result<Vec<XMTPPublicIdentifier>, ErrorWrapper<IdentifierValidationError>> {
+impl IdentityExt<Identifier, XmtpIdentifier> for Vec<Identifier> {
+  fn to_internal(self) -> Result<Vec<XmtpIdentifier>, ErrorWrapper<IdentifierValidationError>> {
     let ident: Result<Vec<_>, ErrorWrapper<IdentifierValidationError>> =
       self.into_iter().map(|ident| ident.try_into()).collect();
     ident

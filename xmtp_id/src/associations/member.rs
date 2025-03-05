@@ -29,7 +29,7 @@ pub enum MemberIdentifier {
 /// is uesd to enforce parameters.
 /// Not everything in this enum will be able to sign,
 /// which will be enforced on the unverified signature counterparts.
-pub enum PublicIdentifier {
+pub enum Identifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
 }
@@ -54,7 +54,7 @@ impl MemberIdentifier {
     }
 
     pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
-        Ok(PublicIdentifier::eth(addr)?.into())
+        Ok(Identifier::eth(addr)?.into())
     }
 
     pub fn installation(key: Vec<u8>) -> Self {
@@ -102,7 +102,7 @@ impl MemberIdentifier {
     }
 }
 
-impl PublicIdentifier {
+impl Identifier {
     #[cfg(any(test, feature = "test-utils"))]
     pub fn rand_ethereum() -> Self {
         Self::Ethereum(ident::Ethereum::rand())
@@ -143,7 +143,7 @@ impl PublicIdentifier {
         relying_partner: Option<String>,
     ) -> Result<Self, ConversionError> {
         let ident = ident.as_ref();
-        let public_ident = match kind {
+        let ident = match kind {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
                 Self::Ethereum(ident::Ethereum(ident.to_string()))
             }
@@ -155,7 +155,7 @@ impl PublicIdentifier {
                 relying_partner,
             }),
         };
-        Ok(public_ident)
+        Ok(ident)
     }
 
     /// Get the generated inbox_id for this public identifier.
@@ -212,7 +212,7 @@ impl HasMemberKind for MemberIdentifier {
         }
     }
 }
-impl HasMemberKind for PublicIdentifier {
+impl HasMemberKind for Identifier {
     fn kind(&self) -> MemberKind {
         match self {
             Self::Ethereum(_) => MemberKind::Ethereum,
@@ -246,7 +246,7 @@ impl Debug for MemberIdentifier {
     }
 }
 
-impl Display for PublicIdentifier {
+impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Ethereum(eth) => write!(f, "{eth}"),
@@ -273,19 +273,19 @@ impl From<XmtpInstallationCredential> for MemberIdentifier {
     }
 }
 
-impl From<PublicIdentifier> for MemberIdentifier {
-    fn from(ident: PublicIdentifier) -> Self {
+impl From<Identifier> for MemberIdentifier {
+    fn from(ident: Identifier) -> Self {
         match ident {
-            PublicIdentifier::Ethereum(addr) => Self::Ethereum(addr),
-            PublicIdentifier::Passkey(passkey) => Self::Passkey(passkey),
+            Identifier::Ethereum(addr) => Self::Ethereum(addr),
+            Identifier::Passkey(passkey) => Self::Passkey(passkey),
         }
     }
 }
-impl From<MemberIdentifier> for Option<PublicIdentifier> {
+impl From<MemberIdentifier> for Option<Identifier> {
     fn from(ident: MemberIdentifier) -> Self {
         let ident = match ident {
-            MemberIdentifier::Passkey(passkey) => PublicIdentifier::Passkey(passkey),
-            MemberIdentifier::Ethereum(eth) => PublicIdentifier::Ethereum(eth),
+            MemberIdentifier::Passkey(passkey) => Identifier::Passkey(passkey),
+            MemberIdentifier::Ethereum(eth) => Identifier::Ethereum(eth),
             _ => {
                 return None;
             }
@@ -293,8 +293,8 @@ impl From<MemberIdentifier> for Option<PublicIdentifier> {
         Some(ident)
     }
 }
-impl From<&PublicIdentifier> for GetInboxIdsRequestProto {
-    fn from(ident: &PublicIdentifier) -> Self {
+impl From<&Identifier> for GetInboxIdsRequestProto {
+    fn from(ident: &Identifier) -> Self {
         Self {
             identifier: format!("{ident}"),
             identifier_kind: {
@@ -305,27 +305,27 @@ impl From<&PublicIdentifier> for GetInboxIdsRequestProto {
     }
 }
 
-impl From<&PublicIdentifier> for ApiIdentifier {
-    fn from(ident: &PublicIdentifier) -> Self {
+impl From<&Identifier> for ApiIdentifier {
+    fn from(ident: &Identifier) -> Self {
         Self {
             identifier: format!("{ident}"),
             identifier_kind: ident.into(),
         }
     }
 }
-impl From<PublicIdentifier> for ApiIdentifier {
-    fn from(ident: PublicIdentifier) -> Self {
+impl From<Identifier> for ApiIdentifier {
+    fn from(ident: Identifier) -> Self {
         (&ident).into()
     }
 }
-impl TryFrom<ApiIdentifier> for PublicIdentifier {
+impl TryFrom<ApiIdentifier> for Identifier {
     type Error = DeserializationError;
     fn try_from(ident: ApiIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
-                PublicIdentifier::eth(ident.identifier)?
+                Identifier::eth(ident.identifier)?
             }
-            IdentifierKind::Passkey => PublicIdentifier::Passkey(ident::Passkey {
+            IdentifierKind::Passkey => Identifier::Passkey(ident::Passkey {
                 key: hex::decode(ident.identifier)
                     .map_err(|_| DeserializationError::InvalidPasskey)?,
                 relying_partner: None,
@@ -369,7 +369,7 @@ impl PartialEq<MemberIdentifier> for Member {
         self.identifier.eq(other)
     }
 }
-impl PartialEq<MemberIdentifier> for PublicIdentifier {
+impl PartialEq<MemberIdentifier> for Identifier {
     fn eq(&self, other: &MemberIdentifier) -> bool {
         match (self, other) {
             (Self::Ethereum(ident), MemberIdentifier::Ethereum(other_ident)) => {
@@ -380,8 +380,8 @@ impl PartialEq<MemberIdentifier> for PublicIdentifier {
         }
     }
 }
-impl PartialEq<PublicIdentifier> for MemberIdentifier {
-    fn eq(&self, other: &PublicIdentifier) -> bool {
+impl PartialEq<Identifier> for MemberIdentifier {
+    fn eq(&self, other: &Identifier) -> bool {
         other == self
     }
 }

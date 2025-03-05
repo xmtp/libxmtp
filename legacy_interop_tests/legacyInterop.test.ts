@@ -7,11 +7,7 @@ import {
   sleep,
 } from "./helpers";
 import { createOldRegisteredClient } from "./oldHelpers";
-import {
-  Client,
-  GroupMessageKind,
-  PublicIdentifierKind,
-} from "current-bindings";
+import { Client, GroupMessageKind, IdentifierKind } from "current-bindings";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { generateInboxId as generateInboxIdOld } from "legacy-bindings";
 import { generateInboxId } from "current-bindings";
@@ -121,7 +117,7 @@ test("Produces the same inboxId", async () => {
   let inboxId = generateInboxIdOld(account.address);
   let inboxId2 = generateInboxId({
     identifier: account.address,
-    identifierKind: PublicIdentifierKind.Ethereum,
+    identifierKind: IdentifierKind.Ethereum,
   });
 
   expect(inboxId).toEqual(inboxId2);

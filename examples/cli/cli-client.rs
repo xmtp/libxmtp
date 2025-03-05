@@ -42,7 +42,7 @@ use xmtp_cryptography::{
     utils::rng,
 };
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
-use xmtp_id::associations::{AssociationError, AssociationState, MemberKind, PublicIdentifier};
+use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
@@ -191,7 +191,7 @@ enum Wallet {
 }
 
 impl InboxOwner for Wallet {
-    fn get_identifier(&self) -> Result<PublicIdentifier, IdentifierValidationError> {
+    fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError> {
         match self {
             Wallet::LocalWallet(w) => w.get_identifier(),
         }
@@ -669,9 +669,7 @@ fn pretty_delta(now: u64, then: u64) -> String {
     f.convert(Duration::from_nanos(diff))
 }
 
-fn pretty_association_state(
-    state: &AssociationState,
-) -> (PublicIdentifier, Vec<String>, Vec<String>) {
+fn pretty_association_state(state: &AssociationState) -> (Identifier, Vec<String>, Vec<String>) {
     let recovery_ident = state.recovery_identifier().clone();
     let installation_ids = state
         .installation_ids()
@@ -688,9 +686,9 @@ fn pretty_association_state(
     (recovery_ident, installation_ids, addresses)
 }
 
-fn address_to_identity(addresses: &[impl AsRef<str>]) -> Vec<PublicIdentifier> {
+fn address_to_identity(addresses: &[impl AsRef<str>]) -> Vec<Identifier> {
     addresses
         .iter()
-        .map(|addr| PublicIdentifier::eth(addr.as_ref()).expect("Eth address is invalid"))
+        .map(|addr| Identifier::eth(addr.as_ref()).expect("Eth address is invalid"))
         .collect()
 }

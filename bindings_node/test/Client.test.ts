@@ -11,7 +11,7 @@ import {
 import {
   ConsentEntityType,
   ConsentState,
-  PublicIdentifierKind,
+  IdentifierKind,
   SignatureRequestType,
   verifySignedWithPublicKey,
 } from '../dist'
@@ -39,7 +39,7 @@ describe('Client', () => {
     const canMessage = await client.canMessage([
       {
         identifier: user.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -51,7 +51,7 @@ describe('Client', () => {
     const client = await createRegisteredClient(user)
     const inboxId = await client.findInboxIdByIdentifier({
       identifier: user.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(inboxId).toBe(client.inboxId())
   })
@@ -69,12 +69,12 @@ describe('Client', () => {
     expect(inboxState.identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     expect(inboxState.recoveryIdentifier).toStrictEqual({
       identifier: user.account.address.toLowerCase(),
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
 
     const user2 = createUser()
@@ -89,12 +89,12 @@ describe('Client', () => {
     expect(inboxState2.identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
     expect(inboxState2.recoveryIdentifier).toEqual({
       identifier: user.account.address.toLowerCase(),
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
   })
 
@@ -104,7 +104,7 @@ describe('Client', () => {
     const client = await createRegisteredClient(user)
     const signatureText = await client.addIdentifierSignatureText({
       identifier: user2.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(signatureText).toBeDefined()
 
@@ -121,11 +121,11 @@ describe('Client', () => {
     expect(inboxState.identifiers.length).toEqual(2)
     expect(inboxState.identifiers).toContainEqual({
       identifier: user.account.address.toLowerCase(),
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(inboxState.identifiers).toContainEqual({
       identifier: user2.account.address.toLowerCase(),
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
   })
 
@@ -135,7 +135,7 @@ describe('Client', () => {
     const client = await createRegisteredClient(user)
     const signatureText = await client.addIdentifierSignatureText({
       identifier: user2.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(signatureText).toBeDefined()
 
@@ -152,7 +152,7 @@ describe('Client', () => {
 
     const signatureText2 = await client.revokeIdentifierSignatureText({
       identifier: user2.account.address,
-      identifierKind: PublicIdentifierKind.Ethereum,
+      identifierKind: IdentifierKind.Ethereum,
     })
     expect(signatureText2).toBeDefined()
 
@@ -170,7 +170,7 @@ describe('Client', () => {
     expect(inboxState.identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
   })
@@ -220,7 +220,7 @@ describe('Client', () => {
     const group = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -265,7 +265,7 @@ describe('Client', () => {
     expect(inboxAddresses[0].identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 
@@ -277,7 +277,7 @@ describe('Client', () => {
     expect(inboxAddresses2[0].identifiers).toEqual([
       {
         identifier: user2.account.address.toLowerCase(),
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
   })
@@ -314,7 +314,7 @@ describe('Streams', () => {
     const group = await client1.conversations().createGroup([
       {
         identifier: user2.account.address,
-        identifierKind: PublicIdentifierKind.Ethereum,
+        identifierKind: IdentifierKind.Ethereum,
       },
     ])
 

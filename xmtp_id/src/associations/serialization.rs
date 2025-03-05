@@ -1,6 +1,6 @@
 use super::{
     ident,
-    member::{Member, PublicIdentifier},
+    member::{Identifier, Member},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -143,7 +143,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     IdentifierKind::Unspecified => IdentifierKind::Ethereum,
                     kind => kind,
                 };
-                let account_identifier = PublicIdentifier::from_proto(
+                let account_identifier = Identifier::from_proto(
                     &action_proto.initial_identifier,
                     kind,
                     action_proto.relying_partner,
@@ -164,7 +164,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                     IdentifierKind::Unspecified => IdentifierKind::Ethereum,
                     kind => kind,
                 };
-                let new_recovery_identifier = PublicIdentifier::from_proto(
+                let new_recovery_identifier = Identifier::from_proto(
                     &action_proto.new_recovery_identifier,
                     kind,
                     action_proto.relying_partner,
@@ -284,7 +284,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
                 let account_identifier = action.unsigned_action.account_identifier;
                 let initial_identifier = format!("{account_identifier}");
                 let relying_partner = match &account_identifier {
-                    PublicIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
                     _ => None,
                 };
                 let initial_identifier_kind: IdentifierKind = account_identifier.into();
@@ -314,7 +314,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
                 let new_recovery_identifier = action.unsigned_action.new_recovery_identifier;
                 let new_recovery_identifier_string = format!("{new_recovery_identifier}");
                 let relying_partner = match &new_recovery_identifier {
-                    PublicIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
                     _ => None,
                 };
                 let new_recovery_identifier_kind: IdentifierKind = new_recovery_identifier.into();
@@ -341,16 +341,16 @@ impl From<UnverifiedAction> for IdentityActionProto {
     }
 }
 
-impl From<&PublicIdentifier> for IdentifierKind {
-    fn from(ident: &PublicIdentifier) -> Self {
+impl From<&Identifier> for IdentifierKind {
+    fn from(ident: &Identifier) -> Self {
         match ident {
-            PublicIdentifier::Ethereum(_) => IdentifierKind::Ethereum,
-            PublicIdentifier::Passkey(_) => IdentifierKind::Passkey,
+            Identifier::Ethereum(_) => IdentifierKind::Ethereum,
+            Identifier::Passkey(_) => IdentifierKind::Passkey,
         }
     }
 }
-impl From<PublicIdentifier> for IdentifierKind {
-    fn from(ident: PublicIdentifier) -> Self {
+impl From<Identifier> for IdentifierKind {
+    fn from(ident: Identifier) -> Self {
         (&ident).into()
     }
 }
@@ -532,7 +532,7 @@ impl From<AssociationState> for AssociationStateProto {
 
         let kind: IdentifierKind = (&state.recovery_identifier).into();
         let relying_partner = match &state.recovery_identifier {
-            PublicIdentifier::Passkey(ident::Passkey {
+            Identifier::Passkey(ident::Passkey {
                 relying_partner, ..
             }) => relying_partner.clone(),
             _ => None,
@@ -558,7 +558,7 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             kind => kind,
         };
         let recovery_identifier =
-            PublicIdentifier::from_proto(&proto.recovery_identifier, kind, proto.relying_partner)?;
+            Identifier::from_proto(&proto.recovery_identifier, kind, proto.relying_partner)?;
 
         let members = proto
             .members
@@ -745,7 +745,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip_unverified() {
-        let account_identifier = PublicIdentifier::rand_ethereum();
+        let account_identifier = Identifier::rand_ethereum();
         let nonce = rand_u64();
         let inbox_id = account_identifier.inbox_id(nonce).unwrap();
         let client_timestamp_ns = rand_u64();
@@ -778,7 +778,7 @@ pub(crate) mod tests {
                         vec![7, 8, 9],
                     ),
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_identifier: PublicIdentifier::rand_ethereum(),
+                        new_recovery_identifier: Identifier::rand_ethereum(),
                     },
                 }),
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {

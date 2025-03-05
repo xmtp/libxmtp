@@ -411,7 +411,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::{member::PublicIdentifier, unsigned_actions::UnsignedCreateInbox};
+    use crate::associations::{member::Identifier, unsigned_actions::UnsignedCreateInbox};
 
     use super::{
         UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
@@ -421,7 +421,7 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
-        let account_identifier = PublicIdentifier::rand_ethereum();
+        let account_identifier = Identifier::rand_ethereum();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
             inbox_id: account_identifier.inbox_id(nonce).unwrap(),

@@ -14,7 +14,7 @@ use xmtp_id::{
     associations::{
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-        PublicIdentifier,
+        Identifier,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
@@ -244,7 +244,7 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn is_registered(&self, identifier: &PublicIdentifier) -> bool {
+    pub async fn is_registered(&self, identifier: &Identifier) -> bool {
         let identifier: ApiIdentifier = identifier.into();
         let ids = self
             .api_client

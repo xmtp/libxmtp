@@ -12,7 +12,7 @@ pub mod unverified;
 pub mod verified_signature;
 
 pub use self::association_log::*;
-pub use self::member::{HasMemberKind, Member, MemberIdentifier, MemberKind, PublicIdentifier};
+pub use self::member::{HasMemberKind, Identifier, Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
@@ -44,7 +44,7 @@ pub mod test_defaults {
         unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
         verified_signature::VerifiedSignature,
     };
-    use super::{member::PublicIdentifier, *};
+    use super::{member::Identifier, *};
     use xmtp_common::{rand_u64, rand_vec};
 
     impl IdentityUpdate {
@@ -61,7 +61,7 @@ pub mod test_defaults {
 
     impl Default for AddAssociation {
         fn default() -> Self {
-            let existing_member = PublicIdentifier::rand_ethereum();
+            let existing_member = Identifier::rand_ethereum();
             let new_member = MemberIdentifier::rand_installation();
             Self {
                 existing_member_signature: VerifiedSignature::new(
@@ -84,7 +84,7 @@ pub mod test_defaults {
     // Default will create an inbox with a ERC-191 signature
     impl Default for CreateInbox {
         fn default() -> Self {
-            let signer = PublicIdentifier::rand_ethereum();
+            let signer = Identifier::rand_ethereum();
             Self {
                 nonce: rand_u64(),
                 account_identifier: signer.clone(),
@@ -121,7 +121,7 @@ pub(crate) mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
-    use crate::associations::{member::PublicIdentifier, verified_signature::VerifiedSignature};
+    use crate::associations::{member::Identifier, verified_signature::VerifiedSignature};
     use xmtp_common::{rand_hexstring, rand_vec};
 
     pub fn new_test_inbox() -> AssociationState {
@@ -250,7 +250,7 @@ pub(crate) mod tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn create_from_legacy_key() {
-        let member_identifier = PublicIdentifier::rand_ethereum();
+        let member_identifier = Identifier::rand_ethereum();
         let create_action = CreateInbox {
             nonce: 0,
             account_identifier: member_identifier.clone(),
@@ -618,7 +618,7 @@ pub(crate) mod tests {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
         let initial_recovery_address = initial_state.recovery_identifier().clone();
-        let new_recovery_identifier = PublicIdentifier::rand_ethereum();
+        let new_recovery_identifier = Identifier::rand_ethereum();
         let update_recovery = Action::ChangeRecoveryIdentity(ChangeRecoveryIdentity {
             new_recovery_identifier: new_recovery_identifier.clone(),
             recovery_identifier_signature: VerifiedSignature::new(
@@ -660,7 +660,7 @@ pub(crate) mod tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn scw_signature_binding() {
         let initial_chain_id: u64 = 1;
-        let signer = PublicIdentifier::rand_ethereum();
+        let signer = Identifier::rand_ethereum();
         let initial_identifier_signature = VerifiedSignature::new(
             signer.clone().into(),
             SignatureKind::Erc1271,
@@ -710,7 +710,7 @@ pub(crate) mod tests {
             }),
             Action::ChangeRecoveryIdentity(ChangeRecoveryIdentity {
                 recovery_identifier_signature: existing_member_sig.clone(),
-                new_recovery_identifier: PublicIdentifier::rand_ethereum(),
+                new_recovery_identifier: Identifier::rand_ethereum(),
             }),
         ];
 

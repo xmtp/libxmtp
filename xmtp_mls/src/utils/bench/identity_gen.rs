@@ -4,7 +4,7 @@ use crate::builder::ClientBuilder;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_id::associations::{test_utils::WalletTestExt, PublicIdentifier};
+use xmtp_id::associations::{test_utils::WalletTestExt, Identifier};
 
 use super::{BenchClient, BenchError};
 
@@ -36,11 +36,11 @@ pub fn load_identities(is_dev_network: bool) -> Result<Vec<Identity>, BenchError
 #[derive(Serialize, Deserialize)]
 pub struct Identity {
     pub inbox_id: String,
-    pub identifier: PublicIdentifier,
+    pub identifier: Identifier,
 }
 
 impl Identity {
-    pub fn new(inbox_id: String, identifier: PublicIdentifier) -> Self {
+    pub fn new(inbox_id: String, identifier: Identifier) -> Self {
         Identity {
             inbox_id,
             identifier,
@@ -50,7 +50,7 @@ impl Identity {
 
 async fn create_identity(is_dev_network: bool) -> Identity {
     let wallet = generate_local_wallet();
-    let ident = wallet.public_identifier();
+    let ident = wallet.identifier();
     let client = if is_dev_network {
         ClientBuilder::new_dev_client(&wallet).await
     } else {

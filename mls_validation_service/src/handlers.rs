@@ -317,7 +317,7 @@ mod tests {
         associations::{
             test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
-            PublicIdentifier,
+            Identifier,
         },
         is_smart_contract,
         utils::test::{with_smart_contracts, CoinbaseSmartWallet},
@@ -341,7 +341,7 @@ mod tests {
         let signing_key = XmtpInstallationCredential::new();
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let inbox_id = wallet.public_identifier().inbox_id(0).unwrap();
+        let inbox_id = wallet.identifier().inbox_id(0).unwrap();
 
         (inbox_id, signing_key)
     }
@@ -381,7 +381,7 @@ mod tests {
     async fn test_get_association_state() {
         let account_address = rand_string::<24>();
         let nonce = rand_u64();
-        let ident = PublicIdentifier::eth(&account_address).unwrap();
+        let ident = Identifier::eth(&account_address).unwrap();
         let inbox_id = ident.inbox_id(nonce).unwrap();
         let update = UnverifiedIdentityUpdate::new_test(
             vec![UnverifiedAction::new_test_create_inbox(

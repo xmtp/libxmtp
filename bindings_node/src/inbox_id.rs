@@ -7,8 +7,8 @@ use std::sync::Arc;
 use xmtp_api::ApiIdentifier;
 use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_id::associations::PublicIdentifier as XmtpPublicIdentifier;
 use xmtp_proto::api_client::ApiBuilder;
 
 #[napi]
@@ -27,7 +27,7 @@ pub async fn get_inbox_id_for_identifier(
   // api rate limit cooldown period
   let api_client = ApiClientWrapper::new(client.into(), strategies::exponential_cooldown());
 
-  let identifier: xmtp_id::associations::PublicIdentifier = identifier.try_into()?;
+  let identifier: xmtp_id::associations::Identifier = identifier.try_into()?;
   let api_ident: ApiIdentifier = identifier.into();
   let results = api_client
     .get_inbox_ids(vec![api_ident.clone()])
@@ -41,7 +41,7 @@ pub async fn get_inbox_id_for_identifier(
 pub fn generate_inbox_id(account_ident: Identifier) -> Result<String> {
   // ensure that the nonce is always 1 for now since this will only be used for the
   // create_client function above, which also has a hard-coded nonce of 1
-  let ident: XmtpPublicIdentifier = account_ident.try_into()?;
+  let ident: XmtpIdentifier = account_ident.try_into()?;
   Ok(ident.inbox_id(1).map_err(ErrorWrapper::from)?)
 }
 
