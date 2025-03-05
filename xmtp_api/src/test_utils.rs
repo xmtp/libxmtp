@@ -43,6 +43,7 @@ pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<Group
                 group_id: group_id.clone(),
                 data: vec![i as u8],
                 sender_hmac: vec![],
+                should_push: Some(true),
             })),
         })
     }
