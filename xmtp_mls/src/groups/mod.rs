@@ -795,8 +795,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.maybe_update_installations(provider, update_interval_ns)
             .await?;
 
-        let message_id =
-            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
+        let message_id = self.prepare_message(
+            message,
+            provider,
+            |now| Self::into_envelope(message, now),
+            true,
+        )?;
 
         self.sync_until_last_intent_resolved(provider).await?;
         // implicitly set group consent state to allowed
@@ -834,8 +838,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let provider = self.mls_provider()?;
-        let message_id =
-            self.prepare_message(message, &provider, |now| Self::into_envelope(message, now))?;
+        let message_id = self.prepare_message(
+            message,
+            &provider,
+            |now| Self::into_envelope(message, now),
+            true,
+        )?;
         Ok(message_id)
     }
 
@@ -869,6 +877,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
         envelope: F,
+        should_push: bool,
     ) -> Result<Vec<u8>, GroupError>
     where
         F: FnOnce(i64) -> PlaintextEnvelope,
@@ -881,7 +890,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        self.queue_intent(provider, IntentKind::SendMessage, intent_data)?;
+        self.queue_intent(provider, IntentKind::SendMessage, intent_data, should_push)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -900,7 +909,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
-            should_push: queryable_content_fields.should_push,
         };
         group_message.store(provider.conn_ref())?;
 
@@ -1018,6 +1026,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
+            false,
         )?;
 
         self.sync_until_intent_resolved(provider, intent.id).await?;
@@ -1068,6 +1077,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             &provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
+            false,
         )?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
@@ -1087,7 +1097,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent =
+            self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1116,7 +1127,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )
         .into();
 
-        let intent = self.queue_intent(&provider, IntentKind::UpdatePermission, intent_data)?;
+        let intent =
+            self.queue_intent(&provider, IntentKind::UpdatePermission, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1152,7 +1164,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent =
+            self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1188,7 +1201,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent =
+            self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1241,7 +1255,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 expire_from_ms,
             )
             .into();
-        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
         self.sync_until_intent_resolved(provider, intent.id).await
     }
 
@@ -1253,7 +1267,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
-        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
         self.sync_until_intent_resolved(provider, intent.id).await
     }
 
@@ -1353,7 +1367,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = self.queue_intent(&provider, IntentKind::UpdateAdminList, intent_data)?;
+        let intent =
+            self.queue_intent(&provider, IntentKind::UpdateAdminList, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
@@ -1430,7 +1445,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
-        let intent = self.queue_intent(&provider, IntentKind::KeyUpdate, vec![])?;
+        let intent = self.queue_intent(&provider, IntentKind::KeyUpdate, vec![], false)?;
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
@@ -4410,6 +4425,7 @@ pub(crate) mod tests {
                 provider,
                 IntentKind::UpdateGroupMembership,
                 intent_data.into(),
+                false,
             )
             .unwrap();
     }
