@@ -1,30 +1,55 @@
 #!/bin/bash
 set -eou pipefail
 
-TMP=$(mktemp -d 2>/dev/null || mktemp -d -t 'test-browser-tmp')
+# USAGE
+# ./dev/test/browser-sdk will clone browser sdk to a tmp directory and execute the tests
+# ./dev/test/browser-sdk MY_DIR will clone to MY_DIR and execute the tests
+# ./dev/test/browser-sdk MY_DIR my_branch will clone to MY_DIR checkout MY_BRANCH and excute tests
+
+function tmp() {
+  mktemp -d 2>/dev/null || mktemp -d -t 'test-browser-tmp'
+}
+
+TMP=$(tmp)
+DIR="${1:-$TMP}"
+BRANCH="${2:-main}"
 CARGO="nix develop -i.#wasmBuild --command cargo"
 WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')
 YARN="nix develop -i ${WORKSPACE_PATH}#js --command yarn"
 
-function run() {
-  git clone git@github.com:xmtp/xmtp-js.git $TMP/xmtp-js
+trap ctrl_c INT
+function ctrl_c() {
+  if [ -d $TMP ]; then
+    rm -rf $TMP
+  fi
+}
 
-  cd $TMP/xmtp-js
+function run() {
+  cd $WORKSPACE_PATH
+  nix build .#bindings_wasm --no-substitute --refresh
+
+  if [ ! -d $DIR/xmtp-js ]; then
+    git clone git@github.com:xmtp/xmtp-js.git $DIR/xmtp-js
+  fi
+
+  cd $DIR/xmtp-js
+  git checkout $BRANCH
+
+  rm -rf node_modules/@xmtp/wasm-bindings
+
   $YARN install
+  rm -rf $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
+  cp --no-preserve=mode,ownership -r $WORKSPACE_PATH/result/dist $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/
+
   $YARN build
+  # set playwright to same version as nix (otherwise will not work)
   $YARN set resolution "playwright@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
   $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
 
   cd $WORKSPACE_PATH
-
-  nix build .#bindings_wasm
-
-  rm -rf $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
-  cp -r result/dist $TMP/xmtp-js/node_modules/@xmtp/wasm-bindings
-
-  $YARN --cwd $TMP/xmtp-js/sdks/browser-sdk test
+  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk test test/Conversations.test.ts
 
   return 0
 }
@@ -32,7 +57,7 @@ function run() {
 run
 RUN_STATUS=$?
 
-rm -rf $TMP
+ctrl_c
 
 # Check if run was successful
 if [ $RUN_STATUS -eq 0 ]; then

@@ -1,5 +1,6 @@
 pub mod client;
 pub mod consent_state;
+pub mod content_types;
 pub mod conversation;
 pub mod conversations;
 pub mod encoded_content;
@@ -9,6 +10,7 @@ pub mod messages;
 pub mod permissions;
 pub mod signatures;
 pub mod streams;
+mod user_preferences;
 
 fn error(e: impl std::error::Error) -> JsError {
   JsError::new(&format!("{}", e))

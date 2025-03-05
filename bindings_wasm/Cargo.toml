@@ -14,19 +14,21 @@ js-sys.workspace = true
 prost.workspace = true
 serde.workspace = true
 serde-wasm-bindgen = "0.6.5"
+serde_bytes = "0.11"
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 tracing-web = "0.1"
+tsify-next = { version = "0.5", default-features = false, features = ["js"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 xmtp_api.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_common.workspace = true
+xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils", "http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }

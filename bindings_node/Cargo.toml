@@ -30,11 +30,11 @@ tracing-subscriber = { workspace = true, features = [
 xmtp_api.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
+xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
-
 [build-dependencies]
 napi-build = "2.0.1"
 
