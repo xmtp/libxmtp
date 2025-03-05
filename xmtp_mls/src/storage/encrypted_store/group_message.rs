@@ -511,7 +511,7 @@ pub(crate) mod tests {
             version_minor: 0,
             authority_id: "unknown".to_string(),
             reference_id: None,
-            should_push: true,
+            should_push: false,
         }
     }
 

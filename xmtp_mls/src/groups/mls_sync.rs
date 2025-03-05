@@ -724,7 +724,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    should_push: true,
+                                    should_push: false,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -759,7 +759,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    should_push: true,
+                                    should_push: false,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -1186,7 +1186,7 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            should_push: false,
+            should_push: false, // Don't send pushes for membership changes
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))

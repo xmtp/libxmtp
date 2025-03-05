@@ -349,7 +349,7 @@ impl Default for QueryableContentFields {
             version_minor: 0,
             authority_id: String::new(),
             reference_id: None,
-            should_push: true,
+            should_push: false,
         }
     }
 }

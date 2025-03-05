@@ -70,7 +70,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            should_push: false,
+            should_push: false, // messages stored in a backup do not need to send push notifications
         })
     }
 }
