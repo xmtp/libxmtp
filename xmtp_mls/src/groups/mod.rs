@@ -362,10 +362,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 
         let type_id_str = content_type_id.type_id.clone();
 
-        let reference_id = match (
-            type_id_str.as_str(),
-            content_type_id.version_major,
-        ) {
+        let reference_id = match (type_id_str.as_str(), content_type_id.version_major) {
             (ReactionCodec::TYPE_ID, major) if major >= 2 => {
                 ReactionV2::decode(content.content.as_slice())
                     .ok()
