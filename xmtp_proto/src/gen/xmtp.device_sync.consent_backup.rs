@@ -4,23 +4,17 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConsentSave {
-    #[prost(enumeration = "ConsentTypeSave", tag = "1")]
+    #[prost(enumeration="ConsentTypeSave", tag="1")]
     pub entity_type: i32,
-    #[prost(enumeration = "ConsentStateSave", tag = "2")]
+    #[prost(enumeration="ConsentStateSave", tag="2")]
     pub state: i32,
-    #[prost(string, tag = "3")]
+    #[prost(string, tag="3")]
     pub entity: ::prost::alloc::string::String,
 }
 impl ::prost::Name for ConsentSave {
-    const NAME: &'static str = "ConsentSave";
-    const PACKAGE: &'static str = "xmtp.device_sync.consent_backup";
-    fn full_name() -> ::prost::alloc::string::String {
-        "xmtp.device_sync.consent_backup.ConsentSave".into()
-    }
-    fn type_url() -> ::prost::alloc::string::String {
-        "/xmtp.device_sync.consent_backup.ConsentSave".into()
-    }
-}
+const NAME: &'static str = "ConsentSave";
+const PACKAGE: &'static str = "xmtp.device_sync.consent_backup";
+fn full_name() -> ::prost::alloc::string::String { "xmtp.device_sync.consent_backup.ConsentSave".into() }fn type_url() -> ::prost::alloc::string::String { "/xmtp.device_sync.consent_backup.ConsentSave".into() }}
 /// Consent record type
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

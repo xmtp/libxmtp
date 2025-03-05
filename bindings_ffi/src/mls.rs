@@ -212,6 +212,31 @@ impl FfiSignatureRequest {
         Ok(())
     }
 
+    pub async fn add_passkey_signature(
+        &self,
+        client_data_json: String,
+        authenticator_data: Vec<u8>,
+        signature_bytes: Vec<u8>,
+        verifying_key: Vec<u8>,
+        relying_party: Option<String>,
+    ) -> Result<(), GenericError> {
+        let inner = self.inner.lock().await;
+
+        let new_signature = UnverifiedSignature::new_passkey(
+            client_data_json,
+            authenticator_data,
+            signature_bytes,
+            verifying_key,
+            relying_party,
+        );
+
+        inner
+            .add_signature(new_signature, &self.scw_verifier)
+            .await?;
+
+        Ok(())
+    }
+
     // Signature that's signed by smart contract wallet
     pub async fn add_scw_signature(
         &self,

@@ -38,6 +38,7 @@ use xmtp_proto::xmtp::{
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
             Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
             RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+            RecoverablePasskeySignature as RecoverablePasskeySignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
         },
@@ -236,6 +237,13 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                     sig.block_number,
                 ),
             ),
+            SignatureKindProto::Passkey(sig) => UnverifiedSignature::new_passkey(
+                sig.client_data_json,
+                sig.authenticator_data,
+                sig.signature_bytes,
+                sig.verifying_key,
+                sig.relying_party,
+            ),
         };
 
         Ok(unverified_sig)
@@ -383,6 +391,15 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
             UnverifiedSignature::RecoverableEcdsa(sig) => {
                 SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
                     bytes: sig.signature_bytes,
+                })
+            }
+            UnverifiedSignature::Passkey(sig) => {
+                SignatureKindProto::Passkey(RecoverablePasskeySignatureProto {
+                    authenticator_data: sig.authenticator_data,
+                    client_data_json: sig.client_data_json,
+                    signature_bytes: sig.signature_bytes,
+                    verifying_key: sig.verifying_key,
+                    relying_party: sig.relying_party,
                 })
             }
         };

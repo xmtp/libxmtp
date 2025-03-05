@@ -279,7 +279,13 @@ impl UnverifiedSignature {
                 &sig.legacy_key_signature.signature_bytes,
                 sig.signed_public_key_proto.clone(),
             ),
-            UnverifiedSignature::Passkey(sig) => {}
+            UnverifiedSignature::Passkey(sig) => VerifiedSignature::from_passkey(
+                &sig.client_data_json,
+                &sig.authenticator_data,
+                &sig.signature_bytes,
+                &sig.verifying_key,
+                sig.relying_party.clone(),
+            ),
         }
     }
 
@@ -295,6 +301,22 @@ impl UnverifiedSignature {
             signature,
             verifying_key,
         ))
+    }
+
+    pub fn new_passkey(
+        client_data_json: String,
+        authenticator_data: Vec<u8>,
+        signature_bytes: Vec<u8>,
+        verifying_key: Vec<u8>,
+        relying_party: Option<String>,
+    ) -> Self {
+        Self::Passkey(UnverifiedPasskeySignature {
+            client_data_json,
+            authenticator_data,
+            signature_bytes,
+            verifying_key,
+            relying_party,
+        })
     }
 
     pub fn new_smart_contract_wallet(
@@ -351,7 +373,7 @@ pub struct UnverifiedPasskeySignature {
     pub(crate) client_data_json: String,
     pub(crate) authenticator_data: Vec<u8>,
     pub(crate) signature_bytes: Vec<u8>,
-
+    pub(crate) verifying_key: Vec<u8>,
     pub(crate) relying_party: Option<String>,
 }
 
