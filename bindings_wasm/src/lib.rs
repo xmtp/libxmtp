@@ -10,6 +10,7 @@ pub mod messages;
 pub mod permissions;
 pub mod signatures;
 pub mod streams;
+mod user_preferences;
 
 fn error(e: impl std::error::Error) -> JsError {
   JsError::new(&format!("{}", e))

@@ -9,7 +9,12 @@
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
     mkshell-util.url = "github:insipx/mkShell-util.nix";
-    crane.url = "github:ipetkov/crane";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   nixConfig = {
@@ -48,9 +53,9 @@
             ios = callPackage pkgs ./nix/ios.nix { };
             js = callPackage pkgs ./nix/js.nix { };
             # the environment bindings_wasm is built in
-            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).devShell;
+            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
           };
-          packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit craneLib filesets; }).bin;
+          packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
         };
     };
 }
