@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.19
+
+- Refactored `ContentState` to serialize to `u16`
+
 ## 0.0.18
 
 - Added `content_types` option to `ListMessagesOptions`

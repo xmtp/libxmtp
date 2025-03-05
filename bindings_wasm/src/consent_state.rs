@@ -7,11 +7,12 @@ use xmtp_mls::storage::consent_record::{
 use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(u16)]
 pub enum ConsentState {
-  Unknown,
-  Allowed,
-  Denied,
+  Unknown = 0,
+  Allowed = 1,
+  Denied = 2,
 }
 
 impl From<XmtpConsentState> for ConsentState {
@@ -61,12 +62,21 @@ where
   s.serialize_u16(num)
 }
 
+fn state_to_u16<S>(consent_state: &ConsentState, s: S) -> Result<S::Ok, S::Error>
+where
+  S: serde::Serializer,
+{
+  let num: u16 = (*consent_state) as u16;
+  s.serialize_u16(num)
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Consent {
   #[wasm_bindgen(js_name = entityType)]
   #[serde(rename = "entityType", serialize_with = "entity_to_u16")]
   pub entity_type: ConsentEntityType,
+  #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
 }
