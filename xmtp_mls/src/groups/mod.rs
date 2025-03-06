@@ -1172,7 +1172,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 version.to_string(),
             )
             .into();
-        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data)?;
+        let intent = self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
