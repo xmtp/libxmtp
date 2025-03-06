@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 0.0.21
+
+- Fix `should_push` field on messages for push notifications
+
 ## 0.0.20
 
 - Fixed Rust Panic Error on Streams
