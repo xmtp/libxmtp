@@ -372,7 +372,7 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
             _ => None,
         };
-        tracing::trace!("LOPI type id string {}", type_id_str);
+        tracing::debug!("LOPI type id string {}", type_id_str);
 
         Ok(QueryableContentFields {
             content_type: content_type_id.type_id.into(),
@@ -884,6 +884,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =
             Self::extract_queryable_content_fields(message);
+        
+        tracing::debug!("MORE LOPI? {}", queryable_content_fields.should_push);
         self.queue_intent(
             provider,
             IntentKind::SendMessage,
