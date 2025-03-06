@@ -29,9 +29,9 @@ use crate::{
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-utils", feature = "local-api"))]
 mod local_client;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-utils", feature = "local-api"))]
 pub use local_client::*;
 
 // TODO: Dev-Versions of URL
@@ -40,13 +40,16 @@ const HISTORY_SERVER_PORT: u16 = 5558;
 pub const HISTORY_SYNC_URL: &str =
     const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
 
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "local-api")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 use xmtp_api_http::XmtpHttpApiClient;
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
+
+#[cfg(feature = "local-api")]
+pub type TestClient = LocalTestClient;
 
 impl EncryptedMessageStore {
     pub fn generate_enc_key() -> [u8; 32] {

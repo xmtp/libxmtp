@@ -1,5 +1,4 @@
 version: '3.8'
-
 services:
   node:
     image: xmtp/node-go:latest
@@ -21,49 +20,42 @@ services:
       - 5556:5556
     depends_on:
       - db
-
   validation:
     image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ./dev/validation_service/local.Dockerfile
+      dockerfile: ./dev/validation_service/Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
-
   anvil:
     build:
       dockerfile: ./anvil.Dockerfile
     platform: linux/amd64
     ports:
       - 8545:8545
-
   history-server:
     image: ghcr.io/xmtp/message-history-server:main
     platform: linux/amd64
     ports:
       - 5558:5558
-
   db:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
-
   mlsdb:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
-
   replicationdb:
     image: postgres:16
     environment:
       POSTGRES_PASSWORD: xmtp
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
-
   chain:
     platform: linux/amd64
     # note: the SHA here is tied to the XTMPD_CONTRACTS_*_ADDRESSes
@@ -71,7 +63,6 @@ services:
     # you can find them inside the anvil-xmtpd image via `docker exec libxmtp-chain-1 cat contracts.env`
     image: ghcr.io/xmtp/anvil-xmtpd:sha-b943a7a
     command: ["--host", "0.0.0.0"]
-
   repnode:
     platform: linux/amd64
     # note: avoid using :latest while xmtpd is under development to avoid breaking changes
@@ -93,6 +84,7 @@ services:
       chain:
         condition: service_started
       replicationdb:
-          condition: service_healthy
+        condition: service_healthy
     ports:
       - 5050:5050
+

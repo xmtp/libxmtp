@@ -208,7 +208,6 @@ where
         let mut errors: Vec<GroupError> = vec![];
 
         let conn = provider.conn_ref();
-
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(provider).await {
             tracing::error!(
