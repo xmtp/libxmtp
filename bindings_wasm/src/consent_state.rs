@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
@@ -6,11 +7,12 @@ use xmtp_mls::storage::consent_record::{
 use crate::{client::Client, conversation::Conversation};
 
 #[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(u16)]
 pub enum ConsentState {
-  Unknown,
-  Allowed,
-  Denied,
+  Unknown = 0,
+  Allowed = 1,
+  Denied = 2,
 }
 
 impl From<XmtpConsentState> for ConsentState {
@@ -34,10 +36,11 @@ impl From<ConsentState> for XmtpConsentState {
 }
 
 #[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+#[repr(u16)]
 pub enum ConsentEntityType {
-  GroupId,
-  InboxId,
+  GroupId = 0,
+  InboxId = 1,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -49,10 +52,29 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
+fn entity_to_u16<S>(consent_entity_type: &ConsentEntityType, s: S) -> Result<S::Ok, S::Error>
+where
+  S: serde::Serializer,
+{
+  let num: u16 = (*consent_entity_type) as u16;
+  s.serialize_u16(num)
+}
+
+fn state_to_u16<S>(consent_state: &ConsentState, s: S) -> Result<S::Ok, S::Error>
+where
+  S: serde::Serializer,
+{
+  let num: u16 = (*consent_state) as u16;
+  s.serialize_u16(num)
+}
+
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Consent {
   #[wasm_bindgen(js_name = entityType)]
+  #[serde(rename = "entityType", serialize_with = "entity_to_u16")]
   pub entity_type: ConsentEntityType,
+  #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
 }
@@ -75,6 +97,19 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+    }
+  }
+}
+
+impl From<StoredConsentRecord> for Consent {
+  fn from(value: StoredConsentRecord) -> Self {
+    Self {
+      entity: value.entity,
+      entity_type: match value.entity_type {
+        XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
+        XmtpConsentType::InboxId => ConsentEntityType::InboxId,
+      },
+      state: value.state.into(),
     }
   }
 }

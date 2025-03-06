@@ -3181,6 +3181,7 @@ mod tests {
         let nonce = 1;
         let ident = owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
+
         let path = tmp_path();
         let key = static_enc_key().to_vec();
 

@@ -24,7 +24,7 @@ impl PublishClientEnvelopes {
 impl Endpoint for PublishClientEnvelopes {
     type Output = PublishClientEnvelopesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/mls/v2/publish-payer-envelopes")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -41,22 +41,26 @@ impl Endpoint for PublishClientEnvelopes {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use crate::d14n::PublishClientEnvelopes;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
-    use xmtp_proto::xmtp::xmtpv4::payer_api::{PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET};
-
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::xmtpv4::payer_api::{
+            PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET,
+        };
+
         let pnq = crate::path_and_query::<PublishClientEnvelopesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_get_inbox_ids() {
+        use crate::d14n::PublishClientEnvelopes;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+        use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);

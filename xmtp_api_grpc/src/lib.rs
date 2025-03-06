@@ -308,7 +308,6 @@ pub mod tests {
 
             // Ensure that messages appear
             let results = stream_handler.get_messages();
-            println!("{}", results.len());
             assert!(results.len() == 1);
 
             // Ensure that the messages array has been cleared

@@ -78,6 +78,7 @@ pub struct StoredGroupIntent {
     pub publish_attempts: i32,
     pub staged_commit: Option<Vec<u8>>,
     pub published_in_epoch: Option<i64>,
+    pub should_push: bool,
 }
 
 impl std::fmt::Debug for StoredGroupIntent {
@@ -176,17 +177,19 @@ pub struct NewGroupIntent {
     pub group_id: Vec<u8>,
     pub data: Vec<u8>,
     pub state: IntentState,
+    pub should_push: bool,
 }
 
 impl_store!(NewGroupIntent, group_intents);
 
 impl NewGroupIntent {
-    pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>) -> Self {
+    pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>, should_push: bool) -> Self {
         Self {
             kind,
             group_id,
             data,
             state: IntentState::ToPublish,
+            should_push,
         }
     }
 }
@@ -469,6 +472,7 @@ pub(crate) mod tests {
                 group_id,
                 data,
                 state,
+                should_push: false,
             }
         }
     }
@@ -609,6 +613,7 @@ pub(crate) mod tests {
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec::<24>(),
+                false,
             )
             .store(conn)
             .unwrap();
@@ -652,6 +657,7 @@ pub(crate) mod tests {
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec::<24>(),
+                false,
             )
             .store(conn)
             .unwrap();
@@ -698,6 +704,7 @@ pub(crate) mod tests {
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec::<24>(),
+                false,
             )
             .store(conn)
             .unwrap();
@@ -743,6 +750,7 @@ pub(crate) mod tests {
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec::<24>(),
+                false,
             )
             .store(conn)
             .unwrap();
@@ -776,6 +784,7 @@ pub(crate) mod tests {
                 IntentKind::UpdateGroupMembership,
                 group_id.clone(),
                 rand_vec::<24>(),
+                false,
             )
             .store(conn)
             .unwrap();

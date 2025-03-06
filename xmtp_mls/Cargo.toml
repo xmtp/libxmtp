@@ -134,7 +134,7 @@ xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
-  "bundled",
+  "precompiled",
 ] }
 
 chrono = { workspace = true, features = ["wasmbind"] }

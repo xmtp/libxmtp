@@ -1,5 +1,6 @@
 use crate::conversation::Conversation;
 use crate::messages::Message;
+use crate::user_preferences::UserPreference;
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
@@ -17,6 +18,12 @@ extern "C" {
   /// Js Fn to call on an item
   #[wasm_bindgen(structural, method)]
   pub fn on_message(this: &StreamCallback, item: Message);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_consent_update(this: &StreamCallback, item: JsValue);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_user_preference_update(this: &StreamCallback, item: Vec<UserPreference>);
 
   #[wasm_bindgen(structural, method)]
   pub fn on_conversation(this: &StreamCallback, item: Conversation);

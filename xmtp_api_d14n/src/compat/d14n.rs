@@ -21,6 +21,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
     PublishIdentityUpdateResponse, VerifySmartContractWalletSignaturesRequest,
     VerifySmartContractWalletSignaturesResponse,
 };
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message, group_message_input, welcome_message, welcome_message_input,
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
@@ -32,7 +33,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
-use xmtp_proto::ProtoError;
+use xmtp_proto::ConversionError;
 
 const DEFAULT_PAGINATION_LIMIT: u32 = 100;
 
@@ -165,7 +166,8 @@ where
             .envelopes
             .into_iter()
             .filter_map(|envelope| {
-                let unsigned_originator_envelope = extract_unsigned_originator_envelope(&envelope).ok()?;
+                let unsigned_originator_envelope =
+                    extract_unsigned_originator_envelope(&envelope).ok()?;
                 let client_envelope = extract_client_envelope(&envelope).ok()?;
                 let payload = client_envelope.payload?;
 
@@ -180,6 +182,7 @@ where
                                 group_id: request.group_id.clone(),
                                 data: v1_group_message.data,
                                 sender_hmac: v1_group_message.sender_hmac,
+                                should_push: v1_group_message.should_push,
                             })),
                         });
                     }
@@ -272,10 +275,9 @@ where
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        let envelope: ClientEnvelope = request.try_into().map_err(ApiError::Conversion)?;
         let result = PublishClientEnvelopes::builder()
-            .envelopes(vec![request
-                .try_into()
-                .map_err(|e| ApiError::<E>::ProtoError(e))?])
+            .envelopes(vec![envelope])
             .build()
             .unwrap()
             .query(&self.payer_client)
@@ -334,7 +336,7 @@ where
                 request
                     .requests
                     .iter()
-                    .map(|r| r.address.clone())
+                    .map(|r| r.identifier.clone())
                     .collect::<Vec<_>>(),
             )
             .build()
@@ -346,7 +348,8 @@ where
                 .responses
                 .iter()
                 .map(|r| get_inbox_ids_response::Response {
-                    address: r.address.clone(),
+                    identifier: r.identifier.clone(),
+                    identifier_kind: IdentifierKind::Ethereum as i32,
                     inbox_id: r.inbox_id.clone(),
                 })
                 .collect::<Vec<_>>(),

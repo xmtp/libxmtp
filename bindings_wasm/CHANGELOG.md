@@ -1,5 +1,27 @@
 # @xmtp/wasm-bindings
 
+## 0.0.21
+
+- Fix `should_push` field on messages for push notifications
+
+## 0.0.20
+
+- Fixed Rust Panic Error on Streams
+- Added `should_push` field on messages for push notifications
+
+## 0.0.19
+
+- Refactored `ContentState` to serialize to `u16`
+
+## 0.0.18
+
+- Added `content_types` option to `ListMessagesOptions`
+- Removed `allowed_states`, `conversation_type`, and `include_sync_groups` from `ListConversationsOptions`
+- Added reaction content type
+- Added multi remote attachment content type
+- Added `find_messages_with_reactions` method to Conversation
+- Added consent and preferences streaming
+
 ## 0.0.17
 
 - Fixed HTTP Stream Deserialization

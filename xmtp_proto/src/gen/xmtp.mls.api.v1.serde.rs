@@ -1044,6 +1044,9 @@ impl serde::Serialize for group_message::V1 {
         if !self.sender_hmac.is_empty() {
             len += 1;
         }
+        if self.should_push {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
@@ -1070,6 +1073,9 @@ impl serde::Serialize for group_message::V1 {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
+        if self.should_push {
+            struct_ser.serialize_field("shouldPush", &self.should_push)?;
+        }
         struct_ser.end()
     }
 }
@@ -1088,6 +1094,8 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             "data",
             "sender_hmac",
             "senderHmac",
+            "should_push",
+            "shouldPush",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1097,6 +1105,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             GroupId,
             Data,
             SenderHmac,
+            ShouldPush,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1123,6 +1132,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             "data" => Ok(GeneratedField::Data),
                             "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
+                            "shouldPush" | "should_push" => Ok(GeneratedField::ShouldPush),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1147,6 +1157,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                 let mut group_id__ = None;
                 let mut data__ = None;
                 let mut sender_hmac__ = None;
+                let mut should_push__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -1189,6 +1200,12 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::ShouldPush => {
+                            if should_push__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shouldPush"));
+                            }
+                            should_push__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(group_message::V1 {
@@ -1197,6 +1214,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                     group_id: group_id__.unwrap_or_default(),
                     data: data__.unwrap_or_default(),
                     sender_hmac: sender_hmac__.unwrap_or_default(),
+                    should_push: should_push__.unwrap_or_default(),
                 })
             }
         }
@@ -1313,6 +1331,9 @@ impl serde::Serialize for group_message_input::V1 {
         if !self.sender_hmac.is_empty() {
             len += 1;
         }
+        if self.should_push {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessageInput.V1", len)?;
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1323,6 +1344,9 @@ impl serde::Serialize for group_message_input::V1 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
+        }
+        if self.should_push {
+            struct_ser.serialize_field("shouldPush", &self.should_push)?;
         }
         struct_ser.end()
     }
@@ -1337,12 +1361,15 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
             "data",
             "sender_hmac",
             "senderHmac",
+            "should_push",
+            "shouldPush",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Data,
             SenderHmac,
+            ShouldPush,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1366,6 +1393,7 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                         match value {
                             "data" => Ok(GeneratedField::Data),
                             "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
+                            "shouldPush" | "should_push" => Ok(GeneratedField::ShouldPush),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1387,6 +1415,7 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
             {
                 let mut data__ = None;
                 let mut sender_hmac__ = None;
+                let mut should_push__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Data => {
@@ -1405,11 +1434,18 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::ShouldPush => {
+                            if should_push__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("shouldPush"));
+                            }
+                            should_push__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(group_message_input::V1 {
                     data: data__.unwrap_or_default(),
                     sender_hmac: sender_hmac__.unwrap_or_default(),
+                    should_push: should_push__.unwrap_or_default(),
                 })
             }
         }
