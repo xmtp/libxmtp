@@ -1044,7 +1044,7 @@ impl serde::Serialize for group_message::V1 {
         if !self.sender_hmac.is_empty() {
             len += 1;
         }
-        if self.should_push.is_some() {
+        if self.should_push {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
@@ -1073,8 +1073,8 @@ impl serde::Serialize for group_message::V1 {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
-        if let Some(v) = self.should_push.as_ref() {
-            struct_ser.serialize_field("shouldPush", v)?;
+        if self.should_push {
+            struct_ser.serialize_field("shouldPush", &self.should_push)?;
         }
         struct_ser.end()
     }
@@ -1204,7 +1204,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             if should_push__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("shouldPush"));
                             }
-                            should_push__ = map_.next_value()?;
+                            should_push__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1214,7 +1214,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                     group_id: group_id__.unwrap_or_default(),
                     data: data__.unwrap_or_default(),
                     sender_hmac: sender_hmac__.unwrap_or_default(),
-                    should_push: should_push__,
+                    should_push: should_push__.unwrap_or_default(),
                 })
             }
         }
@@ -1331,7 +1331,7 @@ impl serde::Serialize for group_message_input::V1 {
         if !self.sender_hmac.is_empty() {
             len += 1;
         }
-        if self.should_push.is_some() {
+        if self.should_push {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessageInput.V1", len)?;
@@ -1345,8 +1345,8 @@ impl serde::Serialize for group_message_input::V1 {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
-        if let Some(v) = self.should_push.as_ref() {
-            struct_ser.serialize_field("shouldPush", v)?;
+        if self.should_push {
+            struct_ser.serialize_field("shouldPush", &self.should_push)?;
         }
         struct_ser.end()
     }
@@ -1438,14 +1438,14 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                             if should_push__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("shouldPush"));
                             }
-                            should_push__ = map_.next_value()?;
+                            should_push__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(group_message_input::V1 {
                     data: data__.unwrap_or_default(),
                     sender_hmac: sender_hmac__.unwrap_or_default(),
-                    should_push: should_push__,
+                    should_push: should_push__.unwrap_or_default(),
                 })
             }
         }
