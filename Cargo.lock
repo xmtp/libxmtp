@@ -7320,6 +7320,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures",
+ "http 1.2.0",
  "pin-project-lite",
  "prost",
  "reqwest 0.12.12",

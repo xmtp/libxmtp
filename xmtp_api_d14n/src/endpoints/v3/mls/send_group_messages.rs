@@ -53,6 +53,7 @@ mod test {
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_get_identity_updates_v2() {
         let mut client = GrpcClient::builder();

@@ -38,24 +38,26 @@ impl Endpoint for GetIdentityUpdatesV2 {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
-    use crate::v3::GetIdentityUpdatesV2;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::identity::api::v1::{
-        get_identity_updates_request::Request, GetIdentityUpdatesRequest,
-        GetIdentityUpdatesResponse, FILE_DESCRIPTOR_SET,
-    };
 
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_get_identity_updates_v2() {
+        use crate::v3::GetIdentityUpdatesV2;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+        use xmtp_proto::xmtp::identity::api::v1::{
+            get_identity_updates_request::Request, GetIdentityUpdatesResponse,
+        };
+
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);

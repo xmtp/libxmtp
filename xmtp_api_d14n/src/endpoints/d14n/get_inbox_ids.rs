@@ -24,7 +24,7 @@ impl Endpoint for GetInboxIds {
     type Output = GetInboxIdsResponse;
 
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::from("/mls/v2/get-inbox-ids")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -47,20 +47,25 @@ impl Endpoint for GetInboxIds {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     use crate::d14n::GetInboxIds;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::xmtpv4::message_api::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
+    use xmtp_proto::xmtp::xmtpv4::message_api::GetInboxIdsResponse;
 
     #[test]
     fn test_file_descriptor() {
+        use xmtp_proto::xmtp::xmtpv4::message_api::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
+    #[cfg(feature = "grpc-api")]
     #[tokio::test]
     async fn test_get_inbox_ids() {
+        use crate::d14n::GetInboxIds;
+        use xmtp_api_grpc::grpc_client::GrpcClient;
+        use xmtp_api_grpc::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+        use xmtp_proto::traits::Query;
+
         let mut client = GrpcClient::builder();
         client.set_app_version("0.0.0".into()).unwrap();
         client.set_tls(false);
@@ -75,5 +80,35 @@ mod test {
         //todo: fix later when it was implemented
         let result = endpoint.query(&client).await;
         assert!(result.is_err());
+    }
+
+    #[cfg(feature = "http-api")]
+    #[tokio::test]
+    async fn test_get_inbox_ids_http() {
+        use xmtp_api_http::XmtpHttpApiClient;
+        use xmtp_api_http::LOCALHOST_ADDRESS;
+        use xmtp_proto::api_client::ApiBuilder;
+
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_libxmtp_version("0.0.0".into()).unwrap();
+        client.set_tls(true);
+        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = client.build().await.unwrap();
+
+        let endpoint = GetInboxIds::builder()
+            .addresses(vec!["".to_string()])
+            .build()
+            .unwrap();
+
+        let result: Result<GetInboxIdsResponse, _> = endpoint.query(&client).await;
+        match result {
+            Ok(response) => {
+                assert_eq!(response.responses.len(), 0);
+            }
+            Err(err) => {
+                panic!("Test failed: {:?}", err);
+            }
+        }
     }
 }
