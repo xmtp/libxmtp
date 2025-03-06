@@ -11,11 +11,8 @@ use crate::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{
-    AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
-};
+use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
 use crate::ConversionError;
-use prost::Message;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
