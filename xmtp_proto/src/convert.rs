@@ -94,7 +94,7 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
 
     fn try_from(_envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
         // temporary block until this function is updated to handle payer_envelope_bytes
-        return Err(ConversionError::Missing {
+        Err(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<OriginatorEnvelope>(),
         });

@@ -572,32 +572,35 @@ impl ClientV4 {
 }
 
 pub fn convert_v4_envelope_to_identity_update(
-    envelope: &OriginatorEnvelope,
+    _envelope: &OriginatorEnvelope,
 ) -> Result<IdentityUpdateLog, crate::GrpcError> {
-    let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
-    let originator_envelope =
-        UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)?;
+    // temporary block until this function is updated to handle payer_envelope_bytes
+    return Err(crate::GrpcError::Unreachable);
 
-    let payer_envelope = originator_envelope
-        .payer_envelope
-        .ok_or(GrpcError::NotFound("payer envelope".into()))?;
+    //let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
+    //let originator_envelope =
+    //    UnsignedOriginatorEnvelope::decode(&mut unsigned_originator_envelope)?;
 
-    // TODO: validate payer signatures
-    let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
+    //let payer_envelope = originator_envelope
+    //    .payer_envelope
+    //    .ok_or(GrpcError::NotFound("payer envelope".into()))?;
 
-    let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)?;
-    let payload = client_envelope
-        .payload
-        .ok_or(GrpcError::NotFound("payload".into()))?;
+    //// TODO: validate payer signatures
+    //let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
 
-    let identity_update = match payload {
-        Payload::IdentityUpdate(update) => update,
-        _ => return Err(GrpcError::UnexpectedPayload),
-    };
+    //let client_envelope = ClientEnvelope::decode(&mut unsigned_client_envelope)?;
+    //let payload = client_envelope
+    //    .payload
+    //    .ok_or(GrpcError::NotFound("payload".into()))?;
 
-    Ok(IdentityUpdateLog {
-        sequence_id: originator_envelope.originator_sequence_id,
-        server_timestamp_ns: originator_envelope.originator_ns as u64,
-        update: Some(identity_update),
-    })
+    //let identity_update = match payload {
+    //    Payload::IdentityUpdate(update) => update,
+    //    _ => return Err(GrpcError::UnexpectedPayload),
+    //};
+
+    //Ok(IdentityUpdateLog {
+    //    sequence_id: originator_envelope.originator_sequence_id,
+    //    server_timestamp_ns: originator_envelope.originator_ns as u64,
+    //    update: Some(identity_update),
+    //})
 }
