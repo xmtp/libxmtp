@@ -122,20 +122,6 @@ extension Signature {
 			return
 		}
 	}
-
-	func verify(signedBy: PublicKey, digest: Data) throws -> Bool {
-		do {
-			_ = try LibXMTP.verifyK256Sha256(
-				signedBy: signedBy.secp256K1Uncompressed.bytes,
-				message: digest,
-				signature: ecdsaCompact.bytes,
-				recoveryId: UInt8(ecdsaCompact.recovery)
-			)
-		} catch {
-			return false
-		}
-		return true
-	}
 }
 
 extension Signature: Codable {

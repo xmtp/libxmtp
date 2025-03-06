@@ -27,7 +27,7 @@ public struct Message: Identifiable {
 	}
 
 	public var convoId: String {
-		ffiMessage.convoId.toHex
+		ffiMessage.conversationId.toHex
 	}
 
 	public var senderInboxId: String {
