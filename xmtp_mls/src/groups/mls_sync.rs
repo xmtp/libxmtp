@@ -1327,7 +1327,6 @@ where
                     &self.context().identity.installation_keys,
                     intent_data.message.as_slice(),
                 )?;
-                tracing::debug!("Lopi are you here? {}", intent.should_push);
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: msg.tls_serialize_detached()?,
@@ -1712,7 +1711,7 @@ where
             let mut sender_hmac = sender_hmac.clone();
             sender_hmac.update(payload);
             let sender_hmac = sender_hmac.finalize();
-            tracing::debug!("Lopi end {}", should_push);
+
             result.push(GroupMessageInput {
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: payload.to_vec(),
