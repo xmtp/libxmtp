@@ -1,5 +1,10 @@
 # @xmtp/wasm-bindings
 
+## 0.0.20
+
+- Fixed Rust Panic Error on Streams
+- Added `should_push` field on messages for push notifications
+
 ## 0.0.19
 
 - Refactored `ContentState` to serialize to `u16`
