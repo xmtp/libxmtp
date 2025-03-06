@@ -21,19 +21,14 @@ impl Client for XmtpHttpApiClient {
         body: Vec<u8>,
     ) -> Result<http::Response<Bytes>, ApiError<Self::Error>> {
         let request = request.body(body.clone())?;
-        println!("## {:?}", request);
         let (parts, _) = request.into_parts();
-        println!("## {:?}", parts);
-        println!("## body {:?}", body);
 
         let url = format!("{}{}", self.host_url, parts.uri);
         let mut req = self.http_client.request(Method::POST, url);
-        println!("## req {:?}", req);
 
         for (key, value) in parts.headers.iter() {
             req = req.header(key, value);
         }
-        println!("## req {:?}", req);
         let response = req
             .body(body)
             .send()
@@ -41,7 +36,6 @@ impl Client for XmtpHttpApiClient {
             .map_err(HttpClientError::from)?
             .error_for_status()
             .map_err(HttpClientError::from)?;
-        println!("## response {:?}", response);
 
         let status = response.status();
         let headers = response.headers().clone();
@@ -62,6 +56,3 @@ impl Client for XmtpHttpApiClient {
         todo!()
     }
 }
-
-#[cfg(test)]
-pub mod tests {}
