@@ -335,6 +335,7 @@ impl XmtpMlsClient for ClientV4 {
                             group_id: req.group_id.clone(),
                             data: v1_group_message.data,
                             sender_hmac: v1_group_message.sender_hmac,
+                            should_push: v1_group_message.should_push,
                         })),
                     })
                 })

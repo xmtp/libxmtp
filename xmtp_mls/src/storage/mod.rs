@@ -36,9 +36,10 @@ pub async fn init_sqlite() {
                 clear_on_init: false,
                 initial_capacity: 6,
             };
-            sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true)
-                .await
-                .unwrap();
+            let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
+            if let Err(e) = r {
+                tracing::warn!("Encountered possible vfs error {e}");
+            }
         })
         .await;
 }

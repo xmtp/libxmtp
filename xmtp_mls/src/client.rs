@@ -1018,7 +1018,10 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
+    use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
+    use crate::subscriptions::StreamMessages;
     use diesel::RunQueryDsl;
+    use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -1034,6 +1037,7 @@ pub(crate) mod tests {
             consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
             schema::identity_updates,
         },
+        utils::test::HISTORY_SYNC_URL,
         XmtpApi,
     };
 
@@ -1605,5 +1609,69 @@ pub(crate) mod tests {
         let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].group_id, dm1.group_id);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn should_stream_consent() {
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let alix =
+            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
+        let bo = ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
+
+        let group = alix
+            .create_group_with_inbox_ids(
+                &[bo.inbox_id().to_string()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let receiver = alix.local_events.subscribe();
+        let stream = receiver.stream_consent_updates();
+        futures::pin_mut!(stream);
+
+        // first record is denied consent to the group
+        group.update_consent_state(ConsentState::Denied).unwrap();
+
+        xmtp_common::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        // second is allowing consent for the group
+        alix.set_consent_states(&[StoredConsentRecord {
+            entity: hex::encode(&group.group_id),
+            state: ConsentState::Allowed,
+            entity_type: ConsentType::ConversationId,
+        }])
+        .await
+        .unwrap();
+
+        xmtp_common::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+        // third denying consent for bo address, and allowing consent for bo inbox id
+        alix.set_consent_states(&[StoredConsentRecord {
+            entity: bo.inbox_id().to_string(),
+            entity_type: ConsentType::InboxId,
+            state: ConsentState::Allowed,
+        }])
+        .await
+        .unwrap();
+
+        let item = stream.next().await.unwrap().unwrap();
+        assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
+        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].state, ConsentState::Denied);
+        let item = stream.next().await.unwrap().unwrap();
+        assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
+        assert_eq!(item[0].state, ConsentState::Allowed);
+        let item = stream.next().await.unwrap().unwrap();
+        assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::InboxId);
+        assert_eq!(item[0].entity, bo.inbox_id());
+        assert_eq!(item[0].state, ConsentState::Allowed);
     }
 }

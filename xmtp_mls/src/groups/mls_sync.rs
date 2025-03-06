@@ -175,6 +175,7 @@ struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
     post_commit_action: Option<Vec<u8>>,
     payload_to_publish: Vec<u8>,
+    should_send_push_notification: bool,
 }
 
 impl<ScopedClient> MlsGroup<ScopedClient>
@@ -1234,6 +1235,7 @@ where
                                 payload_to_publish,
                                 post_commit_action,
                                 staged_commit,
+                                should_send_push_notification
                             })) => {
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
@@ -1255,7 +1257,7 @@ where
                             intent.id
                         );
 
-                        let messages = self.prepare_group_messages(vec![payload_slice])?;
+                        let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
                         self.client
                             .api()
                             .send_group_messages(messages)
@@ -1330,6 +1332,7 @@ where
                     payload_to_publish: msg.tls_serialize_detached()?,
                     post_commit_action: None,
                     staged_commit: None,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::KeyUpdate => {
@@ -1343,6 +1346,7 @@ where
                     payload_to_publish: commit.tls_serialize_detached()?,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::MetadataUpdate => {
@@ -1365,6 +1369,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::UpdateAdminList => {
@@ -1386,6 +1391,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
             IntentKind::UpdatePermission => {
@@ -1405,6 +1411,7 @@ where
                     payload_to_publish: commit_bytes,
                     staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
                     post_commit_action: None,
+                    should_send_push_notification: intent.should_push,
                 }))
             }
         }
@@ -1496,6 +1503,7 @@ where
             provider,
             IntentKind::UpdateGroupMembership,
             intent_data.into(),
+            false,
         )?;
 
         self.sync_until_intent_resolved(provider, intent.id).await
@@ -1689,7 +1697,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn prepare_group_messages(
         &self,
-        payloads: Vec<&[u8]>,
+        payloads: Vec<(&[u8], bool)>,
     ) -> Result<Vec<GroupMessageInput>, GroupError> {
         let hmac_key = self
             .hmac_keys(0..=0)?
@@ -1699,7 +1707,7 @@ where
             Hmac::<Sha256>::new_from_slice(&hmac_key.key).expect("HMAC can take key of any size");
 
         let mut result = vec![];
-        for payload in payloads {
+        for (payload, should_push) in payloads {
             let mut sender_hmac = sender_hmac.clone();
             sender_hmac.update(payload);
             let sender_hmac = sender_hmac.finalize();
@@ -1708,6 +1716,7 @@ where
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: payload.to_vec(),
                     sender_hmac: sender_hmac.into_bytes().to_vec(),
+                    should_push: Some(should_push),
                 })),
             });
         }
@@ -1907,6 +1916,7 @@ async fn apply_update_group_membership_intent(
         payload_to_publish: commit.tls_serialize_detached()?,
         post_commit_action: post_commit_action.map(|action| action.to_bytes()),
         staged_commit: Some(staged_commit),
+        should_send_push_notification: false,
     }))
 }
 

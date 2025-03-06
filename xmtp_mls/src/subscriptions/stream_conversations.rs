@@ -288,7 +288,10 @@ where
                 // to let http know we are waiting on the next item
                 self.poll_next(cx)
             }
-            Ready(Err(e)) => Ready(Some(Err(e))),
+            Ready(Err(e)) => {
+                this.state.as_mut().set(ProcessState::Waiting);
+                Ready(Some(Err(e)))
+            }
             Pending => Pending,
         }
     }
