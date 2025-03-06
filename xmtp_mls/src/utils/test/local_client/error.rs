@@ -1,6 +1,7 @@
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use openmls::framing::errors::ProtocolMessageError;
 use xmtp_common::RetryableError;
+use xmtp_id::associations::AssociationError;
 use xmtp_proto::{ApiEndpoint, Code, XmtpApiError};
 
 #[derive(thiserror::Error, Debug)]
@@ -11,6 +12,10 @@ pub enum LocalClientError {
     TlsCodec(#[from] tls_codec::Error),
     #[error(transparent)]
     Protocol(#[from] ProtocolMessageError),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
+    #[error(transparent)]
+    Hex(#[from] hex::FromHexError),
 }
 
 impl XmtpApiError for LocalClientError {

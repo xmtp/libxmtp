@@ -1224,7 +1224,7 @@ pub(crate) mod tests {
         not(target_arch = "wasm32"),
         tokio::test(flavor = "multi_thread", worker_threads = 2)
     )]
-    async fn test_sync_all_groups() {
+    async fn test_it_should_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
