@@ -208,7 +208,7 @@ class Dm(
                         Log.w(
                             "XMTP Dm stream",
                             "Failed to decode message: id=${message.id.toHex()}, " +
-                                "convoId=${message.convoId.toHex()}, " +
+                                "convoId=${message.conversationId.toHex()}, " +
                                 "senderInboxId=${message.senderInboxId}"
                         )
                     }
@@ -216,7 +216,7 @@ class Dm(
                     Log.e(
                         "XMTP Dm stream",
                         "Error decoding message: id=${message.id.toHex()}, " +
-                            "convoId=${message.convoId.toHex()}, " +
+                            "convoId=${message.conversationId.toHex()}, " +
                             "senderInboxId=${message.senderInboxId}",
                         e
                     )

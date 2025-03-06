@@ -435,7 +435,7 @@ class Group(
                         Log.w(
                             "XMTP Group stream",
                             "Failed to decode message: id=${message.id.toHex()}, " +
-                                "convoId=${message.convoId.toHex()}, " +
+                                "convoId=${message.conversationId.toHex()}, " +
                                 "senderInboxId=${message.senderInboxId}"
                         )
                     }
@@ -443,7 +443,7 @@ class Group(
                     Log.e(
                         "XMTP Group stream",
                         "Error decoding message: id=${message.id.toHex()}, " +
-                            "convoId=${message.convoId.toHex()}, " +
+                            "convoId=${message.conversationId.toHex()}, " +
                             "senderInboxId=${message.senderInboxId}",
                         e
                     )

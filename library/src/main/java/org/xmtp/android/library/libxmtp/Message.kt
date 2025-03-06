@@ -34,7 +34,7 @@ class Message private constructor(
         get() = libXMTPMessage.id.toHex()
 
     val convoId: String
-        get() = libXMTPMessage.convoId.toHex()
+        get() = libXMTPMessage.conversationId.toHex()
 
     val senderInboxId: String
         get() = libXMTPMessage.senderInboxId
