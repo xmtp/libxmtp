@@ -3176,15 +3176,45 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_physical_passkey() {
+        let owner = LocalWalletInboxOwner::new();
+        let nonce = 1;
+        let ident = owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(path.clone()),
+            Some(key),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        register_client(&owner, &client).await;
+
+        let signature_request = client.signature_request().unwrap().clone();
+        signature_request.add_wallet_signature(&owner.wallet).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_revoke_wallet() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
         let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
-
         let path = tmp_path();
         let key = static_enc_key().to_vec();
+
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
