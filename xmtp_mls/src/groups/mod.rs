@@ -5236,4 +5236,81 @@ pub(crate) mod tests {
             "Hello from Caro".as_bytes()
         );
     }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_only_super_admins_can_set_min_supported_protocol_version() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+        amal_group
+            .update_admin_list(
+                UpdateAdminListType::Add,
+                bo.context.identity.inbox_id().to_string(),
+            )
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let is_bo_admin = amal_group
+            .is_admin(
+                bo.context.identity.inbox_id().to_string(),
+                &amal.mls_provider().unwrap(),
+            )
+            .unwrap();
+        assert!(is_bo_admin);
+
+        let is_bo_super_admin = amal_group
+            .is_super_admin(
+                bo.context.identity.inbox_id().to_string(),
+                &amal.mls_provider().unwrap(),
+            )
+            .unwrap();
+        assert!(!is_bo_super_admin);
+
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version, None);
+
+        tracing::info!("CAMERONVOELL: bo about to update min version");
+        let result = bo_group.update_group_min_version_to_match_self().await;
+        assert!(!result.is_ok());
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&bo_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version, None);
+
+        amal_group.sync().await.unwrap();
+        let result = amal_group.update_group_min_version_to_match_self().await;
+        assert!(result.is_ok());
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&bo_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
+    }
 }

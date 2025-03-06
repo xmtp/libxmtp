@@ -228,10 +228,22 @@ impl MetadataPolicies {
     pub fn default_map(policies: MetadataPolicies) -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
-            if field == MessageDisappearInNS {
-                map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
-            } else {
-                map.insert(field.to_string(), policies.clone());
+            match field {
+                MetadataField::MessageDisappearInNS => {
+                    map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+                }
+                MetadataField::MessageDisappearFromNS => {
+                    map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+                }
+                MetadataField::MinimumSupportedProtocolVersion => {
+                    map.insert(
+                        field.to_string(),
+                        MetadataPolicies::allow_if_actor_super_admin(),
+                    );
+                }
+                _ => {
+                    map.insert(field.to_string(), policies.clone());
+                }
             }
         }
         map
@@ -1215,12 +1227,26 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
 pub(crate) fn default_policy() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
-        metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
+        match field {
+            MetadataField::MessageDisappearInNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MessageDisappearFromNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MinimumSupportedProtocolVersion => {
+                metadata_policies_map.insert(
+                    field.to_string(),
+                    MetadataPolicies::allow_if_actor_super_admin(),
+                );
+            }
+            _ => {
+                metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
+            }
+        }
     }
-    metadata_policies_map.insert(
-        MessageDisappearInNS.to_string(),
-        MetadataPolicies::allow_if_actor_admin(),
-    );
 
     PolicySet::new(
         MembershipPolicies::allow(),
@@ -1238,12 +1264,27 @@ pub(crate) fn default_policy() -> PolicySet {
 pub(crate) fn policy_admin_only() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
-        metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+        match field {
+            MetadataField::MessageDisappearInNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MessageDisappearFromNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MinimumSupportedProtocolVersion => {
+                metadata_policies_map.insert(
+                    field.to_string(),
+                    MetadataPolicies::allow_if_actor_super_admin(),
+                );
+            }
+            _ => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+        }
     }
-    metadata_policies_map.insert(
-        MetadataField::MessageDisappearInNS.to_string(),
-        MetadataPolicies::allow_if_actor_admin(),
-    );
 
     PolicySet::new(
         MembershipPolicies::allow_if_actor_admin(),
