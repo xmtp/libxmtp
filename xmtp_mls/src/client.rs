@@ -1633,7 +1633,7 @@ pub(crate) mod tests {
         let stream = receiver.stream_consent_updates();
         futures::pin_mut!(stream);
 
-        // first record is denied consent to the group
+        // first record is denied consent to the group.
         group.update_consent_state(ConsentState::Denied).unwrap();
 
         xmtp_common::time::sleep(std::time::Duration::from_millis(1000)).await;
