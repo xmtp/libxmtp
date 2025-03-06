@@ -372,7 +372,6 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
                 .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
             _ => None,
         };
-        tracing::trace!("LOPI type id string {}", type_id_str);
 
         Ok(QueryableContentFields {
             content_type: content_type_id.type_id.into(),

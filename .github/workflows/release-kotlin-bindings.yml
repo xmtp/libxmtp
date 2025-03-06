@@ -8,17 +8,17 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          # - x86_64-linux-android
-          # - i686-linux-android
-          # - armv7-linux-androideabi
+          - x86_64-linux-android
+          - i686-linux-android
+          - armv7-linux-androideabi
           - aarch64-linux-android
         include:
-          # - target: x86_64-linux-android
-          #   output_target: x86_64
-          # - target: i686-linux-android
-          #   output_target: x86
-          # - target: armv7-linux-androideabi
-          #   output_target: armeabi-v7a
+          - target: x86_64-linux-android
+            output_target: x86_64
+          - target: i686-linux-android
+            output_target: x86
+          - target: armv7-linux-androideabi
+            output_target: armeabi-v7a
           - target: aarch64-linux-android
             output_target: arm64-v8a
     steps:
