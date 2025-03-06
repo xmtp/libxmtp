@@ -106,7 +106,6 @@ impl From<StoredConsentRecord> for Consent {
     Self {
       entity: value.entity,
       entity_type: match value.entity_type {
-        XmtpConsentType::Address => ConsentEntityType::Address,
         XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
         XmtpConsentType::InboxId => ConsentEntityType::InboxId,
       },
