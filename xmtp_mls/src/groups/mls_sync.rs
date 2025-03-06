@@ -1716,7 +1716,7 @@ where
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: payload.to_vec(),
                     sender_hmac: sender_hmac.into_bytes().to_vec(),
-                    should_push: Some(should_push),
+                    should_push,
                 })),
             });
         }

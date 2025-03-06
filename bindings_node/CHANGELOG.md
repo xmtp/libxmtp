@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 0.0.41
+
+- Fix `should_push` field on messages for push notifications
+
 ## 0.0.40
 
 - Fixed Rust Panic Error on Streams
