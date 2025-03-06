@@ -97,7 +97,7 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
         Err(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<OriginatorEnvelope>(),
-        });
+        })
 
         //let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
         //let originator_envelope = UnsignedOriginatorEnvelope::decode(

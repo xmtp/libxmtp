@@ -575,7 +575,7 @@ pub fn convert_v4_envelope_to_identity_update(
     _envelope: &OriginatorEnvelope,
 ) -> Result<IdentityUpdateLog, crate::GrpcError> {
     // temporary block until this function is updated to handle payer_envelope_bytes
-    return Err(crate::GrpcError::Unreachable);
+    Err(crate::GrpcError::Unreachable)
 
     //let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
     //let originator_envelope =

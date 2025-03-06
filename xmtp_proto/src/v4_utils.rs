@@ -57,7 +57,7 @@ pub fn extract_client_envelope(
     _req: &OriginatorEnvelope,
 ) -> Result<ClientEnvelope, crate::ProtoError> {
     // temporary block until this function is updated to handle payer_envelope_bytes
-    Err(crate::ProtoError::NotFound("payer envelope".into()));
+    Err(crate::ProtoError::NotFound("payer envelope".into()))
 
     // let unsigned_originator = extract_unsigned_originator_envelope(req)?;
     // let payer_envelope = unsigned_originator
