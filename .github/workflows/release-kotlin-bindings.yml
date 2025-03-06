@@ -39,7 +39,7 @@ jobs:
           tool: cargo-ndk
       - name: Build target
         run: |
-          cargo ndk -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} --target-version 23 -- build --release
+          cargo ndk -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} --android-platform 23 -- build --release
       - name: Prepare JNI libs
         run: |
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
