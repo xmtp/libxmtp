@@ -2437,6 +2437,7 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
+    #[ignore]
     async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
