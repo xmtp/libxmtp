@@ -1369,7 +1369,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
-    pub async fn paused_for_version(
+    pub fn paused_for_version(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Option<String>, GroupError> {
@@ -5209,7 +5209,6 @@ pub(crate) mod tests {
         // Caro group is paused immediately after joining
         let is_paused = caro_group
             .paused_for_version(&caro.mls_provider().unwrap())
-            .await
             .unwrap()
             .is_some();
         assert!(is_paused);

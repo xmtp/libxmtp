@@ -7174,14 +7174,3 @@ mod tests {
         }
     }
 }
-
-#[napi]
-impl Conversation {
-    #[napi]
-    pub fn paused_for_version(&self) -> napi::Result<Option<String>> {
-        let provider = self.inner.mls_provider()?;
-        self.inner
-            .paused_for_version(&provider)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))
-    }
-}
