@@ -1,11 +1,15 @@
 #![allow(clippy::unwrap_used)]
 use super::{
     builder::SignatureRequest,
+    member::Identifier,
     unsigned_actions::UnsignedCreateInbox,
     unverified::{UnverifiedAction, UnverifiedCreateInbox, UnverifiedSignature},
-    AccountId, InstallationKeyContext,
+    AccountId, InstallationKeyContext, MemberIdentifier,
 };
-use crate::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
+use crate::{
+    scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
+    InboxOwner,
+};
 use ethers::{
     core::types::BlockNumber,
     signers::{LocalWallet, Signer},
@@ -22,6 +26,24 @@ pub struct MockSmartContractSignatureVerifier {
 impl MockSmartContractSignatureVerifier {
     pub fn new(is_valid_signature: bool) -> Self {
         Self { is_valid_signature }
+    }
+}
+
+pub trait WalletTestExt {
+    fn get_inbox_id(&self, nonce: u64) -> String;
+    fn member_identifier(&self) -> MemberIdentifier;
+    fn identifier(&self) -> Identifier;
+}
+
+impl WalletTestExt for LocalWallet {
+    fn get_inbox_id(&self, nonce: u64) -> String {
+        self.identifier().inbox_id(nonce).unwrap()
+    }
+    fn member_identifier(&self) -> MemberIdentifier {
+        self.identifier().into()
+    }
+    fn identifier(&self) -> Identifier {
+        self.get_identifier().unwrap()
     }
 }
 
@@ -80,7 +102,8 @@ impl UnverifiedAction {
     pub fn new_test_create_inbox(account_address: &str, nonce: &u64) -> Self {
         Self::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_address: account_address.to_owned(),
+                account_identifier: Identifier::eth(account_address)
+                    .expect("test account address is invalid"),
                 nonce: *nonce,
             },
             UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),

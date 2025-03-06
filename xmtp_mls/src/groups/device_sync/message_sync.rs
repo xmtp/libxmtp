@@ -56,7 +56,7 @@ pub(crate) mod tests {
     };
     use xmtp_common::{assert_ok, wait_for_some};
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
+    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
     #[cfg_attr(target_family = "wasm", ignore)]
@@ -257,7 +257,7 @@ pub(crate) mod tests {
         let external_client_group =
             MlsGroup::new(bo_client.clone(), sync_group_id.clone(), created_at_ns);
         let result = external_client_group
-            .add_members(&[bo_wallet.get_address()])
+            .add_members(&[bo_wallet.identifier()])
             .await;
         assert!(result.is_err());
     }

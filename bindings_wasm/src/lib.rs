@@ -4,6 +4,7 @@ pub mod content_types;
 pub mod conversation;
 pub mod conversations;
 pub mod encoded_content;
+pub mod identity;
 pub mod inbox_id;
 pub mod inbox_state;
 pub mod messages;

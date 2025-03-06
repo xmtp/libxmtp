@@ -2,6 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse,
@@ -37,7 +38,10 @@ impl Endpoint for GetInboxIds {
                 .addresses
                 .iter()
                 .cloned()
-                .map(|i| get_inbox_ids_request::Request { address: i })
+                .map(|i| get_inbox_ids_request::Request {
+                    identifier: i,
+                    identifier_kind: IdentifierKind::Ethereum as i32,
+                })
                 .collect(),
         }
         .encode_to_vec())

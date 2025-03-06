@@ -113,16 +113,14 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use crate::groups::DMMetadataOptions;
+    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::InboxOwner;
-
-    use crate::groups::DMMetadataOptions;
-    use futures::StreamExt;
     use wasm_bindgen_test::wasm_bindgen_test;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
     async fn test_stream_all_messages_changing_group_list() {
@@ -146,7 +144,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(caro_wallet.get_address(), DMMetadataOptions::default())
+            .find_or_create_dm(caro_wallet.identifier(), DMMetadataOptions::default())
             .await
             .unwrap();
 

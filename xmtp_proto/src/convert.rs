@@ -11,11 +11,8 @@ use crate::xmtp::mls::api::v1::{
     UploadKeyPackageRequest, WelcomeMessageInput,
 };
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
-use crate::xmtp::xmtpv4::envelopes::{
-    AuthenticatedData, ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
-};
+use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
 use crate::ConversionError;
-use prost::Message;
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -92,54 +89,60 @@ impl TryFrom<OriginatorEnvelope> for KeyPackage {
 impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
     type Error = ConversionError;
 
-    fn try_from(envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
-        let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
-        let originator_envelope = UnsignedOriginatorEnvelope::decode(
-            &mut unsigned_originator_envelope,
-        )
-        .map_err(|_| ConversionError::Missing {
+    fn try_from(_envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        // temporary block until this function is updated to handle payer_envelope_bytes
+        Err(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<OriginatorEnvelope>(),
-        })?;
+        })
 
-        let payer_envelope =
-            originator_envelope
-                .payer_envelope
-                .ok_or(ConversionError::Missing {
-                    item: "identity_update",
-                    r#type: std::any::type_name::<OriginatorEnvelope>(),
-                })?;
+        //let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
+        //let originator_envelope = UnsignedOriginatorEnvelope::decode(
+        //    &mut unsigned_originator_envelope,
+        //)
+        //.map_err(|_| ConversionError::Missing {
+        //    item: "identity_update",
+        //    r#type: std::any::type_name::<OriginatorEnvelope>(),
+        //})?;
+
+        // let payer_envelope =
+        // originator_envelope
+        // .payer_envelope
+        // .ok_or(ConversionError::Missing {
+        // item: "identity_update",
+        // r#type: std::any::type_name::<OriginatorEnvelope>(),
+        // })?;
 
         // TODO: validate payer signatures
-        let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
-        let client_envelope =
-            ClientEnvelope::decode(&mut unsigned_client_envelope).map_err(|_| {
-                ConversionError::Missing {
-                    item: "identity_update",
-                    r#type: std::any::type_name::<OriginatorEnvelope>(),
-                }
-            })?;
+        // let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
+        // let client_envelope =
+        // ClientEnvelope::decode(&mut unsigned_client_envelope).map_err(|_| {
+        // ConversionError::Missing {
+        // item: "identity_update",
+        // r#type: std::any::type_name::<OriginatorEnvelope>(),
+        // }
+        // })?;
 
-        let payload = client_envelope.payload.ok_or(ConversionError::Missing {
-            item: "identity_update",
-            r#type: std::any::type_name::<OriginatorEnvelope>(),
-        })?;
+        // let payload = client_envelope.payload.ok_or(ConversionError::Missing {
+        // item: "identity_update",
+        // r#type: std::any::type_name::<OriginatorEnvelope>(),
+        // })?;
 
-        let identity_update = match payload {
-            Payload::IdentityUpdate(update) => update,
-            _ => {
-                return Err(ConversionError::Missing {
-                    item: "identity_update",
-                    r#type: std::any::type_name::<OriginatorEnvelope>(),
-                })
-            }
-        };
+        // let identity_update = match payload {
+        // Payload::IdentityUpdate(update) => update,
+        // _ => {
+        // return Err(ConversionError::Missing {
+        // item: "identity_update",
+        // r#type: std::any::type_name::<OriginatorEnvelope>(),
+        // })
+        // }
+        // };
 
-        Ok(IdentityUpdateLog {
-            sequence_id: originator_envelope.originator_sequence_id,
-            server_timestamp_ns: originator_envelope.originator_ns as u64,
-            update: Some(identity_update),
-        })
+        // Ok(IdentityUpdateLog {
+        // sequence_id: originator_envelope.originator_sequence_id,
+        // server_timestamp_ns: originator_envelope.originator_ns as u64,
+        // update: Some(identity_update),
+        // })
     }
 }
 impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {

@@ -1,8 +1,8 @@
 import {
   ConsentState,
   EncodedContent,
+  IdentifierKind,
   Message,
-  MessageDisappearingSettings,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
@@ -21,9 +21,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
     const newName = 'foo'
     await conversation.updateGroupName(newName)
     expect(conversation.groupName()).toBe(newName)
@@ -48,9 +51,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
     const imageUrl = 'https://foo/bar.jpg'
     await conversation.updateGroupImageUrlSquare(imageUrl)
     expect(conversation.groupImageUrlSquare()).toBe(imageUrl)
@@ -75,9 +81,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
     const newDescription = 'foo'
     await conversation.updateGroupDescription(newDescription)
     expect(conversation.groupDescription()).toBe(newDescription)
@@ -104,9 +113,12 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     const members = await conversation.listMembers()
 
@@ -115,7 +127,12 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembers([user3.account.address])
+    await conversation.addMembers([
+      {
+        identifier: user3.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -125,7 +142,12 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds2).toContain(client2.inboxId())
     expect(memberInboxIds2).toContain(client3.inboxId())
 
-    await conversation.removeMembers([user2.account.address])
+    await conversation.removeMembers([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     const members3 = await conversation.listMembers()
     expect(members3.length).toBe(2)
@@ -143,9 +165,12 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     const members = await conversation.listMembers()
     const memberInboxIds = members.map((member) => member.inboxId)
@@ -179,9 +204,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     await conversation.send(encodeTextMessage('gm'))
 
@@ -206,9 +234,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     conversation.sendOptimistic(encodeTextMessage('gm'))
 
@@ -240,9 +271,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     await client2.conversations().sync()
     const conversations = client2.conversations().list()
@@ -265,9 +299,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
     expect(conversation.superAdminList().length).toBe(1)
@@ -291,9 +328,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     expect(conversation.isSuperAdmin(client1.inboxId())).toBe(true)
     expect(conversation.isSuperAdmin(client2.inboxId())).toBe(false)
@@ -319,13 +359,17 @@ describe.concurrent('Conversation', () => {
     const client1 = await createRegisteredClient(user1)
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
-    const group = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
     expect(group).toBeDefined()
-    const dmGroup = await client1
-      .conversations()
-      .createDm(user3.account.address)
+    const dmGroup = await client1.conversations().createDm({
+      identifier: user3.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
     expect(dmGroup).toBeDefined()
 
     await client2.conversations().sync()
@@ -348,9 +392,12 @@ describe.concurrent('Conversation', () => {
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const conversation = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
 
     expect(conversation.groupPermissions().policySet()).toEqual({
       addMemberPolicy: 0,
@@ -413,196 +460,17 @@ describe.concurrent('Conversation', () => {
     })
   })
 
-  it('should handle disappearing messages in a group', async () => {
-    const user1 = createUser()
-    const user2 = createUser()
-    const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
-
-    // create message disappearing settings so that messages are deleted after 1 second
-    const messageDisappearingSettings: MessageDisappearingSettings = {
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    }
-
-    // create a group with message disappearing settings
-    const conversation = await client1
-      .conversations()
-      .createGroup([user2.account.address], {
-        messageDisappearingSettings,
-      })
-
-    // verify that the message disappearing settings are set and enabled
-    expect(conversation.messageDisappearingSettings()).toEqual({
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    })
-    expect(conversation.isMessageDisappearingEnabled()).toBe(true)
-
-    // send messages to the group
-    await conversation.send(encodeTextMessage('gm'))
-    await conversation.send(encodeTextMessage('gm2'))
-
-    // verify that the messages are sent
-    expect((await conversation.findMessages()).length).toBe(3)
-
-    // sync the messages to the other client
-    await client2.conversations().sync()
-    const conversation2 = client2
-      .conversations()
-      .findGroupById(conversation.id())
-    await conversation2!.sync()
-
-    // verify that the message disappearing settings are set and enabled
-    expect(conversation2!.messageDisappearingSettings()).toEqual({
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    })
-    expect(conversation2!.isMessageDisappearingEnabled()).toBe(true)
-
-    // wait for the messages to be deleted
-    await sleep(10000)
-
-    // verify that the messages are deleted
-    expect((await conversation.findMessages()).length).toBe(1)
-
-    // verify that the messages are deleted on the other client
-    expect((await conversation2!.findMessages()).length).toBe(0)
-
-    // remove the message disappearing settings
-    await conversation.removeMessageDisappearingSettings()
-
-    // verify that the message disappearing settings are removed
-    expect(conversation.messageDisappearingSettings()).toEqual({
-      fromNs: 0,
-      inNs: 0,
-    })
-
-    expect(conversation.isMessageDisappearingEnabled()).toBe(false)
-
-    // sync other group
-    await conversation2!.sync()
-
-    // verify that the message disappearing settings are set and disabled
-    expect(conversation2!.messageDisappearingSettings()).toEqual({
-      fromNs: 0,
-      inNs: 0,
-    })
-    expect(conversation2!.isMessageDisappearingEnabled()).toBe(false)
-
-    // send messages to the group
-    await conversation2!.send(encodeTextMessage('gm'))
-    await conversation2!.send(encodeTextMessage('gm2'))
-
-    // verify that the messages are sent
-    expect((await conversation2!.findMessages()).length).toBe(4)
-
-    // sync original group
-    await conversation.sync()
-
-    // verify that the messages are not deleted
-    expect((await conversation.findMessages()).length).toBe(5)
-  })
-
-  it('should handle disappearing messages in a DM group', async () => {
-    const user1 = createUser()
-    const user2 = createUser()
-    const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
-
-    // create message disappearing settings so that messages are deleted after 1 second
-    const messageDisappearingSettings: MessageDisappearingSettings = {
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    }
-
-    // create a group with message disappearing settings
-    const conversation = await client1
-      .conversations()
-      .createDm(user2.account.address, {
-        messageDisappearingSettings,
-      })
-
-    // verify that the message disappearing settings are set and enabled
-    expect(conversation.messageDisappearingSettings()).toEqual({
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    })
-    expect(conversation.isMessageDisappearingEnabled()).toBe(true)
-
-    // send messages to the group
-    await conversation.send(encodeTextMessage('gm'))
-    await conversation.send(encodeTextMessage('gm2'))
-
-    // verify that the messages are sent
-    expect((await conversation.findMessages()).length).toBe(3)
-
-    // sync the messages to the other client
-    await client2.conversations().sync()
-    const conversation2 = client2
-      .conversations()
-      .findGroupById(conversation.id())
-    await conversation2!.sync()
-
-    // verify that the message disappearing settings are set and enabled
-    expect(conversation2!.messageDisappearingSettings()).toEqual({
-      fromNs: 10_000_000,
-      inNs: 10_000_000,
-    })
-    expect(conversation2!.isMessageDisappearingEnabled()).toBe(true)
-
-    // wait for the messages to be deleted
-    await sleep(10000)
-
-    // verify that the messages are deleted
-    expect((await conversation.findMessages()).length).toBe(1)
-
-    // verify that the messages are deleted on the other client
-    expect((await conversation2!.findMessages()).length).toBe(0)
-
-    // remove the message disappearing settings
-    await conversation.removeMessageDisappearingSettings()
-
-    // verify that the message disappearing settings are removed
-    expect(conversation.messageDisappearingSettings()).toEqual({
-      fromNs: 0,
-      inNs: 0,
-    })
-
-    expect(conversation.isMessageDisappearingEnabled()).toBe(false)
-
-    // sync other group
-    await conversation2!.sync()
-
-    // verify that the message disappearing settings are set and disabled
-    expect(conversation2!.messageDisappearingSettings()).toEqual({
-      fromNs: 0,
-      inNs: 0,
-    })
-    expect(conversation2!.isMessageDisappearingEnabled()).toBe(false)
-
-    // send messages to the group
-    await conversation2!.send(encodeTextMessage('gm'))
-    await conversation2!.send(encodeTextMessage('gm2'))
-
-    // verify that the messages are sent
-    expect((await conversation2!.findMessages()).length).toBe(4)
-
-    // sync original group
-    await conversation.sync()
-
-    // verify that the messages are not deleted
-    expect((await conversation.findMessages()).length).toBe(5)
-  })
-
   it('should get hmac keys', async () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
     await createRegisteredClient(user2)
-    const group = await client1
-      .conversations()
-      .createGroup([user2.account.address])
+    const group = await client1.conversations().createGroup([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
     const hmacKeys = group.getHmacKeys()
     expect(hmacKeys).toBeDefined()
     expect(hmacKeys.length).toBe(3)

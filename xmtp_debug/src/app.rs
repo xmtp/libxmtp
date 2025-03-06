@@ -27,7 +27,7 @@ use directories::ProjectDirs;
 use std::{fs, path::PathBuf, sync::Arc};
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
-use xmtp_id::associations::{generate_inbox_id, unverified::UnverifiedSignature};
+use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
     identity::IdentityStrategy,

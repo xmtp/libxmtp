@@ -4,7 +4,7 @@ use crate::builder::ClientBuilder;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_id::InboxOwner;
+use xmtp_id::associations::{test_utils::WalletTestExt, Identifier};
 
 use super::{BenchClient, BenchError};
 
@@ -36,23 +36,27 @@ pub fn load_identities(is_dev_network: bool) -> Result<Vec<Identity>, BenchError
 #[derive(Serialize, Deserialize)]
 pub struct Identity {
     pub inbox_id: String,
-    pub address: String,
+    pub identifier: Identifier,
 }
 
 impl Identity {
-    pub fn new(inbox_id: String, address: String) -> Self {
-        Identity { inbox_id, address }
+    pub fn new(inbox_id: String, identifier: Identifier) -> Self {
+        Identity {
+            inbox_id,
+            identifier,
+        }
     }
 }
 
 async fn create_identity(is_dev_network: bool) -> Identity {
     let wallet = generate_local_wallet();
+    let ident = wallet.identifier();
     let client = if is_dev_network {
         ClientBuilder::new_dev_client(&wallet).await
     } else {
         ClientBuilder::new_local_client(&wallet).await
     };
-    Identity::new(client.inbox_id().to_string(), wallet.get_address())
+    Identity::new(client.inbox_id().to_string(), ident)
 }
 
 async fn create_identities(n: usize, is_dev_network: bool) -> Vec<Identity> {
@@ -106,7 +110,7 @@ pub async fn create_identities_if_dont_exist(
                 "Found generated identities at {}, checking for existence on backend...",
                 file_path(is_dev_network)
             );
-            if client.is_registered(&identities[0].address).await {
+            if client.is_registered(&identities[0].identifier).await {
                 return identities;
             }
         }

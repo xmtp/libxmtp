@@ -41,7 +41,6 @@ impl From<ConsentState> for XmtpConsentState {
 pub enum ConsentEntityType {
   GroupId = 0,
   InboxId = 1,
-  Address = 2,
 }
 
 impl From<ConsentEntityType> for XmtpConsentType {
@@ -49,7 +48,6 @@ impl From<ConsentEntityType> for XmtpConsentType {
     match entity_type {
       ConsentEntityType::GroupId => XmtpConsentType::ConversationId,
       ConsentEntityType::InboxId => XmtpConsentType::InboxId,
-      ConsentEntityType::Address => XmtpConsentType::Address,
     }
   }
 }
@@ -108,7 +106,6 @@ impl From<StoredConsentRecord> for Consent {
     Self {
       entity: value.entity,
       entity_type: match value.entity_type {
-        XmtpConsentType::Address => ConsentEntityType::Address,
         XmtpConsentType::ConversationId => ConsentEntityType::GroupId,
         XmtpConsentType::InboxId => ConsentEntityType::InboxId,
       },

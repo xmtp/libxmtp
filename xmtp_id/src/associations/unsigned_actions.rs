@@ -1,8 +1,6 @@
+use super::{member::Identifier, MemberIdentifier};
+use crate::associations::{member::HasMemberKind, MemberKind};
 use chrono::DateTime;
-
-use crate::associations::MemberKind;
-
-use super::MemberIdentifier;
 
 const HEADER: &str = "XMTP : Authenticate to inbox";
 const FOOTER: &str = "For more info: https://xmtp.org/signatures";
@@ -14,12 +12,12 @@ pub trait SignatureTextCreator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedCreateInbox {
     pub nonce: u64,
-    pub account_address: String,
+    pub account_identifier: Identifier,
 }
 
 impl SignatureTextCreator for UnsignedCreateInbox {
     fn signature_text(&self) -> String {
-        format!("- Create inbox\n  (Owner: {})", self.account_address)
+        format!("- Create inbox\n  (Owner: {})", self.account_identifier)
     }
 }
 
@@ -34,7 +32,8 @@ impl SignatureTextCreator for UnsignedAddAssociation {
         let id_kind = get_identifier_text(&member_kind);
         let prefix = match member_kind {
             MemberKind::Installation => "Grant messaging access to app",
-            MemberKind::Address => "Link address to inbox",
+            MemberKind::Ethereum => "Link address to inbox",
+            MemberKind::Passkey => "Link passkey to inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
     }
@@ -51,7 +50,8 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
         let id_kind = get_identifier_text(&member_kind);
         let prefix = match self.revoked_member.kind() {
             MemberKind::Installation => "Revoke messaging access from app",
-            MemberKind::Address => "Unlink address from inbox",
+            MemberKind::Ethereum => "Unlink address from inbox",
+            MemberKind::Passkey => "Unlink passkey from inbox",
         };
         format!("- {prefix}\n  ({id_kind}: {})", self.revoked_member)
     }
@@ -59,15 +59,14 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedChangeRecoveryAddress {
-    pub new_recovery_address: String,
+    pub new_recovery_identifier: Identifier,
 }
 
 impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
     fn signature_text(&self) -> String {
         format!(
-            // TODO: Finalize text
             "- Change inbox recovery address\n  (Address: {})",
-            self.new_recovery_address
+            self.new_recovery_identifier
         )
     }
 }
@@ -127,8 +126,9 @@ impl SignatureTextCreator for UnsignedIdentityUpdate {
 
 fn get_identifier_text(kind: &MemberKind) -> String {
     match kind {
-        MemberKind::Address => "Address".to_string(),
+        MemberKind::Ethereum => "Address".to_string(),
         MemberKind::Installation => "ID".to_string(),
+        MemberKind::Passkey => "Passkey".to_string(),
     }
 }
 
@@ -142,43 +142,43 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::hashes::generate_inbox_id;
-
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_signatures() {
-        let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
+        let account_identifier =
+            Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap();
+
         let client_timestamp_ns: u64 = 12;
         let new_member_address = "0x4567890abcdef1234567890abcdef12345678123".to_string();
-        let new_recovery_address = "0x7890abcdef1234567890abcdef12345678123456".to_string();
+        let new_recovery_identifier =
+            Identifier::eth("0x7890abcdef1234567890abcdef12345678123456").unwrap();
         let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
             nonce: 0,
-            account_address: account_address.clone(),
+            account_identifier: account_identifier.clone(),
         };
-        let inbox_id =
-            generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce).unwrap();
+        let inbox_id = account_identifier.inbox_id(create_inbox.nonce).unwrap();
 
         let add_address = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Address(new_member_address.clone()),
+            new_member_identifier: MemberIdentifier::eth(&new_member_address).unwrap(),
         };
 
         let add_installation = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Installation(new_installation_id.clone()),
+            new_member_identifier: MemberIdentifier::installation(new_installation_id.clone()),
         };
 
         let revoke_address = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Address(new_member_address.clone()),
+            revoked_member: MemberIdentifier::eth(new_member_address).unwrap(),
         };
 
         let revoke_installation = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Installation(new_installation_id.clone()),
+            revoked_member: MemberIdentifier::installation(new_installation_id.clone()),
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {
-            new_recovery_address: new_recovery_address.clone(),
+            new_recovery_identifier: new_recovery_identifier.clone(),
         };
 
         let identity_update = UnsignedIdentityUpdate {

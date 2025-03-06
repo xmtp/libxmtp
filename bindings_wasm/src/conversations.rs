@@ -1,8 +1,16 @@
+use crate::consent_state::{Consent, ConsentState};
+use crate::identity::{Identifier, IdentityExt};
+use crate::messages::Message;
+use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
+use crate::streams::{StreamCallback, StreamCloser};
+use crate::user_preferences::UserPreference;
+use crate::{client::RustXmtpClient, conversation::Conversation};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
+use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
@@ -10,15 +18,6 @@ use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
 use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
-
-use crate::consent_state::{Consent, ConsentState};
-use crate::messages::Message;
-use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{StreamCallback, StreamCloser};
-use crate::user_preferences::UserPreference;
-use crate::{client::RustXmtpClient, conversation::Conversation};
-
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -290,7 +289,7 @@ impl Conversations {
   #[wasm_bindgen(js_name = createGroup)]
   pub async fn create_group(
     &self,
-    account_addresses: Vec<String>,
+    account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -333,7 +332,7 @@ impl Conversations {
       _ => None,
     };
 
-    let convo = if account_addresses.is_empty() {
+    let convo = if account_identifiers.is_empty() {
       let group = self
         .inner_client
         .create_group(group_permissions, metadata_options)
@@ -346,7 +345,11 @@ impl Conversations {
     } else {
       self
         .inner_client
-        .create_group_with_members(&account_addresses, group_permissions, metadata_options)
+        .create_group_with_members(
+          &account_identifiers.to_internal()?,
+          group_permissions,
+          metadata_options,
+        )
         .await
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?
     };
@@ -424,13 +427,13 @@ impl Conversations {
   #[wasm_bindgen(js_name = createDm)]
   pub async fn find_or_create_dm(
     &self,
-    account_address: String,
+    account_identifier: Identifier,
     options: Option<CreateDMOptions>,
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
       .find_or_create_dm(
-        account_address,
+        account_identifier.try_into()?,
         options.unwrap_or_default().into_dm_metadata_options(),
       )
       .await

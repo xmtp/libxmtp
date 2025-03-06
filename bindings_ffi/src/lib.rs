@@ -1,22 +1,18 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
+pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
 
 pub use crate::inbox_owner::SigningError;
-use inbox_owner::FfiInboxOwner;
 pub use mls::*;
 use std::error::Error;
+use xmtp_cryptography::signature::IdentifierValidationError;
 
 extern crate tracing as log;
 
-pub use ffi::*;
-#[allow(clippy::all)]
-mod ffi {
-    use super::*;
-    uniffi::include_scaffolding!("xmtpv3");
-}
+uniffi::setup_scaffolding!("xmtpv3");
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]
@@ -63,6 +59,8 @@ pub enum GenericError {
     ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
     #[error(transparent)]
     Grpc(#[from] xmtp_api_grpc::GrpcError),
+    #[error(transparent)]
+    AddressValidation(#[from] IdentifierValidationError),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

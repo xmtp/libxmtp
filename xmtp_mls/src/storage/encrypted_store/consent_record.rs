@@ -137,8 +137,6 @@ pub enum ConsentType {
     ConversationId = 1,
     /// Consent is for an inbox
     InboxId = 2,
-    /// Consent is for an address
-    Address = 3,
 }
 
 impl ToSql<Integer, Sqlite> for ConsentType
@@ -159,7 +157,6 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(ConsentType::ConversationId),
             2 => Ok(ConsentType::InboxId),
-            3 => Ok(ConsentType::Address),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

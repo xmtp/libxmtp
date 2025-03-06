@@ -21,6 +21,7 @@ use crate::{
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
+  identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
   streams::StreamCloser,
@@ -62,7 +63,7 @@ pub enum PermissionLevel {
 #[napi]
 pub struct GroupMember {
   pub inbox_id: String,
-  pub account_addresses: Vec<String>,
+  pub account_identifiers: Vec<Identifier>,
   pub installation_ids: Vec<String>,
   pub permission_level: PermissionLevel,
   pub consent_state: ConsentState,
@@ -259,7 +260,11 @@ impl Conversation {
       .into_iter()
       .map(|member| GroupMember {
         inbox_id: member.inbox_id,
-        account_addresses: member.account_addresses,
+        account_identifiers: member
+          .account_identifiers
+          .into_iter()
+          .map(Into::into)
+          .collect(),
         installation_ids: member
           .installation_ids
           .into_iter()
@@ -320,7 +325,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<()> {
+  pub async fn add_members(&self, account_identities: Vec<Identifier>) -> Result<()> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -328,7 +333,7 @@ impl Conversation {
     );
 
     group
-      .add_members(&account_addresses)
+      .add_members(&account_identities.to_internal()?)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -425,7 +430,7 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<()> {
+  pub async fn remove_members(&self, account_identities: Vec<Identifier>) -> Result<()> {
     let group = MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
@@ -433,7 +438,7 @@ impl Conversation {
     );
 
     group
-      .remove_members(&account_addresses)
+      .remove_members(&account_identities.to_internal()?)
       .await
       .map_err(ErrorWrapper::from)?;
 

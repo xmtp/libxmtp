@@ -1,21 +1,23 @@
+use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
-use xmtp_id::associations::{verify_signed_with_public_context, DeserializationError};
+use xmtp_id::associations::{
+    ident, verify_signed_with_public_context, DeserializationError, Identifier,
+};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
-        generate_inbox_id as xmtp_id_generate_inbox_id,
         unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
         AccountId, AssociationState, MemberIdentifier,
     },
@@ -87,23 +89,23 @@ pub async fn connect_to_backend(
 }
 
 /// It returns a new client of the specified `inbox_id`.
-/// Note that the `inbox_id` must be either brand new or already associated with the `account_address`.
+/// Note that the `inbox_id` must be either brand new or already associated with the `account_identifier`.
 /// i.e. `inbox_id` cannot be associated with another account address.
 ///
-/// Prior to calling this function, it's suggested to form `inbox_id`, `account_address`, and `nonce` like below.
+/// Prior to calling this function, it's suggested to form `inbox_id`, `account_identifier`, and `nonce` like below.
 ///
 /// ```text
-/// inbox_id = get_inbox_id_for_address(account_address)
+/// inbox_id = get_inbox_id_for_address(account_identifier)
 /// nonce = 0
 ///
 /// // if inbox_id is not associated, we will create new one.
 /// if !inbox_id {
 ///     if !legacy_key { nonce = random_u64() }
-///     inbox_id = generate_inbox_id(account_address, nonce)
+///     inbox_id = generate_inbox_id(account_identifier, nonce)
 /// } // Otherwise, we will just use the inbox and ignore the nonce.
 /// db_path = $inbox_id-$env
 ///
-/// xmtp.create_client(account_address, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+/// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 #[allow(clippy::too_many_arguments)]
 #[uniffi::export(async_runtime = "tokio")]
@@ -112,11 +114,12 @@ pub async fn create_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
-    account_address: String,
+    account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    let ident = account_identifier.clone();
     init_logger();
 
     log::info!(
@@ -143,7 +146,7 @@ pub async fn create_client(
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
-        account_address.clone(),
+        ident.clone().try_into()?,
         nonce,
         legacy_signed_private_key_proto,
     );
@@ -165,30 +168,27 @@ pub async fn create_client(
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
-        account_address,
+        account_identifier,
     }))
 }
 
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn get_inbox_id_for_address(
+pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
-    account_address: String,
+    account_identifier: FfiIdentifier,
 ) -> Result<Option<String>, GenericError> {
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let account_identifier: Identifier = account_identifier.try_into()?;
+    let api_identifier: ApiIdentifier = account_identifier.into();
+
     let results = api
-        .get_inbox_ids(vec![account_address.clone()])
+        .get_inbox_ids(vec![api_identifier.clone()])
         .await
         .map_err(GenericError::from_error)?;
 
-    Ok(results.get(&account_address).cloned())
-}
-
-#[allow(unused)]
-#[uniffi::export]
-pub fn generate_inbox_id(account_address: String, nonce: u64) -> Result<String, GenericError> {
-    Ok(xmtp_id_generate_inbox_id(&account_address, &nonce)?)
+    Ok(results.get(&api_identifier).cloned())
 }
 
 #[derive(uniffi::Object)]
@@ -259,7 +259,7 @@ impl FfiSignatureRequest {
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
     #[allow(dead_code)]
-    account_address: String,
+    account_identifier: FfiIdentifier,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -298,11 +298,22 @@ impl FfiXmtpClient {
 
     pub async fn can_message(
         &self,
-        account_addresses: Vec<String>,
-    ) -> Result<HashMap<String, bool>, GenericError> {
+        account_identifiers: Vec<FfiIdentifier>,
+    ) -> Result<HashMap<FfiIdentifier, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: HashMap<String, bool> = inner.can_message(&account_addresses).await?;
+        let account_identifiers: Result<Vec<Identifier>, _> = account_identifiers
+            .into_iter()
+            .map(|ident| ident.try_into())
+            .collect();
+        let account_identifiers = account_identifiers?;
+
+        let results = inner
+            .can_message(&account_identifiers)
+            .await?
+            .into_iter()
+            .map(|(ident, can_msg)| (ident.into(), can_msg))
+            .collect();
 
         Ok(results)
     }
@@ -319,10 +330,15 @@ impl FfiXmtpClient {
         Ok(self.inner_client.reconnect_db()?)
     }
 
-    pub async fn find_inbox_id(&self, address: String) -> Result<Option<String>, GenericError> {
+    pub async fn find_inbox_id(
+        &self,
+        identifier: FfiIdentifier,
+    ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conn = self.inner_client.store().conn()?;
-        let result = inner.find_inbox_id_from_address(&conn, address).await?;
+        let result = inner
+            .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
+            .await?;
         Ok(result)
     }
 
@@ -484,13 +500,13 @@ impl FfiXmtpClient {
     }
 
     /// Adds a wallet address to the existing client
-    pub async fn add_wallet(
+    pub async fn add_identity(
         &self,
-        new_wallet_address: &str,
+        new_identity: FfiIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .associate_wallet(new_wallet_address.into())
+            .associate_identity(new_identity.try_into()?)
             .await?;
         let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
@@ -514,16 +530,16 @@ impl FfiXmtpClient {
     }
 
     /// Revokes or removes an identity from the existing client
-    pub async fn revoke_wallet(
+    pub async fn revoke_identity(
         &self,
-        wallet_address: &str,
+        identifier: FfiIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let Self {
             ref inner_client, ..
         } = self;
 
         let signature_request = inner_client
-            .revoke_wallets(vec![wallet_address.into()])
+            .revoke_identities(vec![identifier.try_into()?])
             .await?;
         let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
@@ -707,9 +723,9 @@ impl From<HmacKey> for FfiHmacKey {
 #[derive(uniffi::Record)]
 pub struct FfiInboxState {
     pub inbox_id: String,
-    pub recovery_address: String,
+    pub recovery_identity: FfiIdentifier,
     pub installations: Vec<FfiInstallation>,
-    pub account_addresses: Vec<String>,
+    pub account_identities: Vec<FfiIdentifier>,
 }
 
 #[derive(uniffi::Record)]
@@ -728,19 +744,22 @@ impl From<AssociationState> for FfiInboxState {
     fn from(state: AssociationState) -> Self {
         Self {
             inbox_id: state.inbox_id().to_string(),
-            recovery_address: state.recovery_address().to_string(),
+            recovery_identity: state.recovery_identifier().clone().into(),
             installations: state
                 .members()
                 .into_iter()
                 .filter_map(|m| match m.identifier {
-                    MemberIdentifier::Address(_) => None,
-                    MemberIdentifier::Installation(inst) => Some(FfiInstallation {
-                        id: inst,
-                        client_timestamp_ns: m.client_timestamp_ns,
-                    }),
+                    MemberIdentifier::Ethereum(_) => None,
+                    MemberIdentifier::Passkey(_) => None,
+                    MemberIdentifier::Installation(ident::Installation(id)) => {
+                        Some(FfiInstallation {
+                            id,
+                            client_timestamp_ns: m.client_timestamp_ns,
+                        })
+                    }
                 })
                 .collect(),
-            account_addresses: state.account_addresses(),
+            account_identities: state.identifiers().into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -999,12 +1018,22 @@ impl From<&FfiMetadataField> for MetadataField {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        account_addresses: Vec<String>,
+        account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
+        let account_identities: Result<Vec<Identifier>, _> = account_identities
+            .into_iter()
+            .map(|ident| ident.try_into())
+            .collect();
+        let account_identities = account_identities?;
+
         log::info!(
             "creating group with account addresses: {}",
-            account_addresses.join(", ")
+            account_identities
+                .iter()
+                .map(|ident| format!("{ident}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
@@ -1038,7 +1067,7 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = if account_addresses.is_empty() {
+        let convo = if account_identities.is_empty() {
             let group = self
                 .inner_client
                 .create_group(group_permissions, metadata_options)?;
@@ -1046,7 +1075,7 @@ impl FfiConversations {
             group
         } else {
             self.inner_client
-                .create_group_with_members(&account_addresses, group_permissions, metadata_options)
+                .create_group_with_members(&account_identities, group_permissions, metadata_options)
                 .await?
         };
 
@@ -1111,12 +1140,13 @@ impl FfiConversations {
 
     pub async fn find_or_create_dm(
         &self,
-        account_address: String,
+        target_identity: FfiIdentifier,
         opts: FfiCreateDMOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        log::info!("creating dm with target address: {}", account_address);
+        let target_identity = target_identity.try_into()?;
+        log::info!("creating dm with target address: {target_identity:?}",);
         self.inner_client
-            .find_or_create_dm(account_address, opts.into_dm_metadata_options())
+            .find_or_create_dm(target_identity, opts.into_dm_metadata_options())
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1151,13 +1181,6 @@ impl FfiConversations {
         let provider = inner.mls_provider()?;
         inner.sync_welcomes(&provider).await?;
         Ok(())
-    }
-
-    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
-        let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        let sync_group = inner.get_sync_group(&conn)?;
-        Ok(sync_group.into())
     }
 
     pub async fn sync_all_conversations(
@@ -1385,6 +1408,16 @@ impl FfiConversations {
     }
 }
 
+#[cfg(test)]
+impl FfiConversations {
+    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conn = inner.store().conn()?;
+        let sync_group = inner.get_sync_group(&conn)?;
+        Ok(sync_group.into())
+    }
+}
+
 impl From<FfiConversationType> for ConversationType {
     fn from(value: FfiConversationType) -> Self {
         match value {
@@ -1492,15 +1525,14 @@ impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
 }
 
 impl From<StoredConsentRecord> for FfiConsent {
-    fn from(value: StoredConsentRecord) -> Self {
+    fn from(consent: StoredConsentRecord) -> Self {
         FfiConsent {
-            entity: value.entity,
-            entity_type: match value.entity_type {
-                ConsentType::Address => FfiConsentEntityType::Address,
+            entity: consent.entity,
+            entity_type: match consent.entity_type {
                 ConsentType::ConversationId => FfiConsentEntityType::ConversationId,
                 ConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
-            state: value.state.into(),
+            state: consent.state.into(),
         }
     }
 }
@@ -1508,7 +1540,7 @@ impl From<StoredConsentRecord> for FfiConsent {
 #[derive(uniffi::Record)]
 pub struct FfiConversationMember {
     pub inbox_id: String,
-    pub account_addresses: Vec<String>,
+    pub account_identifiers: Vec<FfiIdentifier>,
     pub installation_ids: Vec<Vec<u8>>,
     pub permission_level: FfiPermissionLevel,
     pub consent_state: FfiConsentState,
@@ -1567,7 +1599,6 @@ impl From<FfiDeviceSyncKind> for DeviceSyncKind {
 pub enum FfiConsentEntityType {
     ConversationId,
     InboxId,
-    Address,
 }
 
 impl From<FfiConsentEntityType> for ConsentType {
@@ -1575,7 +1606,6 @@ impl From<FfiConsentEntityType> for ConsentType {
         match entity_type {
             FfiConsentEntityType::ConversationId => ConsentType::ConversationId,
             FfiConsentEntityType::InboxId => ConsentType::InboxId,
-            FfiConsentEntityType::Address => ConsentType::Address,
         }
     }
 }
@@ -1797,7 +1827,7 @@ impl FfiConversation {
             .into_iter()
             .map(|member| FfiConversationMember {
                 inbox_id: member.inbox_id,
-                account_addresses: member.account_addresses,
+                account_identifiers: member.account_identifiers.to_ffi(),
                 installation_ids: member.installation_ids,
                 permission_level: match member.permission_level {
                     PermissionLevel::Member => FfiPermissionLevel::Member,
@@ -1813,12 +1843,20 @@ impl FfiConversation {
 
     pub async fn add_members(
         &self,
-        account_addresses: Vec<String>,
+        account_identifiers: Vec<FfiIdentifier>,
     ) -> Result<FfiUpdateGroupMembershipResult, GenericError> {
-        log::info!("adding members: {}", account_addresses.join(","));
+        let account_identifiers = account_identifiers.to_internal()?;
+        log::info!(
+            "adding members: {}",
+            account_identifiers
+                .iter()
+                .map(|ident| format!("{ident}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
 
         self.inner
-            .add_members(&account_addresses)
+            .add_members(&account_identifiers)
             .await
             .map(FfiUpdateGroupMembershipResult::from)
             .map_err(Into::into)
@@ -1837,9 +1875,12 @@ impl FfiConversation {
             .map_err(Into::into)
     }
 
-    pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
+    pub async fn remove_members(
+        &self,
+        account_identifiers: Vec<FfiIdentifier>,
+    ) -> Result<(), GenericError> {
         self.inner
-            .remove_members(&account_addresses)
+            .remove_members(&account_identifiers.to_internal()?)
             .await
             .map_err(Into::into)
     }
@@ -2588,15 +2629,16 @@ mod tests {
     };
     use crate::{
         connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_address,
-        inbox_owner::SigningError, FfiConsent, FfiConsentEntityType, FfiConsentState,
-        FfiContentType, FfiConversation, FfiConversationCallback, FfiConversationMessageKind,
-        FfiCreateDMOptions, FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
-        FfiInboxOwner, FfiListConversationsOptions, FfiListMessagesOptions,
-        FfiMessageDisappearingSettings, FfiMessageWithReactions, FfiMetadataField,
-        FfiMultiRemoteAttachment, FfiPermissionPolicy, FfiPermissionPolicySet,
-        FfiPermissionUpdateType, FfiReaction, FfiReactionAction, FfiReactionSchema,
-        FfiRemoteAttachmentInfo, FfiSubscribeError,
+        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
+        identity::{FfiIdentifier, FfiIdentifierKind},
+        inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
+        FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
+        FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
+        FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
+        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
+        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2620,7 +2662,7 @@ mod tests {
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_id::associations::{
-        generate_inbox_id,
+        test_utils::WalletTestExt,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
@@ -2645,6 +2687,10 @@ mod tests {
             Self { wallet }
         }
 
+        pub fn identifier(&self) -> FfiIdentifier {
+            self.wallet.identifier().into()
+        }
+
         pub fn new() -> Self {
             Self {
                 wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
@@ -2653,8 +2699,12 @@ mod tests {
     }
 
     impl FfiInboxOwner for LocalWalletInboxOwner {
-        fn get_address(&self) -> String {
-            self.wallet.get_address()
+        fn get_identifier(&self) -> Result<FfiIdentifier, IdentityValidationError> {
+            let ident = self
+                .wallet
+                .get_identifier()
+                .map_err(|err| IdentityValidationError::Generic(err.to_string()))?;
+            Ok(ident.into())
         }
 
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
@@ -2812,8 +2862,10 @@ mod tests {
         history_sync_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -2821,7 +2873,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ident,
             nonce,
             None,
             history_sync_url,
@@ -2858,17 +2910,17 @@ mod tests {
     #[tokio::test]
     async fn get_inbox_id() {
         let client = new_test_client().await;
+        let ident = &client.account_identifier;
         let real_inbox_id = client.inbox_id();
 
-        let from_network = get_inbox_id_for_address(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            client.account_address.clone(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let api = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let from_network = get_inbox_id_for_identifier(api, ident.clone())
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(real_inbox_id, from_network);
     }
@@ -2876,10 +2928,15 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_legacy_identity() {
-        let account_address = "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase();
+        let ident = FfiIdentifier {
+            identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
+            identifier_kind: FfiIdentifierKind::Ethereum,
+            relying_partner: None,
+        };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
@@ -2888,7 +2945,7 @@ mod tests {
             Some(tmp_path()),
             None,
             &inbox_id,
-            account_address.to_string(),
+            ident,
             nonce,
             Some(legacy_keys),
             None,
@@ -2902,8 +2959,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
 
@@ -2914,7 +2972,7 @@ mod tests {
             Some(path.clone()),
             None,
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -2933,7 +2991,7 @@ mod tests {
             Some(path),
             None,
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -2954,7 +3012,8 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let ident = ffi_inbox_owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
 
@@ -2967,7 +3026,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -2987,7 +3046,7 @@ mod tests {
             Some(path),
             Some(other_key.to_vec()),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3028,8 +3087,9 @@ mod tests {
     async fn test_can_add_wallet_to_inbox() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -3040,7 +3100,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3066,11 +3126,11 @@ mod tests {
 
         // Now, add the second wallet to the client
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_address();
+        let new_account_address = wallet_to_add.identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&new_account_address)
+            .add_identity(new_account_address.into())
             .await
             .expect("could not add wallet");
 
@@ -3095,7 +3155,8 @@ mod tests {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&ffi_inbox_owner.get_address(), &nonce).unwrap();
+        let ident = ffi_inbox_owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let path = tmp_path();
         let key = static_enc_key().to_vec();
@@ -3106,7 +3167,7 @@ mod tests {
             Some(path.clone()),
             Some(key),
             &inbox_id,
-            ffi_inbox_owner.get_address(),
+            ffi_inbox_owner.identifier(),
             nonce,
             None,
             None,
@@ -3133,11 +3194,11 @@ mod tests {
         // Now, add the second wallet to the client
 
         let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.get_address();
+        let new_account_address = wallet_to_add.identifier();
         println!("second address: {}", new_account_address);
 
         let signature_request = client
-            .add_wallet(&new_account_address)
+            .add_identity(new_account_address.into())
             .await
             .expect("could not add wallet");
 
@@ -3158,7 +3219,7 @@ mod tests {
 
         // Now, revoke the second wallet
         let signature_request = client
-            .revoke_wallet(&new_account_address)
+            .revoke_identity(wallet_to_add.identifier().into())
             .await
             .expect("could not revoke wallet");
 
@@ -3183,8 +3244,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
         let inbox_owner = LocalWalletInboxOwner::new();
+        let ident = inbox_owner.identifier();
         let nonce = 1;
-        let inbox_id = generate_inbox_id(&inbox_owner.get_address(), &nonce).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
         let client = create_client(
@@ -3194,7 +3256,7 @@ mod tests {
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
-            inbox_owner.get_address(),
+            inbox_owner.identifier(),
             nonce,
             None, // v2_signed_private_key_proto
             None,
@@ -3209,10 +3271,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
         let amal = LocalWalletInboxOwner::new();
+        let amal_ident = amal.identifier();
         let nonce = 1;
-        let amal_inbox_id = generate_inbox_id(&amal.get_address(), &nonce).unwrap();
+        let amal_inbox_id = amal_ident.inbox_id(nonce).unwrap();
+
         let bola = LocalWalletInboxOwner::new();
-        let bola_inbox_id = generate_inbox_id(&bola.get_address(), &nonce).unwrap();
+        let bola_ident = bola.identifier();
+        let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
         let client_amal = create_client(
@@ -3222,7 +3287,7 @@ mod tests {
             Some(path.clone()),
             None,
             &amal_inbox_id,
-            amal.get_address(),
+            amal.identifier(),
             nonce,
             None,
             None,
@@ -3230,13 +3295,13 @@ mod tests {
         .await
         .unwrap();
         let can_message_result = client_amal
-            .can_message(vec![bola.get_address()])
+            .can_message(vec![bola.identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result
-                .get(&bola.get_address().to_string())
+                .get(&bola.identifier())
                 .map(|&value| !value)
                 .unwrap_or(false),
             "Expected the can_message result to be false for the address"
@@ -3249,7 +3314,7 @@ mod tests {
             Some(path.clone()),
             None,
             &bola_inbox_id,
-            bola.get_address(),
+            bola.identifier(),
             nonce,
             None,
             None,
@@ -3259,13 +3324,13 @@ mod tests {
         register_client(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
-            .can_message(vec![bola.get_address()])
+            .can_message(vec![bola.identifier()])
             .await
             .unwrap();
 
         assert!(
             can_message_result2
-                .get(&bola.get_address().to_string())
+                .get(&bola.identifier())
                 .copied()
                 .unwrap_or(false),
             "Expected the can_message result to be true for the address"
@@ -3280,7 +3345,7 @@ mod tests {
         let group = amal
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3301,7 +3366,7 @@ mod tests {
         let group = amal
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
@@ -3360,7 +3425,7 @@ mod tests {
         let group = alix_client_1
             .conversations()
             .create_group(
-                vec![bola_client_1.account_address.clone()],
+                vec![bola_client_1.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3533,7 +3598,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3570,7 +3635,10 @@ mod tests {
 
         let dm = bo
             .conversations()
-            .find_or_create_dm(alix.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(
+                alix.account_identifier.clone(),
+                FfiCreateDMOptions::default(),
+            )
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
@@ -3605,7 +3673,7 @@ mod tests {
         // Create a group
         let group = alix_conversations
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3656,7 +3724,7 @@ mod tests {
         // Step 2: Create a group with Bo but do not send messages
         alix_conversations
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -3958,7 +4026,7 @@ mod tests {
         for _i in 0..30 {
             alix.conversations()
                 .create_group(
-                    vec![bo.account_address.clone()],
+                    vec![bo.account_identifier.clone()],
                     FfiCreateGroupOptions::default(),
                 )
                 .await
@@ -4027,7 +4095,7 @@ mod tests {
         for _i in 0..30 {
             alix.conversations()
                 .create_group(
-                    vec![bo.account_address.clone()],
+                    vec![bo.account_identifier.clone()],
                     FfiCreateGroupOptions::default(),
                 )
                 .await
@@ -4049,7 +4117,7 @@ mod tests {
         {
             group
                 .conversation
-                .remove_members(vec![bo.account_address.clone()])
+                .remove_members(vec![bo.account_identifier.clone()])
                 .await
                 .unwrap();
         }
@@ -4083,7 +4151,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4102,22 +4170,22 @@ mod tests {
         // configured to 3) without Bo syncing
         alix_group
             .add_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .remove_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .add_members(vec![
-                eri.account_address.clone(),
-                frankie.account_address.clone(),
+                eri.account_identifier.clone(),
+                frankie.account_identifier.clone(),
             ])
             .await
             .unwrap();
@@ -4163,7 +4231,7 @@ mod tests {
         let group = client1
             .conversations()
             .create_group(
-                vec![client2.account_address.clone()],
+                vec![client2.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4230,7 +4298,7 @@ mod tests {
         let dm_group = client1
             .conversations()
             .find_or_create_dm(
-                client2.account_address.clone(),
+                client2.account_identifier.clone(),
                 FfiCreateDMOptions::default(),
             )
             .await
@@ -4321,7 +4389,10 @@ mod tests {
         let group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone(), caro.account_address.clone()],
+                vec![
+                    bo.account_identifier.clone(),
+                    caro.account_identifier.clone(),
+                ],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4438,7 +4509,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4512,7 +4583,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4528,26 +4599,26 @@ mod tests {
         // configured to 3) without Bo syncing
         alix_group
             .add_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
             .remove_members(vec![
-                caro.account_address.clone(),
-                davon.account_address.clone(),
+                caro.account_identifier.clone(),
+                davon.account_identifier.clone(),
             ])
             .await
             .unwrap();
         alix_group
-            .add_members(vec![eri.account_address.clone()])
+            .add_members(vec![eri.account_identifier.clone()])
             .await
             .unwrap();
 
         // Bo adds a member while 3 epochs behind
         bo_group
-            .add_members(vec![frankie.account_address.clone()])
+            .add_members(vec![frankie.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -4568,7 +4639,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4592,7 +4663,7 @@ mod tests {
         assert_eq!(bo_messages.len(), 0);
 
         alix_group
-            .remove_members(vec![bo.account_address.clone()])
+            .remove_members(vec![bo.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -4639,7 +4710,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4716,7 +4787,7 @@ mod tests {
 
         amal.conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4728,7 +4799,7 @@ mod tests {
         // Create another group and add bola
         amal.conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4752,7 +4823,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![caro.account_address.clone()],
+                vec![caro.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4772,7 +4843,7 @@ mod tests {
         let bo_group = bo
             .conversations()
             .create_group(
-                vec![caro.account_address.clone()],
+                vec![caro.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4805,7 +4876,7 @@ mod tests {
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4848,7 +4919,7 @@ mod tests {
         let amal_group = amal
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4883,7 +4954,7 @@ mod tests {
         assert!(!stream_closer.is_closed());
 
         amal_group
-            .add_members(vec![bola.account_address.clone()])
+            .add_members(vec![bola.account_identifier.clone()])
             .await
             .unwrap();
 
@@ -4909,7 +4980,7 @@ mod tests {
         // Amal creates a group and adds Bola to the group
         amal.conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4960,7 +5031,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -4991,7 +5062,7 @@ mod tests {
         };
         let alix_group_admin_only = alix
             .conversations()
-            .create_group(vec![bo.account_address.clone()], admin_only_options)
+            .create_group(vec![bo.account_identifier.clone()], admin_only_options)
             .await
             .unwrap();
 
@@ -5020,7 +5091,7 @@ mod tests {
         };
         let alix_group_all_members = alix
             .conversations()
-            .create_group(vec![bo.account_address.clone()], all_members_options)
+            .create_group(vec![bo.account_identifier.clone()], all_members_options)
             .await
             .unwrap();
 
@@ -5050,7 +5121,7 @@ mod tests {
 
         let alix_group_admin_only = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -5079,7 +5150,7 @@ mod tests {
         };
         let alix_group_all_members = alix
             .conversations()
-            .create_group(vec![bo.account_address.clone()], all_members_options)
+            .create_group(vec![bo.account_identifier.clone()], all_members_options)
             .await
             .unwrap();
 
@@ -5113,7 +5184,7 @@ mod tests {
         };
         let alix_group = alix
             .conversations()
-            .create_group(vec![bola.account_address.clone()], admin_only_options)
+            .create_group(vec![bola.account_identifier.clone()], admin_only_options)
             .await
             .unwrap();
 
@@ -5208,7 +5279,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5351,7 +5422,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 FfiCreateGroupOptions {
                     permissions: Some(FfiGroupPermissionsOptions::AdminOnly),
                     group_name: Some("Group Name".to_string()),
@@ -5409,7 +5480,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .find_or_create_dm(
-                bola.account_address.clone(),
+                bola.account_identifier.clone(),
                 FfiCreateDMOptions::new(disappearing_settings.clone()),
             )
             .await
@@ -5479,7 +5550,7 @@ mod tests {
 
         let alix_group = alix
             .conversations()
-            .create_group(vec![bola.account_address.clone()], create_group_options)
+            .create_group(vec![bola.account_identifier.clone()], create_group_options)
             .await
             .unwrap();
 
@@ -5557,7 +5628,7 @@ mod tests {
 
         // Verify that Alix can not remove bola even though they are a super admin
         let result = alix_group
-            .remove_members(vec![bola.account_address.clone()])
+            .remove_members(vec![bola.account_identifier.clone()])
             .await;
         assert!(result.is_err());
     }
@@ -5602,7 +5673,7 @@ mod tests {
         let results_1 = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_1,
             )
             .await;
@@ -5621,7 +5692,7 @@ mod tests {
         let results_2 = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_2,
             )
             .await;
@@ -5640,7 +5711,7 @@ mod tests {
         let results_3 = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_invalid_3,
             )
             .await;
@@ -5659,7 +5730,7 @@ mod tests {
         let results_4 = alix
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 create_group_options_valid,
             )
             .await;
@@ -5781,7 +5852,10 @@ mod tests {
         let bola_conversations = bola.conversations();
 
         let _alix_dm = alix_conversations
-            .find_or_create_dm(bola.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(
+                bola.account_identifier.clone(),
+                FfiCreateDMOptions::default(),
+            )
             .await
             .unwrap();
         let alix_num_sync = alix_conversations
@@ -5839,7 +5913,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5849,7 +5923,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5868,7 +5942,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5878,7 +5952,7 @@ mod tests {
 
         assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
@@ -5893,7 +5967,7 @@ mod tests {
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
 
         caro.conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5901,7 +5975,7 @@ mod tests {
 
         alix.conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -5921,14 +5995,14 @@ mod tests {
         let bo = new_test_client().await;
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6057,8 +6131,8 @@ mod tests {
         // consent with bo
         alix_a
             .set_consent_states(vec![FfiConsent {
-                entity: bo.account_address.clone(),
-                entity_type: FfiConsentEntityType::Address,
+                entity: bo.inbox_id(),
+                entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Allowed,
             }])
             .await
@@ -6080,9 +6154,9 @@ mod tests {
         .unwrap();
 
         // two outgoing consent updates
-        assert_eq!(stream_a_callback.consent_updates_count(), 2);
+        assert_eq!(stream_a_callback.consent_updates_count(), 1);
         // and two incoming consent updates
-        assert_eq!(stream_b_callback.consent_updates_count(), 2);
+        assert_eq!(stream_b_callback.consent_updates_count(), 1);
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();
@@ -6125,7 +6199,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6151,7 +6225,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6189,7 +6263,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6225,7 +6299,7 @@ mod tests {
 
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6247,20 +6321,20 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
         alix.set_consent_states(vec![FfiConsent {
             state: FfiConsentState::Allowed,
-            entity_type: FfiConsentEntityType::Address,
-            entity: bo.account_address.clone(),
+            entity_type: FfiConsentEntityType::InboxId,
+            entity: bo.inbox_id(),
         }])
         .await
         .unwrap();
         let bo_consent = alix
-            .get_consent_state(FfiConsentEntityType::Address, bo.account_address.clone())
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
             .await
             .unwrap();
         assert_eq!(bo_consent, FfiConsentState::Allowed);
@@ -6287,7 +6361,7 @@ mod tests {
         // Alix creates DM with Bo
         let alix_dm = alix
             .conversations()
-            .find_or_create_dm(bo.account_address.clone(), FfiCreateDMOptions::default())
+            .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6295,7 +6369,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6367,9 +6441,11 @@ mod tests {
     async fn test_can_not_create_new_inbox_id_with_already_associated_wallet() {
         // Step 1: Generate wallet A
         let wallet_a = generate_local_wallet();
+        let ident_a = wallet_a.identifier();
 
         // Step 2: Use wallet A to create a new client with a new inbox id derived from wallet A
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
+        let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6377,7 +6453,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_address(),
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6389,10 +6465,11 @@ mod tests {
 
         // Step 3: Generate wallet B
         let wallet_b = generate_local_wallet();
+        let wallet_b_ident = wallet_b.identifier();
 
         // Step 4: Associate wallet B to inbox A
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_address())
+            .add_identity(wallet_b.identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6407,6 +6484,7 @@ mod tests {
         let nonce = 1;
         let inbox_id = client_a.inbox_id();
 
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6414,7 +6492,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            wallet_b.get_address(),
+            ffi_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6432,10 +6510,7 @@ mod tests {
         // Alix creates DM with Bo
         let bo_dm = bo
             .conversations()
-            .find_or_create_dm(
-                wallet_a.get_address().clone(),
-                FfiCreateDMOptions::default(),
-            )
+            .find_or_create_dm(wallet_a.identifier().into(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
@@ -6472,7 +6547,8 @@ mod tests {
         assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
         assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
-        let client_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &nonce).unwrap();
+        let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b_new_result = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6480,7 +6556,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
-            wallet_b.get_address(),
+            ffi_ident,
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6505,7 +6581,9 @@ mod tests {
     async fn test_wallet_b_cannot_create_new_client_for_inbox_b_after_association() {
         // Step 1: Wallet A creates a new client with inbox_id A
         let wallet_a = generate_local_wallet();
-        let wallet_a_inbox_id = generate_inbox_id(&wallet_a.get_address(), &1).unwrap();
+        let ident_a = wallet_a.identifier();
+        let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
+        let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6513,7 +6591,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
-            wallet_a.get_address(),
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6525,7 +6603,9 @@ mod tests {
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
-        let wallet_b_inbox_id = generate_inbox_id(&wallet_b.get_address(), &1).unwrap();
+        let ident_b = wallet_b.identifier();
+        let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b1 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6533,7 +6613,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6544,6 +6624,7 @@ mod tests {
         register_client(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6551,7 +6632,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6561,7 +6642,7 @@ mod tests {
 
         // Step 4: Client A adds association to wallet B
         let add_wallet_signature_request = client_a
-            .add_wallet(&wallet_b.get_address())
+            .add_identity(wallet_b.identifier().into())
             .await
             .expect("could not add wallet");
         add_wallet_signature_request
@@ -6573,6 +6654,7 @@ mod tests {
             .unwrap();
 
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -6580,7 +6662,7 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
-            wallet_b.get_address(),
+            ffi_ident,
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
@@ -6611,7 +6693,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6702,7 +6784,7 @@ mod tests {
         let alix_conversation = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
@@ -6829,7 +6911,7 @@ mod tests {
         let amal_group = amal
             .conversations()
             .create_group(
-                vec![bola.account_address.clone()],
+                vec![bola.account_identifier.clone()],
                 admin_only_options.clone(),
             )
             .await
@@ -6961,7 +7043,7 @@ mod tests {
         let alix_group = alix
             .conversations()
             .create_group(
-                vec![bo.account_address.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await

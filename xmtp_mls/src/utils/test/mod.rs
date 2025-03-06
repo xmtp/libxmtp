@@ -8,12 +8,13 @@ use std::{
     },
 };
 use tokio::sync::Notify;
+use xmtp_api::ApiIdentifier;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{
-        generate_inbox_id,
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+        Identifier,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
@@ -158,14 +159,10 @@ where
     A: XmtpApi + 'static + Send + Sync + Clone,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
+    let ident = owner.get_identifier().unwrap();
+    let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let client = Client::builder(IdentityStrategy::new(
-        inbox_id,
-        owner.get_address(),
-        nonce,
-        None,
-    ));
+    let client = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None));
 
     let client = client
         .temp_store()
@@ -195,18 +192,14 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     let nonce = 1;
-    let inbox_id = generate_inbox_id(&owner.get_address(), &nonce).unwrap();
+    let ident = owner.get_identifier().unwrap();
+    let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let mut builder = Client::builder(IdentityStrategy::new(
-        inbox_id,
-        owner.get_address(),
-        nonce,
-        None,
-    ))
-    .temp_store()
-    .await
-    .api_client(api_client)
-    .with_scw_verifier(scw_verifier);
+    let mut builder = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
+        .temp_store()
+        .await
+        .api_client(api_client)
+        .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
         builder = builder.history_sync_url(history_sync_url);
@@ -251,13 +244,14 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn is_registered(&self, address: &String) -> bool {
+    pub async fn is_registered(&self, identifier: &Identifier) -> bool {
+        let identifier: ApiIdentifier = identifier.into();
         let ids = self
             .api_client
-            .get_inbox_ids(vec![address.clone()])
+            .get_inbox_ids(vec![identifier.clone()])
             .await
             .unwrap();
-        ids.contains_key(address)
+        ids.contains_key(&identifier)
     }
 }
 

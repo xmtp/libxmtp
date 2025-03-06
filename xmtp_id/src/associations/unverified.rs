@@ -101,16 +101,18 @@ impl UnverifiedAction {
 
     fn signatures(&self) -> Vec<UnverifiedSignature> {
         match self {
-            UnverifiedAction::CreateInbox(action) => vec![action.initial_address_signature.clone()],
+            UnverifiedAction::CreateInbox(action) => {
+                vec![action.initial_identifier_signature.clone()]
+            }
             UnverifiedAction::AddAssociation(action) => vec![
                 action.existing_member_signature.clone(),
                 action.new_member_signature.clone(),
             ],
             UnverifiedAction::RevokeAssociation(action) => {
-                vec![action.recovery_address_signature.clone()]
+                vec![action.recovery_identifier_signature.clone()]
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
-                vec![action.recovery_address_signature.clone()]
+                vec![action.recovery_identifier_signature.clone()]
             }
         }
     }
@@ -123,9 +125,9 @@ impl UnverifiedAction {
         let action = match self {
             UnverifiedAction::CreateInbox(action) => Action::CreateInbox(CreateInbox {
                 nonce: action.unsigned_action.nonce,
-                account_address: action.unsigned_action.account_address.clone(),
-                initial_address_signature: action
-                    .initial_address_signature
+                account_identifier: action.unsigned_action.account_identifier.clone(),
+                initial_identifier_signature: action
+                    .initial_identifier_signature
                     .to_verified(signature_text.as_ref(), &scw_verifier)
                     .await?,
             }),
@@ -142,20 +144,20 @@ impl UnverifiedAction {
             }),
             UnverifiedAction::RevokeAssociation(action) => {
                 Action::RevokeAssociation(RevokeAssociation {
-                    recovery_address_signature: action
-                        .recovery_address_signature
+                    recovery_identifier_signature: action
+                        .recovery_identifier_signature
                         .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
                     revoked_member: action.unsigned_action.revoked_member.clone(),
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
-                Action::ChangeRecoveryAddress(super::ChangeRecoveryAddress {
-                    recovery_address_signature: action
-                        .recovery_address_signature
+                Action::ChangeRecoveryIdentity(super::ChangeRecoveryIdentity {
+                    recovery_identifier_signature: action
+                        .recovery_identifier_signature
                         .to_verified(signature_text.as_ref(), &scw_verifier)
                         .await?,
-                    new_recovery_address: action.unsigned_action.new_recovery_address.clone(),
+                    new_recovery_identifier: action.unsigned_action.new_recovery_identifier.clone(),
                 })
             }
         };
@@ -167,17 +169,17 @@ impl UnverifiedAction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedCreateInbox {
     pub(crate) unsigned_action: UnsignedCreateInbox,
-    pub(crate) initial_address_signature: UnverifiedSignature,
+    pub(crate) initial_identifier_signature: UnverifiedSignature,
 }
 
 impl UnverifiedCreateInbox {
     pub fn new(
         unsigned_action: UnsignedCreateInbox,
-        initial_address_signature: UnverifiedSignature,
+        initial_identifier_signature: UnverifiedSignature,
     ) -> Self {
         Self {
             unsigned_action,
-            initial_address_signature,
+            initial_identifier_signature,
         }
     }
 }
@@ -204,36 +206,36 @@ impl UnverifiedAddAssociation {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedRevokeAssociation {
-    pub(crate) recovery_address_signature: UnverifiedSignature,
+    pub(crate) recovery_identifier_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedRevokeAssociation,
 }
 
 impl UnverifiedRevokeAssociation {
     pub fn new(
         unsigned_action: UnsignedRevokeAssociation,
-        recovery_address_signature: UnverifiedSignature,
+        recovery_identifier_signature: UnverifiedSignature,
     ) -> Self {
         Self {
             unsigned_action,
-            recovery_address_signature,
+            recovery_identifier_signature,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedChangeRecoveryAddress {
-    pub(crate) recovery_address_signature: UnverifiedSignature,
+    pub(crate) recovery_identifier_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedChangeRecoveryAddress,
 }
 
 impl UnverifiedChangeRecoveryAddress {
     pub fn new(
         unsigned_action: UnsignedChangeRecoveryAddress,
-        recovery_address_signature: UnverifiedSignature,
+        recovery_identifier_signature: UnverifiedSignature,
     ) -> Self {
         Self {
             unsigned_action,
-            recovery_address_signature,
+            recovery_identifier_signature,
         }
     }
 }
@@ -409,8 +411,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::{generate_inbox_id, unsigned_actions::UnsignedCreateInbox};
-    use xmtp_common::rand_hexstring;
+    use crate::associations::{member::Identifier, unsigned_actions::UnsignedCreateInbox};
 
     use super::{
         UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate,
@@ -420,17 +421,17 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn create_identity_update() {
-        let account_address = rand_hexstring();
+        let account_identifier = Identifier::rand_ethereum();
         let nonce = 1;
         let update = UnverifiedIdentityUpdate {
-            inbox_id: generate_inbox_id(account_address.as_str(), &nonce).unwrap(),
+            inbox_id: account_identifier.inbox_id(nonce).unwrap(),
             client_timestamp_ns: 10,
             actions: vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action: UnsignedCreateInbox {
-                    account_address: account_address.to_string(),
+                    account_identifier: account_identifier.clone(),
                     nonce,
                 },
-                initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(
                     UnverifiedRecoverableEcdsaSignature {
                         signature_bytes: vec![1, 2, 3],
                     },
@@ -440,7 +441,7 @@ mod tests {
         assert!(
             update
                 .signature_text()
-                .contains(format!("(Owner: {})", account_address).as_str()),
+                .contains(format!("(Owner: {})", account_identifier).as_str()),
             "could not find account address in signature text: {}",
             update.signature_text()
         );

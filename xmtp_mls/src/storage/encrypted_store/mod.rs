@@ -18,6 +18,7 @@ pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
+pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
@@ -29,7 +30,6 @@ mod schema_gen;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlcipher_connection;
 pub mod user_preferences;
-pub mod wallet_addresses;
 #[cfg(target_arch = "wasm32")]
 pub(super) mod wasm;
 
@@ -264,26 +264,6 @@ macro_rules! impl_fetch_list {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
                 Ok(self.raw_query_read(|conn| $table.load::<$model>(conn))?)
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! impl_fetch_list_with_key {
-    ($model:ty, $table:ident, $key:ty, $column:ident) => {
-        impl $crate::FetchListWithKey<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection
-        {
-            type Key = $key;
-            fn fetch_list_with_key(
-                &self,
-                keys: &[Self::Key],
-            ) -> Result<Vec<$model>, $crate::StorageError> {
-                use $crate::storage::encrypted_store::schema::$table::dsl::{$column, *};
-                Ok(self.raw_query_read(|conn| {
-                    $table.filter($column.eq_any(keys)).load::<$model>(conn)
-                })?)
             }
         }
     };

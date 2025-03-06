@@ -40,16 +40,22 @@ impl Inspect {
                 let state = client
                     .get_latest_association_state(&conn, &hex::encode(*inbox_id))
                     .await?;
+
+                let idents: Vec<_> = state
+                    .identifiers()
+                    .iter()
+                    .map(|ident| format!("{ident:?}"))
+                    .collect();
                 info!(
                     inbox_id = state.inbox_id(),
-                    account_addresses = state.account_addresses().as_value(),
+                    account_addresses = idents.as_value(),
                     installations = state
                         .installation_ids()
                         .into_iter()
                         .map(hex::encode)
                         .collect::<Vec<_>>()
                         .as_value(),
-                    recovery_address = state.recovery_address(),
+                    recovery_address = format!("{:?}", state.recovery_identifier()),
                     "latest association state"
                 );
             }

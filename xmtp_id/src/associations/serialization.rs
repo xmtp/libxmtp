@@ -1,5 +1,6 @@
 use super::{
-    member::Member,
+    ident,
+    member::{Identifier, Member},
     signature::{AccountId, ValidatedLegacySignedPublicKey},
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -20,7 +21,7 @@ use prost::{DecodeError, Message};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_cryptography::signature::sanitize_evm_addresses;
+use xmtp_cryptography::signature::{sanitize_evm_addresses, IdentifierValidationError};
 use xmtp_proto::xmtp::{
     identity::{
         api::v1::verify_smart_contract_wallet_signatures_response::ValidationResponse as SmartContractWalletValidationResponseProto,
@@ -31,10 +32,11 @@ use xmtp_proto::xmtp::{
             AssociationState as AssociationStateProto,
             AssociationStateDiff as AssociationStateDiffProto,
             ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-            IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+            IdentifierKind, IdentityAction as IdentityActionProto,
+            IdentityUpdate as IdentityUpdateProto,
             LegacyDelegatedSignature as LegacyDelegatedSignatureProto, Member as MemberProto,
             MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-            RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+            Passkey as PasskeyProto, RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
             RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
             RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
             SmartContractWalletSignature as SmartContractWalletSignatureProto,
@@ -67,14 +69,20 @@ pub enum DeserializationError {
     Decode(#[from] DecodeError),
     #[error("Invalid account id")]
     InvalidAccountId,
+    #[error("Invalid passkey")]
+    InvalidPasskey,
     #[error("Invalid hash (needs to be 32 bytes)")]
     InvalidHash,
     #[error("A required field is unspecified: {0}")]
     Unspecified(&'static str),
+    #[error("Field is deprecated: {0}")]
+    Deprecated(&'static str),
     #[error("Error creating public key from proto bytes")]
     Ed25519(#[from] ed25519_dalek::ed25519::Error),
     #[error("Unable to deserialize")]
     Bincode,
+    #[error(transparent)]
+    AddressValidation(#[from] IdentifierValidationError),
 }
 
 impl TryFrom<IdentityUpdateProto> for UnverifiedIdentityUpdate {
@@ -131,28 +139,49 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 })
             }
             IdentityActionKindProto::CreateInbox(action_proto) => {
+                let kind = match action_proto.initial_identifier_kind() {
+                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+                    kind => kind,
+                };
+                let account_identifier = Identifier::from_proto(
+                    &action_proto.initial_identifier,
+                    kind,
+                    action_proto.relying_partner,
+                )?;
+
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                    initial_address_signature: action_proto.initial_address_signature.try_into()?,
+                    initial_identifier_signature: action_proto
+                        .initial_identifier_signature
+                        .try_into()?,
                     unsigned_action: UnsignedCreateInbox {
                         nonce: action_proto.nonce,
-                        account_address: action_proto.initial_address,
+                        account_identifier,
                     },
                 })
             }
             IdentityActionKindProto::ChangeRecoveryAddress(action_proto) => {
+                let kind = match action_proto.new_recovery_identifier_kind() {
+                    IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+                    kind => kind,
+                };
+                let new_recovery_identifier = Identifier::from_proto(
+                    &action_proto.new_recovery_identifier,
+                    kind,
+                    action_proto.relying_partner,
+                )?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature: action_proto
-                        .existing_recovery_address_signature
+                    recovery_identifier_signature: action_proto
+                        .existing_recovery_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_address: action_proto.new_recovery_address,
+                        new_recovery_identifier,
                     },
                 })
             }
             IdentityActionKindProto::Revoke(action_proto) => {
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
-                    recovery_address_signature: action_proto
-                        .recovery_address_signature
+                    recovery_identifier_signature: action_proto
+                        .recovery_identifier_signature
                         .try_into()?,
                     unsigned_action: UnsignedRevokeAssociation {
                         revoked_member: action_proto
@@ -252,38 +281,77 @@ impl From<UnverifiedAction> for IdentityActionProto {
     fn from(value: UnverifiedAction) -> Self {
         let kind: IdentityActionKindProto = match value {
             UnverifiedAction::CreateInbox(action) => {
+                let account_identifier = action.unsigned_action.account_identifier;
+                let initial_identifier = format!("{account_identifier}");
+                let relying_partner = match &account_identifier {
+                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
+                let initial_identifier_kind: IdentifierKind = account_identifier.into();
                 IdentityActionKindProto::CreateInbox(CreateInboxProto {
                     nonce: action.unsigned_action.nonce,
-                    initial_address: action.unsigned_action.account_address,
-                    initial_address_signature: Some(action.initial_address_signature.into()),
+                    initial_identifier,
+                    initial_identifier_kind: initial_identifier_kind as i32,
+                    initial_identifier_signature: Some(action.initial_identifier_signature.into()),
+                    relying_partner,
                 })
             }
             UnverifiedAction::AddAssociation(action) => {
+                let relying_partner = match &action.unsigned_action.new_member_identifier {
+                    MemberIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
                 IdentityActionKindProto::Add(AddAssociationProto {
                     new_member_identifier: Some(
                         action.unsigned_action.new_member_identifier.into(),
                     ),
                     existing_member_signature: Some(action.existing_member_signature.into()),
                     new_member_signature: Some(action.new_member_signature.into()),
+                    relying_partner,
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
+                let new_recovery_identifier = action.unsigned_action.new_recovery_identifier;
+                let new_recovery_identifier_string = format!("{new_recovery_identifier}");
+                let relying_partner = match &new_recovery_identifier {
+                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
+                    _ => None,
+                };
+                let new_recovery_identifier_kind: IdentifierKind = new_recovery_identifier.into();
                 IdentityActionKindProto::ChangeRecoveryAddress(ChangeRecoveryAddressProto {
-                    new_recovery_address: action.unsigned_action.new_recovery_address,
-                    existing_recovery_address_signature: Some(
-                        action.recovery_address_signature.into(),
+                    new_recovery_identifier: new_recovery_identifier_string,
+                    new_recovery_identifier_kind: new_recovery_identifier_kind as i32,
+                    existing_recovery_identifier_signature: Some(
+                        action.recovery_identifier_signature.into(),
                     ),
+                    relying_partner,
                 })
             }
             UnverifiedAction::RevokeAssociation(action) => {
                 IdentityActionKindProto::Revoke(RevokeAssociationProto {
-                    recovery_address_signature: Some(action.recovery_address_signature.into()),
+                    recovery_identifier_signature: Some(
+                        action.recovery_identifier_signature.into(),
+                    ),
                     member_to_revoke: Some(action.unsigned_action.revoked_member.into()),
                 })
             }
         };
 
         IdentityActionProto { kind: Some(kind) }
+    }
+}
+
+impl From<&Identifier> for IdentifierKind {
+    fn from(ident: &Identifier) -> Self {
+        match ident {
+            Identifier::Ethereum(_) => IdentifierKind::Ethereum,
+            Identifier::Passkey(_) => IdentifierKind::Passkey,
+        }
+    }
+}
+impl From<Identifier> for IdentifierKind {
+    fn from(ident: Identifier) -> Self {
+        (&ident).into()
     }
 }
 
@@ -354,8 +422,19 @@ impl From<SmartContractWalletValidationResponseProto> for ValidationResponse {
 impl From<MemberIdentifierKindProto> for MemberIdentifier {
     fn from(proto: MemberIdentifierKindProto) -> Self {
         match proto {
-            MemberIdentifierKindProto::Address(address) => address.into(),
-            MemberIdentifierKindProto::InstallationPublicKey(public_key) => public_key.into(),
+            MemberIdentifierKindProto::EthereumAddress(address) => {
+                Self::Ethereum(ident::Ethereum(address))
+            }
+            MemberIdentifierKindProto::InstallationPublicKey(public_key) => {
+                Self::Installation(ident::Installation(public_key))
+            }
+            MemberIdentifierKindProto::Passkey(PasskeyProto {
+                key,
+                relying_partner,
+            }) => Self::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            }),
         }
     }
 }
@@ -393,11 +472,22 @@ impl TryFrom<MemberProto> for Member {
 impl From<MemberIdentifier> for MemberIdentifierProto {
     fn from(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
         match member_identifier {
-            MemberIdentifier::Address(address) => MemberIdentifierProto {
-                kind: Some(MemberIdentifierKindProto::Address(address)),
+            MemberIdentifier::Ethereum(ident::Ethereum(address)) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::EthereumAddress(address)),
             },
-            MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
-                kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
+            MemberIdentifier::Installation(ident::Installation(public_key)) => {
+                MemberIdentifierProto {
+                    kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
+                }
+            }
+            MemberIdentifier::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            }) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                    key,
+                    relying_partner,
+                })),
             },
         }
     }
@@ -408,12 +498,19 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
 
     fn try_from(proto: MemberIdentifierProto) -> Result<Self, Self::Error> {
         match proto.kind {
-            Some(MemberIdentifierKindProto::Address(address)) => {
-                Ok(MemberIdentifier::Address(address))
+            Some(MemberIdentifierKindProto::EthereumAddress(address)) => {
+                Ok(MemberIdentifier::Ethereum(ident::Ethereum(address)))
             }
-            Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => {
-                Ok(MemberIdentifier::Installation(public_key))
-            }
+            Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => Ok(
+                MemberIdentifier::Installation(ident::Installation(public_key)),
+            ),
+            Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                key,
+                relying_partner,
+            })) => Ok(MemberIdentifier::Passkey(ident::Passkey {
+                key,
+                relying_partner,
+            })),
             None => Err(ConversionError::Missing {
                 item: "member_identifier",
                 r#type: std::any::type_name::<MemberIdentifierKindProto>(),
@@ -433,11 +530,21 @@ impl From<AssociationState> for AssociationStateProto {
             })
             .collect();
 
+        let kind: IdentifierKind = (&state.recovery_identifier).into();
+        let relying_partner = match &state.recovery_identifier {
+            Identifier::Passkey(ident::Passkey {
+                relying_partner, ..
+            }) => relying_partner.clone(),
+            _ => None,
+        };
+
         AssociationStateProto {
             inbox_id: state.inbox_id,
             members,
-            recovery_address: state.recovery_address,
+            recovery_identifier: state.recovery_identifier.to_string(),
+            recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
+            relying_partner,
         }
     }
 }
@@ -446,6 +553,13 @@ impl TryFrom<AssociationStateProto> for AssociationState {
     type Error = ConversionError;
 
     fn try_from(proto: AssociationStateProto) -> Result<Self, Self::Error> {
+        let kind = match proto.recovery_identifier_kind() {
+            IdentifierKind::Unspecified => IdentifierKind::Ethereum,
+            kind => kind,
+        };
+        let recovery_identifier =
+            Identifier::from_proto(&proto.recovery_identifier, kind, proto.relying_partner)?;
+
         let members = proto
             .members
             .into_iter()
@@ -467,10 +581,11 @@ impl TryFrom<AssociationStateProto> for AssociationState {
                 Ok((key, value))
             })
             .collect::<Result<HashMap<MemberIdentifier, Member>, ConversionError>>()?;
+
         Ok(AssociationState {
             inbox_id: proto.inbox_id,
             members,
-            recovery_address: proto.recovery_address,
+            recovery_identifier,
             seen_signatures: HashSet::from_iter(proto.seen_signatures),
         })
     }
@@ -623,17 +738,16 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::associations::hashes::generate_inbox_id;
-    use xmtp_common::{rand_hexstring, rand_u64, rand_vec};
+    use xmtp_common::{rand_u64, rand_vec};
 
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_round_trip_unverified() {
-        let account_address = rand_hexstring();
+        let account_identifier = Identifier::rand_ethereum();
         let nonce = rand_u64();
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let inbox_id = account_identifier.inbox_id(nonce).unwrap();
         let client_timestamp_ns = rand_u64();
         let signature_bytes = rand_vec::<32>();
 
@@ -642,12 +756,12 @@ pub(crate) mod tests {
             client_timestamp_ns,
             vec![
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
-                    initial_address_signature: UnverifiedSignature::RecoverableEcdsa(
+                    initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(
                         UnverifiedRecoverableEcdsaSignature::new(signature_bytes),
                     ),
                     unsigned_action: UnsignedCreateInbox {
                         nonce,
-                        account_address,
+                        account_identifier,
                     },
                 }),
                 UnverifiedAction::AddAssociation(UnverifiedAddAssociation {
@@ -656,23 +770,23 @@ pub(crate) mod tests {
                         4, 5, 6,
                     ]),
                     unsigned_action: UnsignedAddAssociation {
-                        new_member_identifier: rand_hexstring().into(),
+                        new_member_identifier: MemberIdentifier::rand_ethereum(),
                     },
                 }),
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                        7, 8, 9,
-                    ]),
+                    recovery_identifier_signature: UnverifiedSignature::new_recoverable_ecdsa(
+                        vec![7, 8, 9],
+                    ),
                     unsigned_action: UnsignedChangeRecoveryAddress {
-                        new_recovery_address: rand_hexstring(),
+                        new_recovery_identifier: Identifier::rand_ethereum(),
                     },
                 }),
                 UnverifiedAction::RevokeAssociation(UnverifiedRevokeAssociation {
-                    recovery_address_signature: UnverifiedSignature::new_recoverable_ecdsa(vec![
-                        10, 11, 12,
-                    ]),
+                    recovery_identifier_signature: UnverifiedSignature::new_recoverable_ecdsa(
+                        vec![10, 11, 12],
+                    ),
                     unsigned_action: UnsignedRevokeAssociation {
-                        revoked_member: rand_hexstring().into(),
+                        revoked_member: MemberIdentifier::rand_ethereum(),
                     },
                 }),
             ],

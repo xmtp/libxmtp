@@ -79,6 +79,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    identity_cache (identity, identity_kind) {
+        inbox_id -> Text,
+        identity -> Text,
+        identity_kind -> Integer,
+    }
+}
+
+diesel::table! {
     identity_updates (inbox_id, sequence_id) {
         inbox_id -> Text,
         sequence_id -> BigInt,
@@ -125,13 +133,6 @@ diesel::table! {
     }
 }
 
-diesel::table! {
-    wallet_addresses (wallet_address) {
-        inbox_id -> Text,
-        wallet_address -> Text,
-    }
-}
-
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 
@@ -142,12 +143,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_messages,
     groups,
     identity,
+    identity_cache,
     identity_updates,
     key_package_history,
     openmls_key_store,
     openmls_key_value,
     refresh_state,
     user_preferences,
-    wallet_addresses,
     conversation_list
 );

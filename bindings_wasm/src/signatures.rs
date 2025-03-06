@@ -1,13 +1,15 @@
+use crate::{
+  client::Client,
+  identity::{Identifier, IdentifierKind},
+};
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
-use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
-
-use crate::client::Client;
+use xmtp_id::associations::{verify_signed_with_public_context, Identifier as XmtpIdentifier};
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
@@ -57,13 +59,14 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = addWalletSignatureText)]
-  pub async fn add_wallet_signature_text(
+  pub async fn add_identifier_signature_text(
     &mut self,
-    new_wallet_address: String,
+    new_identifier: Identifier,
   ) -> Result<String, JsError> {
+    let ident = new_identifier.try_into()?;
     let signature_request = self
       .inner_client()
-      .associate_wallet(new_wallet_address.to_lowercase())
+      .associate_identity(ident)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
@@ -76,13 +79,14 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = revokeWalletSignatureText)]
-  pub async fn revoke_wallet_signature_text(
+  pub async fn revoke_identifier_signature_text(
     &mut self,
-    wallet_address: String,
+    identifier: Identifier,
   ) -> Result<String, JsError> {
+    let ident = identifier.try_into()?;
     let signature_request = self
       .inner_client()
-      .revoke_wallets(vec![wallet_address.to_lowercase()])
+      .revoke_identities(vec![ident])
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let signature_text = signature_request.signature_text();
@@ -172,11 +176,18 @@ impl Client {
     chain_id: u64,
     block_number: Option<u64>,
   ) -> Result<(), JsError> {
+    let IdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
+      return Err(JsError::new(
+        "Account identifier must be an ethereum address.",
+      ));
+    };
+
     let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let address = self.account_address().clone();
+    let ident: XmtpIdentifier = self.account_identifier().clone().try_into()?;
+    let address = ident.to_string();
 
     if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let account_id = AccountId::new_evm(chain_id, address);
+      let account_id = AccountId::new_evm(chain_id, address.clone());
       let signature = NewUnverifiedSmartContractWalletSignature::new(
         signature_bytes.to_vec(),
         account_id,
@@ -189,8 +200,7 @@ impl Client {
         .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     } else {
       return Err(JsError::new(&format!(
-        "Signature request for {} not found",
-        address
+        "Signature request for {address} not found",
       )));
     }
 

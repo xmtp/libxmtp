@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use super::member::{HasMemberKind, Identifier};
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
@@ -60,15 +61,15 @@ impl SignatureRequestBuilder {
     }
 
     /// Create a new inbox. This method must be called before any other methods or the IdentityUpdate will fail
-    pub fn create_inbox(mut self, signer_identity: MemberIdentifier, nonce: u64) -> Self {
+    pub fn create_inbox(mut self, signer_identity: Identifier, nonce: u64) -> Self {
         let pending_action = PendingIdentityAction {
             unsigned_action: UnsignedAction::CreateInbox(UnsignedCreateInbox {
-                account_address: signer_identity.to_string(),
+                account_identifier: signer_identity.clone(),
                 nonce,
             }),
             pending_signatures: HashMap::from([(
                 SignatureField::InitialAddress,
-                signer_identity.clone(),
+                signer_identity.into(),
             )]),
         };
         // Save the `PendingIdentityAction` for later
@@ -98,13 +99,13 @@ impl SignatureRequestBuilder {
 
     pub fn revoke_association(
         mut self,
-        recovery_address_identifier: MemberIdentifier,
+        recovery_address_signer: MemberIdentifier,
         revoked_member: MemberIdentifier,
     ) -> Self {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier,
+                recovery_address_signer,
             )]),
             unsigned_action: UnsignedAction::RevokeAssociation(UnsignedRevokeAssociation {
                 revoked_member,
@@ -116,16 +117,16 @@ impl SignatureRequestBuilder {
 
     pub fn change_recovery_address(
         mut self,
-        recovery_address_identifier: MemberIdentifier,
-        new_recovery_address: String,
+        recovery_address_signer: MemberIdentifier,
+        new_recovery_identifier: Identifier,
     ) -> Self {
         self.actions.push(PendingIdentityAction {
             pending_signatures: HashMap::from([(
                 SignatureField::RecoveryAddress,
-                recovery_address_identifier,
+                recovery_address_signer,
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
-                new_recovery_address,
+                new_recovery_identifier,
             }),
         });
 
@@ -206,7 +207,7 @@ impl SignatureRequest {
     pub fn missing_address_signatures(&self) -> Vec<&MemberIdentifier> {
         self.missing_signatures()
             .into_iter()
-            .filter(|member| member.kind() == MemberKind::Address)
+            .filter(|member| member.kind() == MemberKind::Ethereum)
             .collect()
     }
 
@@ -318,14 +319,14 @@ fn build_action(
                 .pending_signatures
                 .get(&SignatureField::InitialAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
-            let initial_address_signature = signatures
+            let initial_identifier_signature = signatures
                 .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
                 unsigned_action,
-                initial_address_signature,
+                initial_identifier_signature,
             }))
         }
         UnsignedAction::AddAssociation(unsigned_action) => {
@@ -366,7 +367,7 @@ fn build_action(
 
             Ok(UnverifiedAction::RevokeAssociation(
                 UnverifiedRevokeAssociation {
-                    recovery_address_signature,
+                    recovery_identifier_signature: recovery_address_signature,
                     unsigned_action,
                 },
             ))
@@ -377,14 +378,14 @@ fn build_action(
                 .get(&SignatureField::RecoveryAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
-            let recovery_address_signature = signatures
+            let recovery_identifier_signature = signatures
                 .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(UnverifiedAction::ChangeRecoveryAddress(
                 UnverifiedChangeRecoveryAddress {
-                    recovery_address_signature,
+                    recovery_identifier_signature,
                     unsigned_action,
                 },
             ))
@@ -416,10 +417,9 @@ pub(crate) mod tests {
     use crate::{
         associations::{
             get_state,
-            hashes::generate_inbox_id,
             test_utils::{
                 add_installation_key_signature, add_wallet_signature,
-                MockSmartContractSignatureVerifier,
+                MockSmartContractSignatureVerifier, WalletTestExt,
             },
             unverified::UnverifiedRecoverableEcdsaSignature,
             IdentityUpdate,
@@ -441,12 +441,12 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_inbox() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let account_address = wallet.get_address();
+        let account_ident = wallet.get_identifier().unwrap();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let inbox_id = wallet.get_inbox_id(nonce);
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(account_address.into(), nonce)
+            .create_inbox(account_ident, nonce)
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -463,15 +463,16 @@ pub(crate) mod tests {
     async fn create_and_add_identity() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
         let installation_key = XmtpInstallationCredential::new();
-        let account_address = wallet.get_address();
+        let account_address = wallet.get_identifier().unwrap();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
-        let existing_member_identifier: MemberIdentifier = account_address.into();
-        let new_member_identifier: MemberIdentifier = (&installation_key).into();
+        let inbox_id = wallet.get_inbox_id(nonce);
+        let ident = Identifier::eth(&account_address).unwrap();
+        let new_member_identifier =
+            MemberIdentifier::installation(installation_key.public_bytes().to_vec());
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(existing_member_identifier.clone(), nonce)
-            .add_association(new_member_identifier, existing_member_identifier)
+            .create_inbox(ident.clone(), nonce)
+            .add_association(new_member_identifier, ident.into())
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -490,14 +491,16 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let account_address = wallet.get_address();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
-        let existing_member_identifier: MemberIdentifier = account_address.clone().into();
+        let inbox_id = wallet.get_inbox_id(nonce);
+        let existing_member_identifier = wallet.identifier();
 
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
-            .revoke_association(existing_member_identifier.clone(), account_address.into())
+            .revoke_association(
+                existing_member_identifier.clone().into(),
+                existing_member_identifier.clone().into(),
+            )
             .build();
 
         add_wallet_signature(&mut signature_request, &wallet).await;
@@ -517,9 +520,11 @@ pub(crate) mod tests {
     async fn attempt_adding_unknown_signer() {
         let account_address = "0x1234567890abcdef1234567890abcdef12345678".to_string();
         let nonce = 0;
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let ident = Identifier::eth(&account_address).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
         let mut signature_request = SignatureRequestBuilder::new(inbox_id)
-            .create_inbox(account_address.into(), nonce)
+            .create_inbox(ident, nonce)
             .build();
 
         let rand_wallet = LocalWallet::new(&mut rand::thread_rng());

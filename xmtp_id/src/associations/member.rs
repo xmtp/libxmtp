@@ -1,53 +1,71 @@
+use super::{ident, AssociationError, DeserializationError};
 use ed25519_dalek::VerifyingKey;
-use xmtp_cryptography::XmtpInstallationCredential;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
+use xmtp_api::identity::ApiIdentifier;
+use xmtp_cryptography::{signature::IdentifierValidationError, XmtpInstallationCredential};
+use xmtp_proto::{
+    xmtp::identity::{
+        api::v1::get_inbox_ids_request::Request as GetInboxIdsRequestProto,
+        associations::IdentifierKind,
+    },
+    ConversionError,
+};
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum MemberKind {
-    Installation,
-    Address,
-}
-
-impl std::fmt::Display for MemberKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            MemberKind::Installation => write!(f, "installation"),
-            MemberKind::Address => write!(f, "address"),
-        }
-    }
-}
-
-/// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Eq, PartialEq, Hash)]
+/// All identity logic happens here
 pub enum MemberIdentifier {
-    Address(String),
-    Installation(Vec<u8>),
+    Installation(ident::Installation),
+    Ethereum(ident::Ethereum),
+    Passkey(ident::Passkey),
 }
 
-impl std::fmt::Debug for MemberIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Address(addr) => f.debug_tuple("Address").field(addr).finish(),
-            Self::Installation(i) => f
-                .debug_tuple("Installation")
-                .field(&hex::encode(i))
-                .finish(),
-        }
-    }
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// MemberIdentifier without the installation variant
+/// is uesd to enforce parameters.
+/// Not everything in this enum will be able to sign,
+/// which will be enforced on the unverified signature counterparts.
+pub enum Identifier {
+    Ethereum(ident::Ethereum),
+    Passkey(ident::Passkey),
 }
 
 impl MemberIdentifier {
-    pub fn kind(&self) -> MemberKind {
-        match self {
-            MemberIdentifier::Address(_) => MemberKind::Address,
-            MemberIdentifier::Installation(_) => MemberKind::Installation,
-        }
+    pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
+        let ident = match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
+            ident => ident,
+        };
+        Ok(ident)
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn rand_ethereum() -> Self {
+        Self::Ethereum(ident::Ethereum::rand())
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn rand_installation() -> Self {
+        Self::Installation(ident::Installation::rand())
+    }
+
+    pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
+        Ok(Identifier::eth(addr)?.into())
+    }
+
+    pub fn installation(key: Vec<u8>) -> Self {
+        Self::Installation(ident::Installation(key))
     }
 
     /// Get the value for [`MemberIdentifier::Installation`] variant.
     /// Returns `None` if the type is not the correct variant.
-    pub fn installation(&self) -> Option<&[u8]> {
-        if let Self::Installation(ref installation) = self {
-            Some(installation)
+    pub fn installation_key(&self) -> Option<&[u8]> {
+        if let Self::Installation(installation) = self {
+            Some(&installation.0)
         } else {
             None
         }
@@ -55,9 +73,9 @@ impl MemberIdentifier {
 
     /// Get the value for [`MemberIdentifier::Address`] variant.
     /// Returns `None` if the type is not the correct variant.
-    pub fn address(&self) -> Option<&str> {
-        if let Self::Address(ref address) = self {
-            Some(address)
+    pub fn eth_address(&self) -> Option<&str> {
+        if let Self::Ethereum(address) = self {
+            Some(&address.0)
         } else {
             None
         }
@@ -65,9 +83,9 @@ impl MemberIdentifier {
 
     /// Get the value for [`MemberIdentifier::Address`], consuming the [`MemberIdentifier`]
     /// in the process
-    pub fn to_address(self) -> Option<String> {
-        if let Self::Address(address) = self {
-            Some(address)
+    pub fn to_eth_address(self) -> Option<String> {
+        if let Self::Ethereum(address) = self {
+            Some(address.0)
         } else {
             None
         }
@@ -76,52 +94,244 @@ impl MemberIdentifier {
     /// Get the value for [`MemberIdentifier::Installation`] variant.
     /// Returns `None` if the type is not the correct variant.
     pub fn to_installation(&self) -> Option<&[u8]> {
-        if let Self::Installation(ref installation) = self {
-            Some(installation)
+        if let Self::Installation(installation) = self {
+            Some(&installation.0)
         } else {
             None
         }
     }
 }
 
-impl std::fmt::Display for MemberIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let as_string = match self {
-            MemberIdentifier::Address(address) => address.to_string(),
-            MemberIdentifier::Installation(installation) => hex::encode(installation),
+impl Identifier {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn rand_ethereum() -> Self {
+        Self::Ethereum(ident::Ethereum::rand())
+    }
+
+    pub fn sanitize(self) -> Result<Self, IdentifierValidationError> {
+        let ident = match self {
+            Self::Ethereum(addr) => Self::Ethereum(addr.sanitize()?),
+            ident => ident,
         };
+        Ok(ident)
+    }
 
-        write!(f, "{}", as_string)
+    pub fn eth(addr: impl ToString) -> Result<Self, IdentifierValidationError> {
+        Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
+    }
+
+    pub fn passkey(key: Vec<u8>, relying_partner: Option<String>) -> Self {
+        Self::Passkey(ident::Passkey {
+            key,
+            relying_partner,
+        })
+    }
+
+    pub fn passkey_str(
+        key: &str,
+        relying_partner: Option<String>,
+    ) -> Result<Self, IdentifierValidationError> {
+        Ok(Self::Passkey(ident::Passkey {
+            key: hex::decode(key)?,
+            relying_partner,
+        }))
+    }
+
+    pub fn from_proto(
+        ident: impl AsRef<str>,
+        kind: IdentifierKind,
+        relying_partner: Option<String>,
+    ) -> Result<Self, ConversionError> {
+        let ident = ident.as_ref();
+        let ident = match kind {
+            IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
+                Self::Ethereum(ident::Ethereum(ident.to_string()))
+            }
+            IdentifierKind::Passkey => Self::Passkey(ident::Passkey {
+                key: hex::decode(ident).map_err(|_| ConversionError::InvalidPublicKey {
+                    description: "passkey",
+                    value: None,
+                })?,
+                relying_partner,
+            }),
+        };
+        Ok(ident)
+    }
+
+    /// Get the generated inbox_id for this public identifier.
+    /// The same public identifier will always give the same inbox_id.
+    pub fn inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
+        if !self.is_valid_address() {
+            return Err(AssociationError::InvalidAccountAddress);
+        }
+        let ident: MemberIdentifier = self.clone().into();
+        Ok(sha256_string(format!("{ident}{nonce}")))
+    }
+
+    /// Validates that the account address is exactly 42 characters, starts with "0x",
+    /// and contains only valid hex digits.
+    fn is_valid_address(&self) -> bool {
+        match self {
+            Self::Ethereum(ident::Ethereum(addr)) => {
+                addr.len() == 42
+                    && addr.starts_with("0x")
+                    && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+            }
+            _ => true,
+        }
     }
 }
 
-impl From<String> for MemberIdentifier {
-    fn from(address: String) -> Self {
-        MemberIdentifier::Address(address.to_lowercase())
+#[derive(Clone, Debug, PartialEq)]
+pub enum MemberKind {
+    Installation,
+    Ethereum,
+    Passkey,
+}
+
+impl Display for MemberKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            MemberKind::Installation => write!(f, "installation"),
+            MemberKind::Ethereum => write!(f, "ethereum"),
+            MemberKind::Passkey => write!(f, "passkey"),
+        }
     }
 }
 
-impl From<Vec<u8>> for MemberIdentifier {
-    fn from(installation: Vec<u8>) -> Self {
-        MemberIdentifier::Installation(installation)
+pub trait HasMemberKind {
+    fn kind(&self) -> MemberKind;
+}
+
+impl HasMemberKind for MemberIdentifier {
+    fn kind(&self) -> MemberKind {
+        match self {
+            Self::Installation(_) => MemberKind::Installation,
+            Self::Ethereum(_) => MemberKind::Ethereum,
+            Self::Passkey(_) => MemberKind::Passkey,
+        }
+    }
+}
+impl HasMemberKind for Identifier {
+    fn kind(&self) -> MemberKind {
+        match self {
+            Self::Ethereum(_) => MemberKind::Ethereum,
+            Self::Passkey(_) => MemberKind::Passkey,
+        }
+    }
+}
+
+impl Display for MemberIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Ethereum(eth) => write!(f, "{eth}"),
+            Self::Installation(ident) => write!(f, "{ident}"),
+            Self::Passkey(passkey) => write!(f, "{passkey}"),
+        }
+    }
+}
+
+impl Debug for MemberIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Installation(ident::Installation(key)) => f
+                .debug_tuple("Installation")
+                .field(&hex::encode(key))
+                .finish(),
+            Self::Ethereum(ident::Ethereum(addr)) => f.debug_tuple("Address").field(addr).finish(),
+            Self::Passkey(ident::Passkey { key, .. }) => {
+                f.debug_tuple("Passkey").field(&hex::encode(key)).finish()
+            }
+        }
+    }
+}
+
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ethereum(eth) => write!(f, "{eth}"),
+            Self::Passkey(passkey) => write!(f, "{passkey}"),
+        }
     }
 }
 
 impl From<VerifyingKey> for MemberIdentifier {
     fn from(installation: VerifyingKey) -> Self {
-        installation.as_bytes().to_vec().into()
+        Self::Installation(ident::Installation(installation.as_bytes().to_vec()))
     }
 }
 
 impl<'a> From<&'a XmtpInstallationCredential> for MemberIdentifier {
     fn from(cred: &'a XmtpInstallationCredential) -> MemberIdentifier {
-        MemberIdentifier::Installation(cred.public_slice().to_vec())
+        MemberIdentifier::Installation(ident::Installation(cred.public_slice().to_vec()))
     }
 }
 
 impl From<XmtpInstallationCredential> for MemberIdentifier {
     fn from(cred: XmtpInstallationCredential) -> MemberIdentifier {
-        MemberIdentifier::Installation(cred.public_slice().to_vec())
+        MemberIdentifier::Installation(ident::Installation(cred.public_slice().to_vec()))
+    }
+}
+
+impl From<Identifier> for MemberIdentifier {
+    fn from(ident: Identifier) -> Self {
+        match ident {
+            Identifier::Ethereum(addr) => Self::Ethereum(addr),
+            Identifier::Passkey(passkey) => Self::Passkey(passkey),
+        }
+    }
+}
+impl From<MemberIdentifier> for Option<Identifier> {
+    fn from(ident: MemberIdentifier) -> Self {
+        let ident = match ident {
+            MemberIdentifier::Passkey(passkey) => Identifier::Passkey(passkey),
+            MemberIdentifier::Ethereum(eth) => Identifier::Ethereum(eth),
+            _ => {
+                return None;
+            }
+        };
+        Some(ident)
+    }
+}
+impl From<&Identifier> for GetInboxIdsRequestProto {
+    fn from(ident: &Identifier) -> Self {
+        Self {
+            identifier: format!("{ident}"),
+            identifier_kind: {
+                let kind: IdentifierKind = ident.into();
+                kind as i32
+            },
+        }
+    }
+}
+
+impl From<&Identifier> for ApiIdentifier {
+    fn from(ident: &Identifier) -> Self {
+        Self {
+            identifier: format!("{ident}"),
+            identifier_kind: ident.into(),
+        }
+    }
+}
+impl From<Identifier> for ApiIdentifier {
+    fn from(ident: Identifier) -> Self {
+        (&ident).into()
+    }
+}
+impl TryFrom<ApiIdentifier> for Identifier {
+    type Error = DeserializationError;
+    fn try_from(ident: ApiIdentifier) -> Result<Self, Self::Error> {
+        let ident = match ident.identifier_kind {
+            IdentifierKind::Unspecified | IdentifierKind::Ethereum => {
+                Identifier::eth(ident.identifier)?
+            }
+            IdentifierKind::Passkey => Identifier::Passkey(ident::Passkey {
+                key: hex::decode(ident.identifier)
+                    .map_err(|_| DeserializationError::InvalidPasskey)?,
+                relying_partner: None,
+            }),
+        };
+        Ok(ident)
     }
 }
 
@@ -159,6 +369,29 @@ impl PartialEq<MemberIdentifier> for Member {
         self.identifier.eq(other)
     }
 }
+impl PartialEq<MemberIdentifier> for Identifier {
+    fn eq(&self, other: &MemberIdentifier) -> bool {
+        match (self, other) {
+            (Self::Ethereum(ident), MemberIdentifier::Ethereum(other_ident)) => {
+                ident == other_ident
+            }
+            (Self::Passkey(ident), MemberIdentifier::Passkey(other_ident)) => ident == other_ident,
+            _ => false,
+        }
+    }
+}
+impl PartialEq<Identifier> for MemberIdentifier {
+    fn eq(&self, other: &Identifier) -> bool {
+        other == self
+    }
+}
+
+/// Helper function to generate a SHA256 hash as a hex string.
+fn sha256_string(input: String) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -166,19 +399,12 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use xmtp_common::rand_hexstring;
-
-    impl Default for MemberIdentifier {
-        fn default() -> Self {
-            MemberIdentifier::Address(rand_hexstring())
-        }
-    }
 
     #[allow(clippy::derivable_impls)]
     impl Default for Member {
         fn default() -> Self {
             Self {
-                identifier: MemberIdentifier::default(),
+                identifier: MemberIdentifier::rand_ethereum(),
                 added_by_entity: None,
                 client_timestamp_ns: None,
                 added_on_chain_id: None,
@@ -189,17 +415,17 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn test_identifier_comparisons() {
-        let address_1 = MemberIdentifier::Address("0x123".to_string());
-        let address_2 = MemberIdentifier::Address("0x456".to_string());
-        let address_1_copy = MemberIdentifier::Address("0x123".to_string());
+        let address_1 = MemberIdentifier::rand_ethereum();
+        let address_2 = MemberIdentifier::rand_ethereum();
+        let address_1_copy = address_1.clone();
 
         assert!(address_1 != address_2);
         assert!(address_1.ne(&address_2));
         assert!(address_1 == address_1_copy);
 
-        let installation_1 = MemberIdentifier::Installation(vec![1, 2, 3]);
-        let installation_2 = MemberIdentifier::Installation(vec![4, 5, 6]);
-        let installation_1_copy = MemberIdentifier::Installation(vec![1, 2, 3]);
+        let installation_1 = MemberIdentifier::installation([1, 2, 3].to_vec());
+        let installation_2 = MemberIdentifier::installation([4, 5, 6].to_vec());
+        let installation_1_copy = MemberIdentifier::installation([1, 2, 3].to_vec());
 
         assert!(installation_1 != installation_2);
         assert!(installation_1.ne(&installation_2));

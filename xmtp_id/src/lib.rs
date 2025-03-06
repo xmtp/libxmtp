@@ -5,6 +5,7 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
+use associations::Identifier;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
@@ -13,7 +14,9 @@ use ethers::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::{
+    h160addr_to_string, IdentifierValidationError, RecoverableSignature, SignatureError,
+};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -95,15 +98,16 @@ pub async fn is_smart_contract(
 }
 
 pub trait InboxOwner {
-    /// Get address of the wallet.
-    fn get_address(&self) -> String;
+    /// Get address string of the wallet.
+    fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError>;
+
     /// Sign text with the wallet.
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 impl InboxOwner for LocalWallet {
-    fn get_address(&self) -> String {
-        h160addr_to_string(self.address())
+    fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError> {
+        Identifier::eth(h160addr_to_string(self.address()))
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
@@ -116,8 +120,8 @@ impl<T> InboxOwner for &T
 where
     T: InboxOwner,
 {
-    fn get_address(&self) -> String {
-        (**self).get_address()
+    fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError> {
+        (**self).get_identifier()
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {

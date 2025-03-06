@@ -21,6 +21,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
     PublishIdentityUpdateResponse, VerifySmartContractWalletSignaturesRequest,
     VerifySmartContractWalletSignaturesResponse,
 };
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message, group_message_input, welcome_message, welcome_message_input,
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage, QueryGroupMessagesRequest,
@@ -335,7 +336,7 @@ where
                 request
                     .requests
                     .iter()
-                    .map(|r| r.address.clone())
+                    .map(|r| r.identifier.clone())
                     .collect::<Vec<_>>(),
             )
             .build()
@@ -347,7 +348,8 @@ where
                 .responses
                 .iter()
                 .map(|r| get_inbox_ids_response::Response {
-                    address: r.address.clone(),
+                    identifier: r.identifier.clone(),
+                    identifier_kind: IdentifierKind::Ethereum as i32,
                     inbox_id: r.inbox_id.clone(),
                 })
                 .collect::<Vec<_>>(),

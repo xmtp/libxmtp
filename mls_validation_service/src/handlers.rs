@@ -297,8 +297,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use super::*;
     use associations::AccountId;
     use ethers::{
         abi::Token,
@@ -311,13 +310,14 @@ mod tests {
         prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
+    use std::sync::Arc;
     use xmtp_common::{rand_string, rand_u64};
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
         associations::{
-            generate_inbox_id,
-            test_utils::MockSmartContractSignatureVerifier,
+            test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
+            Identifier,
         },
         is_smart_contract,
         utils::test::{with_smart_contracts, CoinbaseSmartWallet},
@@ -331,8 +331,6 @@ mod tests {
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
 
-    use super::*;
-
     impl Default for ValidationService {
         fn default() -> Self {
             Self::new(MockSmartContractSignatureVerifier::new(true))
@@ -343,9 +341,7 @@ mod tests {
         let signing_key = XmtpInstallationCredential::new();
 
         let wallet = LocalWallet::new(&mut rand::thread_rng());
-        let address = format!("0x{}", hex::encode(wallet.address()));
-
-        let inbox_id = generate_inbox_id(&address, &0).unwrap();
+        let inbox_id = wallet.identifier().inbox_id(0).unwrap();
 
         (inbox_id, signing_key)
     }
@@ -385,7 +381,8 @@ mod tests {
     async fn test_get_association_state() {
         let account_address = rand_string::<24>();
         let nonce = rand_u64();
-        let inbox_id = generate_inbox_id(&account_address, &nonce).unwrap();
+        let ident = Identifier::eth(&account_address).unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
         let update = UnverifiedIdentityUpdate::new_test(
             vec![UnverifiedAction::new_test_create_inbox(
                 &account_address,

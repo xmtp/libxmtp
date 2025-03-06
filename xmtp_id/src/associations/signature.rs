@@ -41,7 +41,7 @@ pub enum SignatureError {
     #[error("Signature validation failed")]
     Invalid,
     #[error(transparent)]
-    AddressValidationError(#[from] xmtp_cryptography::signature::AddressValidationError),
+    AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
     #[error("Invalid account address")]
     InvalidAccountAddress(#[from] rustc_hex::FromHexError),
     #[error(transparent)]
@@ -121,6 +121,7 @@ pub enum SignatureKind {
     Erc1271,
     InstallationKey,
     LegacyDelegated,
+    P256,
 }
 
 impl std::fmt::Display for SignatureKind {
@@ -130,6 +131,7 @@ impl std::fmt::Display for SignatureKind {
             SignatureKind::Erc1271 => write!(f, "erc-1271"),
             SignatureKind::InstallationKey => write!(f, "installation-key"),
             SignatureKind::LegacyDelegated => write!(f, "legacy-delegated"),
+            SignatureKind::P256 => write!(f, "p256"),
         }
     }
 }

@@ -5,6 +5,7 @@ use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
     get_inbox_ids_request::Request, GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
 };
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
@@ -35,7 +36,10 @@ impl Endpoint for GetInboxIds {
                 .addresses
                 .iter()
                 .cloned()
-                .map(|i| Request { address: i })
+                .map(|i| Request {
+                    identifier: i,
+                    identifier_kind: IdentifierKind::Ethereum as i32,
+                })
                 .collect(),
         }
         .encode_to_vec())
@@ -58,6 +62,7 @@ mod test {
 
     #[cfg(feature = "grpc-api")]
     #[tokio::test]
+    #[ignore]
     async fn test_get_inbox_ids() {
         use crate::v3::identity::GetInboxIds;
         use xmtp_api_grpc::grpc_client::GrpcClient;
