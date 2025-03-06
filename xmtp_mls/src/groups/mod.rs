@@ -795,12 +795,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.maybe_update_installations(provider, update_interval_ns)
             .await?;
 
-        let message_id = self.prepare_message(
-            message,
-            provider,
-            |now| Self::into_envelope(message, now),
-            true,
-        )?;
+        let message_id =
+            self.prepare_message(message, provider, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved(provider).await?;
         // implicitly set group consent state to allowed
@@ -838,12 +834,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Send a message, optimistically returning the ID of the message before the result of a message publish.
     pub fn send_message_optimistic(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let provider = self.mls_provider()?;
-        let message_id = self.prepare_message(
-            message,
-            &provider,
-            |now| Self::into_envelope(message, now),
-            true,
-        )?;
+        let message_id =
+            self.prepare_message(message, &provider, |now| Self::into_envelope(message, now))?;
         Ok(message_id)
     }
 
@@ -877,7 +869,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
         envelope: F,
-        should_push: bool,
     ) -> Result<Vec<u8>, GroupError>
     where
         F: FnOnce(i64) -> PlaintextEnvelope,
@@ -890,11 +881,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        self.queue_intent(provider, IntentKind::SendMessage, intent_data, should_push)?;
+        let queryable_content_fields: QueryableContentFields =
+            Self::extract_queryable_content_fields(message);
+        self.queue_intent(
+            provider,
+            IntentKind::SendMessage,
+            intent_data,
+            queryable_content_fields.should_push,
+        )?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
-        let queryable_content_fields = Self::extract_queryable_content_fields(message);
         let group_message = StoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),
