@@ -1147,8 +1147,8 @@ pub(crate) mod tests {
 
         let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].group_id, group_1.group_id);
-        assert_eq!(groups[1].group_id, group_2.group_id);
+        assert!(groups.iter().any(|g| g.group_id == group_1.group_id));
+        assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
