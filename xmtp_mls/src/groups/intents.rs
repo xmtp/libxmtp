@@ -61,10 +61,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
+        should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
         let res = provider.transaction(|provider| {
             let conn = provider.conn_ref();
-            self.queue_intent_with_conn(conn, intent_kind, intent_data)
+            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
         });
 
         res
@@ -75,6 +76,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         conn: &DbConnection,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
+        should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
         if intent_kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn)?;
@@ -84,6 +86,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_kind,
             self.group_id.clone(),
             intent_data,
+            should_push,
         ))?;
 
         if intent_kind != IntentKind::SendMessage {
@@ -99,7 +102,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![])?;
+            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
         }
         Ok(())
     }
