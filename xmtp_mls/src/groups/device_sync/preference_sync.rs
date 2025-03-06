@@ -40,7 +40,6 @@ impl UserPreferenceUpdate {
                     idempotency_key: now.to_string(),
                 })),
             },
-            false,
         )?;
 
         sync_group.publish_intents(&provider).await?;

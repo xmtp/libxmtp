@@ -450,7 +450,6 @@ where
                     })),
                 }
             },
-            false,
         )?;
 
         // publish the intent
@@ -521,7 +520,6 @@ where
                     idempotency_key: now.to_string(),
                 })),
             },
-            false,
         )?;
 
         sync_group.publish_intents(provider).await?;
