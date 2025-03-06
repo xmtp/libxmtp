@@ -77,7 +77,8 @@ pub fn should_push(content_type_id: String) -> bool {
             ContentType::TransactionReference => true,
         }
     } else {
-        false
+        tracing::trace!("LOPI falling out here");
+        true
     }
 }
 
