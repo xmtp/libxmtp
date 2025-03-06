@@ -54,16 +54,17 @@ pub fn extract_unsigned_originator_envelope(
 }
 
 pub fn extract_client_envelope(
-    req: &OriginatorEnvelope,
+    _req: &OriginatorEnvelope,
 ) -> Result<ClientEnvelope, crate::ProtoError> {
-    let unsigned_originator = extract_unsigned_originator_envelope(req)?;
+    // temporary block until this function is updated to handle payer_envelope_bytes
+    return Err(crate::ProtoError::NotFound("payer envelope".into()));
 
-    let payer_envelope = unsigned_originator
-        .payer_envelope
-        .ok_or(crate::ProtoError::NotFound("payer envelope".into()))?;
-
-    let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
-    Ok(ClientEnvelope::decode(&mut payer_bytes)?)
+    // let unsigned_originator = extract_unsigned_originator_envelope(req)?;
+    // let payer_envelope = unsigned_originator
+    // .payer_envelope
+    // .ok_or(crate::ProtoError::NotFound("payer envelope".into()))?;
+    // let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
+    // Ok(ClientEnvelope::decode(&mut payer_bytes)?)
 }
 
 pub fn get_group_message_topic(message: Vec<u8>) -> Result<Vec<u8>, crate::ProtoError> {
