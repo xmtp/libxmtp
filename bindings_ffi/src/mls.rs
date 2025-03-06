@@ -2,7 +2,6 @@ use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
-use ethers::providers::Provider;
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
