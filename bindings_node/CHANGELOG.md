@@ -1,5 +1,10 @@
 # @xmtp/node-bindings
 
+## 0.0.40
+
+- Fixed Rust Panic Error on Streams
+- Added `should_push` field on messages for push notifications
+
 ## 0.0.39
 
 - Added `content_types` option to `ListMessagesOptions`
