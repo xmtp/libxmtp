@@ -1810,7 +1810,7 @@ async fn get_keypackages_for_installation_ids(
     };
 
     let my_installation_id = client.context().installation_public_key().to_vec();
-    let key_packages = client
+    let mut key_packages = client
         .get_key_packages_for_installation_ids(
             added_installations
                 .iter()
@@ -1822,18 +1822,13 @@ async fn get_keypackages_for_installation_ids(
 
     tracing::info!("trying to validate keypackages");
 
-    Ok(if is_test_mode_upload_malformed_keypackage() {
+    if is_test_mode_upload_malformed_keypackage() {
         let malformed_installations = get_test_mode_malformed_installations();
-        failed_installations.extend(malformed_installations.clone());
+        key_packages.retain(|id, _| !malformed_installations.contains(id));
+        failed_installations.extend(malformed_installations);
+    }
 
-        // Return only valid key packages (excluding malformed)
-        key_packages
-            .into_iter()
-            .filter(|(id, _)| !malformed_installations.contains(id))
-            .collect::<HashMap<_, _>>()
-    } else {
-        key_packages
-    })
+    Ok(key_packages)
 }
 #[allow(unused_variables, dead_code)]
 #[cfg(not(any(test, feature = "test-utils")))]
