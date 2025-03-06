@@ -29,6 +29,7 @@ bench = [
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
 http-api = ["dep:xmtp_api_http"]
+local-api = []
 test-utils = [
   "tracing-subscriber",
   "dep:tracing-wasm",
