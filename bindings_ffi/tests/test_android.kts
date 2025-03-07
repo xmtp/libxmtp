@@ -10,8 +10,7 @@ class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
         // Create a FfiIdentifier from the Ethereum address
         return FfiIdentifier(
             identifierKind = FfiIdentifierKind.ETHEREUM,
-            identifier = credentials.address,
-            relyingParty = null
+            identifier = credentials.address
         )
     }
 
