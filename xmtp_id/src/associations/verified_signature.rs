@@ -117,8 +117,6 @@ impl VerifiedSignature {
         authenticator_data: &[u8],
         client_data_json: &[u8],
     ) -> Result<Self, SignatureError> {
-        let str = String::from_utf8_lossy(client_data_json);
-        tracing::info!("asdfasdf: {str}");
         let client_data: ClientDataJson = serde_json::from_slice(client_data_json)
             .map_err(|_| SignatureError::InvalidClientData)?;
 
