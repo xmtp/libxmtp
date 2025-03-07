@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
@@ -26,6 +28,7 @@ pub struct VerifiedSignature {
 #[derive(serde::Deserialize)]
 struct ClientDataJson {
     origin: String,
+    challenge: String,
 }
 
 impl VerifiedSignature {
@@ -107,12 +110,24 @@ impl VerifiedSignature {
         ))
     }
 
-    pub fn from_passkey(
+    pub fn from_passkey<Text: AsRef<str>>(
+        signature_text: Text,
         public_key: &[u8],
         signature: &[u8],
         authenticator_data: &[u8],
         client_data_json: &[u8],
     ) -> Result<Self, SignatureError> {
+        let str = String::from_utf8_lossy(client_data_json);
+        tracing::info!("asdfasdf: {str}");
+        let client_data: ClientDataJson = serde_json::from_slice(client_data_json)
+            .map_err(|_| SignatureError::InvalidClientData)?;
+
+        let signature_text = BASE64_URL_SAFE_NO_PAD.encode(signature_text.as_ref());
+        if signature_text != client_data.challenge {
+            // Challenge needs to match signature text
+            return Err(SignatureError::InvalidClientData);
+        }
+
         // 1. Parse the public key from raw bytes
         let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
             Ok(key) => key,
@@ -124,10 +139,6 @@ impl VerifiedSignature {
             Ok(sig) => sig,
             Err(_) => return Err(SignatureError::Invalid),
         };
-
-        // Get the origin from the client_data
-        let json: ClientDataJson = serde_json::from_slice(client_data_json)
-            .map_err(|_| SignatureError::MissingRelyingPartyOrigin)?;
 
         // 3. Hash the client data
         let mut hasher = Sha256::new();
@@ -146,7 +157,7 @@ impl VerifiedSignature {
         Ok(Self::new(
             MemberIdentifier::Passkey(ident::Passkey {
                 key: public_key.to_vec(),
-                relying_party: Some(json.origin),
+                relying_party: Some(client_data.origin),
             }),
             SignatureKind::P256,
             signature.to_vec(),

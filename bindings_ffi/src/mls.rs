@@ -3268,7 +3268,7 @@ mod tests {
             .unwrap();
 
         let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = challenge.encode_to_vec();
+        let challenge_bytes = challenge.as_bytes().to_vec();
 
         let request = CredentialRequestOptions {
             public_key: PublicKeyCredentialRequestOptions {

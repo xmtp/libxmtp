@@ -280,6 +280,7 @@ impl UnverifiedSignature {
                 sig.signed_public_key_proto.clone(),
             ),
             UnverifiedSignature::Passkey(sig) => VerifiedSignature::from_passkey(
+                signature_text,
                 &sig.public_key,
                 &sig.signature,
                 &sig.authenticator_data,

@@ -13,6 +13,7 @@ targets = [
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers = { workspace = true, features = ["rustls"] }
