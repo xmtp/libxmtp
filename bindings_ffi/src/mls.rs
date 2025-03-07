@@ -3258,7 +3258,6 @@ mod tests {
 
         let public_key = my_webauthn_credential.response.public_key.unwrap().to_vec();
         let public_key = public_key[26..].to_vec();
-        tracing::info!("PK: {public_key:?}");
 
         let sig_request = alex
             .add_identity(FfiIdentifier {
