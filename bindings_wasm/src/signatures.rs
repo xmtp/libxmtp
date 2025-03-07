@@ -36,7 +36,7 @@ pub struct PasskeySignature {
   public_key: Vec<u8>,
   signature: Vec<u8>,
   authenticator_data: Vec<u8>,
-  client_data_json: String,
+  client_data_json: Vec<u8>,
 }
 
 #[wasm_bindgen]
