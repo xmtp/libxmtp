@@ -384,11 +384,6 @@ impl PartialEq<Identifier> for MemberIdentifier {
 }
 
 /// Helper function to generate a SHA256 hash as a hex string.
-fn sha256_bytes(input: &[u8]) -> Vec<u8> {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    hasher.finalize().to_vec()
-}
 fn sha256_string(input: String) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
