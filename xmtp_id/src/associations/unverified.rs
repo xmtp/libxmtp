@@ -308,14 +308,13 @@ impl UnverifiedSignature {
         signature: Vec<u8>,
         authenticator_data: Vec<u8>,
         client_data_json: String,
-        relying_party: Option<String>,
     ) -> Self {
         Self::Passkey(UnverifiedPasskeySignature {
             client_data_json,
             authenticator_data,
             signature,
             public_key,
-            relying_party,
+            relying_party: None,
         })
     }
 

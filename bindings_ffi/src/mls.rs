@@ -203,7 +203,6 @@ pub struct FfiPasskeySignature {
     signature: Vec<u8>,
     authenticator_data: Vec<u8>,
     client_data_json: String,
-    relying_party: Option<String>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -232,7 +231,6 @@ impl FfiSignatureRequest {
             signature.signature,
             signature.authenticator_data,
             signature.client_data_json,
-            signature.relying_party,
         );
 
         inner

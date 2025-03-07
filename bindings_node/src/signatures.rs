@@ -47,7 +47,6 @@ pub struct PasskeySignature {
   pub signature: Vec<u8>,
   pub authenticator_data: Vec<u8>,
   pub client_data_json: String,
-  pub relying_party: Option<String>,
 }
 
 #[napi]
@@ -186,7 +185,6 @@ impl Client {
         signature.signature,
         signature.authenticator_data,
         signature.client_data_json,
-        signature.relying_party,
       );
 
       signature_request
