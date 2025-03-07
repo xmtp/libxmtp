@@ -160,6 +160,7 @@ struct LocalGroupMessage {
     data: Vec<u8>,
     sender_hmac: Vec<u8>,
     created: i64,
+    should_push: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +186,7 @@ impl From<LocalGroupMessage> for GroupMessage {
                 group_id: local.msg.group_id().to_vec(),
                 data: local.data,
                 sender_hmac: local.sender_hmac,
+                should_push: local.should_push,
             })),
         }
     }
@@ -515,6 +517,7 @@ fn filter_message(
                     group_id: msg.msg.group_id().to_vec(),
                     data: msg.data,
                     sender_hmac: msg.sender_hmac,
+                    should_push: msg.should_push,
                 })),
             }))
         }

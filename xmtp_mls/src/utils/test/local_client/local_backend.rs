@@ -53,7 +53,12 @@ impl ProcessLocalRequest for SendGroupMessagesRequest {
         let mut ret = HashMap::new();
         for message in messages.iter() {
             let GroupMessageInput {
-                version: Some(Version::V1(V1 { data, sender_hmac })),
+                version:
+                    Some(Version::V1(V1 {
+                        data,
+                        sender_hmac,
+                        should_push,
+                    })),
             } = message
             else {
                 // skip if none
@@ -70,6 +75,7 @@ impl ProcessLocalRequest for SendGroupMessagesRequest {
                     data: data.clone(),
                     sender_hmac: sender_hmac.to_vec(),
                     created: xmtp_common::time::now_ns(),
+                    should_push: should_push.clone(),
                 });
             tracing::debug!("committed message {cursor}");
         }
@@ -184,14 +190,14 @@ impl ProcessLocalRequest for PublishIdentityUpdateRequest {
 
         for new_member in state.state_diff.new_members.iter() {
             match new_member {
-                MemberIdentifier::Address(addr) => address_logs
-                    .entry((inbox_id_bytes.clone(), addr.clone()))
+                MemberIdentifier::Ethereum(addr) => address_logs
+                    .entry((inbox_id_bytes.clone(), addr.to_string()))
                     .or_insert_with(Vec::new)
                     .push(AddressLog {
                         association_sequence_id: sequence_id,
                         revocation_sequence_id: None,
                         inbox_id: inbox_id_bytes.clone(),
-                        address: addr.clone(),
+                        address: addr.to_string(),
                     }),
                 _ => continue,
             }
@@ -199,8 +205,8 @@ impl ProcessLocalRequest for PublishIdentityUpdateRequest {
 
         for removed_member in state.state_diff.removed_members.iter() {
             match removed_member {
-                MemberIdentifier::Address(addr) => {
-                    let logs = address_logs.get_mut(&(inbox_id_bytes.clone(), addr.clone()));
+                MemberIdentifier::Ethereum(addr) => {
+                    let logs = address_logs.get_mut(&(inbox_id_bytes.clone(), addr.to_string()));
                     if let Some(log_for_id_addr) = logs {
                         log_for_id_addr.sort_by_key(|k| k.association_sequence_id);
                         if let Some(max) = log_for_id_addr.last_mut() {
@@ -267,31 +273,39 @@ impl LocalTestClient {
         let logs = self.identity_logs.read();
         let mut ret = Vec::new();
         for Request {
-            address: target_address,
+            identifier,
+            identifier_kind,
         } in request.requests.into_iter()
         {
-            let mut address_logs: Vec<AddressLog> = logs
-                .address_logs
-                .iter()
-                .filter(|((_, addr), _)| *addr == target_address)
-                .map(|(_, logs)| logs)
-                .cloned()
-                .flatten()
-                .filter(|l| l.revocation_sequence_id.is_none())
-                .collect();
-            address_logs.sort_by_key(|k| k.association_sequence_id);
-            // get maximum
-            address_logs.reverse();
-            address_logs.dedup_by_key(|k| k.address.clone());
+            match identifier_kind {
+                0 | 1 => {
+                    let mut address_logs: Vec<AddressLog> = logs
+                        .address_logs
+                        .iter()
+                        .filter(|((_, addr), _)| *addr == identifier)
+                        .map(|(_, logs)| logs)
+                        .cloned()
+                        .flatten()
+                        .filter(|l| l.revocation_sequence_id.is_none())
+                        .collect();
+                    address_logs.sort_by_key(|k| k.association_sequence_id);
+                    // get maximum
+                    address_logs.reverse();
+                    address_logs.dedup_by_key(|k| k.address.clone());
 
-            let logs: Vec<_> = address_logs
-                .into_iter()
-                .map(|l| Response {
-                    address: l.address,
-                    inbox_id: Some(hex::encode(l.inbox_id)),
-                })
-                .collect();
-            ret.extend(logs);
+                    let logs: Vec<_> = address_logs
+                        .into_iter()
+                        .map(|l| Response {
+                            inbox_id: Some(hex::encode(l.inbox_id)),
+                            identifier: identifier.clone(),
+                            identifier_kind: identifier_kind,
+                        })
+                        .collect();
+                    ret.extend(logs);
+                }
+                2 => panic!("passkeys remain unsuported for now"),
+                _ => panic!("Unknown identifier type"),
+            }
         }
         Ok(GetInboxIdsResponse { responses: ret })
     }

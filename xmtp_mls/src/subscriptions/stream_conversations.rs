@@ -291,7 +291,7 @@ where
                 this.state.as_mut().set(ProcessState::Waiting);
                 Poll::Ready(Some(Err(e)))
             }
-            Poll::Pending => Pending,
+            Poll::Pending => Poll::Pending,
         }
     }
 }
