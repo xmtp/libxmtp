@@ -2625,8 +2625,6 @@ pub(crate) mod tests {
     #[tokio::test(flavor = "current_thread")]
     #[ignore] // ignoring for now due to flakiness
     async fn test_dm_creation_with_user_two_installations_one_malformed() {
-        use xmtp_id::associations::test_utils::WalletTestExt;
-
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
