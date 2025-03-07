@@ -161,7 +161,7 @@ describe('Client', () => {
       message: signatureText2,
     })
 
-    await client.addSignature(
+    await client.addEcdsaSignature(
       SignatureRequestType.RevokeWallet,
       toBytes(signature3)
     )
@@ -201,7 +201,7 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client3.addSignature(
+    await client3.addEcdsaSignature(
       SignatureRequestType.RevokeInstallations,
       toBytes(signature)
     )
