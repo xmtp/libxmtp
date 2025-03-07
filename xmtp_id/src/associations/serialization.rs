@@ -242,7 +242,6 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                 sig.signature,
                 sig.authenticator_data,
                 sig.client_data_json,
-                sig.relying_party,
             ),
         };
 

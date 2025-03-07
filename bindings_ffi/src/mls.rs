@@ -202,7 +202,7 @@ pub struct FfiPasskeySignature {
     public_key: Vec<u8>,
     signature: Vec<u8>,
     authenticator_data: Vec<u8>,
-    client_data_json: String,
+    client_data_json: Vec<u8>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -2651,6 +2651,36 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use passkey::{
+        authenticator::{Authenticator, UserCheck, UserValidationMethod},
+        client::{Client, DefaultClientData, WebauthnError},
+        types::{crypto::sha256, ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
+    };
+
+    struct PkUserValidationMethod {}
+    impl UserValidationMethod for PkUserValidationMethod {
+        type PasskeyItem = Passkey;
+        async fn check_user<'a>(
+            &self,
+            _credential: Option<&'a Passkey>,
+            presence: bool,
+            verification: bool,
+        ) -> Result<UserCheck, Ctap2Error> {
+            Ok(UserCheck {
+                presence,
+                verification,
+            })
+        }
+
+        fn is_verification_enabled(&self) -> Option<bool> {
+            Some(true)
+        }
+
+        fn is_presence_enabled(&self) -> bool {
+            true
+        }
+    }
+
     use super::{
         create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
         FfiPreferenceUpdate, FfiXmtpClient,
@@ -2664,9 +2694,9 @@ mod tests {
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -3176,6 +3206,70 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn associate_passkey() {
+        let alex = new_test_client().await;
+
+        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
+        let parameters_from_rp = PublicKeyCredentialParameters {
+            ty: PublicKeyCredentialType::PublicKey,
+            alg: coset::iana::Algorithm::ES256,
+        };
+        let pk_user_entity = PublicKeyCredentialUserEntity {
+            id: random_vec(32).into(),
+            display_name: "Alex Passkey".into(),
+            name: "apk@example.org".into(),
+        };
+        let pk_auth_store: Option<Passkey> = None;
+        let pk_aaguid = Aaguid::new_empty();
+        let pk_user_validation_method = PkUserValidationMethod {};
+        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
+        let mut pk_client = Client::new(pk_auth);
+
+        let sig_request = alex
+            .add_identity(FfiIdentifier {
+                identifier: hex::encode(pk_user_entity.id.as_slice()),
+                identifier_kind: FfiIdentifierKind::Passkey,
+            })
+            .await
+            .unwrap();
+
+        let challenge = sig_request.signature_text().await.unwrap();
+        let challenge_bytes = hex::decode(&challenge).unwrap();
+
+        let request = CredentialRequestOptions {
+            public_key: PublicKeyCredentialRequestOptions {
+                challenge: Bytes::from(challenge_bytes),
+                timeout: None,
+                rp_id: None,
+                allow_credentials: None,
+                user_verification: UserVerificationRequirement::Discouraged,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        let cred = pk_client
+            .authenticate(origin, request, DefaultClientData)
+            .await
+            .unwrap();
+        let resp = cred.response;
+
+        sig_request
+            .add_passkey_signature(FfiPasskeySignature {
+                authenticator_data: resp.authenticator_data.to_vec(),
+                signature: resp.signature.to_vec(),
+                client_data_json: resp.client_data_json.to_vec(),
+                public_key: pk_user_entity.id.to_vec(),
+            })
+            .await
+            .unwrap();
+
+        alex.apply_signature_request(sig_request).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

@@ -3,7 +3,6 @@ use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-use p256::EncodedPoint;
 use sha2::{Digest, Sha256};
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
@@ -108,7 +107,6 @@ impl VerifiedSignature {
         signature: &[u8],
         authenticator_data: &[u8],
         client_data_json: &str,
-        relying_partner: Option<String>,
     ) -> Result<Self, SignatureError> {
         // 1. Parse the public key from raw bytes
         let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
@@ -139,7 +137,7 @@ impl VerifiedSignature {
         Ok(Self::new(
             MemberIdentifier::Passkey(ident::Passkey {
                 key: public_key.to_vec(),
-                relying_partner,
+                relying_partner: None,
             }),
             SignatureKind::P256,
             signature.to_vec(),

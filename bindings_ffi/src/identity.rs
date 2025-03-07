@@ -8,7 +8,6 @@ use crate::GenericError;
 pub struct FfiIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiIdentifierKind,
-    pub relying_partner: Option<String>,
 }
 
 #[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
