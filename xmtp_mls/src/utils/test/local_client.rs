@@ -13,10 +13,11 @@ use crate::{
     types::{GroupId, InstallationId},
     verified_key_package_v2::VerifiedKeyPackageV2,
 };
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use openmls::prelude::ProtocolMessage;
 use parking_lot::{Mutex, RwLock};
 use tls_codec::Serialize;
+use tokio::sync::broadcast;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     identity::api::v1::prelude::{
@@ -50,16 +51,25 @@ pub struct LocalTestClient {
     message_cursor: Arc<AtomicUsize>,
     welcome_cursor: Arc<AtomicUsize>,
     sequence_id: Arc<AtomicUsize>,
+    tx: broadcast::Sender<WelcomeOrMessage>,
+}
+
+#[derive(Clone, Debug)]
+enum WelcomeOrMessage {
+    Message(Vec<LocalGroupMessage>),
+    Welcome(Vec<LocalWelcomeMessage>),
 }
 
 impl Default for LocalTestClient {
     fn default() -> Self {
+        let (tx, _) = broadcast::channel(256);
         Self {
             state: Default::default(),
             identity_logs: Default::default(),
             message_cursor: Arc::new(AtomicUsize::new(1)),
             welcome_cursor: Arc::new(AtomicUsize::new(1)),
             sequence_id: Arc::new(AtomicUsize::new(1)),
+            tx,
         }
     }
 }
@@ -204,6 +214,15 @@ impl LocalTestClient {
         s.apply(diff)
     }
 
+    fn notify_subscriptions(&self, diff: &State) {
+        for message in diff.messages.values().cloned() {
+            let _ = self.tx.send(WelcomeOrMessage::Message(message));
+        }
+        for welcome in diff.welcomes.values().cloned() {
+            let _ = self.tx.send(WelcomeOrMessage::Welcome(welcome));
+        }
+    }
+
     fn key_package<T: TryInto<InstallationId>>(&self, id: T) -> VerifiedKeyPackageV2
     where
         <T as TryInto<InstallationId>>::Error: std::fmt::Debug,
@@ -265,13 +284,17 @@ impl XmtpMlsClient for LocalTestClient {
 
     #[tracing::instrument(level = "info")]
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<()> {
-        self.apply(request.process(Some(&self.message_cursor), None)?);
+        let diff = request.process(Some(&self.message_cursor), None)?;
+        self.notify_subscriptions(&diff);
+        self.apply(diff);
         Ok(())
     }
 
     #[tracing::instrument(level = "info")]
     async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<()> {
-        self.apply(request.process(Some(&self.welcome_cursor), None)?);
+        let diff = request.process(Some(&self.welcome_cursor), None)?;
+        self.notify_subscriptions(&diff);
+        self.apply(diff);
         Ok(())
     }
 
@@ -526,7 +549,24 @@ impl XmtpMlsStreams for LocalTestClient {
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>> {
-        todo!()
+        use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+        use xmtp_proto::xmtp::mls::api::v1::group_message::V1;
+
+        let receiver = self.tx.subscribe();
+        let s = tokio_stream::wrappers::BroadcastStream::new(receiver);
+        s.filter_map(|m| match m {
+            Ok(WelcomeOrMessage::Message(msgs)) => msgs.into_iter().map(|m| GroupMessage {
+                version: Some(Version::V1(V1 {
+                    id: m.id as u64,
+                    created_ns: m.created as u64,
+                    group_id: m.msg.group_id().to_vec(),
+                    data: m.data,
+                    sender_hmac: m.sender_hmac,
+                })),
+            }),
+            _ => None,
+        })
+        .boxed()
     }
 
     async fn subscribe_welcome_messages(
