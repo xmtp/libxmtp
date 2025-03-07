@@ -5,7 +5,7 @@ use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
-use sha2::{Digest, Sha256};
+use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
@@ -127,21 +127,14 @@ impl VerifiedSignature {
         }
 
         // 1. Parse the public key from raw bytes
-        let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
-            Ok(key) => key,
-            Err(_err) => return Err(SignatureError::InvalidPublicKey),
-        };
+        let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
+            .map_err(|_| SignatureError::InvalidPublicKey)?;
 
         // 2. Parse the signature
-        let signature = match Signature::from_der(signature) {
-            Ok(sig) => sig,
-            Err(_) => return Err(SignatureError::Invalid),
-        };
+        let signature = Signature::from_der(signature).map_err(|_| SignatureError::Invalid)?;
 
         // 3. Hash the client data
-        let mut hasher = Sha256::new();
-        hasher.update(client_data_json);
-        let client_data_hash = hasher.finalize();
+        let client_data_hash = sha256_bytes(client_data_json);
 
         // 4. Construct the verification data (authenticator_data + client_data_hash)
         let mut verification_data =
