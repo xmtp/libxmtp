@@ -71,7 +71,7 @@ export const createRegisteredClient = async (user: User) => {
       const signature = await user.wallet.signMessage({
         message: signatureText,
       });
-      await client.addSignature(
+      await client.addEcdsaSignature(
         SignatureRequestType.CreateInbox,
         toBytes(signature),
       );

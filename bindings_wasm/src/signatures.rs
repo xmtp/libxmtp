@@ -155,7 +155,7 @@ impl Client {
     Ok(signature_text)
   }
 
-  #[wasm_bindgen(js_name = addSignature)]
+  #[wasm_bindgen(js_name = addEcdsaSignature)]
   pub async fn add_ecdsa_signature(
     &mut self,
     signature_type: SignatureRequestType,

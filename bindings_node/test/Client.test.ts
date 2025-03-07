@@ -112,7 +112,7 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client.addSignature(
+    await client.addEcdsaSignature(
       SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
@@ -144,7 +144,7 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client.addSignature(
+    await client.addEcdsaSignature(
       SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
