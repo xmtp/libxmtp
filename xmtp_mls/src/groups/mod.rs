@@ -5287,9 +5287,8 @@ pub(crate) mod tests {
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
         assert_eq!(min_version, None);
 
-        tracing::info!("CAMERONVOELL: bo about to update min version");
         let result = bo_group.update_group_min_version_to_match_self().await;
-        assert!(!result.is_ok());
+        assert!(result.is_err());
         bo_group.sync().await.unwrap();
 
         let metadata = bo_group
