@@ -3292,6 +3292,22 @@ mod tests {
 
         let mut signature = resp.signature.to_vec();
 
+        // Try to add a bad sig first
+        // Corrupt the sig
+        signature[4] = signature[4].wrapping_add(1);
+        let result = sig_request
+            .add_passkey_signature(FfiPasskeySignature {
+                authenticator_data: resp.authenticator_data.to_vec(),
+                signature: signature.clone(),
+                client_data_json: resp.client_data_json.to_vec(),
+                public_key: public_key.clone(),
+            })
+            .await;
+        // It should not verify
+        assert!(result.is_err());
+
+        // un-corrupt the sig
+        signature[4] = signature[4].wrapping_sub(1);
         sig_request
             .add_passkey_signature(FfiPasskeySignature {
                 authenticator_data: resp.authenticator_data.to_vec(),
@@ -3300,21 +3316,8 @@ mod tests {
                 public_key: public_key.clone(),
             })
             .await
+            // should be good
             .unwrap();
-
-        // Corrupt the sig
-        signature[4] = signature[4].wrapping_add(1);
-
-        let result = sig_request
-            .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key,
-            })
-            .await;
-        // It should not verify
-        assert!(result.is_err());
 
         // TODO: uncomment this when xmtp-node-go is updated to recognize Passkey MemberIdentifiers
         // alex.apply_signature_request(sig_request).await.unwrap();
