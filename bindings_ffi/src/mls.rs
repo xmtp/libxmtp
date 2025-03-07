@@ -2653,8 +2653,8 @@ impl FfiGroupPermissions {
 mod tests {
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
-        client::{Client, DefaultClientData, WebauthnError},
-        types::{crypto::sha256, ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
+        client::{Client, DefaultClientData},
+        types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
     };
 
     struct PkUserValidationMethod {}

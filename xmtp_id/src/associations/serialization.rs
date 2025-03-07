@@ -494,15 +494,14 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
                     kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
                 }
             }
-            MemberIdentifier::Passkey(ident::Passkey {
-                key,
-                relying_party: relying_party,
-            }) => MemberIdentifierProto {
-                kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
-                    key,
-                    relying_party,
-                })),
-            },
+            MemberIdentifier::Passkey(ident::Passkey { key, relying_party }) => {
+                MemberIdentifierProto {
+                    kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
+                        key,
+                        relying_party,
+                    })),
+                }
+            }
         }
     }
 }
