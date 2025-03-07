@@ -32,6 +32,15 @@ pub fn verify_signed_with_public_key(
 }
 
 #[wasm_bindgen]
+pub struct PasskeySignature {
+  public_key: Vec<u8>,
+  signature: Vec<u8>,
+  authenticator_data: Vec<u8>,
+  client_data_json: String,
+  relying_party: Option<String>,
+}
+
+#[wasm_bindgen]
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub enum SignatureRequestType {
   AddWallet,
@@ -148,7 +157,7 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = addSignature)]
-  pub async fn add_signature(
+  pub async fn add_ecdsa_signature(
     &mut self,
     signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
@@ -165,6 +174,32 @@ impl Client {
       return Err(JsError::new("Signature request not found"));
     }
 
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = addPasskeySignature)]
+  pub async fn add_passkey_signature(
+    &mut self,
+    signature_type: SignatureRequestType,
+    signature: PasskeySignature,
+  ) -> Result<(), JsError> {
+    let verifier = Arc::clone(self.inner_client().scw_verifier());
+
+    if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
+      let signature = UnverifiedSignature::new_passkey(
+        signature.public_key,
+        signature.signature,
+        signature.authenticator_data,
+        signature.client_data_json,
+        signature.relying_party,
+      );
+      signature_request
+        .add_signature(signature, verifier)
+        .await
+        .map_err(crate::error)?;
+    } else {
+      return Err(JsError::new("Signature request not found"));
+    }
     Ok(())
   }
 

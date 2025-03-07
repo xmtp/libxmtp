@@ -104,30 +104,37 @@ impl VerifiedSignature {
     }
 
     pub fn from_passkey(
-        client_data_json: &str,
-        authenticator_data: &[u8],
-        signature_bytes: &[u8],
         public_key: &[u8],
+        signature: &[u8],
+        authenticator_data: &[u8],
+        client_data_json: &str,
         relying_partner: Option<String>,
     ) -> Result<Self, SignatureError> {
-        let encoded_point = EncodedPoint::from_bytes(public_key).unwrap();
-        let verifying_key = VerifyingKey::from_encoded_point(&encoded_point).unwrap();
+        // 1. Parse the public key from raw bytes
+        let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
+            Ok(key) => key,
+            Err(_) => return Err(SignatureError::Invalid),
+        };
 
-        let mut client_data_hash = Sha256::new();
-        client_data_hash.update(client_data_json.as_bytes());
-        let client_data_hash = client_data_hash.finalize();
+        // 2. Parse the signature
+        let signature = match Signature::try_from(signature) {
+            Ok(sig) => sig,
+            Err(_) => return Err(SignatureError::Invalid),
+        };
 
-        let mut message = Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
-        message.extend_from_slice(authenticator_data);
-        message.extend_from_slice(&client_data_hash);
+        // 3. Hash the client data
+        let mut hasher = Sha256::new();
+        hasher.update(client_data_json.as_bytes());
+        let client_data_hash = hasher.finalize();
 
-        let mut message_hash = Sha256::new();
-        message_hash.update(&message);
-        let message_hash = message_hash.finalize();
+        // 4. Construct the verification data (authenticator_data + client_data_hash)
+        let mut verification_data =
+            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+        verification_data.extend_from_slice(authenticator_data);
+        verification_data.extend_from_slice(&client_data_hash);
 
-        let signature = Signature::try_from(signature_bytes).unwrap();
-
-        verifying_key.verify(&message_hash, &signature).unwrap();
+        // 5. Verify the signature
+        verifying_key.verify(&verification_data, &signature)?;
 
         Ok(Self::new(
             MemberIdentifier::Passkey(ident::Passkey {
@@ -135,7 +142,7 @@ impl VerifiedSignature {
                 relying_partner,
             }),
             SignatureKind::P256,
-            signature_bytes.to_vec(),
+            signature.to_vec(),
             None,
         ))
     }

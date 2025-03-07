@@ -197,6 +197,15 @@ pub struct FfiSignatureRequest {
     scw_verifier: RemoteSignatureVerifier<TonicApiClient>,
 }
 
+#[derive(uniffi::Record, Clone)]
+pub struct FfiPasskeySignature {
+    public_key: Vec<u8>,
+    signature: Vec<u8>,
+    authenticator_data: Vec<u8>,
+    client_data_json: String,
+    relying_party: Option<String>,
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
@@ -214,20 +223,16 @@ impl FfiSignatureRequest {
 
     pub async fn add_passkey_signature(
         &self,
-        client_data_json: String,
-        authenticator_data: Vec<u8>,
-        signature_bytes: Vec<u8>,
-        verifying_key: Vec<u8>,
-        relying_party: Option<String>,
+        signature: FfiPasskeySignature,
     ) -> Result<(), GenericError> {
         let mut inner = self.inner.lock().await;
 
         let new_signature = UnverifiedSignature::new_passkey(
-            client_data_json,
-            authenticator_data,
-            signature_bytes,
-            verifying_key,
-            relying_party,
+            signature.public_key,
+            signature.signature,
+            signature.authenticator_data,
+            signature.client_data_json,
+            signature.relying_party,
         );
 
         inner
@@ -3173,37 +3178,6 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_physical_passkey() {
-        let owner = LocalWalletInboxOwner::new();
-        let nonce = 1;
-        let ident = owner.identifier();
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-
-        let path = tmp_path();
-        let key = static_enc_key().to_vec();
-
-        let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(path.clone()),
-            Some(key),
-            &inbox_id,
-            ident,
-            nonce,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-
-        register_client(&owner, &client).await;
-
-        let signature_request = client.signature_request().unwrap().clone();
-        signature_request.add_wallet_signature(&owner.wallet).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

@@ -1927,39 +1927,39 @@ impl serde::Serialize for RecoverablePasskeySignature {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.client_data_json.is_empty() {
+        if !self.public_key.is_empty() {
+            len += 1;
+        }
+        if !self.signature.is_empty() {
             len += 1;
         }
         if !self.authenticator_data.is_empty() {
             len += 1;
         }
-        if !self.signature_bytes.is_empty() {
-            len += 1;
-        }
-        if !self.verifying_key.is_empty() {
+        if !self.client_data_json.is_empty() {
             len += 1;
         }
         if self.relying_party.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverablePasskeySignature", len)?;
-        if !self.client_data_json.is_empty() {
-            struct_ser.serialize_field("clientDataJson", &self.client_data_json)?;
+        if !self.public_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
+        }
+        if !self.signature.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
         }
         if !self.authenticator_data.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("authenticatorData", pbjson::private::base64::encode(&self.authenticator_data).as_str())?;
         }
-        if !self.signature_bytes.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("signatureBytes", pbjson::private::base64::encode(&self.signature_bytes).as_str())?;
-        }
-        if !self.verifying_key.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("verifyingKey", pbjson::private::base64::encode(&self.verifying_key).as_str())?;
+        if !self.client_data_json.is_empty() {
+            struct_ser.serialize_field("clientDataJson", &self.client_data_json)?;
         }
         if let Some(v) = self.relying_party.as_ref() {
             struct_ser.serialize_field("relyingParty", v)?;
@@ -1974,24 +1974,23 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "client_data_json",
-            "clientDataJson",
+            "public_key",
+            "publicKey",
+            "signature",
             "authenticator_data",
             "authenticatorData",
-            "signature_bytes",
-            "signatureBytes",
-            "verifying_key",
-            "verifyingKey",
+            "client_data_json",
+            "clientDataJson",
             "relying_party",
             "relyingParty",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            ClientDataJson,
+            PublicKey,
+            Signature,
             AuthenticatorData,
-            SignatureBytes,
-            VerifyingKey,
+            ClientDataJson,
             RelyingParty,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2014,10 +2013,10 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                         E: serde::de::Error,
                     {
                         match value {
-                            "clientDataJson" | "client_data_json" => Ok(GeneratedField::ClientDataJson),
+                            "publicKey" | "public_key" => Ok(GeneratedField::PublicKey),
+                            "signature" => Ok(GeneratedField::Signature),
                             "authenticatorData" | "authenticator_data" => Ok(GeneratedField::AuthenticatorData),
-                            "signatureBytes" | "signature_bytes" => Ok(GeneratedField::SignatureBytes),
-                            "verifyingKey" | "verifying_key" => Ok(GeneratedField::VerifyingKey),
+                            "clientDataJson" | "client_data_json" => Ok(GeneratedField::ClientDataJson),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -2038,18 +2037,28 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut client_data_json__ = None;
+                let mut public_key__ = None;
+                let mut signature__ = None;
                 let mut authenticator_data__ = None;
-                let mut signature_bytes__ = None;
-                let mut verifying_key__ = None;
+                let mut client_data_json__ = None;
                 let mut relying_party__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::ClientDataJson => {
-                            if client_data_json__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("clientDataJson"));
+                        GeneratedField::PublicKey => {
+                            if public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publicKey"));
                             }
-                            client_data_json__ = Some(map_.next_value()?);
+                            public_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::AuthenticatorData => {
                             if authenticator_data__.is_some() {
@@ -2059,21 +2068,11 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::SignatureBytes => {
-                            if signature_bytes__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("signatureBytes"));
+                        GeneratedField::ClientDataJson => {
+                            if client_data_json__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientDataJson"));
                             }
-                            signature_bytes__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::VerifyingKey => {
-                            if verifying_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("verifyingKey"));
-                            }
-                            verifying_key__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            client_data_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::RelyingParty => {
                             if relying_party__.is_some() {
@@ -2084,10 +2083,10 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                     }
                 }
                 Ok(RecoverablePasskeySignature {
-                    client_data_json: client_data_json__.unwrap_or_default(),
+                    public_key: public_key__.unwrap_or_default(),
+                    signature: signature__.unwrap_or_default(),
                     authenticator_data: authenticator_data__.unwrap_or_default(),
-                    signature_bytes: signature_bytes__.unwrap_or_default(),
-                    verifying_key: verifying_key__.unwrap_or_default(),
+                    client_data_json: client_data_json__.unwrap_or_default(),
                     relying_party: relying_party__,
                 })
             }

@@ -30,7 +30,6 @@ xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-
 # Bench
 criterion = { workspace = true, optional = true }
 fdlimit = { version = "0.3", optional = true }
@@ -61,6 +60,7 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+webauthn-rs = "0.5.1"
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]

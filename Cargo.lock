@@ -5323,20 +5323,22 @@ dependencies = [
  "wasm-bindgen",
 ]
 
-name = "serde_cbor_2"
-version = "0.12.0-dev"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b46d75f449e01f1eddbe9b00f432d616fbbd899b809c837d0fbc380496a0dd55"
-dependencies = [
- "half 1.8.3",
-]
-
 [[package]]
 name = "serde_bytes"
 version = "0.11.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "364fec0df39c49a083c9a8a18a23a6bcfd9af130fe9fe321d18520a0d113e09e"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_cbor_2"
+version = "0.12.0-dev"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b46d75f449e01f1eddbe9b00f432d616fbbd899b809c837d0fbc380496a0dd55"
+dependencies = [
+ "half 1.8.3",
  "serde",
 ]
 
@@ -7738,7 +7740,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
- "webauthn-rs",
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_api_http",
@@ -7795,6 +7796,7 @@ dependencies = [
  "tracing_android_trace",
  "uniffi",
  "uuid 1.12.0",
+ "webauthn-rs",
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",

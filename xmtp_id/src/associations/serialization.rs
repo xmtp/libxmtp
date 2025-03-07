@@ -238,10 +238,10 @@ impl TryFrom<SignatureWrapperProto> for UnverifiedSignature {
                 ),
             ),
             SignatureKindProto::Passkey(sig) => UnverifiedSignature::new_passkey(
-                sig.client_data_json,
+                sig.public_key,
+                sig.signature,
                 sig.authenticator_data,
-                sig.signature_bytes,
-                sig.verifying_key,
+                sig.client_data_json,
                 sig.relying_party,
             ),
         };
@@ -395,10 +395,10 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
             }
             UnverifiedSignature::Passkey(sig) => {
                 SignatureKindProto::Passkey(RecoverablePasskeySignatureProto {
+                    public_key: sig.public_key,
+                    signature: sig.signature,
                     authenticator_data: sig.authenticator_data,
                     client_data_json: sig.client_data_json,
-                    signature_bytes: sig.signature_bytes,
-                    verifying_key: sig.verifying_key,
                     relying_party: sig.relying_party,
                 })
             }

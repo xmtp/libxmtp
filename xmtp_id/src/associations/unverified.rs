@@ -280,10 +280,10 @@ impl UnverifiedSignature {
                 sig.signed_public_key_proto.clone(),
             ),
             UnverifiedSignature::Passkey(sig) => VerifiedSignature::from_passkey(
-                &sig.client_data_json,
+                &sig.public_key,
+                &sig.signature,
                 &sig.authenticator_data,
-                &sig.signature_bytes,
-                &sig.verifying_key,
+                &sig.client_data_json,
                 sig.relying_party.clone(),
             ),
         }
@@ -304,17 +304,17 @@ impl UnverifiedSignature {
     }
 
     pub fn new_passkey(
-        client_data_json: String,
+        public_key: Vec<u8>,
+        signature: Vec<u8>,
         authenticator_data: Vec<u8>,
-        signature_bytes: Vec<u8>,
-        verifying_key: Vec<u8>,
+        client_data_json: String,
         relying_party: Option<String>,
     ) -> Self {
         Self::Passkey(UnverifiedPasskeySignature {
             client_data_json,
             authenticator_data,
-            signature_bytes,
-            verifying_key,
+            signature,
+            public_key,
             relying_party,
         })
     }
@@ -370,10 +370,10 @@ impl UnverifiedInstallationKeySignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedPasskeySignature {
     // This json string contains the challenge we sent out
-    pub(crate) client_data_json: String,
+    pub(crate) public_key: Vec<u8>,
+    pub(crate) signature: Vec<u8>,
     pub(crate) authenticator_data: Vec<u8>,
-    pub(crate) signature_bytes: Vec<u8>,
-    pub(crate) verifying_key: Vec<u8>,
+    pub(crate) client_data_json: String,
     pub(crate) relying_party: Option<String>,
 }
 

@@ -40,7 +40,7 @@ chrono = "0.4.38"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.13.2", features = ["ecdsa"] }
 ctor = "0.2"
 diesel = { version = "2.2", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
