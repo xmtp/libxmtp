@@ -52,6 +52,8 @@ pub enum SignatureError {
     AccountIdError(#[from] AccountIdError),
     #[error(transparent)]
     Signer(#[from] SignerError),
+    #[error("Invalid public key")]
+    InvalidPublicKey,
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity

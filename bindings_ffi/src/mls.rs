@@ -3228,17 +3228,6 @@ mod tests {
         let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
         let mut pk_client = Client::new(pk_auth);
 
-        let sig_request = alex
-            .add_identity(FfiIdentifier {
-                identifier: hex::encode(pk_user_entity.id.as_slice()),
-                identifier_kind: FfiIdentifierKind::Passkey,
-            })
-            .await
-            .unwrap();
-
-        let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = challenge.encode_to_vec();
-
         let request = CredentialCreationOptions {
             public_key: PublicKeyCredentialCreationOptions {
                 rp: PublicKeyCredentialRpEntity {
@@ -3246,7 +3235,7 @@ mod tests {
                     name: origin.domain().unwrap().into(),
                 },
                 user: pk_user_entity,
-                challenge: Bytes::from(challenge_bytes.clone()),
+                challenge: Bytes::from(vec![]),
                 pub_key_cred_params: vec![parameters_from_rp],
                 timeout: None,
                 exclude_credentials: None,
@@ -3263,6 +3252,20 @@ mod tests {
             .register(origin.clone(), request, DefaultClientData)
             .await
             .unwrap();
+
+        let public_key = my_webauthn_credential.response.public_key.unwrap().to_vec();
+        tracing::info!("PK: {public_key:?}");
+
+        let sig_request = alex
+            .add_identity(FfiIdentifier {
+                identifier: hex::encode(&public_key),
+                identifier_kind: FfiIdentifierKind::Passkey,
+            })
+            .await
+            .unwrap();
+
+        let challenge = sig_request.signature_text().await.unwrap();
+        let challenge_bytes = challenge.encode_to_vec();
 
         let request = CredentialRequestOptions {
             public_key: PublicKeyCredentialRequestOptions {
@@ -3289,7 +3292,7 @@ mod tests {
                 authenticator_data: resp.authenticator_data.to_vec(),
                 signature: resp.signature.to_vec(),
                 client_data_json: resp.client_data_json.to_vec(),
-                public_key: cred.raw_id.to_vec(),
+                public_key,
             })
             .await
             .unwrap();
