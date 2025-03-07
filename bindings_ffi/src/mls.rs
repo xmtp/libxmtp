@@ -3235,6 +3235,9 @@ mod tests {
                     name: origin.domain().unwrap().into(),
                 },
                 user: pk_user_entity,
+                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
+                // It's guaranteed to be unique, and that's good enough for us.
+                // All we care about is if that unique credential signs below.
                 challenge: Bytes::from(vec![]),
                 pub_key_cred_params: vec![parameters_from_rp],
                 timeout: None,
