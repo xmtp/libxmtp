@@ -8,7 +8,6 @@ use crate::GenericError;
 pub struct FfiIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiIdentifierKind,
-    pub relying_partner: Option<String>,
 }
 
 #[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
@@ -48,15 +47,10 @@ impl From<Identifier> for FfiIdentifier {
             Identifier::Ethereum(ident::Ethereum(addr)) => Self {
                 identifier: addr,
                 identifier_kind: FfiIdentifierKind::Ethereum,
-                relying_partner: None,
             },
-            Identifier::Passkey(ident::Passkey {
-                key,
-                relying_partner,
-            }) => Self {
+            Identifier::Passkey(ident::Passkey { key, .. }) => Self {
                 identifier: hex::encode(key),
                 identifier_kind: FfiIdentifierKind::Passkey,
-                relying_partner,
             },
         }
     }
@@ -67,9 +61,7 @@ impl TryFrom<FfiIdentifier> for Identifier {
     fn try_from(ident: FfiIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             FfiIdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-            FfiIdentifierKind::Passkey => {
-                Self::passkey_str(&ident.identifier, ident.relying_partner)?
-            }
+            FfiIdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
         };
         Ok(ident)
     }

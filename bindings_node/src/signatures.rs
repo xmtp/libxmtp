@@ -41,6 +41,14 @@ pub enum SignatureRequestType {
   RevokeInstallations,
 }
 
+#[napi(object)]
+pub struct PasskeySignature {
+  pub public_key: Vec<u8>,
+  pub signature: Vec<u8>,
+  pub authenticator_data: Vec<u8>,
+  pub client_data_json: Vec<u8>,
+}
+
 #[napi]
 impl Client {
   #[napi]
@@ -142,7 +150,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_signature(
+  pub async fn add_ecdsa_signature(
     &self,
     signature_type: SignatureRequestType,
     signature_bytes: Uint8Array,
@@ -151,6 +159,33 @@ impl Client {
 
     if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
       let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
+
+      signature_request
+        .add_signature(signature, &self.inner_client().scw_verifier())
+        .await
+        .map_err(ErrorWrapper::from)?;
+    } else {
+      return Err(Error::from_reason("Signature request not found"));
+    }
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn add_passkey_signature(
+    &self,
+    signature_type: SignatureRequestType,
+    signature: PasskeySignature,
+  ) -> Result<()> {
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
+      let signature = UnverifiedSignature::new_passkey(
+        signature.public_key,
+        signature.signature,
+        signature.authenticator_data,
+        signature.client_data_json,
+      );
 
       signature_request
         .add_signature(signature, &self.inner_client().scw_verifier())

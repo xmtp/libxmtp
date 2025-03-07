@@ -246,6 +246,7 @@ pub enum UnverifiedSignature {
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
     SmartContractWallet(UnverifiedSmartContractWalletSignature),
     LegacyDelegated(UnverifiedLegacyDelegatedSignature),
+    Passkey(UnverifiedPasskeySignature),
 }
 
 impl UnverifiedSignature {
@@ -278,6 +279,13 @@ impl UnverifiedSignature {
                 &sig.legacy_key_signature.signature_bytes,
                 sig.signed_public_key_proto.clone(),
             ),
+            UnverifiedSignature::Passkey(sig) => VerifiedSignature::from_passkey(
+                signature_text,
+                &sig.public_key,
+                &sig.signature,
+                &sig.authenticator_data,
+                &sig.client_data_json,
+            ),
         }
     }
 
@@ -293,6 +301,20 @@ impl UnverifiedSignature {
             signature,
             verifying_key,
         ))
+    }
+
+    pub fn new_passkey(
+        public_key: Vec<u8>,
+        signature: Vec<u8>,
+        authenticator_data: Vec<u8>,
+        client_data_json: Vec<u8>,
+    ) -> Self {
+        Self::Passkey(UnverifiedPasskeySignature {
+            client_data_json,
+            authenticator_data,
+            signature,
+            public_key,
+        })
     }
 
     pub fn new_smart_contract_wallet(
@@ -341,6 +363,15 @@ impl UnverifiedInstallationKeySignature {
     pub fn verifying_key_bytes(&self) -> Vec<u8> {
         self.verifying_key.as_ref().as_ref().to_vec()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnverifiedPasskeySignature {
+    // This json string contains the challenge we sent out
+    pub(crate) public_key: Vec<u8>,
+    pub(crate) signature: Vec<u8>,
+    pub(crate) authenticator_data: Vec<u8>,
+    pub(crate) client_data_json: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

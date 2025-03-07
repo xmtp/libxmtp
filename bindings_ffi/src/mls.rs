@@ -197,6 +197,14 @@ pub struct FfiSignatureRequest {
     scw_verifier: RemoteSignatureVerifier<TonicApiClient>,
 }
 
+#[derive(uniffi::Record, Clone)]
+pub struct FfiPasskeySignature {
+    public_key: Vec<u8>,
+    signature: Vec<u8>,
+    authenticator_data: Vec<u8>,
+    client_data_json: Vec<u8>,
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiSignatureRequest {
     // Signature that's signed by EOA wallet
@@ -207,6 +215,26 @@ impl FfiSignatureRequest {
                 UnverifiedSignature::new_recoverable_ecdsa(signature_bytes),
                 &self.scw_verifier,
             )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_passkey_signature(
+        &self,
+        signature: FfiPasskeySignature,
+    ) -> Result<(), GenericError> {
+        let mut inner = self.inner.lock().await;
+
+        let new_signature = UnverifiedSignature::new_passkey(
+            signature.public_key,
+            signature.signature,
+            signature.authenticator_data,
+            signature.client_data_json,
+        );
+
+        inner
+            .add_signature(new_signature, &self.scw_verifier)
             .await?;
 
         Ok(())
@@ -2623,6 +2651,37 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use passkey::{
+        authenticator::{Authenticator, UserCheck, UserValidationMethod},
+        client::{Client, DefaultClientData},
+        types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
+    };
+
+    struct PkUserValidationMethod {}
+    #[async_trait::async_trait]
+    impl UserValidationMethod for PkUserValidationMethod {
+        type PasskeyItem = Passkey;
+        async fn check_user<'a>(
+            &self,
+            _credential: Option<&'a Passkey>,
+            presence: bool,
+            verification: bool,
+        ) -> Result<UserCheck, Ctap2Error> {
+            Ok(UserCheck {
+                presence,
+                verification,
+            })
+        }
+
+        fn is_verification_enabled(&self) -> Option<bool> {
+            Some(true)
+        }
+
+        fn is_presence_enabled(&self) -> bool {
+            true
+        }
+    }
+
     use super::{
         create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
         FfiPreferenceUpdate, FfiXmtpClient,
@@ -2636,9 +2695,9 @@ mod tests {
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
         FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPermissionPolicy,
-        FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction, FfiReactionAction,
-        FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
+        FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
+        FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2931,7 +2990,6 @@ mod tests {
         let ident = FfiIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
             identifier_kind: FfiIdentifierKind::Ethereum,
-            relying_partner: None,
         };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;
@@ -3151,15 +3209,130 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn associate_passkey() {
+        let alex = new_test_client().await;
+
+        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
+        let parameters_from_rp = PublicKeyCredentialParameters {
+            ty: PublicKeyCredentialType::PublicKey,
+            alg: coset::iana::Algorithm::ES256,
+        };
+        let pk_user_entity = PublicKeyCredentialUserEntity {
+            id: random_vec(32).into(),
+            display_name: "Alex Passkey".into(),
+            name: "apk@example.org".into(),
+        };
+        let pk_auth_store: Option<Passkey> = None;
+        let pk_aaguid = Aaguid::new_empty();
+        let pk_user_validation_method = PkUserValidationMethod {};
+        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
+        let mut pk_client = Client::new(pk_auth);
+
+        let request = CredentialCreationOptions {
+            public_key: PublicKeyCredentialCreationOptions {
+                rp: PublicKeyCredentialRpEntity {
+                    id: None, // Leaving the ID as None means use the effective domain
+                    name: origin.domain().unwrap().into(),
+                },
+                user: pk_user_entity,
+                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
+                // It's guaranteed to be unique, and that's good enough for us.
+                // All we care about is if that unique credential signs below.
+                challenge: Bytes::from(vec![]),
+                pub_key_cred_params: vec![parameters_from_rp],
+                timeout: None,
+                exclude_credentials: None,
+                authenticator_selection: None,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        // Now create the credential.
+        let my_webauthn_credential = pk_client
+            .register(origin.clone(), request, DefaultClientData)
+            .await
+            .unwrap();
+
+        let public_key = my_webauthn_credential.response.public_key.unwrap().to_vec();
+        let public_key = public_key[26..].to_vec();
+
+        let sig_request = alex
+            .add_identity(FfiIdentifier {
+                identifier: hex::encode(&public_key),
+                identifier_kind: FfiIdentifierKind::Passkey,
+            })
+            .await
+            .unwrap();
+
+        let challenge = sig_request.signature_text().await.unwrap();
+        let challenge_bytes = challenge.as_bytes().to_vec();
+
+        let request = CredentialRequestOptions {
+            public_key: PublicKeyCredentialRequestOptions {
+                challenge: Bytes::from(challenge_bytes),
+                timeout: None,
+                rp_id: Some(String::from(origin.domain().unwrap())),
+                allow_credentials: None,
+                user_verification: UserVerificationRequirement::default(),
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        let cred = pk_client
+            .authenticate(origin, request, DefaultClientData)
+            .await
+            .unwrap();
+        let resp = cred.response;
+
+        let mut signature = resp.signature.to_vec();
+
+        // Try to add a bad sig first
+        // Corrupt the sig
+        signature[4] = signature[4].wrapping_add(1);
+        let result = sig_request
+            .add_passkey_signature(FfiPasskeySignature {
+                authenticator_data: resp.authenticator_data.to_vec(),
+                signature: signature.clone(),
+                client_data_json: resp.client_data_json.to_vec(),
+                public_key: public_key.clone(),
+            })
+            .await;
+        // It should not verify
+        assert!(result.is_err());
+
+        // un-corrupt the sig
+        signature[4] = signature[4].wrapping_sub(1);
+        sig_request
+            .add_passkey_signature(FfiPasskeySignature {
+                authenticator_data: resp.authenticator_data.to_vec(),
+                signature: signature.clone(),
+                client_data_json: resp.client_data_json.to_vec(),
+                public_key: public_key.clone(),
+            })
+            .await
+            // should be good
+            .unwrap();
+
+        // TODO: uncomment this when xmtp-node-go is updated to recognize Passkey MemberIdentifiers
+        // alex.apply_signature_request(sig_request).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_revoke_wallet() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let nonce = 1;
         let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
-
         let path = tmp_path();
         let key = static_enc_key().to_vec();
+
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await

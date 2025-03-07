@@ -1,7 +1,11 @@
 #![allow(dead_code)]
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
 use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
+use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
@@ -9,8 +13,8 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 use crate::scw_verifier::SmartContractSignatureVerifier;
 
 use super::{
-    to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
-    ValidatedLegacySignedPublicKey,
+    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
+    SignatureKind, ValidatedLegacySignedPublicKey,
 };
 
 #[derive(Debug, Clone)]
@@ -19,6 +23,12 @@ pub struct VerifiedSignature {
     pub kind: SignatureKind,
     pub raw_bytes: Vec<u8>,
     pub chain_id: Option<u64>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClientDataJson {
+    origin: String,
+    challenge: String,
 }
 
 impl VerifiedSignature {
@@ -96,6 +106,52 @@ impl VerifiedSignature {
             MemberIdentifier::installation(verifying_key.as_bytes().to_vec()),
             SignatureKind::InstallationKey,
             signature_bytes.to_vec(),
+            None,
+        ))
+    }
+
+    pub fn from_passkey<Text: AsRef<str>>(
+        signature_text: Text,
+        public_key: &[u8],
+        signature: &[u8],
+        authenticator_data: &[u8],
+        client_data_json: &[u8],
+    ) -> Result<Self, SignatureError> {
+        let client_data: ClientDataJson = serde_json::from_slice(client_data_json)
+            .map_err(|_| SignatureError::InvalidClientData)?;
+
+        let signature_text = BASE64_URL_SAFE_NO_PAD.encode(signature_text.as_ref());
+        if signature_text != client_data.challenge {
+            // Challenge needs to match signature text
+            return Err(SignatureError::InvalidClientData);
+        }
+
+        // 1. Parse the public key from raw bytes
+        let verifying_key = VerifyingKey::from_sec1_bytes(public_key)
+            .map_err(|_| SignatureError::InvalidPublicKey)?;
+
+        // 2. Parse the signature
+        let signature = Signature::from_der(signature).map_err(|_| SignatureError::Invalid)?;
+
+        // 3. Hash the client data
+        let client_data_hash = sha256_bytes(client_data_json);
+
+        // 4. Construct the verification data (authenticator_data + client_data_hash)
+        let mut verification_data =
+            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+        verification_data.extend_from_slice(authenticator_data);
+        verification_data.extend_from_slice(&client_data_hash);
+
+        // 5. Verify the signature
+        verifying_key.verify(&verification_data, &signature)?;
+
+        Ok(Self::new(
+            MemberIdentifier::Passkey(ident::Passkey {
+                key: public_key.to_vec(),
+                relying_party: Some(client_data.origin),
+            }),
+            SignatureKind::P256,
+            signature.to_vec(),
             None,
         ))
     }

@@ -4,6 +4,7 @@ ignore = [
   { id = "RUSTSEC-2025-0004", reason = "migraiton to alloy needs to occur" },
   { id = "RUSTSEC-2025-0009", reason = "migraiton to alloy needs to occur" },
   { id = "RUSTSEC-2025-0010", reason = "migraiton to alloy needs to occur" },
+  { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests

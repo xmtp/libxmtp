@@ -9,6 +9,9 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
         exit 1
     fi
 fi
+
+echo "Generating protos from branch ${BRANCH}..."
+
 if ! buf generate "https://github.com/xmtp/proto.git#branch=${BRANCH},subdir=proto"; then
     echo "Failed to generate protobuf definitions"
     exit 1
