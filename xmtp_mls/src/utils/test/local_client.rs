@@ -6,6 +6,7 @@
 
 use std::{
     collections::HashMap,
+    pin::Pin,
     sync::{atomic::AtomicUsize, Arc},
 };
 
@@ -13,11 +14,13 @@ use crate::{
     types::{GroupId, InstallationId},
     verified_key_package_v2::VerifiedKeyPackageV2,
 };
+use error::LocalClientError;
 use futures::{Stream, StreamExt};
 use openmls::prelude::ProtocolMessage;
 use parking_lot::{Mutex, RwLock};
 use tls_codec::Serialize;
 use tokio::sync::broadcast;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     identity::api::v1::prelude::{
@@ -32,7 +35,9 @@ use xmtp_proto::{
 };
 
 mod error;
-mod process;
+mod local_backend;
+mod modification;
+use modification::ModificationType;
 
 type Result<T> = std::result::Result<T, error::LocalClientError>;
 
@@ -52,12 +57,13 @@ pub struct LocalTestClient {
     welcome_cursor: Arc<AtomicUsize>,
     sequence_id: Arc<AtomicUsize>,
     tx: broadcast::Sender<WelcomeOrMessage>,
+    modification: Arc<Mutex<HashMap<&'static str, Vec<ModificationType>>>>,
 }
 
 #[derive(Clone, Debug)]
 enum WelcomeOrMessage {
-    Message(Vec<LocalGroupMessage>),
-    Welcome(Vec<LocalWelcomeMessage>),
+    Message(LocalGroupMessage),
+    Welcome(LocalWelcomeMessage),
 }
 
 impl Default for LocalTestClient {
@@ -70,6 +76,7 @@ impl Default for LocalTestClient {
             welcome_cursor: Arc::new(AtomicUsize::new(1)),
             sequence_id: Arc::new(AtomicUsize::new(1)),
             tx,
+            modification: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -84,6 +91,7 @@ pub struct IdentityLogs {
 #[derive(Clone, Default, Debug)]
 struct InboxLog {
     sequence_id: usize,
+    #[allow(unused)]
     inbox_id: Vec<u8>,
     identity_update: IdentityUpdate,
     server_timestamp_ns: i64,
@@ -161,6 +169,7 @@ struct LocalWelcomeMessage {
     installation_key: Vec<u8>,
     data: Vec<u8>,
     hpke_public_key: Vec<u8>,
+    #[allow(unused)]
     installation_key_data_hash: Vec<u8>,
 }
 
@@ -215,11 +224,18 @@ impl LocalTestClient {
     }
 
     fn notify_subscriptions(&self, diff: &State) {
-        for message in diff.messages.values().cloned() {
-            let _ = self.tx.send(WelcomeOrMessage::Message(message));
+        for msgs in diff.messages.values().cloned() {
+            tracing::info!("NOTIFYING message: {}", get_id_list(msgs.as_slice()));
+
+            msgs.into_iter().for_each(|m| {
+                let _ = self.tx.send(WelcomeOrMessage::Message(m));
+            });
         }
-        for welcome in diff.welcomes.values().cloned() {
-            let _ = self.tx.send(WelcomeOrMessage::Welcome(welcome));
+        for welcomes in diff.welcomes.values().cloned() {
+            tracing::info!("NOTIFYING welcome: {}", get_id_list(welcomes.as_slice()));
+            welcomes.into_iter().for_each(|w| {
+                let _ = self.tx.send(WelcomeOrMessage::Welcome(w));
+            });
         }
     }
 
@@ -272,14 +288,12 @@ impl XmtpMlsClient for LocalTestClient {
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse> {
-        let mut ret = Vec::new();
-        for key in request.installation_keys.iter() {
-            let kp = self.key_package(key.clone());
-            ret.push(fetch_key_packages_response::KeyPackage {
-                key_package_tls_serialized: kp.inner.tls_serialize_detached()?,
-            })
+        let mut response = self.fetch_key_packages_local(request)?;
+        if let Some(m) = self.get_mod(std::any::type_name::<FetchKeyPackagesResponse>()) {
+            let f = m.fetch_kps();
+            f(&mut response)
         }
-        Ok(FetchKeyPackagesResponse { key_packages: ret })
+        Ok(response)
     }
 
     #[tracing::instrument(level = "info")]
@@ -303,60 +317,12 @@ impl XmtpMlsClient for LocalTestClient {
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse> {
-        let QueryGroupMessagesRequest {
-            group_id,
-            paging_info,
-        } = request;
-        let mut messages = self.group_messages(group_id);
-        let mut limit = 100; // 100 is the max limit
-        let mut paging_info_out = PagingInfo::default();
-        let mut id_cursor = 0;
-        // default descending
-        messages.sort_by_key(|m| std::cmp::Reverse(m.id));
-        tracing::info!("total messages {}", get_id_list(messages.as_slice()));
-
-        if let Some(info) = paging_info {
-            id_cursor = info.id_cursor;
-            tracing::info!("queried from id: {id_cursor} direction {}", info.direction);
-
-            limit = std::cmp::min(info.limit, limit);
-            match info.direction {
-                0 => paging_info_out.direction = 0,
-                1 => {
-                    // Ascending
-                    paging_info_out.direction = 1;
-                    messages.reverse()
-                }
-                2 => paging_info_out.direction = 2, // Descending
-                _ => unreachable!(),
-            };
+        let mut response = self.query_group_messages_local(request)?;
+        if let Some(m) = self.get_mod(std::any::type_name::<QueryGroupMessagesResponse>()) {
+            let f = m.query_group_messages();
+            f(&mut response)
         }
-
-        if id_cursor > 0 {
-            messages.retain(|m| m.id > id_cursor as usize);
-            if messages.len() > 0 {
-                let limit = std::cmp::min(messages.len(), limit as usize);
-                let _ = messages.split_off(limit);
-            }
-        } else {
-            let limit = std::cmp::min(messages.len(), limit as usize);
-            messages = messages[0..limit as usize].to_vec();
-        }
-
-        if messages.len() >= limit as usize {
-            if let Some(last) = messages.last() {
-                paging_info_out.id_cursor = last.id as u64;
-            }
-        }
-        tracing::info!(
-            "returning messages with ids: [{}]",
-            get_id_list(messages.as_slice())
-        );
-
-        Ok(QueryGroupMessagesResponse {
-            messages: messages.into_iter().map(Into::into).collect(),
-            paging_info: Some(paging_info_out),
-        })
+        Ok(response)
     }
 
     #[tracing::instrument(level = "info")]
@@ -364,61 +330,12 @@ impl XmtpMlsClient for LocalTestClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse> {
-        let QueryWelcomeMessagesRequest {
-            installation_key,
-            paging_info,
-        } = request;
-
-        let mut messages = self.welcome_messages(installation_key);
-        let mut limit = 100; // 100 is the max limit
-        let mut paging_info_out = PagingInfo::default();
-        let mut id_cursor = 0;
-        // default descending
-        messages.sort_by_key(|m| std::cmp::Reverse(m.id));
-        tracing::info!("total welcomes {}", get_id_list(messages.as_slice()));
-
-        if let Some(info) = paging_info {
-            id_cursor = info.id_cursor;
-            tracing::info!("queried from id: {id_cursor} direction {}", info.direction);
-
-            limit = std::cmp::min(info.limit, limit);
-            match info.direction {
-                0 => paging_info_out.direction = 0,
-                1 => {
-                    // ascending
-                    paging_info_out.direction = 1;
-                    messages.reverse()
-                }
-                2 => paging_info_out.direction = 2, // Descending
-                _ => unreachable!(),
-            };
+        let mut response = self.query_welcome_messages_local(request)?;
+        if let Some(m) = self.get_mod(std::any::type_name::<QueryWelcomeMessagesResponse>()) {
+            let f = m.query_welcome_messages();
+            f(&mut response)
         }
-
-        if id_cursor > 0 {
-            messages.retain(|m| m.id > id_cursor as usize);
-            if messages.len() > 0 {
-                let limit = std::cmp::min(messages.len(), limit as usize);
-                let _ = messages.split_off(limit);
-            }
-        } else {
-            let limit = std::cmp::min(messages.len(), limit as usize);
-            messages = messages[0..limit].to_vec();
-        }
-
-        if messages.len() >= limit as usize {
-            if let Some(last) = messages.last() {
-                paging_info_out.id_cursor = last.id as u64;
-            }
-        }
-
-        tracing::info!(
-            "returning welcomes with id [{}]",
-            get_id_list(messages.as_slice())
-        );
-        Ok(QueryWelcomeMessagesResponse {
-            messages: messages.into_iter().map(Into::into).collect(),
-            paging_info: Some(paging_info_out),
-        })
+        Ok(response)
     }
 }
 
@@ -432,8 +349,7 @@ impl XmtpIdentityClient for LocalTestClient {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse> {
-        let logs =
-            self.apply(request.process(Some(&self.sequence_id), Some(self.identity_logs.clone()))?);
+        self.apply(request.process(Some(&self.sequence_id), Some(self.identity_logs.clone()))?);
 
         Ok(PublishIdentityUpdateResponse {})
     }
@@ -443,78 +359,24 @@ impl XmtpIdentityClient for LocalTestClient {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response> {
-        let GetIdentityUpdatesV2Request { requests } = request;
-        use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
-        use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
-        use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
-        let mut ret = Vec::new();
-
-        let logs = self.identity_logs.read();
-        for Request {
-            inbox_id,
-            sequence_id,
-        } in requests.into_iter()
-        {
-            if let Some(log) = logs.inbox_logs.get(&hex::decode(&inbox_id)?) {
-                let mut log = log.clone();
-                log.sort_by_key(|k| k.sequence_id);
-                let index = log
-                    .binary_search_by_key(&sequence_id, |k| k.sequence_id as u64)
-                    .unwrap_or(0);
-                let updates = log[index..]
-                    .iter()
-                    .cloned()
-                    .map(|log| IdentityUpdateLog {
-                        sequence_id: log.sequence_id as u64,
-                        server_timestamp_ns: log.server_timestamp_ns as u64,
-                        update: Some(log.identity_update),
-                    })
-                    .collect();
-                ret.push(Response {
-                    inbox_id: inbox_id.clone(),
-                    updates,
-                })
-            }
+        let mut response = self.query_identity_updates_v2(request)?;
+        if let Some(m) = self.get_mod(std::any::type_name::<GetIdentityUpdatesV2Response>()) {
+            let f = m.get_identity_updates();
+            f(&mut response)
         }
-        Ok(GetIdentityUpdatesV2Response { responses: ret })
+
+        Ok(response)
     }
 
     // recent active (non-revoked) assciation for each address in a provided list.
     #[tracing::instrument(level = "info")]
     async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse> {
-        use xmtp_proto::xmtp::identity::api::v1::get_inbox_ids_request::Request;
-        use xmtp_proto::xmtp::identity::api::v1::get_inbox_ids_response::Response;
-
-        let logs = self.identity_logs.read();
-        let mut ret = Vec::new();
-        for Request {
-            address: target_address,
-        } in request.requests.into_iter()
-        {
-            let mut address_logs: Vec<AddressLog> = logs
-                .address_logs
-                .iter()
-                .filter(|((_, addr), _)| *addr == target_address)
-                .map(|(_, logs)| logs)
-                .cloned()
-                .flatten()
-                .filter(|l| l.revocation_sequence_id.is_none())
-                .collect();
-            address_logs.sort_by_key(|k| k.association_sequence_id);
-            // get maximum
-            address_logs.reverse();
-            address_logs.dedup_by_key(|k| k.address.clone());
-
-            let logs: Vec<_> = address_logs
-                .into_iter()
-                .map(|l| Response {
-                    address: l.address,
-                    inbox_id: Some(hex::encode(l.inbox_id)),
-                })
-                .collect();
-            ret.extend(logs);
+        let mut response = self.query_get_inbox_ids(request)?;
+        if let Some(m) = self.get_mod(std::any::type_name::<GetInboxIdsResponse>()) {
+            let f = m.get_inbox_ids();
+            f(&mut response)
         }
-        Ok(GetInboxIdsResponse { responses: ret })
+        Ok(response)
     }
 
     #[tracing::instrument(level = "info")]
@@ -532,48 +394,162 @@ impl XmtpIdentityClient for LocalTestClient {
                 error: None,
             })
         }
+        let mut response = VerifySmartContractWalletSignaturesResponse { responses: ret };
+        if let Some(m) = self.get_mod(std::any::type_name::<
+            VerifySmartContractWalletSignaturesResponse,
+        >()) {
+            let f = m.verify_scw_signatures();
+            f(&mut response)
+        }
 
-        Ok(VerifySmartContractWalletSignaturesResponse { responses: ret })
+        Ok(response)
     }
 }
 
 #[async_trait::async_trait]
 impl XmtpMlsStreams for LocalTestClient {
-    type GroupMessageStream<'a> =
-        Box<dyn Stream<Item = Result<GroupMessage>> + Unpin + Send + Sync>;
-    type WelcomeMessageStream<'a> =
-        Box<dyn Stream<Item = Result<WelcomeMessage>> + Unpin + Send + Sync>;
+    type GroupMessageStream<'a> = Pin<Box<dyn Stream<Item = Result<GroupMessage>> + Send>>;
+    type WelcomeMessageStream<'a> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage>> + Send>>;
     type Error = error::LocalClientError;
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>> {
-        use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
-        use xmtp_proto::xmtp::mls::api::v1::group_message::V1;
-
         let receiver = self.tx.subscribe();
         let s = tokio_stream::wrappers::BroadcastStream::new(receiver);
-        s.filter_map(|m| match m {
-            Ok(WelcomeOrMessage::Message(msgs)) => msgs.into_iter().map(|m| GroupMessage {
-                version: Some(Version::V1(V1 {
-                    id: m.id as u64,
-                    created_ns: m.created as u64,
-                    group_id: m.msg.group_id().to_vec(),
-                    data: m.data,
-                    sender_hmac: m.sender_hmac,
-                })),
-            }),
-            _ => None,
-        })
-        .boxed()
+        let mut historic_messages = Vec::new();
+        let SubscribeGroupMessagesRequest { ref filters } = request;
+        for filter in filters {
+            let mut msgs = self.group_messages(filter.group_id.clone());
+            msgs.reverse();
+            historic_messages.extend(msgs.into_iter().map(|m| WelcomeOrMessage::Message(m)));
+        }
+        let r = request.clone();
+        let historic_stream = futures::stream::iter(historic_messages).filter_map(move |m| {
+            let item = filter_message(r.clone(), Ok(m));
+            futures::future::ready(item)
+        });
+        let broadcast_stream = s.filter_map(move |m| {
+            let item = filter_message(request.clone(), m);
+            futures::future::ready(item)
+        });
+
+        let this = self.clone();
+        Ok(historic_stream
+            .chain(broadcast_stream)
+            .map(move |msg| {
+                let mut msg = msg?;
+                if let Some(m) = this.get_mod(std::any::type_name::<GroupMessage>()) {
+                    let f = m.next_streamed_message();
+                    f(&mut msg)
+                }
+                Ok(msg.clone())
+            })
+            .boxed())
     }
 
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream<'_>> {
-        todo!()
+        let receiver = self.tx.subscribe();
+        let s = tokio_stream::wrappers::BroadcastStream::new(receiver);
+        let SubscribeWelcomeMessagesRequest { ref filters } = request;
+        let mut historic_messages = Vec::new();
+
+        for filter in filters {
+            let mut msgs = self.welcome_messages(filter.installation_key.clone());
+            msgs.reverse();
+            historic_messages.extend(msgs.into_iter().map(|w| WelcomeOrMessage::Welcome(w)));
+        }
+        let r = request.clone();
+        let historic_stream = futures::stream::iter(historic_messages).filter_map(move |m| {
+            let item = filter_welcome(r.clone(), Ok(m));
+            futures::future::ready(item)
+        });
+
+        let broadcast_stream = s
+            .filter_map(move |m| {
+                let item = filter_welcome(request.clone(), m);
+                futures::future::ready(item)
+            })
+            .boxed();
+
+        let this = self.clone();
+        Ok(historic_stream
+            .chain(broadcast_stream)
+            .map(move |msg| {
+                let mut msg = msg?;
+                if let Some(m) = this.get_mod(std::any::type_name::<WelcomeMessage>()) {
+                    let f = m.next_streamed_welcome();
+                    f(&mut msg)
+                }
+                Ok(msg.clone())
+            })
+            .boxed())
+    }
+}
+
+fn filter_message(
+    request: SubscribeGroupMessagesRequest,
+    msg: std::result::Result<WelcomeOrMessage, BroadcastStreamRecvError>,
+) -> Option<Result<GroupMessage>> {
+    use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+    use xmtp_proto::xmtp::mls::api::v1::group_message::V1;
+
+    match msg {
+        Ok(WelcomeOrMessage::Message(msg)) => {
+            // ensure that passes filter
+            if !request
+                .filters
+                .iter()
+                .any(|f| msg.msg.group_id().to_vec() == f.group_id && msg.id > f.id_cursor as usize)
+            {
+                return None;
+            }
+            Some(Ok::<_, LocalClientError>(GroupMessage {
+                version: Some(Version::V1(V1 {
+                    id: msg.id as u64,
+                    created_ns: msg.created as u64,
+                    group_id: msg.msg.group_id().to_vec(),
+                    data: msg.data,
+                    sender_hmac: msg.sender_hmac,
+                })),
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn filter_welcome(
+    request: SubscribeWelcomeMessagesRequest,
+    msg: std::result::Result<WelcomeOrMessage, BroadcastStreamRecvError>,
+) -> Option<Result<WelcomeMessage>> {
+    use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version;
+    use xmtp_proto::xmtp::mls::api::v1::welcome_message::V1;
+
+    match msg {
+        Ok(WelcomeOrMessage::Welcome(w)) => {
+            // ensure that passes filter
+            if !request
+                .filters
+                .iter()
+                .any(|f| w.installation_key == f.installation_key && w.id > f.id_cursor as usize)
+            {
+                return None;
+            }
+            Some(Ok::<_, LocalClientError>(WelcomeMessage {
+                version: Some(Version::V1(V1 {
+                    id: w.id as u64,
+                    created_ns: w.created_at as u64,
+                    installation_key: w.installation_key,
+                    data: w.data,
+                    hpke_public_key: w.hpke_public_key,
+                })),
+            }))
+        }
+        _ => None,
     }
 }
 

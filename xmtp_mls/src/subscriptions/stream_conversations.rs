@@ -619,5 +619,32 @@ mod test {
     #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
     async fn stream_continues_after_error() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let stream = alix
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        alix.create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        let _self_group = stream.next().await.unwrap();
+
+        let group = bo
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[alix.inbox_id()])
+            .await
+            .unwrap();
+        let _bo_group = stream.next().await.unwrap();
+
+        // Verify syncing welcomes while streaming causes no issues
+        alix.sync_welcomes(&alix.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(2, find_groups_results.len());
     }
 }
