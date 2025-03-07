@@ -147,7 +147,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 let account_identifier = Identifier::from_proto(
                     &action_proto.initial_identifier,
                     kind,
-                    action_proto.relying_partner,
+                    action_proto.relying_party,
                 )?;
 
                 UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
@@ -168,7 +168,7 @@ impl TryFrom<IdentityActionKindProto> for UnverifiedAction {
                 let new_recovery_identifier = Identifier::from_proto(
                     &action_proto.new_recovery_identifier,
                     kind,
-                    action_proto.relying_partner,
+                    action_proto.relying_party,
                 )?;
                 UnverifiedAction::ChangeRecoveryAddress(UnverifiedChangeRecoveryAddress {
                     recovery_identifier_signature: action_proto
@@ -290,8 +290,8 @@ impl From<UnverifiedAction> for IdentityActionProto {
             UnverifiedAction::CreateInbox(action) => {
                 let account_identifier = action.unsigned_action.account_identifier;
                 let initial_identifier = format!("{account_identifier}");
-                let relying_partner = match &account_identifier {
-                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
+                let relying_party = match &account_identifier {
+                    Identifier::Passkey(pk) => pk.relying_party.clone(),
                     _ => None,
                 };
                 let initial_identifier_kind: IdentifierKind = account_identifier.into();
@@ -300,12 +300,12 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     initial_identifier,
                     initial_identifier_kind: initial_identifier_kind as i32,
                     initial_identifier_signature: Some(action.initial_identifier_signature.into()),
-                    relying_partner,
+                    relying_party,
                 })
             }
             UnverifiedAction::AddAssociation(action) => {
-                let relying_partner = match &action.unsigned_action.new_member_identifier {
-                    MemberIdentifier::Passkey(pk) => pk.relying_partner.clone(),
+                let relying_party = match &action.unsigned_action.new_member_identifier {
+                    MemberIdentifier::Passkey(pk) => pk.relying_party.clone(),
                     _ => None,
                 };
                 IdentityActionKindProto::Add(AddAssociationProto {
@@ -314,14 +314,14 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     ),
                     existing_member_signature: Some(action.existing_member_signature.into()),
                     new_member_signature: Some(action.new_member_signature.into()),
-                    relying_partner,
+                    relying_party,
                 })
             }
             UnverifiedAction::ChangeRecoveryAddress(action) => {
                 let new_recovery_identifier = action.unsigned_action.new_recovery_identifier;
                 let new_recovery_identifier_string = format!("{new_recovery_identifier}");
-                let relying_partner = match &new_recovery_identifier {
-                    Identifier::Passkey(pk) => pk.relying_partner.clone(),
+                let relying_party = match &new_recovery_identifier {
+                    Identifier::Passkey(pk) => pk.relying_party.clone(),
                     _ => None,
                 };
                 let new_recovery_identifier_kind: IdentifierKind = new_recovery_identifier.into();
@@ -331,7 +331,7 @@ impl From<UnverifiedAction> for IdentityActionProto {
                     existing_recovery_identifier_signature: Some(
                         action.recovery_identifier_signature.into(),
                     ),
-                    relying_partner,
+                    relying_party,
                 })
             }
             UnverifiedAction::RevokeAssociation(action) => {
@@ -443,13 +443,12 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
             MemberIdentifierKindProto::InstallationPublicKey(public_key) => {
                 Self::Installation(ident::Installation(public_key))
             }
-            MemberIdentifierKindProto::Passkey(PasskeyProto {
-                key,
-                relying_partner,
-            }) => Self::Passkey(ident::Passkey {
-                key,
-                relying_partner,
-            }),
+            MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party }) => {
+                Self::Passkey(ident::Passkey {
+                    key,
+                    relying_party: relying_party,
+                })
+            }
         }
     }
 }
@@ -497,11 +496,11 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
             }
             MemberIdentifier::Passkey(ident::Passkey {
                 key,
-                relying_partner,
+                relying_party: relying_party,
             }) => MemberIdentifierProto {
                 kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
                     key,
-                    relying_partner,
+                    relying_party,
                 })),
             },
         }
@@ -519,13 +518,12 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)) => Ok(
                 MemberIdentifier::Installation(ident::Installation(public_key)),
             ),
-            Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
-                key,
-                relying_partner,
-            })) => Ok(MemberIdentifier::Passkey(ident::Passkey {
-                key,
-                relying_partner,
-            })),
+            Some(MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party })) => {
+                Ok(MemberIdentifier::Passkey(ident::Passkey {
+                    key,
+                    relying_party: relying_party,
+                }))
+            }
             None => Err(ConversionError::Missing {
                 item: "member_identifier",
                 r#type: std::any::type_name::<MemberIdentifierKindProto>(),
@@ -546,10 +544,11 @@ impl From<AssociationState> for AssociationStateProto {
             .collect();
 
         let kind: IdentifierKind = (&state.recovery_identifier).into();
-        let relying_partner = match &state.recovery_identifier {
+        let relying_party = match &state.recovery_identifier {
             Identifier::Passkey(ident::Passkey {
-                relying_partner, ..
-            }) => relying_partner.clone(),
+                relying_party: relying_party,
+                ..
+            }) => relying_party.clone(),
             _ => None,
         };
 
@@ -559,7 +558,7 @@ impl From<AssociationState> for AssociationStateProto {
             recovery_identifier: state.recovery_identifier.to_string(),
             recovery_identifier_kind: kind as i32,
             seen_signatures: state.seen_signatures.into_iter().collect(),
-            relying_partner,
+            relying_party,
         }
     }
 }
@@ -573,7 +572,7 @@ impl TryFrom<AssociationStateProto> for AssociationState {
             kind => kind,
         };
         let recovery_identifier =
-            Identifier::from_proto(&proto.recovery_identifier, kind, proto.relying_partner)?;
+            Identifier::from_proto(&proto.recovery_identifier, kind, proto.relying_party)?;
 
         let members = proto
             .members

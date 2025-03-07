@@ -3,6 +3,7 @@ use ethers::types::Signature as EthersSignature;
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
@@ -120,6 +121,10 @@ impl VerifiedSignature {
             Err(_) => return Err(SignatureError::Invalid),
         };
 
+        let json: Value = serde_json::from_slice(client_data_json).unwrap();
+        tracing::info!("Value: {json:?}");
+        let relying_party
+
         // 3. Hash the client data
         let mut hasher = Sha256::new();
         hasher.update(client_data_json);
@@ -137,7 +142,7 @@ impl VerifiedSignature {
         Ok(Self::new(
             MemberIdentifier::Passkey(ident::Passkey {
                 key: public_key.to_vec(),
-                relying_partner: None,
+                relying_party: None,
             }),
             SignatureKind::P256,
             signature.to_vec(),
