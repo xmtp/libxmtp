@@ -20,7 +20,6 @@ futures.workspace = true
 hex.workspace = true
 openmls_traits.workspace = true
 p256.workspace = true
-spki.workspace = true
 prost.workspace = true
 rand.workspace = true
 regex.workspace = true

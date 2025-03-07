@@ -4,7 +4,6 @@ use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
-use spki::{der::Decode, AlgorithmIdentifier, SubjectPublicKeyInfo};
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
@@ -109,26 +108,8 @@ impl VerifiedSignature {
         authenticator_data: &[u8],
         client_data_json: &[u8],
     ) -> Result<Self, SignatureError> {
-        // Safety check to ensure we have enough data
-        if public_key.len() < 27 {
-            return Err(SignatureError::InvalidPublicKey);
-        }
-
-        // Check if the format marker for uncompressed point is present (0x04)
-        if public_key[26] != 4 {
-            return Err(SignatureError::InvalidPublicKey);
-        }
-
-        // Extract just the uncompressed EC point (65 bytes total: 0x04 + 32 bytes X + 32 bytes Y)
-        let ec_point_data = &public_key[26..];
-
-        // Make sure we have enough data for the entire EC point
-        if ec_point_data.len() < 65 {
-            return Err(SignatureError::InvalidPublicKey);
-        }
-
         // 1. Parse the public key from raw bytes
-        let verifying_key = match VerifyingKey::from_sec1_bytes(ec_point_data) {
+        let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
             Ok(key) => key,
             Err(_err) => return Err(SignatureError::InvalidPublicKey),
         };
