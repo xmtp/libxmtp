@@ -5312,4 +5312,126 @@ pub(crate) mod tests {
             .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
         assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
     }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
+        // Create two clients with different versions
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a group and adds bo
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Amal sets minimum version requirement
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        // Bo joins group and attempts to send message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+
+        // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        assert!(
+            matches!(result, Err(GroupError::SyncFailedToWait)),
+            "Expected SyncFailedToWait error, got {:?}",
+            result
+        );
+
+        bo_group.sync().await.unwrap();
+
+        // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
+            assert_eq!(version, amal.version_info().pkg_version());
+        } else {
+            panic!("Expected GroupPausedUntilUpdate error, got {:?}", result);
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_send_message_after_min_version_update_gets_expected_error() {
+        // Create two clients with different versions
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a group and adds bo
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Bo joins group and successfully sends initial message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        bo_group
+            .send_message("Hello from Bo".as_bytes())
+            .await
+            .unwrap();
+
+        // Amal sets new minimum version requirement
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        // Bo's attempt to send message before syncing should now fail with SyncFailedToWait error
+        let result = bo_group
+            .send_message("Second message from Bo".as_bytes())
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::SyncFailedToWait)),
+            "Expected SyncFailedToWait error, got {:?}",
+            result
+        );
+
+        // Bo syncs to get the version update
+        bo_group.sync().await.unwrap();
+
+        // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
+            assert_eq!(version, amal.version_info().pkg_version());
+        } else {
+            panic!("Expected GroupPausedUntilUpdate error, got {:?}", result);
+        }
+
+        // Verify Bo can send again after updating their version
+        let bo_version = bo.version_info().pkg_version();
+        bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+
+        // Need to get fresh group reference after version update
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Should now succeed
+        let result = bo_group
+            .send_message("Message after update".as_bytes())
+            .await;
+        assert!(result.is_ok());
+    }
 }
