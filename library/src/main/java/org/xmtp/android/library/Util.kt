@@ -15,3 +15,13 @@ class Util {
 fun ByteArray.toHex(): String = joinToString(separator = "") { eachByte -> "%02x".format(eachByte) }
 
 fun String.hexToByteArray(): ByteArray = Numeric.hexStringToByteArray(this)
+
+fun validateInboxId(inboxId: InboxId) {
+    if (inboxId.startsWith("0x", ignoreCase = true)) {
+        throw XMTPException("Invalid inboxId: $inboxId. Inbox IDs cannot start with '0x'.")
+    }
+}
+
+fun validateInboxIds(inboxIds: List<InboxId>) {
+    inboxIds.iterator().forEach { validateInboxId(it) }
+}

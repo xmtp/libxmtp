@@ -1,16 +1,17 @@
 package org.xmtp.android.library.libxmtp
 
+import org.xmtp.android.library.InboxId
 import uniffi.xmtpv3.FfiInboxState
 
 class InboxState(private val ffiInboxState: FfiInboxState) {
-    val inboxId: String
+    val inboxId: InboxId
         get() = ffiInboxState.inboxId
-    val addresses: List<String>
-        get() = ffiInboxState.accountAddresses
+    val identities: List<PublicIdentity>
+        get() = ffiInboxState.accountIdentities.map { PublicIdentity(it) }
 
     val installations: List<Installation>
         get() = ffiInboxState.installations.map { Installation(it) }
 
-    val recoveryAddress: String
-        get() = ffiInboxState.recoveryAddress
+    val recoveryPublicIdentity: PublicIdentity
+        get() = PublicIdentity(ffiInboxState.recoveryIdentity)
 }

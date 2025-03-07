@@ -59,23 +59,8 @@ class ConnectWalletFragment : Fragment() {
         binding.generateButton.setOnClickListener {
             viewModel.generateWallet()
         }
-
-        val isConnectWalletAvailable = isConnectAvailable()
-        binding.connectButton.isEnabled = isConnectWalletAvailable
-        binding.connectError.isVisible = !isConnectWalletAvailable
-        binding.connectButton.setOnClickListener {
-            WalletConnectModal.setSessionParams(viewModel.getSessionParams())
-            findNavController().openWalletConnectModal(id = R.id.action_to_bottomSheet)
-        }
-
     }
 
-    private fun isConnectAvailable(): Boolean {
-        val wcIntent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse(WC_URI_SCHEME)
-        }
-        return wcIntent.resolveActivity(requireActivity().packageManager) != null
-    }
 
     private fun ensureUiState(uiState: ConnectWalletViewModel.ConnectUiState) {
         when (uiState) {
@@ -112,8 +97,6 @@ class ConnectWalletFragment : Fragment() {
     private fun showError(message: String) {
         binding.progress.visibility = View.GONE
         binding.generateButton.visibility = View.VISIBLE
-        binding.connectButton.visibility = View.VISIBLE
-        binding.connectError.isVisible = !isConnectAvailable()
         Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 

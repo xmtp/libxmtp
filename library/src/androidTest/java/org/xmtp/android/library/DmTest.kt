@@ -21,11 +21,14 @@ import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.GenericException
 
 @RunWith(AndroidJUnit4::class)
 class DmTest {
@@ -57,9 +60,9 @@ class DmTest {
     @Test
     fun testCanCreateADm() {
         runBlocking {
-            val convo1 = boClient.conversations.findOrCreateDm(alix.walletAddress)
+            val convo1 = boClient.conversations.findOrCreateDm(alixClient.inboxId)
             alixClient.conversations.sync()
-            val sameConvo1 = alixClient.conversations.findOrCreateDm(bo.walletAddress)
+            val sameConvo1 = alixClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(convo1.id, sameConvo1.id)
         }
     }
@@ -67,9 +70,19 @@ class DmTest {
     @Test
     fun testCanCreateADmWithInboxId() {
         runBlocking {
-            val convo1 = boClient.conversations.findOrCreateDmWithInboxId(alixClient.inboxId)
+            val convo1 = boClient.conversations.findOrCreateDmWithIdentity(
+                PublicIdentity(
+                    IdentityKind.ETHEREUM,
+                    alix.walletAddress
+                )
+            )
             alixClient.conversations.sync()
-            val sameConvo1 = alixClient.conversations.findOrCreateDmWithInboxId(boClient.inboxId)
+            val sameConvo1 = alixClient.conversations.findOrCreateDmWithIdentity(
+                PublicIdentity(
+                    IdentityKind.ETHEREUM,
+                    bo.walletAddress
+                )
+            )
             assertEquals(convo1.id, sameConvo1.id)
         }
     }
@@ -77,7 +90,7 @@ class DmTest {
     @Test
     fun testsCanFindDmByInboxId() {
         runBlocking {
-            val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
+            val dm = boClient.conversations.findOrCreateDm(caroClient.inboxId)
 
             val caroDm = boClient.conversations.findDmByInboxId(caroClient.inboxId)
             val alixDm = boClient.conversations.findDmByInboxId(alixClient.inboxId)
@@ -87,12 +100,22 @@ class DmTest {
     }
 
     @Test
-    fun testsCanFindDmByAddress() {
+    fun testsCanFindDmByIdentity() {
         runBlocking {
-            val dm = boClient.conversations.findOrCreateDm(caro.walletAddress)
+            val dm = boClient.conversations.findOrCreateDm(caroClient.inboxId)
 
-            val caroDm = boClient.conversations.findDmByAddress(caro.walletAddress)
-            val alixDm = boClient.conversations.findDmByAddress(alix.walletAddress)
+            val caroDm = boClient.conversations.findDmByIdentity(
+                PublicIdentity(
+                    IdentityKind.ETHEREUM,
+                    caro.walletAddress
+                )
+            )
+            val alixDm = boClient.conversations.findDmByIdentity(
+                PublicIdentity(
+                    IdentityKind.ETHEREUM,
+                    alix.walletAddress
+                )
+            )
             assertNull(alixDm)
             assertEquals(caroDm?.id, dm.id)
         }
@@ -102,7 +125,7 @@ class DmTest {
     fun testCanListDmMembers() {
         val dm = runBlocking {
             boClient.conversations.findOrCreateDm(
-                alix.walletAddress,
+                alixClient.inboxId,
             )
         }
         assertEquals(
@@ -135,22 +158,22 @@ class DmTest {
         val chuxAccount = PrivateKeyBuilder()
         val chux: PrivateKey = chuxAccount.getPrivateKey()
 
-        assertThrows("Recipient not on network", XMTPException::class.java) {
-            runBlocking { boClient.conversations.findOrCreateDm(chux.walletAddress) }
+        assertThrows(GenericException::class.java) {
+            runBlocking { boClient.conversations.findOrCreateDmWithIdentity(PublicIdentity(IdentityKind.ETHEREUM, chux.walletAddress)) }
         }
     }
 
     @Test
     fun testCannotStartDmWithSelf() {
         assertThrows("Recipient is sender", XMTPException::class.java) {
-            runBlocking { boClient.conversations.findOrCreateDm(bo.walletAddress) }
+            runBlocking { boClient.conversations.findOrCreateDm(boClient.inboxId) }
         }
     }
 
     @Test
     fun testDmStartsWithAllowedState() {
         runBlocking {
-            val dm = boClient.conversations.findOrCreateDm(alix.walletAddress)
+            val dm = boClient.conversations.findOrCreateDm(alixClient.inboxId)
             dm.send("howdy")
             dm.send("gm")
             dm.sync()
@@ -164,9 +187,9 @@ class DmTest {
 
     @Test
     fun testsCanListDmsFiltered() {
-        runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
-        runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+        runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
+        runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
+        val dm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         assertEquals(runBlocking { boClient.conversations.listDms().size }, 2)
         assertEquals(
             runBlocking { boClient.conversations.listDms(consentStates = listOf(ConsentState.ALLOWED)).size },
@@ -197,11 +220,11 @@ class DmTest {
 
     @Test
     fun testCanListDmsOrder() {
-        val dm1 = runBlocking { boClient.conversations.findOrCreateDm(caro.walletAddress) }
+        val dm1 = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
         val dm2 =
-            runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+            runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         val group =
-            runBlocking { boClient.conversations.newGroup(listOf(caro.walletAddress)) }
+            runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
         runBlocking { dm2.send("Howdy") }
         runBlocking { group.send("Howdy") }
         runBlocking { boClient.conversations.syncAllConversations() }
@@ -212,7 +235,7 @@ class DmTest {
 
     @Test
     fun testCanSendMessageToDm() {
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+        val dm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         runBlocking { dm.send("howdy") }
         val messageId = runBlocking { dm.send("gm") }
         runBlocking { dm.sync() }
@@ -233,7 +256,7 @@ class DmTest {
 
     @Test
     fun testCanListDmMessages() {
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+        val dm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         runBlocking {
             dm.send("howdy")
             dm.send("gm")
@@ -268,7 +291,7 @@ class DmTest {
     fun testCanSendContentTypesToDm() {
         Client.register(codec = ReactionCodec())
 
-        val dm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+        val dm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         runBlocking { dm.send("gm") }
         runBlocking { dm.sync() }
         val messageToReact = runBlocking { dm.messages() }[0]
@@ -299,9 +322,14 @@ class DmTest {
 
     @Test
     fun testCanStreamDmMessages() = kotlinx.coroutines.test.runTest {
-        val group = boClient.conversations.findOrCreateDm(alix.walletAddress.lowercase())
+        val group = boClient.conversations.findOrCreateDm(alixClient.inboxId)
         alixClient.conversations.sync()
-        val alixDm = alixClient.conversations.findDmByAddress(bo.walletAddress)
+        val alixDm = alixClient.conversations.findDmByIdentity(
+            PublicIdentity(
+                IdentityKind.ETHEREUM,
+                bo.walletAddress
+            )
+        )
         group.streamMessages().test {
             alixDm?.send("hi")
             assertEquals("hi", awaitItem().body)
@@ -312,7 +340,7 @@ class DmTest {
 
     @Test
     fun testCanStreamAllMessages() {
-        val boDm = runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
+        val boDm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         runBlocking { alixClient.conversations.sync() }
 
         val allMessages = mutableListOf<Message>()
@@ -335,7 +363,7 @@ class DmTest {
         assertEquals(2, allMessages.size)
 
         val caroDm =
-            runBlocking { caroClient.conversations.findOrCreateDm(alixClient.address) }
+            runBlocking { caroClient.conversations.findOrCreateDm(alixClient.inboxId) }
         Thread.sleep(2500)
 
         for (i in 0 until 2) {
@@ -352,10 +380,10 @@ class DmTest {
     fun testCanStreamConversations() = kotlinx.coroutines.test.runTest {
         boClient.conversations.stream(type = ConversationType.DMS).test {
             val dm =
-                alixClient.conversations.findOrCreateDm(bo.walletAddress)
+                alixClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(dm.id, awaitItem().id)
             val dm2 =
-                caroClient.conversations.findOrCreateDm(bo.walletAddress)
+                caroClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(dm2.id, awaitItem().id)
         }
     }
@@ -364,7 +392,7 @@ class DmTest {
     fun testDmConsent() {
         runBlocking {
             val dm =
-                boClient.conversations.findOrCreateDm(alix.walletAddress)
+                boClient.conversations.findOrCreateDm(alixClient.inboxId)
             assertEquals(
                 boClient.preferences.conversationState(dm.id),
                 ConsentState.ALLOWED
@@ -413,7 +441,7 @@ class DmTest {
 
         // Create group with disappearing messages enabled
         val boDm = boClient.conversations.findOrCreateDm(
-            alix.walletAddress,
+            alixClient.inboxId,
             disappearingMessageSettings = initialSettings
         )
         boDm.send("howdy")

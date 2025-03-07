@@ -9,9 +9,11 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
+import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PermissionLevel
 import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
@@ -50,7 +52,7 @@ class GroupPermissionsTest {
 
     @Test
     fun testGroupCreatedWithCorrectAdminList() {
-        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
         runBlocking { alixClient.conversations.sync() }
         val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
 
@@ -77,8 +79,8 @@ class GroupPermissionsTest {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
+                    alixClient.inboxId,
+                    caroClient.inboxId
                 ),
                 GroupPermissionPreconfiguration.ADMIN_ONLY
             )
@@ -179,8 +181,8 @@ class GroupPermissionsTest {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
+                    alixClient.inboxId,
+                    caroClient.inboxId
                 ),
                 GroupPermissionPreconfiguration.ADMIN_ONLY
             )
@@ -228,8 +230,8 @@ class GroupPermissionsTest {
         val group = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
+                    alixClient.inboxId,
+                    caroClient.inboxId
                 ),
                 GroupPermissionPreconfiguration.ADMIN_ONLY
             )
@@ -285,8 +287,8 @@ class GroupPermissionsTest {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
+                    alixClient.inboxId,
+                    caroClient.inboxId
                 ),
                 GroupPermissionPreconfiguration.ALL_MEMBERS
             )
@@ -324,8 +326,8 @@ class GroupPermissionsTest {
         val boGroup = runBlocking {
             boClient.conversations.newGroup(
                 listOf(
-                    alix.walletAddress,
-                    caro.walletAddress
+                    alixClient.inboxId,
+                    caroClient.inboxId
                 ),
                 GroupPermissionPreconfiguration.ADMIN_ONLY
             )
@@ -385,7 +387,7 @@ class GroupPermissionsTest {
         )
         val boGroup = runBlocking {
             boClient.conversations.newGroupCustomPermissions(
-                accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                inboxIds = listOf(alixClient.inboxId, caroClient.inboxId),
                 permissionPolicySet = permissionPolicySet,
             )
         }
@@ -420,7 +422,7 @@ class GroupPermissionsTest {
         assertThrows(GenericException.GroupMutablePermissions::class.java) {
             val boGroup = runBlocking {
                 boClient.conversations.newGroupCustomPermissions(
-                    accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                    inboxIds = listOf(alixClient.inboxId, caroClient.inboxId),
                     permissionPolicySet = permissionPolicySetInvalid,
                 )
             }
@@ -443,7 +445,7 @@ class GroupPermissionsTest {
 
         val boGroup = runBlocking {
             boClient.conversations.newGroupCustomPermissions(
-                accountAddresses = listOf(alix.walletAddress, caro.walletAddress),
+                inboxIds = listOf(alixClient.inboxId, caroClient.inboxId),
                 permissionPolicySet = permissionPolicySetValid,
             )
         }
@@ -464,8 +466,11 @@ class GroupPermissionsTest {
             updateMessageDisappearingPolicy = PermissionOption.Admin,
         )
         val boGroup = runBlocking {
-            boClient.conversations.newGroupCustomPermissionsWithInboxIds(
-                inboxIds = listOf(alixClient.inboxId, caroClient.inboxId),
+            boClient.conversations.newGroupCustomPermissionsWithIdentities(
+                identities = listOf(
+                    PublicIdentity(IdentityKind.ETHEREUM, alix.walletAddress),
+                    PublicIdentity(IdentityKind.ETHEREUM, caro.walletAddress)
+                ),
                 permissionPolicySet = permissionPolicySet,
             )
         }

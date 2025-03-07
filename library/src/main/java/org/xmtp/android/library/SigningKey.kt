@@ -1,13 +1,14 @@
 package org.xmtp.android.library
 
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.proto.message.contents.SignatureOuterClass
 
 interface SigningKey {
-    val address: String
+    val publicIdentity: PublicIdentity
 
     // The wallet type if Smart Contract Wallet this should be type SCW.
-    val type: WalletType
-        get() = WalletType.EOA
+    val type: SignerType
+        get() = SignerType.EOA
 
     // The chainId of the Smart Contract Wallet value should be null if not SCW
     var chainId: Long?
@@ -32,7 +33,8 @@ interface SigningKey {
     }
 }
 
-enum class WalletType {
+enum class SignerType {
     SCW, // Smart Contract Wallet
-    EOA // Externally Owned Account *Default
+    EOA, // Externally Owned Account *Default
+    PASSKEY
 }

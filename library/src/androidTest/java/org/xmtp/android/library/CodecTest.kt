@@ -10,7 +10,6 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.ContentTypeIdBuilder
 import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.messages.walletAddress
 
 data class NumberCodec(
     override var contentType: ContentTypeId = ContentTypeIdBuilder.builderFromAuthorityId(
@@ -37,7 +36,7 @@ data class NumberCodec(
 
     override fun shouldPush(content: Double): Boolean = false
 
-    override fun fallback(content: Double): String? {
+    override fun fallback(content: Double): String {
         return "Error: This app does not support numbers."
     }
 }
@@ -51,7 +50,7 @@ class CodecTest {
         val fixtures = fixtures()
         val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
         }
         runBlocking {
             aliceConversation.send(

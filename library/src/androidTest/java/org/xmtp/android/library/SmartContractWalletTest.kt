@@ -14,7 +14,6 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.GenericException
 
 @RunWith(AndroidJUnit4::class)
@@ -79,7 +78,7 @@ class SmartContractWalletTest {
     fun testCanBuildASCW() {
         val davonSCWClient2 = runBlocking {
             Client.build(
-                address = davonSCW.address,
+                publicIdentity = davonSCW.publicIdentity,
                 options = options
             )
         }
@@ -97,27 +96,27 @@ class SmartContractWalletTest {
 
         var state = runBlocking { davonSCWClient.inboxState(true) }
         assertEquals(state.installations.size, 1)
-        assertEquals(state.addresses.size, 3)
-        assertEquals(state.recoveryAddress, davonSCWClient.address.lowercase())
+        assertEquals(state.identities.size, 3)
+        assertEquals(state.recoveryPublicIdentity, davonSCW.publicIdentity)
         assertEquals(
-            state.addresses.sorted(),
+            state.identities,
             listOf(
-                davonEOA.address.lowercase(),
-                davonSCW2.address.lowercase(),
-                davonSCWClient.address.lowercase()
-            ).sorted()
+                davonEOA.publicIdentity,
+                davonSCW2.publicIdentity,
+                davonSCW.publicIdentity
+            )
         )
 
-        runBlocking { davonSCWClient.removeAccount(davonSCW, davonSCW2.address) }
+        runBlocking { davonSCWClient.removeAccount(davonSCW, davonSCW2.publicIdentity) }
         state = runBlocking { davonSCWClient.inboxState(true) }
-        assertEquals(state.addresses.size, 2)
-        assertEquals(state.recoveryAddress, davonSCWClient.address.lowercase())
+        assertEquals(state.identities.size, 2)
+        assertEquals(state.recoveryPublicIdentity, davonSCW.publicIdentity)
         assertEquals(
-            state.addresses.sorted(),
+            state.identities,
             listOf(
-                davonEOA.address.lowercase(),
-                davonSCWClient.address.lowercase()
-            ).sorted()
+                davonEOA.publicIdentity,
+                davonSCW.publicIdentity
+            )
         )
         assertEquals(state.installations.size, 1)
 
@@ -129,7 +128,7 @@ class SmartContractWalletTest {
             runBlocking {
                 davonSCWClient.removeAccount(
                     davonEOA,
-                    davonSCWClient.address
+                    davonSCW.publicIdentity
                 )
             }
         }
@@ -140,16 +139,16 @@ class SmartContractWalletTest {
         val group1 = runBlocking {
             boEOAClient.conversations.newGroup(
                 listOf(
-                    davonSCW.walletAddress,
-                    eriSCW.walletAddress
+                    davonSCWClient.inboxId,
+                    eriSCWClient.inboxId
                 )
             )
         }
         val group2 = runBlocking {
             davonSCWClient.conversations.newGroup(
                 listOf(
-                    boEOA.walletAddress,
-                    eriSCW.walletAddress
+                    boEOAClient.inboxId,
+                    eriSCWClient.inboxId
                 )
             )
         }
@@ -159,8 +158,8 @@ class SmartContractWalletTest {
             listOf(davonSCWClient.inboxId, boEOAClient.inboxId, eriSCWClient.inboxId).sorted()
         )
         assertEquals(
-            runBlocking { group2.members().map { it.addresses.first() }.sorted() },
-            listOf(davonSCWClient.address, boEOAClient.address, eriSCWClient.address).sorted()
+            runBlocking { group2.members().map { it.identities.first() } },
+            listOf(davonSCW.publicIdentity, boEOAWallet.publicIdentity, eriSCW.publicIdentity)
         )
     }
 
@@ -169,8 +168,8 @@ class SmartContractWalletTest {
         val boGroup = runBlocking {
             boEOAClient.conversations.newGroup(
                 listOf(
-                    davonSCW.walletAddress,
-                    eriSCW.walletAddress
+                    davonSCWClient.inboxId,
+                    eriSCWClient.inboxId
                 )
             )
         }
@@ -206,8 +205,8 @@ class SmartContractWalletTest {
             val davonGroup = runBlocking {
                 davonSCWClient.conversations.newGroup(
                     listOf(
-                        boEOA.walletAddress,
-                        eriSCW.walletAddress
+                        boEOAClient.inboxId,
+                        eriSCWClient.inboxId
                     )
                 )
             }
@@ -247,8 +246,8 @@ class SmartContractWalletTest {
             val davonGroup = runBlocking {
                 davonSCWClient.conversations.newGroup(
                     listOf(
-                        boEOA.walletAddress,
-                        eriSCW.walletAddress
+                        boEOAClient.inboxId,
+                        eriSCWClient.inboxId
                     )
                 )
             }
@@ -289,26 +288,6 @@ class SmartContractWalletTest {
                 davonSCWClient.preferences.inboxIdState(boEOAClient.inboxId),
                 ConsentState.DENIED
             )
-
-            davonSCWClient.preferences.setConsentState(
-                listOf(
-                    ConsentRecord(
-                        eriSCWClient.address,
-                        EntryType.ADDRESS,
-                        ConsentState.ALLOWED
-                    )
-                )
-            )
-            alixMember = davonGroup.members().firstOrNull { it.inboxId == eriSCWClient.inboxId }
-            assertEquals(alixMember!!.consentState, ConsentState.ALLOWED)
-            assertEquals(
-                davonSCWClient.preferences.inboxIdState(eriSCWClient.inboxId),
-                ConsentState.ALLOWED
-            )
-            assertEquals(
-                davonSCWClient.preferences.addressState(eriSCWClient.address),
-                ConsentState.ALLOWED
-            )
         }
     }
 
@@ -317,21 +296,21 @@ class SmartContractWalletTest {
         val group1 = runBlocking {
             davonSCWClient.conversations.newGroup(
                 listOf(
-                    boEOA.walletAddress,
-                    eriSCW.walletAddress
+                    boEOAClient.inboxId,
+                    eriSCWClient.inboxId
                 )
             )
         }
         val group2 = runBlocking {
             boEOAClient.conversations.newGroup(
                 listOf(
-                    davonSCW.walletAddress,
-                    eriSCW.walletAddress
+                    davonSCWClient.inboxId,
+                    eriSCWClient.inboxId
                 )
             )
         }
-        val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCW.walletAddress) }
-        val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCW.walletAddress) }
+        val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCWClient.inboxId) }
+        val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId) }
         runBlocking { davonSCWClient.conversations.sync() }
 
         val allMessages = mutableListOf<Message>()
@@ -373,10 +352,10 @@ class SmartContractWalletTest {
         Thread.sleep(1000)
 
         runBlocking {
-            eriSCWClient.conversations.newGroup(listOf(boEOA.walletAddress, davonSCW.walletAddress))
-            boEOAClient.conversations.newGroup(listOf(eriSCW.walletAddress, davonSCW.walletAddress))
-            eriSCWClient.conversations.findOrCreateDm(davonSCW.walletAddress)
-            boEOAClient.conversations.findOrCreateDm(davonSCW.walletAddress)
+            eriSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, davonSCWClient.inboxId))
+            boEOAClient.conversations.newGroup(listOf(eriSCWClient.inboxId, davonSCWClient.inboxId))
+            eriSCWClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
+            boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
         }
 
         Thread.sleep(1000)

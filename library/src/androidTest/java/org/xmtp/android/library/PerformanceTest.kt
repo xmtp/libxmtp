@@ -64,7 +64,7 @@ class PerformanceTest {
     @Test
     fun test1_CreateDM() = runBlocking {
         val time = measureTimeMillis {
-            dm = alixClient.conversations.findOrCreateDm(boClient.address)
+            dm = alixClient.conversations.findOrCreateDm(boClient.inboxId)
         }
         Log.d("PERF", "created a DM in: ${time}ms")
         assert(time < 200)
@@ -85,9 +85,9 @@ class PerformanceTest {
         val time = measureTimeMillis {
             group = alixClient.conversations.newGroup(
                 listOf(
-                    boClient.address,
-                    caroClient.address,
-                    davonClient.address
+                    boClient.inboxId,
+                    caroClient.inboxId,
+                    davonClient.inboxId
                 )
             )
         }
@@ -128,7 +128,7 @@ class PerformanceTest {
         val start2 = Date()
         val buildClient1 = runBlocking {
             Client.build(
-                fakeWallet.address,
+                fakeWallet.publicIdentity,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
                     appContext = context,
@@ -143,7 +143,7 @@ class PerformanceTest {
         val start3 = Date()
         val buildClient2 = runBlocking {
             Client.build(
-                fakeWallet.address,
+                fakeWallet.publicIdentity,
                 options = ClientOptions(
                     ClientOptions.Api(XMTPEnvironment.DEV, true),
                     appContext = context,

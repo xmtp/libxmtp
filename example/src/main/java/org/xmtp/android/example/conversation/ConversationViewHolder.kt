@@ -39,7 +39,7 @@ class ConversationViewHolder(
         } else {
             ""
         }
-        val isMe = item.mostRecentMessage?.senderInboxId == ClientManager.client.address
+        val isMe = item.mostRecentMessage?.senderInboxId == ClientManager.client.inboxId
         if (messageBody.isNotBlank()) {
             binding.messageBody.text = if (isMe) binding.root.resources.getString(
                 R.string.your_message_body,

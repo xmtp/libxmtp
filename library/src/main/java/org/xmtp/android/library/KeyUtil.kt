@@ -1,15 +1,10 @@
 package org.xmtp.android.library
 
-import org.web3j.utils.Numeric
 import org.web3j.crypto.ECDSASignature
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Sign
 import org.web3j.crypto.Sign.SignatureData
-import org.xmtp.android.library.messages.Signature
-import org.xmtp.android.library.messages.consentProofText
-import org.xmtp.android.library.messages.ethHash
 import java.math.BigInteger
-import java.util.Date
 
 object KeyUtil {
     fun getPublicKey(privateKey: ByteArray): ByteArray {
@@ -79,25 +74,5 @@ object KeyUtil {
             start += array.size
         }
         return mergedArray
-    }
-
-    fun validateConsentSignature(signature: String, clientAddress: String, peerAddress: String, timestamp: Long): Boolean {
-        if (timestamp > Date().time) {
-            return false
-        }
-        val thirtyDaysAgo = Date().time - 30L * 24 * 60 * 60 * 1000
-        if (timestamp < thirtyDaysAgo) {
-            return false
-        }
-
-        val signatureClass = Signature.newBuilder().build()
-        val signatureText = signatureClass.consentProofText(peerAddress, timestamp)
-        val digest = signatureClass.ethHash(signatureText)
-        val signatureBytes = Numeric.hexStringToByteArray(signature)
-        val signatureData = getSignatureData(signatureBytes)
-        val key = Sign.signedMessageHashToKey(digest, signatureData)
-        val rawAddress = Keys.getAddress(key)
-        val address = Keys.toChecksumAddress(rawAddress)
-        return clientAddress == address
     }
 }

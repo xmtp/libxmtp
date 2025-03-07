@@ -1,6 +1,7 @@
 package org.xmtp.android.library.libxmtp
 
 import android.util.Log
+import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
@@ -36,7 +37,7 @@ class Message private constructor(
     val convoId: String
         get() = libXMTPMessage.conversationId.toHex()
 
-    val senderInboxId: String
+    val senderInboxId: InboxId
         get() = libXMTPMessage.senderInboxId
 
     val sentAt: Date

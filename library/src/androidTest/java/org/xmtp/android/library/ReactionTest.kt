@@ -15,7 +15,6 @@ import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.codecs.ReactionV2Codec
 import org.xmtp.android.library.libxmtp.Message
-import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.FfiReaction
 import uniffi.xmtpv3.FfiReactionAction
 import uniffi.xmtpv3.FfiReactionSchema
@@ -74,7 +73,7 @@ class ReactionTest {
         val fixtures = fixtures()
         val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
         }
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
@@ -112,7 +111,7 @@ class ReactionTest {
         val fixtures = fixtures()
         val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
         }
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
@@ -146,7 +145,7 @@ class ReactionTest {
         val messagesWithReactions: List<Message> = runBlocking {
             aliceConversation.messagesWithReactions()
         }
-        assertEquals(messagesWithReactions.size, 1)
+        assertEquals(messagesWithReactions.size, 2)
         assertEquals(messagesWithReactions[0].id, messageToReact.id)
         val reactionContent: FfiReaction? =
             messagesWithReactions[0]?.childMessages!![0]?.let { it?.content()!! }
@@ -162,7 +161,7 @@ class ReactionTest {
         val fixtures = fixtures()
         val aliceClient = fixtures.alixClient
         val aliceConversation =
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
 
         // Send initial message
         aliceConversation.send(text = "hey alice 2 bob")
@@ -197,7 +196,7 @@ class ReactionTest {
         val messagesWithReactions =
             aliceConversation.messagesWithReactions()
 
-        assertEquals(1, messagesWithReactions.size)
+        assertEquals(2, messagesWithReactions.size)
         assertEquals(messageToReact.id, messagesWithReactions[0].id)
         assertEquals(2, messagesWithReactions[0].childMessages!!.size)
 

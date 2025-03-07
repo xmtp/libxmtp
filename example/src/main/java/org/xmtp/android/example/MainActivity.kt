@@ -199,7 +199,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun copyWalletAddress() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("address", ClientManager.client.address)
+        val clip = ClipData.newPlainText("inboxId", ClientManager.client.inboxId)
         clipboard.setPrimaryClip(clip)
     }
 

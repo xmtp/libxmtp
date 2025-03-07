@@ -27,11 +27,5 @@ class ConnectWalletActivity : AppCompatActivity() {
 
         binding = ActivityConnectWalletBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-
-
-
     }
-
-
 }

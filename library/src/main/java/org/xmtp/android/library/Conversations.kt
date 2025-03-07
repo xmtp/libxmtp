@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.keystore.api.v1.Keystore
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
@@ -81,7 +82,7 @@ data class Conversations(
         }
     }
 
-    fun findDmByInboxId(inboxId: String): Dm? {
+    fun findDmByInboxId(inboxId: InboxId): Dm? {
         return try {
             Dm(client, ffiClient.dmConversation(inboxId))
         } catch (e: Exception) {
@@ -89,9 +90,9 @@ data class Conversations(
         }
     }
 
-    suspend fun findDmByAddress(address: String): Dm? {
+    suspend fun findDmByIdentity(publicIdentity: PublicIdentity): Dm? {
         val inboxId =
-            client.inboxIdFromAddress(address.lowercase())
+            client.inboxIdFromIdentity(publicIdentity)
                 ?: throw XMTPException("No inboxId present")
         return findDmByInboxId(inboxId)
     }
@@ -112,16 +113,16 @@ data class Conversations(
         }
     }
 
-    suspend fun newGroup(
-        accountAddresses: List<String>,
+    suspend fun newGroupWithIdentities(
+        identities: List<PublicIdentity>,
         permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
         groupName: String = "",
         groupImageUrlSquare: String = "",
         groupDescription: String = "",
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
-        return newGroupInternal(
-            accountAddresses,
+        return newGroupInternalWithIdentities(
+            identities,
             GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(permissions),
             groupName,
             groupImageUrlSquare,
@@ -136,8 +137,80 @@ data class Conversations(
         )
     }
 
+    suspend fun newGroupCustomPermissionsWithIdentities(
+        identities: List<PublicIdentity>,
+        permissionPolicySet: PermissionPolicySet,
+        groupName: String = "",
+        groupImageUrlSquare: String = "",
+        groupDescription: String = "",
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Group {
+        return newGroupInternalWithIdentities(
+            identities,
+            FfiGroupPermissionsOptions.CUSTOM_POLICY,
+            groupName,
+            groupImageUrlSquare,
+            groupDescription,
+            PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            }
+        )
+    }
+
+    private suspend fun newGroupInternalWithIdentities(
+        identities: List<PublicIdentity>,
+        permissions: FfiGroupPermissionsOptions,
+        groupName: String,
+        groupImageUrlSquare: String,
+        groupDescription: String,
+        permissionsPolicySet: FfiPermissionPolicySet?,
+        messageDisappearingSettings: FfiMessageDisappearingSettings?,
+    ): Group {
+        val group =
+            ffiConversations.createGroup(
+                identities.map { it.ffiPrivate },
+                opts = FfiCreateGroupOptions(
+                    permissions = permissions,
+                    groupName = groupName,
+                    groupImageUrlSquare = groupImageUrlSquare,
+                    groupDescription = groupDescription,
+                    customPermissionPolicySet = permissionsPolicySet,
+                    messageDisappearingSettings = messageDisappearingSettings
+                )
+            )
+        return Group(client, group)
+    }
+
+    suspend fun newGroup(
+        inboxIds: List<InboxId>,
+        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
+        groupName: String = "",
+        groupImageUrlSquare: String = "",
+        groupDescription: String = "",
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Group {
+        return newGroupInternal(
+            inboxIds,
+            GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(permissions),
+            groupName,
+            groupImageUrlSquare,
+            groupDescription,
+            null,
+            disappearingMessageSettings?.let {
+                FfiMessageDisappearingSettings(
+                    it.disappearStartingAtNs,
+                    it.retentionDurationInNs
+                )
+            }
+        )
+    }
+
     suspend fun newGroupCustomPermissions(
-        accountAddresses: List<String>,
+        inboxIds: List<InboxId>,
         permissionPolicySet: PermissionPolicySet,
         groupName: String = "",
         groupImageUrlSquare: String = "",
@@ -145,7 +218,7 @@ data class Conversations(
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Group {
         return newGroupInternal(
-            accountAddresses,
+            inboxIds,
             FfiGroupPermissionsOptions.CUSTOM_POLICY,
             groupName,
             groupImageUrlSquare,
@@ -161,7 +234,7 @@ data class Conversations(
     }
 
     private suspend fun newGroupInternal(
-        accountAddresses: List<String>,
+        inboxIds: List<InboxId>,
         permissions: FfiGroupPermissionsOptions,
         groupName: String,
         groupImageUrlSquare: String,
@@ -169,92 +242,7 @@ data class Conversations(
         permissionsPolicySet: FfiPermissionPolicySet?,
         messageDisappearingSettings: FfiMessageDisappearingSettings?,
     ): Group {
-        if (accountAddresses.any { it.equals(client.address, ignoreCase = true) }) {
-            throw XMTPException("Recipient is sender")
-        }
-        val falseAddresses =
-            if (accountAddresses.isNotEmpty()) client.canMessage(accountAddresses)
-                .filter { !it.value }.map { it.key } else emptyList()
-        if (falseAddresses.isNotEmpty()) {
-            throw XMTPException("${falseAddresses.joinToString()} not on network")
-        }
-
-        val group =
-            ffiConversations.createGroup(
-                accountAddresses,
-                opts = FfiCreateGroupOptions(
-                    permissions = permissions,
-                    groupName = groupName,
-                    groupImageUrlSquare = groupImageUrlSquare,
-                    groupDescription = groupDescription,
-                    customPermissionPolicySet = permissionsPolicySet,
-                    messageDisappearingSettings = messageDisappearingSettings
-                )
-            )
-        return Group(client, group)
-    }
-
-    suspend fun newGroupWithInboxIds(
-        inboxIds: List<String>,
-        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
-        groupName: String = "",
-        groupImageUrlSquare: String = "",
-        groupDescription: String = "",
-        disappearingMessageSettings: DisappearingMessageSettings? = null,
-    ): Group {
-        return newGroupInternalWithInboxIds(
-            inboxIds,
-            GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(permissions),
-            groupName,
-            groupImageUrlSquare,
-            groupDescription,
-            null,
-            disappearingMessageSettings?.let {
-                FfiMessageDisappearingSettings(
-                    it.disappearStartingAtNs,
-                    it.retentionDurationInNs
-                )
-            }
-        )
-    }
-
-    suspend fun newGroupCustomPermissionsWithInboxIds(
-        inboxIds: List<String>,
-        permissionPolicySet: PermissionPolicySet,
-        groupName: String = "",
-        groupImageUrlSquare: String = "",
-        groupDescription: String = "",
-        disappearingMessageSettings: DisappearingMessageSettings? = null,
-    ): Group {
-        return newGroupInternalWithInboxIds(
-            inboxIds,
-            FfiGroupPermissionsOptions.CUSTOM_POLICY,
-            groupName,
-            groupImageUrlSquare,
-            groupDescription,
-            PermissionPolicySet.toFfiPermissionPolicySet(permissionPolicySet),
-            disappearingMessageSettings?.let {
-                FfiMessageDisappearingSettings(
-                    it.disappearStartingAtNs,
-                    it.retentionDurationInNs
-                )
-            }
-        )
-    }
-
-    private suspend fun newGroupInternalWithInboxIds(
-        inboxIds: List<String>,
-        permissions: FfiGroupPermissionsOptions,
-        groupName: String,
-        groupImageUrlSquare: String,
-        groupDescription: String,
-        permissionsPolicySet: FfiPermissionPolicySet?,
-        messageDisappearingSettings: FfiMessageDisappearingSettings?,
-    ): Group {
-        if (inboxIds.any { it.equals(client.inboxId, ignoreCase = true) }) {
-            throw XMTPException("Recipient is sender")
-        }
-
+        validateInboxIds(inboxIds)
         val group =
             ffiConversations.createGroupWithInboxIds(
                 inboxIds,
@@ -284,28 +272,24 @@ data class Conversations(
         )
     }
 
-    suspend fun newConversation(
-        peerAddress: String,
+    suspend fun newConversationWithIdentity(
+        peerPublicIdentity: PublicIdentity,
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Conversation {
-        val dm = findOrCreateDm(peerAddress, disappearingMessageSettings)
+        val dm = findOrCreateDmWithIdentity(peerPublicIdentity, disappearingMessageSettings)
         return Conversation.Dm(dm)
     }
 
-    suspend fun findOrCreateDm(
-        peerAddress: String,
+    suspend fun findOrCreateDmWithIdentity(
+        peerPublicIdentity: PublicIdentity,
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Dm {
-        if (peerAddress.lowercase() == client.address.lowercase()) {
+        if (peerPublicIdentity.identifier in client.inboxState(false).identities.map { it.identifier }) {
             throw XMTPException("Recipient is sender")
         }
-        val falseAddresses =
-            client.canMessage(listOf(peerAddress)).filter { !it.value }.map { it.key }
-        if (falseAddresses.isNotEmpty()) {
-            throw XMTPException("${falseAddresses.joinToString()} not on network")
-        }
+
         val dmConversation = ffiConversations.findOrCreateDm(
-            peerAddress.lowercase(),
+            peerPublicIdentity.ffiPrivate,
             opts = FfiCreateDmOptions(
                 disappearingMessageSettings?.let {
                     FfiMessageDisappearingSettings(
@@ -318,23 +302,24 @@ data class Conversations(
         return Dm(client, dmConversation)
     }
 
-    suspend fun newConversationWithInboxId(
-        peerInboxId: String,
+    suspend fun newConversation(
+        peerInboxId: InboxId,
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Conversation {
-        val dm = findOrCreateDmWithInboxId(peerInboxId, disappearingMessageSettings)
+        val dm = findOrCreateDm(peerInboxId, disappearingMessageSettings)
         return Conversation.Dm(dm)
     }
 
-    suspend fun findOrCreateDmWithInboxId(
-        peerInboxId: String,
+    suspend fun findOrCreateDm(
+        peerInboxId: InboxId,
         disappearingMessageSettings: DisappearingMessageSettings? = null,
     ): Dm {
-        if (peerInboxId.lowercase() == client.inboxId.lowercase()) {
+        validateInboxId(peerInboxId)
+        if (peerInboxId == client.inboxId) {
             throw XMTPException("Recipient is sender")
         }
         val dmConversation = ffiConversations.findOrCreateDmByInboxId(
-            peerInboxId.lowercase(),
+            peerInboxId,
             opts = FfiCreateDmOptions(
                 disappearingMessageSettings?.let {
                     FfiMessageDisappearingSettings(

@@ -12,6 +12,8 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
+import org.xmtp.android.library.libxmtp.IdentityKind
+import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.walletAddress
 import java.security.SecureRandom
 
@@ -51,7 +53,10 @@ object ClientManager {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 _client =
-                    Client.build(address, clientOptions(appContext, address))
+                    Client.build(
+                        PublicIdentity(IdentityKind.ETHEREUM, address),
+                        clientOptions(appContext, address)
+                    )
                 Client.register(codec = GroupUpdatedCodec())
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {

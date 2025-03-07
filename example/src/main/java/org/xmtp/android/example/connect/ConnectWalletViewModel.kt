@@ -16,16 +16,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.ClientManager
-import org.xmtp.android.example.account.WalletConnectV2Account
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 
 class ConnectWalletViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val chains: List<ChainSelectionUi> =
-        Chains.values().map { it.toChainUiState() }
 
     private val _showWalletState = MutableStateFlow(ShowWalletForSigningState(showWallet = false))
     val showWalletState: StateFlow<ShowWalletForSigningState>
@@ -34,87 +30,18 @@ class ConnectWalletViewModel(application: Application) : AndroidViewModel(applic
     private val _uiState = MutableStateFlow<ConnectUiState>(ConnectUiState.Unknown)
     val uiState: StateFlow<ConnectUiState> = _uiState
 
-    init {
-        DappDelegate.wcEventModels
-            .filterNotNull()
-            .onEach { walletEvent ->
-                when (walletEvent) {
-                    is Modal.Model.ApprovedSession -> {
-                        connectWallet(walletEvent)
-                    }
-
-                    else -> Unit
-                }
-
-            }.launchIn(viewModelScope)
-    }
-
-    fun getSessionParams() = Modal.Params.SessionParams(
-        requiredNamespaces = getNamespaces(),
-        optionalNamespaces = getOptionalNamespaces()
-    )
-
-    private fun getNamespaces(): Map<String, Modal.Model.Namespace.Proposal> {
-        val namespaces: Map<String, Modal.Model.Namespace.Proposal> =
-            chains
-                .groupBy { it.chainNamespace }
-                .map { (key: String, selectedChains: List<ChainSelectionUi>) ->
-                    key to Modal.Model.Namespace.Proposal(
-                        chains = selectedChains.map { it.chainId },
-                        methods = selectedChains.flatMap { it.methods }.distinct(),
-                        events = selectedChains.flatMap { it.events }.distinct()
-                    )
-                }.toMap()
-
-
-        return namespaces.toMutableMap()
-    }
-
-    private fun getOptionalNamespaces() = chains
-        .groupBy { it.chainId }
-        .map { (key: String, selectedChains: List<ChainSelectionUi>) ->
-            key to Modal.Model.Namespace.Proposal(
-                methods = selectedChains.flatMap { it.methods }.distinct(),
-                events = selectedChains.flatMap { it.events }.distinct()
-            )
-        }.toMap()
-
     @UiThread
     fun generateWallet() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = ConnectUiState.Loading
             try {
                 val wallet = PrivateKeyBuilder()
-                val client = Client.create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
+                val client = Client.create(wallet, ClientManager.clientOptions(getApplication(), wallet.publicIdentity.identifier))
                 Client.register(codec = GroupUpdatedCodec())
                 _uiState.value = ConnectUiState.Success(
-                    wallet.address
+                    wallet.publicIdentity.identifier
                 )
             } catch (e: XMTPException) {
-                _uiState.value = ConnectUiState.Error(e.message.orEmpty())
-            }
-        }
-    }
-
-    @UiThread
-    fun connectWallet(approvedSession: Modal.Model.ApprovedSession) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.value = ConnectUiState.Loading
-            try {
-                val wallet = WalletConnectV2Account(
-                    approvedSession,
-                    Chains.ETHEREUM_MAIN.chainNamespace
-                ) { uri ->
-                    _showWalletState.update {
-                        it.copy(showWallet = true, uri = uri)
-                    }
-                }
-                val client = Client.create(wallet, ClientManager.clientOptions(getApplication(), wallet.address))
-                Client.register(codec = GroupUpdatedCodec())
-                _uiState.value = ConnectUiState.Success(
-                    wallet.address
-                )
-            } catch (e: Exception) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
             }
         }

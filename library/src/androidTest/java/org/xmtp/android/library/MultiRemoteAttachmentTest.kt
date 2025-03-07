@@ -19,7 +19,6 @@ import org.xmtp.android.library.codecs.RemoteAttachment
 import org.xmtp.android.library.codecs.RemoteAttachmentCodec
 import org.xmtp.android.library.codecs.RemoteAttachmentInfo
 import org.xmtp.android.library.codecs.id
-import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.FfiMultiRemoteAttachment
 import java.net.URL
 import kotlin.random.Random
@@ -69,7 +68,7 @@ class MultiRemoteAttachmentTest {
         val fixtures = fixtures()
         val aliceClient = fixtures.alixClient
         val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bo.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.boClient.inboxId)
         }
         runBlocking {
             aliceConversation.send(
@@ -79,10 +78,10 @@ class MultiRemoteAttachmentTest {
         }
 
         val messages = runBlocking { aliceConversation.messages() }
-        assertEquals(messages.size, 1)
+        assertEquals(messages.size, 2)
 
         // Below steps outlines how to handle receiving a MultiRemoteAttachment message
-        if (messages.size == 1 && messages[0].encodedContent.type.id.equals(ContentTypeMultiRemoteAttachment)) {
+        if (messages.size == 2 && messages[0].encodedContent.type.id.equals(ContentTypeMultiRemoteAttachment)) {
             val loadedMultiRemoteAttachment: FfiMultiRemoteAttachment = messages[0].content()!!
 
             val textAttachments: MutableList<Attachment> = ArrayList()
