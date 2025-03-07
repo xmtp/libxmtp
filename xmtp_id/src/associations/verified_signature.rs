@@ -126,7 +126,8 @@ impl VerifiedSignature {
         };
 
         // Get the origin from the client_data
-        let json: ClientDataJson = serde_json::from_slice(client_data_json).unwrap();
+        let json: ClientDataJson = serde_json::from_slice(client_data_json)
+            .map_err(|_| SignatureError::MissingRelyingPartyOrigin)?;
 
         // 3. Hash the client data
         let mut hasher = Sha256::new();

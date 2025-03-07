@@ -54,6 +54,8 @@ pub enum SignatureError {
     Signer(#[from] SignerError),
     #[error("Invalid public key")]
     InvalidPublicKey,
+    #[error("client_data is mising relying party origin field")]
+    MissingRelyingPartyOrigin,
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity

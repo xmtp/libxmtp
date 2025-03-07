@@ -444,10 +444,7 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
                 Self::Installation(ident::Installation(public_key))
             }
             MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party }) => {
-                Self::Passkey(ident::Passkey {
-                    key,
-                    relying_party: relying_party,
-                })
+                Self::Passkey(ident::Passkey { key, relying_party })
             }
         }
     }
@@ -520,7 +517,7 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party })) => {
                 Ok(MemberIdentifier::Passkey(ident::Passkey {
                     key,
-                    relying_party: relying_party,
+                    relying_party,
                 }))
             }
             None => Err(ConversionError::Missing {
@@ -544,10 +541,7 @@ impl From<AssociationState> for AssociationStateProto {
 
         let kind: IdentifierKind = (&state.recovery_identifier).into();
         let relying_party = match &state.recovery_identifier {
-            Identifier::Passkey(ident::Passkey {
-                relying_party: relying_party,
-                ..
-            }) => relying_party.clone(),
+            Identifier::Passkey(ident::Passkey { relying_party, .. }) => relying_party.clone(),
             _ => None,
         };
 
