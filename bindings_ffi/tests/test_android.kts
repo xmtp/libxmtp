@@ -11,7 +11,7 @@ class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
         return FfiIdentifier(
             identifierKind = FfiIdentifierKind.ETHEREUM,
             identifier = credentials.address,
-            relyingPartner = null
+            relyingParty = null
         )
     }
 
