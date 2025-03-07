@@ -7733,6 +7733,7 @@ dependencies = [
 name = "xmtpv3"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "coset",
  "criterion",
  "ethers",

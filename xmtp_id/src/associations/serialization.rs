@@ -398,7 +398,6 @@ impl From<UnverifiedSignature> for SignatureWrapperProto {
                     signature: sig.signature,
                     authenticator_data: sig.authenticator_data,
                     client_data_json: sig.client_data_json,
-                    relying_party: sig.relying_party,
                 })
             }
         };

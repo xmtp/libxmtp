@@ -2658,6 +2658,7 @@ mod tests {
     };
 
     struct PkUserValidationMethod {}
+    #[async_trait::async_trait]
     impl UserValidationMethod for PkUserValidationMethod {
         type PasskeyItem = Passkey;
         async fn check_user<'a>(
@@ -2989,7 +2990,6 @@ mod tests {
         let ident = FfiIdentifier {
             identifier: "0x0bD00B21aF9a2D538103c3AAf95Cb507f8AF1B28".to_lowercase(),
             identifier_kind: FfiIdentifierKind::Ethereum,
-            relying_partner: None,
         };
         let legacy_keys = hex::decode("0880bdb7a8b3f6ede81712220a20ad528ea38ce005268c4fb13832cfed13c2b2219a378e9099e48a38a30d66ef991a96010a4c08aaa8e6f5f9311a430a41047fd90688ca39237c2899281cdf2756f9648f93767f91c0e0f74aed7e3d3a8425e9eaa9fa161341c64aa1c782d004ff37ffedc887549ead4a40f18d1179df9dff124612440a403c2cb2338fb98bfe5f6850af11f6a7e97a04350fc9d37877060f8d18e8f66de31c77b3504c93cf6a47017ea700a48625c4159e3f7e75b52ff4ea23bc13db77371001").unwrap();
         let nonce = 0;
@@ -3237,7 +3237,7 @@ mod tests {
             .unwrap();
 
         let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = hex::decode(&challenge).unwrap();
+        let challenge_bytes = challenge.encode_to_vec();
 
         let request = CredentialRequestOptions {
             public_key: PublicKeyCredentialRequestOptions {
@@ -3264,7 +3264,7 @@ mod tests {
                 authenticator_data: resp.authenticator_data.to_vec(),
                 signature: resp.signature.to_vec(),
                 client_data_json: resp.client_data_json.to_vec(),
-                public_key: pk_user_entity.id.to_vec(),
+                public_key: cred.raw_id.to_vec(),
             })
             .await
             .unwrap();

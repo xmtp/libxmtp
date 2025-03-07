@@ -65,6 +65,7 @@ xmtp_common = { workspace = true, features = ["test-utils"] }
 passkey = "0.4"
 coset = "0.3"
 url.workspace = true
+async-trait.workspace = true
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]

@@ -1939,9 +1939,6 @@ impl serde::Serialize for RecoverablePasskeySignature {
         if !self.client_data_json.is_empty() {
             len += 1;
         }
-        if self.relying_party.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverablePasskeySignature", len)?;
         if !self.public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1959,10 +1956,9 @@ impl serde::Serialize for RecoverablePasskeySignature {
             struct_ser.serialize_field("authenticatorData", pbjson::private::base64::encode(&self.authenticator_data).as_str())?;
         }
         if !self.client_data_json.is_empty() {
-            struct_ser.serialize_field("clientDataJson", &self.client_data_json)?;
-        }
-        if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("clientDataJson", pbjson::private::base64::encode(&self.client_data_json).as_str())?;
         }
         struct_ser.end()
     }
@@ -1981,8 +1977,6 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
             "authenticatorData",
             "client_data_json",
             "clientDataJson",
-            "relying_party",
-            "relyingParty",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1991,7 +1985,6 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
             Signature,
             AuthenticatorData,
             ClientDataJson,
-            RelyingParty,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2017,7 +2010,6 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                             "signature" => Ok(GeneratedField::Signature),
                             "authenticatorData" | "authenticator_data" => Ok(GeneratedField::AuthenticatorData),
                             "clientDataJson" | "client_data_json" => Ok(GeneratedField::ClientDataJson),
-                            "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2041,7 +2033,6 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                 let mut signature__ = None;
                 let mut authenticator_data__ = None;
                 let mut client_data_json__ = None;
-                let mut relying_party__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PublicKey => {
@@ -2072,13 +2063,9 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                             if client_data_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("clientDataJson"));
                             }
-                            client_data_json__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::RelyingParty => {
-                            if relying_party__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("relyingParty"));
-                            }
-                            relying_party__ = map_.next_value()?;
+                            client_data_json__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -2087,7 +2074,6 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                     signature: signature__.unwrap_or_default(),
                     authenticator_data: authenticator_data__.unwrap_or_default(),
                     client_data_json: client_data_json__.unwrap_or_default(),
-                    relying_party: relying_party__,
                 })
             }
         }

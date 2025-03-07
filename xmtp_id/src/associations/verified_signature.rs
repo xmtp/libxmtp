@@ -106,7 +106,7 @@ impl VerifiedSignature {
         public_key: &[u8],
         signature: &[u8],
         authenticator_data: &[u8],
-        client_data_json: &str,
+        client_data_json: &[u8],
     ) -> Result<Self, SignatureError> {
         // 1. Parse the public key from raw bytes
         let verifying_key = match VerifyingKey::from_sec1_bytes(public_key) {
@@ -122,7 +122,7 @@ impl VerifiedSignature {
 
         // 3. Hash the client data
         let mut hasher = Sha256::new();
-        hasher.update(client_data_json.as_bytes());
+        hasher.update(client_data_json);
         let client_data_hash = hasher.finalize();
 
         // 4. Construct the verification data (authenticator_data + client_data_hash)

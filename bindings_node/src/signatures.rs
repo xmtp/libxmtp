@@ -46,7 +46,7 @@ pub struct PasskeySignature {
   pub public_key: Vec<u8>,
   pub signature: Vec<u8>,
   pub authenticator_data: Vec<u8>,
-  pub client_data_json: String,
+  pub client_data_json: Vec<u8>,
 }
 
 #[napi]

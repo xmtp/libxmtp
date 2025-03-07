@@ -47,15 +47,10 @@ impl From<Identifier> for FfiIdentifier {
             Identifier::Ethereum(ident::Ethereum(addr)) => Self {
                 identifier: addr,
                 identifier_kind: FfiIdentifierKind::Ethereum,
-                relying_partner: None,
             },
-            Identifier::Passkey(ident::Passkey {
-                key,
-                relying_partner,
-            }) => Self {
+            Identifier::Passkey(ident::Passkey { key, .. }) => Self {
                 identifier: hex::encode(key),
                 identifier_kind: FfiIdentifierKind::Passkey,
-                relying_partner,
             },
         }
     }
@@ -66,9 +61,7 @@ impl TryFrom<FfiIdentifier> for Identifier {
     fn try_from(ident: FfiIdentifier) -> Result<Self, Self::Error> {
         let ident = match ident.identifier_kind {
             FfiIdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-            FfiIdentifierKind::Passkey => {
-                Self::passkey_str(&ident.identifier, ident.relying_partner)?
-            }
+            FfiIdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
         };
         Ok(ident)
     }
