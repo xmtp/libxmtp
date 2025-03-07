@@ -3239,13 +3239,38 @@ mod tests {
         let challenge = sig_request.signature_text().await.unwrap();
         let challenge_bytes = challenge.encode_to_vec();
 
+        let request = CredentialCreationOptions {
+            public_key: PublicKeyCredentialCreationOptions {
+                rp: PublicKeyCredentialRpEntity {
+                    id: None, // Leaving the ID as None means use the effective domain
+                    name: origin.domain().unwrap().into(),
+                },
+                user: pk_user_entity,
+                challenge: Bytes::from(challenge_bytes.clone()),
+                pub_key_cred_params: vec![parameters_from_rp],
+                timeout: None,
+                exclude_credentials: None,
+                authenticator_selection: None,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        // Now create the credential.
+        let my_webauthn_credential = pk_client
+            .register(origin.clone(), request, DefaultClientData)
+            .await
+            .unwrap();
+
         let request = CredentialRequestOptions {
             public_key: PublicKeyCredentialRequestOptions {
                 challenge: Bytes::from(challenge_bytes),
                 timeout: None,
-                rp_id: None,
+                rp_id: Some(String::from(origin.domain().unwrap())),
                 allow_credentials: None,
-                user_verification: UserVerificationRequirement::Discouraged,
+                user_verification: UserVerificationRequirement::default(),
                 hints: None,
                 attestation: AttestationConveyancePreference::None,
                 attestation_formats: None,
