@@ -474,6 +474,10 @@ where
         (**self).history_sync_url()
     }
 
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
+    }
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
