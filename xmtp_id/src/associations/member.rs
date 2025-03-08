@@ -120,27 +120,24 @@ impl Identifier {
         Self::Ethereum(ident::Ethereum(addr.to_string())).sanitize()
     }
 
-    pub fn passkey(key: Vec<u8>, relying_partner: Option<String>) -> Self {
-        Self::Passkey(ident::Passkey {
-            key,
-            relying_partner,
-        })
+    pub fn passkey(key: Vec<u8>, relying_party: Option<String>) -> Self {
+        Self::Passkey(ident::Passkey { key, relying_party })
     }
 
     pub fn passkey_str(
         key: &str,
-        relying_partner: Option<String>,
+        relying_party: Option<String>,
     ) -> Result<Self, IdentifierValidationError> {
         Ok(Self::Passkey(ident::Passkey {
             key: hex::decode(key)?,
-            relying_partner,
+            relying_party,
         }))
     }
 
     pub fn from_proto(
         ident: impl AsRef<str>,
         kind: IdentifierKind,
-        relying_partner: Option<String>,
+        relying_party: Option<String>,
     ) -> Result<Self, ConversionError> {
         let ident = ident.as_ref();
         let ident = match kind {
@@ -152,7 +149,7 @@ impl Identifier {
                     description: "passkey",
                     value: None,
                 })?,
-                relying_partner,
+                relying_party,
             }),
         };
         Ok(ident)
@@ -328,7 +325,7 @@ impl TryFrom<ApiIdentifier> for Identifier {
             IdentifierKind::Passkey => Identifier::Passkey(ident::Passkey {
                 key: hex::decode(ident.identifier)
                     .map_err(|_| DeserializationError::InvalidPasskey)?,
-                relying_partner: None,
+                relying_party: None,
             }),
         };
         Ok(ident)

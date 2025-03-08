@@ -13,12 +13,14 @@ targets = [
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers = { workspace = true, features = ["rustls"] }
 futures.workspace = true
 hex.workspace = true
 openmls_traits.workspace = true
+p256.workspace = true
 prost.workspace = true
 rand.workspace = true
 regex.workspace = true

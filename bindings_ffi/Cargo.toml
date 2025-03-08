@@ -61,6 +61,11 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+# passkey testing
+passkey = "0.4"
+coset = "0.3"
+url.workspace = true
+async-trait.workspace = true
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]

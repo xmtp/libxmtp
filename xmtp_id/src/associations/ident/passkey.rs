@@ -4,7 +4,7 @@ use std::{fmt::Display, hash::Hash};
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct Passkey {
     pub key: Vec<u8>,
-    pub relying_partner: Option<String>,
+    pub relying_party: Option<String>,
 }
 
 impl PartialEq for Passkey {
