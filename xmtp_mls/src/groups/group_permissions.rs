@@ -31,7 +31,6 @@ use super::{
 };
 use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 use crate::groups::group_mutable_metadata::MetadataField;
-use crate::groups::group_mutable_metadata::MetadataField::MessageDisappearInNS;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -1180,9 +1179,14 @@ pub fn is_policy_default(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        if field_name == MessageDisappearInNS.as_str() {
+        if field_name == MetadataField::MessageDisappearInNS.as_str()
+            || field_name == MetadataField::MessageDisappearFromNS.as_str()
+        {
             metadata_policies_equal = metadata_policies_equal
                 && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        } else if field_name == MetadataField::MinimumSupportedProtocolVersion.as_str() {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_super_admin());
         } else {
             metadata_policies_equal =
                 metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
@@ -1210,8 +1214,13 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        metadata_policies_equal = metadata_policies_equal
-            && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        if field_name == MetadataField::MinimumSupportedProtocolVersion.as_str() {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_super_admin());
+        } else {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&&MetadataPolicies::allow_if_actor_admin());
+        }
     }
     Ok(metadata_policies_equal
         && policy.add_member_policy == MembershipPolicies::allow_if_actor_admin()
