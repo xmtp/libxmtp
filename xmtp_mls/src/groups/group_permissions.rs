@@ -1219,7 +1219,7 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
                 && metadata_policy.eq(&MetadataPolicies::allow_if_actor_super_admin());
         } else {
             metadata_policies_equal = metadata_policies_equal
-                && metadata_policy.eq(&&MetadataPolicies::allow_if_actor_admin());
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
         }
     }
     Ok(metadata_policies_equal
