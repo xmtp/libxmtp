@@ -548,6 +548,19 @@ impl Conversation {
       .map_err(|e| JsError::new(&format!("{e}")))
   }
 
+  #[wasm_bindgen(js_name = pausedForVersion)]
+  pub fn paused_for_version(&self) -> Result<Option<String>, JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .paused_for_version(
+        &group
+          .mls_provider()
+          .map_err(|e| JsError::new(&format!("{e}")))?,
+      )
+      .map_err(|e| JsError::new(&format!("{e}")))
+  }
+
   #[wasm_bindgen(js_name = addedByInboxId)]
   pub fn added_by_inbox_id(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();

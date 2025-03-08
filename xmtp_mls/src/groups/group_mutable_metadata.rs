@@ -46,6 +46,7 @@ pub enum MetadataField {
     GroupImageUrlSquare,
     MessageDisappearFromNS,
     MessageDisappearInNS,
+    MinimumSupportedProtocolVersion,
 }
 
 impl MetadataField {
@@ -57,6 +58,7 @@ impl MetadataField {
             MetadataField::GroupImageUrlSquare => "group_image_url_square",
             MetadataField::MessageDisappearFromNS => "message_disappear_from_ns",
             MetadataField::MessageDisappearInNS => "message_disappear_in_ns",
+            MetadataField::MinimumSupportedProtocolVersion => "minimum_supported_protocol_version",
         }
     }
 }
@@ -205,6 +207,7 @@ impl GroupMutableMetadata {
             MetadataField::GroupImageUrlSquare,
             MetadataField::MessageDisappearFromNS,
             MetadataField::MessageDisappearInNS,
+            MetadataField::MinimumSupportedProtocolVersion,
         ]
     }
 

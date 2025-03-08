@@ -52,6 +52,10 @@ pub enum CommitValidationError {
     // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
+    #[error("Invalid version format: {0}")]
+    InvalidVersionFormat(String),
+    #[error("Minimum supported protocol version {0} exceeds current version")]
+    MinimumSupportedProtocolVersionExceedsCurrentVersion(String),
     // TODO: We will need to relax this once we support external joins
     #[error("Actor not a member of the group")]
     ActorNotMember,
@@ -166,22 +170,24 @@ impl CommitParticipant {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MutableMetadataChanges {
+pub struct MutableMetadataValidationInfo {
     pub metadata_field_changes: Vec<MetadataFieldChange>,
     pub admins_added: Vec<Inbox>,
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
     pub num_super_admins: u32,
+    pub minimum_supported_protocol_version: Option<String>,
 }
 
-impl MutableMetadataChanges {
+impl MutableMetadataValidationInfo {
     pub fn is_empty(&self) -> bool {
         self.metadata_field_changes.is_empty()
             && self.admins_added.is_empty()
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
             && self.super_admins_removed.is_empty()
+            && self.minimum_supported_protocol_version.is_none()
     }
 }
 
@@ -213,6 +219,40 @@ impl MetadataFieldChange {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LibXMTPVersion {
+    major: u32,
+    minor: u32,
+    patch: u32,
+}
+
+impl LibXMTPVersion {
+    pub fn parse(version_str: &str) -> Result<Self, CommitValidationError> {
+        let parts: Vec<&str> = version_str.split('.').collect();
+        if parts.len() != 3 {
+            return Err(CommitValidationError::InvalidVersionFormat(
+                version_str.to_string(),
+            ));
+        }
+
+        let major = parts[0]
+            .parse()
+            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
+        let minor = parts[1]
+            .parse()
+            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
+        let patch = parts[2]
+            .parse()
+            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
+
+        Ok(LibXMTPVersion {
+            major,
+            minor,
+            patch,
+        })
+    }
+}
+
 /**
  * A [`ValidatedCommit`] is a summary of changes coming from a MLS commit, after all of our validation rules have been applied
  *
@@ -234,7 +274,7 @@ pub struct ValidatedCommit {
     pub actor: CommitParticipant,
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
-    pub metadata_changes: MutableMetadataChanges,
+    pub metadata_validation_info: MutableMetadataValidationInfo,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
 }
@@ -256,7 +296,7 @@ impl ValidatedCommit {
         let existing_group_extensions = openmls_group.extensions();
         let new_group_extensions = staged_commit.group_context().extensions();
 
-        let metadata_changes = extract_metadata_changes(
+        let metadata_validation_info = extract_metadata_changes(
             &immutable_metadata,
             &mutable_metadata,
             existing_group_extensions,
@@ -264,7 +304,7 @@ impl ValidatedCommit {
         )?;
 
         // Enforce character limits for specific metadata fields
-        for field_change in &metadata_changes.metadata_field_changes {
+        for field_change in &metadata_validation_info.metadata_field_changes {
             if let Some(new_value) = &field_change.new_value {
                 match field_change.field_name.as_str() {
                     val if val == MetadataField::Description.as_str()
@@ -370,7 +410,7 @@ impl ValidatedCommit {
             actor,
             added_inboxes,
             removed_inboxes,
-            metadata_changes,
+            metadata_validation_info,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
         };
@@ -379,13 +419,33 @@ impl ValidatedCommit {
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
+        if let Some(min_version) = &verified_commit
+            .metadata_validation_info
+            .minimum_supported_protocol_version
+        {
+            let current_version = LibXMTPVersion::parse(client.version_info().pkg_version())?;
+            let min_supported_version = LibXMTPVersion::parse(min_version)?;
+            tracing::info!(
+                "Validating commit with min_supported_version: {:?}, current_version: {:?}",
+                min_supported_version,
+                current_version
+            );
+
+            if min_supported_version > current_version {
+                return Err(
+                    CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
+                        min_version.clone(),
+                    ),
+                );
+            }
+        }
         Ok(verified_commit)
     }
 
     pub fn is_empty(&self) -> bool {
         self.added_inboxes.is_empty()
             && self.removed_inboxes.is_empty()
-            && self.metadata_changes.is_empty()
+            && self.metadata_validation_info.is_empty()
     }
 
     pub fn actor_inbox_id(&self) -> InboxId {
@@ -704,7 +764,7 @@ fn extract_metadata_changes(
     old_mutable_metadata: &GroupMutableMetadata,
     old_group_extensions: &Extensions,
     new_group_extensions: &Extensions,
-) -> Result<MutableMetadataChanges, CommitValidationError> {
+) -> Result<MutableMetadataValidationInfo, CommitValidationError> {
     let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_extensions)
         .ok_or(CommitValidationError::MissingMutableMetadata)?;
     let new_mutable_metadata_ext = find_mutable_metadata_extension(new_group_extensions)
@@ -713,7 +773,14 @@ fn extract_metadata_changes(
     // Before even decoding the new metadata, make sure that something has changed. Otherwise we know there is
     // nothing to do
     if old_mutable_metadata_ext.eq(new_mutable_metadata_ext) {
-        return Ok(MutableMetadataChanges::default());
+        let minimum_supported_protocol_version: Option<String> = old_mutable_metadata
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
+            .map(|s| s.to_string());
+        return Ok(MutableMetadataValidationInfo {
+            minimum_supported_protocol_version,
+            ..Default::default()
+        });
     }
 
     let new_mutable_metadata: GroupMutableMetadata = new_mutable_metadata_ext.try_into()?;
@@ -721,7 +788,7 @@ fn extract_metadata_changes(
     let metadata_field_changes =
         mutable_metadata_field_changes(old_mutable_metadata, &new_mutable_metadata);
 
-    Ok(MutableMetadataChanges {
+    Ok(MutableMetadataValidationInfo {
         metadata_field_changes,
         admins_added: get_added_members(
             &old_mutable_metadata.admin_list,
@@ -748,6 +815,10 @@ fn extract_metadata_changes(
             old_mutable_metadata,
         ),
         num_super_admins: new_mutable_metadata.super_admin_list.len() as u32,
+        minimum_supported_protocol_version: new_mutable_metadata
+            .attributes
+            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
+            .map(|s| s.to_string()),
     })
 }
 
@@ -952,7 +1023,7 @@ impl From<ValidatedCommit> for GroupUpdatedProto {
                 .map(InboxProto::from)
                 .collect(),
             metadata_field_changes: commit
-                .metadata_changes
+                .metadata_validation_info
                 .metadata_field_changes
                 .iter()
                 .map(MetadataFieldChangeProto::from)

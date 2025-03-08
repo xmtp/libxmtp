@@ -31,7 +31,6 @@ use super::{
 };
 use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
 use crate::groups::group_mutable_metadata::MetadataField;
-use crate::groups::group_mutable_metadata::MetadataField::MessageDisappearInNS;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -228,10 +227,22 @@ impl MetadataPolicies {
     pub fn default_map(policies: MetadataPolicies) -> HashMap<String, MetadataPolicies> {
         let mut map: HashMap<String, MetadataPolicies> = HashMap::new();
         for field in GroupMutableMetadata::supported_fields() {
-            if field == MessageDisappearInNS {
-                map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
-            } else {
-                map.insert(field.to_string(), policies.clone());
+            match field {
+                MetadataField::MessageDisappearInNS => {
+                    map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+                }
+                MetadataField::MessageDisappearFromNS => {
+                    map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+                }
+                MetadataField::MinimumSupportedProtocolVersion => {
+                    map.insert(
+                        field.to_string(),
+                        MetadataPolicies::allow_if_actor_super_admin(),
+                    );
+                }
+                _ => {
+                    map.insert(field.to_string(), policies.clone());
+                }
             }
         }
         map
@@ -960,27 +971,37 @@ impl PolicySet {
 
         // Verify that update metadata policy was not violated
         let metadata_changes_valid = self.evaluate_metadata_policy(
-            commit.metadata_changes.metadata_field_changes.iter(),
+            commit
+                .metadata_validation_info
+                .metadata_field_changes
+                .iter(),
             &self.update_metadata_policy,
             &commit.actor,
         );
 
         // Verify that add admin policy was not violated
-        let added_admins_valid = commit.metadata_changes.admins_added.is_empty()
+        let added_admins_valid = commit.metadata_validation_info.admins_added.is_empty()
             || self.add_admin_policy.evaluate(&commit.actor);
 
         // Verify that remove admin policy was not violated
-        let removed_admins_valid = commit.metadata_changes.admins_removed.is_empty()
+        let removed_admins_valid = commit.metadata_validation_info.admins_removed.is_empty()
             || self.remove_admin_policy.evaluate(&commit.actor);
 
         // Verify that super admin add policy was not violated
-        let super_admin_add_valid =
-            commit.metadata_changes.super_admins_added.is_empty() || commit.actor.is_super_admin;
+        let super_admin_add_valid = commit
+            .metadata_validation_info
+            .super_admins_added
+            .is_empty()
+            || commit.actor.is_super_admin;
 
         // Verify that super admin remove policy was not violated
         // You can never remove the last super admin
-        let super_admin_remove_valid = commit.metadata_changes.super_admins_removed.is_empty()
-            || (commit.actor.is_super_admin && commit.metadata_changes.num_super_admins > 0);
+        let super_admin_remove_valid = commit
+            .metadata_validation_info
+            .super_admins_removed
+            .is_empty()
+            || (commit.actor.is_super_admin
+                && commit.metadata_validation_info.num_super_admins > 0);
 
         // Permissions can only be changed by the super admin
         let permissions_changes_valid = !commit.permissions_changed || commit.actor.is_super_admin;
@@ -1158,9 +1179,14 @@ pub fn is_policy_default(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        if field_name == MessageDisappearInNS.as_str() {
+        if field_name == MetadataField::MessageDisappearInNS.as_str()
+            || field_name == MetadataField::MessageDisappearFromNS.as_str()
+        {
             metadata_policies_equal = metadata_policies_equal
                 && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        } else if field_name == MetadataField::MinimumSupportedProtocolVersion.as_str() {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_super_admin());
         } else {
             metadata_policies_equal =
                 metadata_policies_equal && metadata_policy.eq(&MetadataPolicies::allow());
@@ -1188,8 +1214,13 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
                 name: field_name.to_string(),
             },
         )?;
-        metadata_policies_equal = metadata_policies_equal
-            && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        if field_name == MetadataField::MinimumSupportedProtocolVersion.as_str() {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_super_admin());
+        } else {
+            metadata_policies_equal = metadata_policies_equal
+                && metadata_policy.eq(&MetadataPolicies::allow_if_actor_admin());
+        }
     }
     Ok(metadata_policies_equal
         && policy.add_member_policy == MembershipPolicies::allow_if_actor_admin()
@@ -1205,12 +1236,26 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
 pub(crate) fn default_policy() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
-        metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
+        match field {
+            MetadataField::MessageDisappearInNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MessageDisappearFromNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MinimumSupportedProtocolVersion => {
+                metadata_policies_map.insert(
+                    field.to_string(),
+                    MetadataPolicies::allow_if_actor_super_admin(),
+                );
+            }
+            _ => {
+                metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow());
+            }
+        }
     }
-    metadata_policies_map.insert(
-        MessageDisappearInNS.to_string(),
-        MetadataPolicies::allow_if_actor_admin(),
-    );
 
     PolicySet::new(
         MembershipPolicies::allow(),
@@ -1228,12 +1273,27 @@ pub(crate) fn default_policy() -> PolicySet {
 pub(crate) fn policy_admin_only() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
-        metadata_policies_map.insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+        match field {
+            MetadataField::MessageDisappearInNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MessageDisappearFromNS => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+            MetadataField::MinimumSupportedProtocolVersion => {
+                metadata_policies_map.insert(
+                    field.to_string(),
+                    MetadataPolicies::allow_if_actor_super_admin(),
+                );
+            }
+            _ => {
+                metadata_policies_map
+                    .insert(field.to_string(), MetadataPolicies::allow_if_actor_admin());
+            }
+        }
     }
-    metadata_policies_map.insert(
-        MetadataField::MessageDisappearInNS.to_string(),
-        MetadataPolicies::allow_if_actor_admin(),
-    );
 
     PolicySet::new(
         MembershipPolicies::allow_if_actor_admin(),
@@ -1297,7 +1357,7 @@ pub(crate) mod tests {
 
     use crate::groups::{
         group_metadata::DmMembers, group_mutable_metadata::MetadataField,
-        validated_commit::MutableMetadataChanges,
+        validated_commit::MutableMetadataValidationInfo,
     };
     use xmtp_common::{rand_string, rand_vec};
 
@@ -1388,7 +1448,7 @@ pub(crate) mod tests {
             removed_inboxes: member_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            metadata_changes: MutableMetadataChanges {
+            metadata_validation_info: MutableMetadataValidationInfo {
                 metadata_field_changes: field_changes,
                 ..Default::default()
             },

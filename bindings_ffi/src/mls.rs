@@ -2102,6 +2102,11 @@ impl FfiConversation {
         self.inner.is_active(&provider).map_err(Into::into)
     }
 
+    pub fn paused_for_version(&self) -> Result<Option<String>, GenericError> {
+        let provider = self.inner.mls_provider()?;
+        self.inner.paused_for_version(&provider).map_err(Into::into)
+    }
+
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
         self.inner
             .consent_state()

@@ -96,6 +96,7 @@ use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Mutex;
+use validated_commit::LibXMTPVersion;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
@@ -223,6 +224,8 @@ pub enum GroupError {
     LockFailedToAcquire,
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    #[error("Group is paused until version {0} is available")]
+    GroupPausedUntilUpdate(String),
 }
 
 impl RetryableError for GroupError {
@@ -277,7 +280,8 @@ impl RetryableError for GroupError {
             | Self::InvalidPublicKeys(_)
             | Self::CredentialError(_)
             | Self::EncodeError(_)
-            | Self::TooManyCharacters { .. } => false,
+            | Self::TooManyCharacters { .. }
+            | Self::GroupPausedUntilUpdate(_) => false,
         }
     }
 }
@@ -541,6 +545,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             context.inbox_id().to_string(),
             None,
             opts.message_disappearing_settings,
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -600,6 +605,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_two_inbox_id: client.inbox_id().to_string(),
             }),
             opts.message_disappearing_settings,
+            None,
         );
 
         stored_group.store(provider.conn_ref())?;
@@ -684,8 +690,33 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let dm_members = metadata.dm_members;
             let conversation_type = metadata.conversation_type;
             let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
-            let disappearing_settings = mutable_metadata.and_then(|metadata| {
+            let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
+            });
+            let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
+                let min_version = Self::min_protocol_version_from_extensions(metadata);
+                if let Some(min_version) = min_version {
+                    let current_version_str = client.version_info().pkg_version();
+                    let current_version =
+                        LibXMTPVersion::parse(current_version_str).ok()?;
+                    let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
+                    if required_min_version > current_version {
+                        tracing::warn!(
+                            "Saving group from welcome as paused since version requirements are not met. \
+                            Group ID: {}, \
+                            Required version: {}, \
+                            Current version: {}",
+                            hex::encode(group_id.clone()),
+                            min_version,
+                            current_version_str
+                        );
+                        Some(min_version)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             });
 
             let to_store = match conversation_type {
@@ -698,6 +729,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     conversation_type,
                     dm_members,
                     disappearing_settings,
+                    paused_for_version,
                 ),
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
@@ -710,6 +742,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         conversation_type,
                         dm_members,
                         disappearing_settings,
+                        None,
                     )
                 }
                 ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -721,6 +754,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     conversation_type,
                     dm_members,
                     disappearing_settings,
+                    None,
                 ),
             };
 
@@ -794,6 +828,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<u8>, GroupError> {
+        self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(provider, update_interval_ns)
             .await?;
@@ -811,6 +846,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
         let conn = self.context().store().conn()?;
         let provider = XmtpOpenMlsProvider::from(conn);
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -829,6 +865,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If so, adds/removes those group members
     pub async fn update_installations(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
         let provider = self.client.mls_provider()?;
         self.maybe_update_installations(&provider, Some(0)).await?;
         Ok(())
@@ -1016,6 +1053,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
+        self.ensure_not_paused().await?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
@@ -1082,6 +1120,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         inbox_ids: &[InboxIdRef<'_>],
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.store().conn()?.into();
 
         let intent_data = self
@@ -1101,6 +1141,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
     /// to perform these updates.
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_name.len() > MAX_GROUP_NAME_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_NAME_LENGTH,
@@ -1118,6 +1160,33 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         self.sync_until_intent_resolved(&provider, intent.id).await
     }
 
+    /// Updates min version of the group to match this client's version.
+    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
+        let provider = self.client.mls_provider()?;
+
+        let version = self.client.version_info().pkg_version();
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
+                version.to_string(),
+            )
+            .into();
+        let intent =
+            self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
+
+        self.sync_until_intent_resolved(&provider, intent.id).await
+    }
+
+    fn min_protocol_version_from_extensions(
+        mutable_metadata: GroupMutableMetadata,
+    ) -> Option<String> {
+        mutable_metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string())
+            .map(|v| v.to_string())
+    }
+
     /// Updates the permission policy of the group. This requires super admin permissions.
     pub async fn update_permission_policy(
         &self,
@@ -1125,6 +1194,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permission_policy: PermissionPolicyOption,
         metadata_field: Option<MetadataField>,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.mls_provider()?;
         if self.metadata(&provider).await?.conversation_type == ConversationType::Dm {
             return Err(GroupError::DmGroupMetadataForbidden);
@@ -1167,6 +1238,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_description: String,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_description.len() > MAX_GROUP_DESCRIPTION_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_DESCRIPTION_LENGTH,
@@ -1203,6 +1276,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         group_image_url_square: String,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         if group_image_url_square.len() > MAX_GROUP_IMAGE_URL_LENGTH {
             return Err(GroupError::TooManyCharacters {
                 length: MAX_GROUP_IMAGE_URL_LENGTH,
@@ -1243,6 +1318,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         settings: MessageDisappearingSettings,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let provider = self.client.mls_provider()?;
 
         self.update_conversation_message_disappear_from_ns(&provider, settings.from_ns)
@@ -1254,6 +1331,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn remove_conversation_message_disappearing_settings(
         &self,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         self.update_conversation_message_disappearing_settings(
             MessageDisappearingSettings::default(),
         )
@@ -1265,6 +1344,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         expire_from_ms: i64,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_from_ns(
                 expire_from_ms,
@@ -1279,11 +1360,37 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         provider: &XmtpOpenMlsProvider,
         expire_in_ms: i64,
     ) -> Result<(), GroupError> {
+        self.ensure_not_paused().await?;
+
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
         let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
         self.sync_until_intent_resolved(provider, intent.id).await
+    }
+
+    /// If group is not paused, will return None, otherwise will return the version that the group is paused for
+    pub fn paused_for_version(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Option<String>, GroupError> {
+        let paused_for_version = provider
+            .conn_ref()
+            .get_group_paused_version(&self.group_id)?;
+        Ok(paused_for_version)
+    }
+
+    async fn ensure_not_paused(&self) -> Result<(), GroupError> {
+        let conn = self.context().store().conn()?;
+        let provider = XmtpOpenMlsProvider::from(conn);
+        if let Some(min_version) = provider
+            .conn_ref()
+            .get_group_paused_version(&self.group_id)?
+        {
+            Err(GroupError::GroupPausedUntilUpdate(min_version))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn conversation_message_disappearing_settings(
@@ -1562,6 +1669,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 member_one_inbox_id: client.inbox_id().to_string(),
                 member_two_inbox_id: dm_target_inbox_id,
             }),
+            None,
             None,
         );
 
@@ -4909,5 +5017,421 @@ pub(crate) mod tests {
                 .unwrap(),
             &valid_image_url
         );
+    }
+
+    fn increment_patch_version(version: &str) -> Option<String> {
+        // Split version into numeric part and suffix (if any)
+        let (version_part, suffix) = match version.split_once('-') {
+            Some((v, s)) => (v, Some(s)),
+            None => (version, None),
+        };
+
+        // Split numeric version string into components
+        let mut parts: Vec<&str> = version_part.split('.').collect();
+
+        // Ensure we have exactly 3 parts (major.minor.patch)
+        if parts.len() != 3 {
+            return None;
+        }
+
+        // Parse the patch number and increment it
+        let patch = parts[2].parse::<u32>().ok()?;
+        let new_patch = patch + 1;
+
+        // Replace the patch number with the incremented value
+        let binding = new_patch.to_string();
+        parts[2] = &binding;
+
+        // Join the parts back together with dots and add suffix if it existed
+        let new_version = parts.join(".");
+        match suffix {
+            Some(s) => Some(format!("{}-{}", new_version, s)),
+            None => Some(new_version),
+        }
+    }
+
+    #[test]
+    fn test_increment_patch_version() {
+        assert_eq!(increment_patch_version("1.2.3"), Some("1.2.4".to_string()));
+        assert_eq!(increment_patch_version("0.0.9"), Some("0.0.10".to_string()));
+        assert_eq!(increment_patch_version("1.0.0"), Some("1.0.1".to_string()));
+        assert_eq!(
+            increment_patch_version("1.0.0-alpha"),
+            Some("1.0.1-alpha".to_string())
+        );
+
+        // Invalid inputs should return None
+        assert_eq!(increment_patch_version("1.2"), None);
+        assert_eq!(increment_patch_version("1.2.3.4"), None);
+        assert_eq!(increment_patch_version("invalid"), None);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_can_set_min_supported_protocol_version_for_commit() {
+        // Step 1: Create two clients, amal is one version ahead of bo
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Step 2: Amal creates a group and adds bo as a member
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Amal updates the group name and sends a message to the group
+        amal_group
+            .update_group_name("new name".to_string())
+            .await
+            .unwrap();
+        amal_group
+            .send_message("Hello, world!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 4: Verify that bo can read the message even though they are on different client versions
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 2);
+
+        let message_text = String::from_utf8_lossy(&messages[1].decrypted_message_bytes);
+        assert_eq!(message_text, "Hello, world!");
+
+        // Step 5: Amal updates the group version to match their client version
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group
+            .send_message("new version only!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 6: Bo should now be unable to sync messages for the group
+        let _ = bo_group.sync().await;
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 2);
+
+        // Step 7: Bo updates their client, and see if we can then download latest messages
+        let bo_version = bo.version_info().pkg_version();
+        bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+
+        // Refresh Bo's group context
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+
+        bo_group.sync().await.unwrap();
+        let _ = bo_group.sync().await;
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 4);
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
+        // Step 1: Create three clients, amal and bo are one version ahead of caro
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo_version = bo.version_info().pkg_version();
+        bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+
+        let mut caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
+        assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
+
+        // Step 2: Amal creates a group and adds bo as a member
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Step 3: Amal sends a message to the group
+        amal_group
+            .send_message("Hello, world!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 4: Verify that bo can read the message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 1);
+
+        let message_text = String::from_utf8_lossy(&messages[0].decrypted_message_bytes);
+        assert_eq!(message_text, "Hello, world!");
+
+        // Step 5: Amal updates the group to have a min version of current version + 1
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+        amal_group
+            .send_message("new version only!".as_bytes())
+            .await
+            .unwrap();
+
+        // Step 6: Bo should still be able to sync messages for the group
+        let _ = bo_group.sync().await;
+        let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(messages.len(), 3);
+
+        // Step 7: Amal adds caro as a member
+        amal_group
+            .add_members_by_inbox_id(&[caro.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Caro received the invite for the group
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = binding.first().unwrap();
+        assert!(caro_group.group_id == amal_group.group_id);
+
+        // Caro group is paused immediately after joining
+        let is_paused = caro_group
+            .paused_for_version(&caro.mls_provider().unwrap())
+            .unwrap()
+            .is_some();
+        assert!(is_paused);
+        let result = caro_group.send_message("Hello from Caro".as_bytes()).await;
+        assert!(matches!(result, Err(GroupError::GroupPausedUntilUpdate(_))));
+
+        // Caro updates their client to the same version as amal and syncs to unpause the group
+        let caro_version = caro.version_info().pkg_version();
+        caro.test_update_version(increment_patch_version(caro_version).unwrap().as_str());
+        let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = binding.first().unwrap();
+        assert!(caro_group.group_id == amal_group.group_id);
+        caro_group.sync().await.unwrap();
+
+        // Caro should now be able to send a message
+        caro_group
+            .send_message("Hello from Caro".as_bytes())
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+        let messages = amal_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            messages[messages.len() - 1].decrypted_message_bytes,
+            "Hello from Caro".as_bytes()
+        );
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_only_super_admins_can_set_min_supported_protocol_version() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+        amal_group
+            .update_admin_list(
+                UpdateAdminListType::Add,
+                bo.context.identity.inbox_id().to_string(),
+            )
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        let is_bo_admin = amal_group
+            .is_admin(
+                bo.context.identity.inbox_id().to_string(),
+                &amal.mls_provider().unwrap(),
+            )
+            .unwrap();
+        assert!(is_bo_admin);
+
+        let is_bo_super_admin = amal_group
+            .is_super_admin(
+                bo.context.identity.inbox_id().to_string(),
+                &amal.mls_provider().unwrap(),
+            )
+            .unwrap();
+        assert!(!is_bo_super_admin);
+
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version, None);
+
+        let result = bo_group.update_group_min_version_to_match_self().await;
+        assert!(result.is_err());
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&bo_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version, None);
+
+        amal_group.sync().await.unwrap();
+        let result = amal_group.update_group_min_version_to_match_self().await;
+        assert!(result.is_ok());
+        bo_group.sync().await.unwrap();
+
+        let metadata = bo_group
+            .mutable_metadata(&bo_group.mls_provider().unwrap())
+            .unwrap();
+        let min_version = metadata
+            .attributes
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
+        assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
+        // Create two clients with different versions
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a group and adds bo
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Amal sets minimum version requirement
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        // Bo joins group and attempts to send message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+
+        // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        assert!(
+            matches!(result, Err(GroupError::SyncFailedToWait)),
+            "Expected SyncFailedToWait error, got {:?}",
+            result
+        );
+
+        bo_group.sync().await.unwrap();
+
+        // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
+            assert_eq!(version, amal.version_info().pkg_version());
+        } else {
+            panic!("Expected GroupPausedUntilUpdate error, got {:?}", result);
+        }
+    }
+
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    async fn test_send_message_after_min_version_update_gets_expected_error() {
+        // Create two clients with different versions
+        let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_version = amal.version_info().pkg_version();
+        amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+
+        let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a group and adds bo
+        let amal_group = amal
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        amal_group
+            .add_members_by_inbox_id(&[bo.context.identity.inbox_id()])
+            .await
+            .unwrap();
+
+        // Bo joins group and successfully sends initial message
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        bo_group
+            .send_message("Hello from Bo".as_bytes())
+            .await
+            .unwrap();
+
+        // Amal sets new minimum version requirement
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        // Bo's attempt to send message before syncing should now fail with SyncFailedToWait error
+        let result = bo_group
+            .send_message("Second message from Bo".as_bytes())
+            .await;
+        assert!(
+            matches!(result, Err(GroupError::SyncFailedToWait)),
+            "Expected SyncFailedToWait error, got {:?}",
+            result
+        );
+
+        // Bo syncs to get the version update
+        bo_group.sync().await.unwrap();
+
+        // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
+        let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
+        if let Err(GroupError::GroupPausedUntilUpdate(version)) = result {
+            assert_eq!(version, amal.version_info().pkg_version());
+        } else {
+            panic!("Expected GroupPausedUntilUpdate error, got {:?}", result);
+        }
+
+        // Verify Bo can send again after updating their version
+        let bo_version = bo.version_info().pkg_version();
+        bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+
+        // Need to get fresh group reference after version update
+        let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = binding.first().unwrap();
+        bo_group.sync().await.unwrap();
+
+        // Should now succeed
+        let result = bo_group
+            .send_message("Message after update".as_bytes())
+            .await;
+        assert!(result.is_ok());
     }
 }

@@ -454,6 +454,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             None,
             None,
+            None,
         );
         group.store(conn).unwrap();
     }

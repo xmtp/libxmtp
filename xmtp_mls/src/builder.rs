@@ -57,7 +57,7 @@ pub struct ClientBuilder<ApiClient, V> {
 }
 
 impl Client<(), ()> {
-    /// Ge tthe builder for this [`Client`]
+    /// Get the builder for this [`Client`]
     pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<(), ()> {
         ClientBuilder::<(), ()>::new(strategy)
     }

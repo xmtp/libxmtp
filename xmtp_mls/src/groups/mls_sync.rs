@@ -5,7 +5,7 @@ use super::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::{extract_group_membership, CommitValidationError},
+    validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
 use crate::configuration::sync_update_installations_interval_ns;
@@ -138,6 +138,8 @@ pub enum GroupMessageProcessingError {
     AssociationDeserialization(#[from] xmtp_id::associations::DeserializationError),
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error("Group paused due to minimum protocol version requirement")]
+    GroupPaused,
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -165,7 +167,8 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::Serde(_)
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
-            | Self::UnsupportedMessageType(_) => false,
+            | Self::UnsupportedMessageType(_)
+            | Self::GroupPaused => false,
         }
     }
 }
@@ -208,6 +211,37 @@ where
         let mut errors: Vec<GroupError> = vec![];
 
         let conn = provider.conn_ref();
+
+        // Check if group is paused and try to unpause if version requirements are met
+        if let Some(required_min_version_str) = conn.get_group_paused_version(&self.group_id)? {
+            tracing::info!(
+                "Group is paused until version: {}",
+                required_min_version_str
+            );
+            let current_version_str = self.client.version_info().pkg_version();
+            let current_version = LibXMTPVersion::parse(current_version_str)?;
+            let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
+
+            if required_min_version <= current_version {
+                tracing::info!(
+                    "Unpausing group since version requirements are met. \
+                     Group ID: {}",
+                    hex::encode(&self.group_id),
+                );
+                conn.unpause_group(&self.group_id)?;
+            } else {
+                tracing::warn!(
+                    "Skipping sync for paused group since version requirements are not met. \
+                    Group ID: {}, \
+                    Required version: {}, \
+                    Current version: {}",
+                    hex::encode(&self.group_id),
+                    required_min_version_str,
+                    current_version_str
+                );
+                return Ok(()); // Skip sync for paused groups
+            }
+        }
 
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(provider).await {
@@ -1051,23 +1085,40 @@ where
             // Download all unread welcome messages and convert to groups.
             // In a database transaction, increment the cursor for a given entity and
             // apply the update after the provided `ProcessingFn` has completed successfully.
-            self.process_message(provider, msgv1, true).await
-            .inspect(|_| {
-                tracing::info!(
-                    "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
-                    hex::encode(&msgv1.group_id),
-                    msgv1.id
-                );
-            })
-            .inspect_err(|err| {
-                tracing::info!(
-                    "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
-                    hex::encode(&msgv1.group_id),
-                    msgv1.id,
-                    err
-                );
-            })?;
-            Ok(())
+            match self.process_message(provider, msgv1, true).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
+                        hex::encode(&msgv1.group_id),
+                        msgv1.id
+                    );
+                    Ok(())
+                }
+                Err(GroupMessageProcessingError::CommitValidation(
+                    CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
+                        min_version,
+                    ),
+                )) => {
+                    // Instead of updating cursor, mark group as paused
+                    provider
+                        .conn_ref()
+                        .set_group_paused(&self.group_id, &min_version)?;
+                    tracing::warn!(
+                        "Group [{}] paused due to minimum protocol version requirement",
+                        hex::encode(&self.group_id)
+                    );
+                    Err(GroupMessageProcessingError::GroupPaused)
+                }
+                Err(e) => {
+                    tracing::info!(
+                        "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
+                        hex::encode(&msgv1.group_id),
+                        msgv1.id,
+                        e
+                    );
+                    Err(e)
+                }
+            }
         }
     }
 
@@ -1083,19 +1134,29 @@ where
                 Retry::default(),
                 (async { self.consume_message(provider, &message).await })
             );
-            if let Err(e) = result {
-                let is_retryable = e.is_retryable();
-                let error_message = e.to_string();
-                receive_errors.push(e);
-                // If the error is retryable we cannot move on to the next message
-                // otherwise you can get into a forked group state.
-                if is_retryable {
-                    tracing::error!(
-                        error = %error_message,
-                        "Aborting message processing for retryable error: {}",
-                        error_message
+            match result {
+                Ok(_) => {}
+                Err(GroupMessageProcessingError::GroupPaused) => {
+                    tracing::info!(
+                        "Group [{}] is paused, skip syncing remaining messages",
+                        hex::encode(&self.group_id),
                     );
-                    break;
+                    return Ok(());
+                }
+                Err(e) => {
+                    let is_retryable = e.is_retryable();
+                    let error_message = e.to_string();
+                    receive_errors.push(e);
+                    // If the error is retryable we cannot move on to the next message
+                    // otherwise you can get into a forked group state.
+                    if is_retryable {
+                        tracing::error!(
+                            error = %error_message,
+                            "Aborting message processing for retryable error: {}",
+                            error_message
+                        );
+                        break;
+                    }
                 }
             }
         }
@@ -1139,7 +1200,7 @@ where
             self.context().inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
-            validated_commit.metadata_changes.metadata_field_changes.len(),
+            validated_commit.metadata_validation_info.metadata_field_changes.len(),
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();

@@ -1,4 +1,5 @@
 use super::group_membership::{GroupMembership, MembershipDiff};
+use crate::utils::VersionInfo;
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -37,6 +38,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
+
+    fn version_info(&self) -> &Arc<VersionInfo>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -106,6 +109,8 @@ pub trait ScopedGroupClient: Sized {
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
+
+    fn version_info(&self) -> &Arc<VersionInfo>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -182,6 +187,10 @@ where
 
     fn history_sync_url(&self) -> &Option<String> {
         &self.history_sync_url
+    }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        &self.version_info
     }
 
     async fn get_installation_diff(
@@ -264,6 +273,10 @@ where
 
     fn history_sync_url(&self) -> &Option<String> {
         (**self).history_sync_url()
+    }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
     }
 
     fn store(&self) -> &EncryptedMessageStore {
@@ -363,6 +376,10 @@ where
         (**self).history_sync_url()
     }
 
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
+    }
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -455,6 +472,10 @@ where
 
     fn history_sync_url(&self) -> &Option<String> {
         (**self).history_sync_url()
+    }
+
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
     }
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
