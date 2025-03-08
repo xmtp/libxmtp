@@ -39,6 +39,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     fn history_sync_url(&self) -> &Option<String>;
 
+    fn version_info(&self) -> &Arc<VersionInfo>;
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
     }
@@ -91,8 +93,6 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
         group_id: &[u8],
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError>;
-
-    fn version_info(&self) -> &Arc<VersionInfo>;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -109,6 +109,8 @@ pub trait ScopedGroupClient: Sized {
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
     fn history_sync_url(&self) -> &Option<String>;
+
+    fn version_info(&self) -> &Arc<VersionInfo>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
         self.context_ref().inbox_id()
@@ -273,6 +275,10 @@ where
         (**self).history_sync_url()
     }
 
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
+    }
+
     fn store(&self) -> &EncryptedMessageStore {
         (**self).store()
     }
@@ -345,10 +351,6 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
-    }
-
-    fn version_info(&self) -> &Arc<VersionInfo> {
-        (**self).version_info()
     }
 }
 
@@ -374,6 +376,10 @@ where
         (**self).history_sync_url()
     }
 
+    fn version_info(&self) -> &Arc<VersionInfo> {
+        (**self).version_info()
+    }
+
     fn inbox_id(&self) -> InboxIdRef<'_> {
         (**self).inbox_id()
     }
@@ -442,10 +448,6 @@ where
         conn: &DbConnection,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         (**self).query_group_messages(group_id, conn).await
-    }
-
-    fn version_info(&self) -> &Arc<VersionInfo> {
-        (**self).version_info()
     }
 }
 
