@@ -22,4 +22,15 @@ pub mod v4_utils;
 pub mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    use crate::xmtp::identity::api::v1::{get_inbox_ids_response::Response, GetInboxIdsResponse};
+
+    #[test]
+    fn try_decode_new_response() {
+        let new_response =
+            hex::decode("0a0e0a047465737412047465737418010a0e0a04746573741204746573741801")
+                .unwrap();
+        let rsp: GetInboxIdsResponse = prost::Message::decode(new_response.as_slice()).unwrap();
+        println!("{:?}", rsp);
+    }
 }
