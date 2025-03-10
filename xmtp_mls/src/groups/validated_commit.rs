@@ -93,6 +93,8 @@ pub enum CommitValidationError {
     StorageError(#[from] StorageError),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
     TooManyCharacters { length: usize },
+    #[error("Version part missing")]
+    VersionMissing,
 }
 
 impl RetryableError for CommitValidationError {
@@ -224,6 +226,7 @@ pub struct LibXMTPVersion {
     major: u32,
     minor: u32,
     patch: u32,
+    suffix: Option<String>,
 }
 
 impl LibXMTPVersion {
@@ -235,13 +238,26 @@ impl LibXMTPVersion {
             ));
         }
 
-        let major = parts[0]
+        let major = parts
+            .first()
+            .ok_or(CommitValidationError::VersionMissing)?
             .parse()
             .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-        let minor = parts[1]
+        let minor = parts
+            .get(1)
+            .ok_or(CommitValidationError::VersionMissing)?
             .parse()
             .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
-        let patch = parts[2]
+
+        let patch_and_suffix = parts
+            .get(2)
+            .ok_or(CommitValidationError::VersionMissing)?
+            .split('-')
+            .collect::<Vec<_>>();
+
+        let patch = patch_and_suffix
+            .first()
+            .ok_or(CommitValidationError::VersionMissing)?
             .parse()
             .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))?;
 
@@ -249,6 +265,7 @@ impl LibXMTPVersion {
             major,
             minor,
             patch,
+            suffix: patch_and_suffix.get(1).map(ToString::to_string),
         })
     }
 }
