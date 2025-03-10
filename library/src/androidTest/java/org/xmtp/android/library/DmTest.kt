@@ -14,16 +14,16 @@ import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.Conversations.ConversationType
+import org.xmtp.android.library.Conversations.ConversationFilterType
 import org.xmtp.android.library.codecs.ContentTypeReaction
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.IdentityKind
-import org.xmtp.android.library.libxmtp.Message
-import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -167,6 +167,13 @@ class DmTest {
     fun testCannotStartDmWithSelf() {
         assertThrows("Recipient is sender", XMTPException::class.java) {
             runBlocking { boClient.conversations.findOrCreateDm(boClient.inboxId) }
+        }
+    }
+
+    @Test
+    fun testCannotStartDmWithAddressWhenExpectingInboxId() {
+        assertThrows("Invalid inboxId", XMTPException::class.java) {
+            runBlocking { boClient.conversations.findOrCreateDm(alix.walletAddress) }
         }
     }
 
@@ -343,11 +350,11 @@ class DmTest {
         val boDm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
         runBlocking { alixClient.conversations.sync() }
 
-        val allMessages = mutableListOf<Message>()
+        val allMessages = mutableListOf<DecodedMessage>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
-                alixClient.conversations.streamAllMessages(type = ConversationType.DMS)
+                alixClient.conversations.streamAllMessages(type = ConversationFilterType.DMS)
                     .collect { message ->
                         allMessages.add(message)
                     }
@@ -378,7 +385,7 @@ class DmTest {
 
     @Test
     fun testCanStreamConversations() = kotlinx.coroutines.test.runTest {
-        boClient.conversations.stream(type = ConversationType.DMS).test {
+        boClient.conversations.stream(type = ConversationFilterType.DMS).test {
             val dm =
                 alixClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(dm.id, awaitItem().id)

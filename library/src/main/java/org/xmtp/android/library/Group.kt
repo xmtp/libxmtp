@@ -8,9 +8,9 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
 import org.xmtp.android.library.libxmtp.Member
-import org.xmtp.android.library.libxmtp.Message
-import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
-import org.xmtp.android.library.libxmtp.Message.SortDirection
+import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.PermissionOption
@@ -55,7 +55,7 @@ class Group(
     val name: String
         get() = libXMTPGroup.groupName()
 
-    val imageUrlSquare: String
+    val imageUrl: String
         get() = libXMTPGroup.groupImageUrlSquare()
 
     val description: String
@@ -128,9 +128,9 @@ class Group(
         libXMTPGroup.sync()
     }
 
-    suspend fun lastMessage(): Message? {
+    suspend fun lastMessage(): DecodedMessage? {
         return if (ffiLastMessage != null) {
-            Message.create(ffiLastMessage)
+            DecodedMessage.create(ffiLastMessage)
         } else {
             messages(limit = 1).firstOrNull()
         }
@@ -142,7 +142,7 @@ class Group(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<Message> {
+    ): List<DecodedMessage> {
         return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = beforeNs,
@@ -161,7 +161,7 @@ class Group(
                 contentTypes = null
             )
         ).mapNotNull {
-            Message.create(it)
+            DecodedMessage.create(it)
         }
     }
 
@@ -171,7 +171,7 @@ class Group(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<Message> {
+    ): List<DecodedMessage> {
         val ffiMessageWithReactions = libXMTPGroup.findMessagesWithReactions(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = beforeNs,
@@ -192,13 +192,13 @@ class Group(
         )
 
         return ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
-            Message.create(ffiMessageWithReaction)
+            DecodedMessage.create(ffiMessageWithReaction)
         }
     }
 
-    suspend fun processMessage(messageBytes: ByteArray): Message? {
+    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? {
         val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-        return Message.create(message)
+        return DecodedMessage.create(message)
     }
 
     fun updateConsentState(state: ConsentState) {
@@ -274,7 +274,7 @@ class Group(
         return ids
     }
 
-    suspend fun updateGroupName(name: String) {
+    suspend fun updateName(name: String) {
         try {
             return libXMTPGroup.updateGroupName(name)
         } catch (e: Exception) {
@@ -282,7 +282,7 @@ class Group(
         }
     }
 
-    suspend fun updateGroupImageUrlSquare(imageUrl: String) {
+    suspend fun updateImageUrl(imageUrl: String) {
         try {
             return libXMTPGroup.updateGroupImageUrlSquare(imageUrl)
         } catch (e: Exception) {
@@ -290,7 +290,7 @@ class Group(
         }
     }
 
-    suspend fun updateGroupDescription(description: String) {
+    suspend fun updateDescription(description: String) {
         try {
             return libXMTPGroup.updateGroupDescription(description)
         } catch (e: Exception) {
@@ -355,7 +355,7 @@ class Group(
         )
     }
 
-    suspend fun updateGroupNamePermission(newPermissionOption: PermissionOption) {
+    suspend fun updateNamePermission(newPermissionOption: PermissionOption) {
         return libXMTPGroup.updatePermissionPolicy(
             FfiPermissionUpdateType.UPDATE_METADATA,
             PermissionOption.toFfiPermissionPolicy(newPermissionOption),
@@ -363,7 +363,7 @@ class Group(
         )
     }
 
-    suspend fun updateGroupDescriptionPermission(newPermissionOption: PermissionOption) {
+    suspend fun updateDescriptionPermission(newPermissionOption: PermissionOption) {
         return libXMTPGroup.updatePermissionPolicy(
             FfiPermissionUpdateType.UPDATE_METADATA,
             PermissionOption.toFfiPermissionPolicy(newPermissionOption),
@@ -371,7 +371,7 @@ class Group(
         )
     }
 
-    suspend fun updateGroupImageUrlSquarePermission(newPermissionOption: PermissionOption) {
+    suspend fun updateImageUrlPermission(newPermissionOption: PermissionOption) {
         return libXMTPGroup.updatePermissionPolicy(
             FfiPermissionUpdateType.UPDATE_METADATA,
             PermissionOption.toFfiPermissionPolicy(newPermissionOption),
@@ -427,11 +427,11 @@ class Group(
         return libXMTPGroup.superAdminList()
     }
 
-    fun streamMessages(): Flow<Message> = callbackFlow {
+    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
                 try {
-                    val decodedMessage = Message.create(message)
+                    val decodedMessage = DecodedMessage.create(message)
                     if (decodedMessage != null) {
                         trySend(decodedMessage)
                     } else {

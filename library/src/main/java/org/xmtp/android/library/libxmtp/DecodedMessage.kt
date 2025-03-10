@@ -16,11 +16,11 @@ import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageWithReactions
 import java.util.Date
 
-class Message private constructor(
+class DecodedMessage private constructor(
     private val libXMTPMessage: FfiMessage,
     val encodedContent: Content.EncodedContent,
     private val decodedContent: Any?,
-    val childMessages: List<Message>? = null
+    val childMessages: List<DecodedMessage>? = null
 ) {
     enum class MessageDeliveryStatus {
         ALL, PUBLISHED, UNPUBLISHED, FAILED
@@ -34,7 +34,7 @@ class Message private constructor(
     val id: String
         get() = libXMTPMessage.id.toHex()
 
-    val convoId: String
+    val conversationId: String
         get() = libXMTPMessage.conversationId.toHex()
 
     val senderInboxId: InboxId
@@ -54,21 +54,21 @@ class Message private constructor(
         }
 
     val topic: String
-        get() = Topic.groupMessage(convoId).description
+        get() = Topic.groupMessage(conversationId).description
 
     @Suppress("UNCHECKED_CAST")
     fun <T> content(): T? = decodedContent as? T
 
-    val fallbackContent: String
+    val fallback: String
         get() = encodedContent.fallback
 
     val body: String
         get() {
-            return content() as? String ?: fallbackContent
+            return content() as? String ?: fallback
         }
 
     companion object {
-        fun create(libXMTPMessage: FfiMessage): Message? {
+        fun create(libXMTPMessage: FfiMessage): DecodedMessage? {
             return try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
                 Log.d("XMTP Message Create", "encodedContent type:" + encodedContent.type.id)
@@ -77,13 +77,13 @@ class Message private constructor(
                 }
                 // Decode the content once during creation
                 val decodedContent = encodedContent.decoded<Any>()
-                Message(libXMTPMessage, encodedContent, decodedContent)
+                DecodedMessage(libXMTPMessage, encodedContent, decodedContent)
             } catch (e: Exception) {
                 null // Return null if decoding fails
             }
         }
 
-        fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): Message? {
+        fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): DecodedMessage? {
             return try {
                 val encodedContent = EncodedContent.parseFrom(libXMTPMessageWithReactions.message.content)
                 if (encodedContent.type == ContentTypeGroupUpdated && libXMTPMessageWithReactions.message.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
@@ -95,7 +95,7 @@ class Message private constructor(
                 // Convert reactions to Message objects
                 val reactionMessages = libXMTPMessageWithReactions.reactions.mapNotNull { create(it) }
 
-                Message(
+                DecodedMessage(
                     libXMTPMessageWithReactions.message,
                     encodedContent,
                     decodedContent,

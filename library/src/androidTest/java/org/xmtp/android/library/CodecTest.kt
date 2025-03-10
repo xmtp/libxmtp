@@ -63,7 +63,7 @@ class CodecTest {
         if (messages.size == 2) {
             val content: Double? = messages[0].content()
             assertEquals(3.14, content)
-            assertEquals("Error: This app does not support numbers.", messages[0].fallbackContent)
+            assertEquals("Error: This app does not support numbers.", messages[0].fallback)
         }
     }
 }

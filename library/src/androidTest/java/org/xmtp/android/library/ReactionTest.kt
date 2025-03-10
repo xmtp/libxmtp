@@ -14,7 +14,7 @@ import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
 import org.xmtp.android.library.codecs.ReactionV2Codec
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DecodedMessage
 import uniffi.xmtpv3.FfiReaction
 import uniffi.xmtpv3.FfiReactionAction
 import uniffi.xmtpv3.FfiReactionSchema
@@ -142,7 +142,7 @@ class ReactionTest {
             assertEquals(FfiReactionSchema.UNICODE, content?.schema)
         }
 
-        val messagesWithReactions: List<Message> = runBlocking {
+        val messagesWithReactions: List<DecodedMessage> = runBlocking {
             aliceConversation.messagesWithReactions()
         }
         assertEquals(messagesWithReactions.size, 2)

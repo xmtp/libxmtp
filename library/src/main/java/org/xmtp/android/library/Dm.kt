@@ -8,9 +8,9 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
 import org.xmtp.android.library.libxmtp.Member
-import org.xmtp.android.library.libxmtp.Message
-import org.xmtp.android.library.libxmtp.Message.MessageDeliveryStatus
-import org.xmtp.android.library.libxmtp.Message.SortDirection
+import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
+import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.Topic
 import uniffi.xmtpv3.FfiConversation
@@ -112,9 +112,9 @@ class Dm(
         libXMTPGroup.sync()
     }
 
-    suspend fun lastMessage(): Message? {
+    suspend fun lastMessage(): DecodedMessage? {
         return if (ffiLastMessage != null) {
-            Message.create(ffiLastMessage)
+            DecodedMessage.create(ffiLastMessage)
         } else {
             messages(limit = 1).firstOrNull()
         }
@@ -126,7 +126,7 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<Message> {
+    ): List<DecodedMessage> {
         return libXMTPGroup.findMessages(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = beforeNs,
@@ -145,7 +145,7 @@ class Dm(
                 contentTypes = null
             )
         ).mapNotNull {
-            Message.create(it)
+            DecodedMessage.create(it)
         }
     }
 
@@ -155,7 +155,7 @@ class Dm(
         afterNs: Long? = null,
         direction: SortDirection = SortDirection.DESCENDING,
         deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.ALL,
-    ): List<Message> {
+    ): List<DecodedMessage> {
         val ffiMessageWithReactions = libXMTPGroup.findMessagesWithReactions(
             opts = FfiListMessagesOptions(
                 sentBeforeNs = beforeNs,
@@ -176,13 +176,13 @@ class Dm(
         )
 
         return ffiMessageWithReactions.mapNotNull { ffiMessageWithReaction ->
-            Message.create(ffiMessageWithReaction)
+            DecodedMessage.create(ffiMessageWithReaction)
         }
     }
 
-    suspend fun processMessage(messageBytes: ByteArray): Message? {
+    suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? {
         val message = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-        return Message.create(message)
+        return DecodedMessage.create(message)
     }
 
     suspend fun creatorInboxId(): InboxId {
@@ -197,11 +197,11 @@ class Dm(
         return libXMTPGroup.listMembers().map { Member(it) }
     }
 
-    fun streamMessages(): Flow<Message> = callbackFlow {
+    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
                 try {
-                    val decodedMessage = Message.create(message)
+                    val decodedMessage = DecodedMessage.create(message)
                     if (decodedMessage != null) {
                         trySend(decodedMessage)
                     } else {

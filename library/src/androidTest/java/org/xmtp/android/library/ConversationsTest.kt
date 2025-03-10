@@ -16,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import kotlin.time.Duration.Companion.seconds
@@ -199,7 +199,7 @@ class ConversationsTest {
             runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
         runBlocking { boClient.conversations.sync() }
 
-        val allMessages = mutableListOf<Message>()
+        val allMessages = mutableListOf<DecodedMessage>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {

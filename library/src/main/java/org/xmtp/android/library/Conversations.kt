@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.Topic
@@ -39,7 +39,7 @@ data class Conversations(
     private val ffiClient: FfiXmtpClient,
 ) {
 
-    enum class ConversationType {
+    enum class ConversationFilterType {
         ALL,
         GROUPS,
         DMS;
@@ -97,9 +97,9 @@ data class Conversations(
         return findDmByInboxId(inboxId)
     }
 
-    fun findMessage(messageId: String): Message? {
+    fun findMessage(messageId: String): DecodedMessage? {
         return try {
-            Message.create(ffiClient.message(messageId.hexToByteArray()))
+            DecodedMessage.create(ffiClient.message(messageId.hexToByteArray()))
         } catch (e: Exception) {
             null
         }
@@ -413,7 +413,7 @@ data class Conversations(
         }
     }
 
-    fun stream(type: ConversationType = ConversationType.ALL): Flow<Conversation> =
+    fun stream(type: ConversationFilterType = ConversationFilterType.ALL): Flow<Conversation> =
         callbackFlow {
             val conversationCallback = object : FfiConversationCallback {
                 override fun onConversation(conversation: FfiConversation) {
@@ -439,19 +439,19 @@ data class Conversations(
             }
 
             val stream = when (type) {
-                ConversationType.ALL -> ffiConversations.stream(conversationCallback)
-                ConversationType.GROUPS -> ffiConversations.streamGroups(conversationCallback)
-                ConversationType.DMS -> ffiConversations.streamDms(conversationCallback)
+                ConversationFilterType.ALL -> ffiConversations.stream(conversationCallback)
+                ConversationFilterType.GROUPS -> ffiConversations.streamGroups(conversationCallback)
+                ConversationFilterType.DMS -> ffiConversations.streamDms(conversationCallback)
             }
 
             awaitClose { stream.end() }
         }
 
-    fun streamAllMessages(type: ConversationType = ConversationType.ALL): Flow<Message> =
+    fun streamAllMessages(type: ConversationFilterType = ConversationFilterType.ALL): Flow<DecodedMessage> =
         callbackFlow {
             val messageCallback = object : FfiMessageCallback {
                 override fun onMessage(message: FfiMessage) {
-                    val decodedMessage = Message.create(message)
+                    val decodedMessage = DecodedMessage.create(message)
                     decodedMessage?.let { trySend(it) }
                 }
 
@@ -461,9 +461,9 @@ data class Conversations(
             }
 
             val stream = when (type) {
-                ConversationType.ALL -> ffiConversations.streamAllMessages(messageCallback)
-                ConversationType.GROUPS -> ffiConversations.streamAllGroupMessages(messageCallback)
-                ConversationType.DMS -> ffiConversations.streamAllDmMessages(messageCallback)
+                ConversationFilterType.ALL -> ffiConversations.streamAllMessages(messageCallback)
+                ConversationFilterType.GROUPS -> ffiConversations.streamAllGroupMessages(messageCallback)
+                ConversationFilterType.DMS -> ffiConversations.streamAllDmMessages(messageCallback)
             }
 
             awaitClose { stream.end() }

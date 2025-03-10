@@ -109,7 +109,7 @@ class GroupPermissionsTest {
         assert(boGroup.name == "")
         val exception = assertThrows(XMTPException::class.java) {
             runBlocking {
-                alixGroup.updateGroupName("Alix group name")
+                alixGroup.updateName("Alix group name")
             }
         }
         assertEquals(exception.message, "Permission denied: Unable to update group name")
@@ -142,7 +142,7 @@ class GroupPermissionsTest {
         runBlocking {
             boGroup.sync()
             alixGroup.sync()
-            alixGroup.updateGroupName("Alix group name")
+            alixGroup.updateName("Alix group name")
             alixGroup.sync()
             boGroup.sync()
         }
@@ -170,7 +170,7 @@ class GroupPermissionsTest {
         // Verify that alix can NOT  update group name
         val exception2 = assertThrows(XMTPException::class.java) {
             runBlocking {
-                alixGroup.updateGroupName("Alix group name 2")
+                alixGroup.updateName("Alix group name 2")
             }
         }
         assertEquals(exception.message, "Permission denied: Unable to update group name")
@@ -313,7 +313,7 @@ class GroupPermissionsTest {
         runBlocking {
             boGroup.sync()
             alixGroup.sync()
-            alixGroup.updateGroupName("Alix group name")
+            alixGroup.updateName("Alix group name")
             alixGroup.sync()
             boGroup.sync()
         }
@@ -339,7 +339,7 @@ class GroupPermissionsTest {
         assert(boGroup.name == "")
         val exception = assertThrows(XMTPException::class.java) {
             runBlocking {
-                alixGroup.updateGroupDescription("new group description")
+                alixGroup.updateDescription("new group description")
             }
         }
         assertEquals(exception.message, "Permission denied: Unable to update group description")
@@ -354,7 +354,7 @@ class GroupPermissionsTest {
 
         // Update group name permissions so Alix can update
         runBlocking {
-            boGroup.updateGroupDescriptionPermission(PermissionOption.Allow)
+            boGroup.updateDescriptionPermission(PermissionOption.Allow)
             boGroup.sync()
             alixGroup.sync()
         }
@@ -365,7 +365,7 @@ class GroupPermissionsTest {
 
         // Verify that alix can now update group name
         runBlocking {
-            alixGroup.updateGroupDescription("Alix group description")
+            alixGroup.updateDescription("Alix group description")
             alixGroup.sync()
             boGroup.sync()
         }

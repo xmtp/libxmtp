@@ -11,7 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import uniffi.xmtpv3.GenericException
@@ -180,7 +180,7 @@ class SmartContractWalletTest {
         assertEquals(runBlocking { boGroup.messages() }.first().id, messageId)
         assertEquals(
             runBlocking { boGroup.messages() }.first().deliveryStatus,
-            Message.MessageDeliveryStatus.PUBLISHED
+            DecodedMessage.MessageDeliveryStatus.PUBLISHED
         )
         assertEquals(runBlocking { boGroup.messages() }.size, 3)
 
@@ -313,7 +313,7 @@ class SmartContractWalletTest {
         val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId) }
         runBlocking { davonSCWClient.conversations.sync() }
 
-        val allMessages = mutableListOf<Message>()
+        val allMessages = mutableListOf<DecodedMessage>()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {

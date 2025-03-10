@@ -25,7 +25,7 @@ class PublicIdentity(val ffiPrivate: FfiIdentifier) {
         get() = ffiPrivate.identifierKind.toIdentityKind()
 
     val identifier: String
-        get() = ffiPrivate.identifier
+        get() = ffiPrivate.identifier.lowercase()
 
     val relyingPartner: String?
         get() = ffiPrivate.relyingPartner

@@ -125,7 +125,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             const val ITEM_TYPE_MESSAGE = 1
         }
 
-        data class Message(override val id: String, val message: org.xmtp.android.library.libxmtp.Message) :
+        data class Message(override val id: String, val message: org.xmtp.android.library.libxmtp.DecodedMessage) :
             MessageListItem(id, ITEM_TYPE_MESSAGE)
     }
 }

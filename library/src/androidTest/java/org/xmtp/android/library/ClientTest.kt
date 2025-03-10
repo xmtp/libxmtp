@@ -46,7 +46,11 @@ class ClientTest {
         assertEquals(client.inboxId, fromBundle.inboxId)
 
         runBlocking {
-            fromBundle.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
+            fromBundle.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let {
+                assert(
+                    it
+                )
+            }
         }
     }
 
@@ -720,9 +724,108 @@ class ClientTest {
             }
         }
         runBlocking {
-            client.canMessage(listOf(fakeWallet.publicIdentity))[fakeWallet.publicIdentity.identifier]?.let { assert(it) }
+            client.canMessage(listOf(fakeWallet.publicIdentity))[fakeWallet.publicIdentity.identifier]?.let {
+                assert(
+                    it
+                )
+            }
         }
         assert(client.installationId.isNotEmpty())
         assertEquals(inboxId, client.inboxId)
+    }
+
+    @Test
+    fun testCanManageAddRemoveManually() = runBlocking {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        val boWallet = PrivateKeyBuilder()
+
+        val options = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            appContext = context,
+            dbEncryptionKey = key
+        )
+
+        val alix = Client.create(alixWallet, options)
+
+        var inboxState = alix.inboxState(true)
+        assertEquals(1, inboxState.identities.size)
+
+        val sigRequest = alix.ffiAddIdentity(boWallet.publicIdentity)
+        val signedMessage = boWallet.sign(sigRequest.signatureText()).rawData
+
+        sigRequest.addEcdsaSignature(signedMessage)
+        alix.ffiApplySignatureRequest(sigRequest)
+
+        inboxState = alix.inboxState(true)
+        assertEquals(2, inboxState.identities.size)
+
+        val sigRequest2 = alix.ffiRevokeIdentity(boWallet.publicIdentity)
+        val signedMessage2 = alixWallet.sign(sigRequest2.signatureText()).rawData
+
+        sigRequest2.addEcdsaSignature(signedMessage2)
+        alix.ffiApplySignatureRequest(sigRequest2)
+
+        inboxState = alix.inboxState(true)
+        assertEquals(1, inboxState.identities.size)
+    }
+
+    @Test
+    fun testCanManageRevokeManually() = runBlocking {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        val alix = Client.create(
+            account = alixWallet,
+            options = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                appContext = context,
+                dbEncryptionKey = key
+            )
+        )
+
+        val alix2 = Client.create(
+            account = alixWallet,
+            options = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                appContext = context,
+                dbEncryptionKey = key,
+                dbDirectory = context.filesDir.absolutePath.toString()
+            )
+        )
+        val alix3 = runBlocking {
+            Client.create(
+                account = alixWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key,
+                    dbDirectory = File(context.filesDir.absolutePath, "xmtp_db3").toPath()
+                        .toString()
+                )
+            )
+        }
+
+        var inboxState = alix3.inboxState(true)
+        assertEquals(inboxState.installations.size, 3)
+
+        val sigText = alix.ffiRevokeInstallations(listOf(alix2.installationId.hexToByteArray()))
+        val signedMessage = alixWallet.sign(sigText.signatureText()).rawData
+
+        sigText.addEcdsaSignature(signedMessage)
+        alix.ffiApplySignatureRequest(sigText)
+
+        inboxState = alix.inboxState(true)
+        assertEquals(2, inboxState.installations.size)
+
+        val sigText2 = alix.ffiRevokeAllOtherInstallations()
+        val signedMessage2 = alixWallet.sign(sigText2.signatureText()).rawData
+
+        sigText2.addEcdsaSignature(signedMessage2)
+        alix.ffiApplySignatureRequest(sigText2)
+
+        inboxState = alix.inboxState(true)
+        assertEquals(1, inboxState.installations.size)
     }
 }
