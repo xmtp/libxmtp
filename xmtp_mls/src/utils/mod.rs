@@ -45,7 +45,7 @@ pub mod id {
 
 #[derive(Clone, Debug)]
 pub struct VersionInfo {
-    pkg_version: Arc<str>,
+    pub pkg_version: Arc<str>,
 }
 
 impl Default for VersionInfo {

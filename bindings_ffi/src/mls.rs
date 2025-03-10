@@ -118,6 +118,7 @@ pub async fn create_client(
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
+    version_info: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -158,6 +159,10 @@ pub async fn create_client(
 
     if let Some(url) = &history_sync_url {
         builder = builder.history_sync_url(url);
+    }
+
+    if let Some(version) = &version_info {
+        builder = builder.version_info(version);
     }
 
     let xmtp_client = builder.build().await?;
@@ -382,6 +387,10 @@ impl FfiXmtpClient {
     ) -> Result<FfiInboxState, GenericError> {
         let state = self.inner_client.inbox_state(refresh_from_network).await?;
         Ok(state.into())
+    }
+
+    pub async fn version_info(&self) -> Result<String, GenericError> {
+        Ok(self.inner_client.version_info().pkg_version.to_string())
     }
 
     /**
@@ -2107,6 +2116,11 @@ impl FfiConversation {
         self.inner.paused_for_version(&provider).map_err(Into::into)
     }
 
+    pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GenericError> {
+        self.inner.update_group_min_version_to_match_self().await?;
+        Ok(())
+    }
+
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
         self.inner
             .consent_state()
@@ -2703,6 +2717,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        GenericError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2941,6 +2956,39 @@ mod tests {
             nonce,
             None,
             history_sync_url,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        register_client(&ffi_inbox_owner, &client).await;
+        client
+    }
+
+    async fn new_test_client_with_wallet_and_version_info(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+        version_info: Option<String>,
+    ) -> Arc<FfiXmtpClient> {
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            None,
+            version_info,
         )
         .await
         .unwrap();
@@ -2958,6 +3006,12 @@ mod tests {
     }
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
+    }
+
+    async fn new_test_client_with_version_info() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
             .await
@@ -3012,6 +3066,7 @@ mod tests {
             nonce,
             Some(legacy_keys),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3039,6 +3094,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3056,6 +3112,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3093,6 +3150,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3111,6 +3169,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3165,6 +3224,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3349,6 +3409,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3438,6 +3499,7 @@ mod tests {
             nonce,
             None, // v2_signed_private_key_proto
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3469,6 +3531,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3494,6 +3557,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -6635,6 +6699,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6674,6 +6739,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6738,6 +6804,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
@@ -6773,6 +6840,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6795,6 +6863,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6814,6 +6883,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6844,6 +6914,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
@@ -7343,6 +7414,85 @@ mod tests {
             assert_eq!(decoded.nonce, original.nonce);
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_version_info() {
+        let amal_client = new_test_client_with_wallet_and_version_info(
+            generate_local_wallet(),
+            Some("2.0.0".to_string()),
+        )
+        .await;
+        assert_eq!(amal_client.version_info().await.unwrap(), "2.0.0");
+        let bola_client = new_test_client().await;
+        assert_eq!(bola_client.version_info().await.unwrap(), "1.0.0-rc1");
+
+        let amal_group = amal_client
+            .conversations()
+            .create_group(
+                vec![bola_client.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        TextCodec::encode("hello".to_string())
+            .unwrap()
+            .encode(&mut buf)
+            .unwrap();
+        amal_group.send(buf).await.unwrap();
+        amal_group.sync().await.unwrap();
+
+        bola_client
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bola_groups = bola_client
+            .conversations()
+            .list_groups(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups[0].conversation.clone();
+        let messages = bola_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        let message = messages[0].clone();
+        let decoded_content = EncodedContent::decode(message.content.as_slice()).unwrap();
+        assert_eq!(TextCodec::decode(decoded_content).unwrap(), "hello");
+
+        let paused_for_version = bola_group.paused_for_version().unwrap();
+        assert_eq!(paused_for_version, None);
+
+        // Update group min version
+        amal_group
+            .update_group_min_version_to_match_self()
+            .await
+            .unwrap();
+        amal_group.sync().await.unwrap();
+        bola_group.sync().await.unwrap();
+
+        let paused_for_version = bola_group.paused_for_version().unwrap();
+        assert_eq!(paused_for_version, Some("2.0.0".to_string()));
+
+        // Bola tries to send a message
+        let result = bola_group.send(vec![]).await;
+        // This should fail with a GroupPausedUntilUpdate error
+        assert!(result.is_err());
+
+        // Check the specific error type and message
+        let error = result.unwrap_err();
+        match error {
+            GenericError::GroupError(group_error) => {
+                assert_eq!(
+                    group_error.to_string(),
+                    "Group is paused until version 2.0.0 is available"
+                );
+            }
+            _ => panic!("Expected GroupError but got: {:?}", error),
         }
     }
 }

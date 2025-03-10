@@ -246,6 +246,7 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
+        version_info: Option<VersionInfo>,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -267,7 +268,7 @@ where
             #[cfg(any(test, feature = "test-utils"))]
             sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
-            version_info: Arc::new(VersionInfo::default()),
+            version_info: Arc::new(version_info.unwrap_or_default()),
         }
     }
 
