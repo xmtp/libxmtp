@@ -38,7 +38,7 @@ class RemoteAttachmentTests: XCTestCase {
 		Client.register(codec: RemoteAttachmentCodec())
 
 		let conversation = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 		let enecryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: "Hello", codec: TextCodec())
 		var remoteAttachmentContent = try RemoteAttachment(
@@ -55,7 +55,7 @@ class RemoteAttachmentTests: XCTestCase {
 	func testCanUseAttachmentCodec() async throws {
 		let fixtures = try await fixtures()
 		let conversation = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		Client.register(codec: AttachmentCodec())
 		Client.register(codec: RemoteAttachmentCodec())
@@ -110,7 +110,7 @@ class RemoteAttachmentTests: XCTestCase {
 	func testCannotUseNonHTTPSUrl() async throws {
 		let fixtures = try await fixtures()
 		_ = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		Client.register(codec: AttachmentCodec())
 		Client.register(codec: RemoteAttachmentCodec())
@@ -142,7 +142,7 @@ class RemoteAttachmentTests: XCTestCase {
 	func testVerifiesContentDigest() async throws {
 		let fixtures = try await fixtures()
 		_ = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(

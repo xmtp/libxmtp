@@ -77,7 +77,6 @@ extension FfiConsentEntityType {
 	var fromFFI: EntryType {
 		switch self {
 		case .inboxId: return EntryType.inbox_id
-		case .address: return EntryType.address
 		case .conversationId: return EntryType.conversation_id
 		}
 	}
@@ -88,7 +87,6 @@ extension EntryType {
 		switch self {
 		case .conversation_id: return FfiConsentEntityType.conversationId
 		case .inbox_id: return FfiConsentEntityType.inboxId
-		case .address: return FfiConsentEntityType.address
 		}
 	}
 }

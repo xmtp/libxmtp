@@ -1,7 +1,7 @@
 import Foundation
 import LibXMTP
 
-public enum WalletType {
+public enum SignerType {
 	case EOA, SCW
 }
 
@@ -14,10 +14,10 @@ public enum WalletType {
 /// handle key management yourself.
 public protocol SigningKey {
 	/// A wallet address for this key
-	var address: String { get }
+	var identity: PublicIdentity { get }
 	
 	/// The wallet type if Smart Contract Wallet this should be type SCW. Default EOA
-	var type: WalletType { get }
+	var type: SignerType { get }
 	
 	/// The name of the chainId for example "1"
 	var chainId: Int64? { get }
@@ -37,8 +37,8 @@ public protocol SigningKey {
 }
 
 extension SigningKey {
-	public var type: WalletType {
-		return WalletType.EOA
+	public var type: SignerType {
+		return SignerType.EOA
 	}
 	
 	public var chainId: Int64? {

@@ -11,10 +11,10 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caro.walletAddress
+			fixtures.caroClient.inboxID
 		])
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
+			with: fixtures.caroClient.inboxID)
 
 		let sameDm = try await fixtures.boClient.conversations.findConversationByTopic(
 			topic: dm.topic)
@@ -29,9 +29,9 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
+			with: fixtures.caroClient.inboxID)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caro.walletAddress
+			fixtures.caroClient.inboxID
 		])
 
 		let convoCount = try await fixtures.boClient.conversations
@@ -56,9 +56,9 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
+			with: fixtures.caroClient.inboxID)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caro.walletAddress
+			fixtures.caroClient.inboxID
 		])
 
 		let convoCount = try await fixtures.boClient.conversations
@@ -87,9 +87,9 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
+			with: fixtures.caroClient.inboxID)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.caro.walletAddress
+			fixtures.caroClient.inboxID
 		])
 
 		let convoCount = try await fixtures.boClient.conversations
@@ -118,11 +118,11 @@ class ConversationTests: XCTestCase {
 		let fixtures = try await fixtures()
 
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
-			with: fixtures.caro.walletAddress)
+			with: fixtures.caroClient.inboxID)
 		let group1 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caro.walletAddress])
+			with: [fixtures.caroClient.inboxID])
 		let group2 = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.caro.walletAddress])
+			with: [fixtures.caroClient.inboxID])
 
 		_ = try await dm.send(content: "Howdy")
 		_ = try await group2.send(content: "Howdy")
@@ -150,12 +150,12 @@ class ConversationTests: XCTestCase {
 		}
 
 		_ = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alix.address
+			fixtures.alixClient.inboxID
 		])
 		_ = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alix.address)
+			with: fixtures.alixClient.inboxID)
 		_ = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alix.address)
+			with: fixtures.alixClient.inboxID)
 
 		await fulfillment(of: [expectation1], timeout: 3)
 	}
@@ -166,12 +166,12 @@ class ConversationTests: XCTestCase {
 		let expectation1 = XCTestExpectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2
 		let convo = try await fixtures.boClient.conversations.newConversation(
-			with: fixtures.alix.address)
+			with: fixtures.alixClient.inboxID)
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
-			fixtures.alix.address
+			fixtures.alixClient.inboxID
 		])
 		let dm = try await fixtures.caroClient.conversations.findOrCreateDm(
-			with: fixtures.alix.address)
+			with: fixtures.alixClient.inboxID)
 
 		try await fixtures.alixClient.conversations.sync()
 		Task(priority: .userInitiated) {
@@ -204,7 +204,7 @@ class ConversationTests: XCTestCase {
 				let newConversation = try await fixtures.alixClient
 					.conversations
 					.newConversation(
-						with: client.address
+						with: client.inboxID
 					)
 				conversations.append(newConversation)
 			} catch {
@@ -224,12 +224,12 @@ class ConversationTests: XCTestCase {
 
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
 			with: [
-				fixtures.caroClient.address, fixtures.boClient.address,
+				fixtures.caroClient.inboxID, fixtures.boClient.inboxID,
 			])
 
 		let caroGroup2 = try await fixtures.caroClient.conversations.newGroup(
 			with: [
-				fixtures.alixClient.address, fixtures.boClient.address,
+				fixtures.alixClient.inboxID, fixtures.boClient.inboxID,
 			])
 
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
@@ -290,7 +290,7 @@ class ConversationTests: XCTestCase {
 					let spamMessage = "Davon Spam Message \(i)"
 					let group = try await fixtures.davonClient.conversations
 						.newGroup(
-							with: [fixtures.caroClient.address]
+							with: [fixtures.caroClient.inboxID]
 						)
 					_ = try await group.send(content: spamMessage)
 					print("Davon spam: \(spamMessage)")

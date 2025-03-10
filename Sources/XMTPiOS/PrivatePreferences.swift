@@ -5,7 +5,7 @@ public enum ConsentState: String, Codable {
 	case allowed, denied, unknown
 }
 public enum EntryType: String, Codable {
-	case address, conversation_id, inbox_id
+	case conversation_id, inbox_id
 }
 public enum PreferenceType: String, Codable {
 	case hmac_keys
@@ -19,12 +19,6 @@ public struct ConsentRecord: Codable, Hashable {
 		self.consentType = consentType
 	}
 
-	static func address(_ address: String, type: ConsentState = .unknown)
-		-> ConsentRecord
-	{
-		ConsentRecord(value: address, entryType: .address, consentType: type)
-	}
-
 	static func conversationId(
 		conversationId: String, type: ConsentState = ConsentState.unknown
 	) -> ConsentRecord {
@@ -33,7 +27,7 @@ public struct ConsentRecord: Codable, Hashable {
 			consentType: type)
 	}
 
-	static func inboxId(_ inboxId: String, type: ConsentState = .unknown)
+	static func inboxId(_ inboxId: InboxId, type: ConsentState = .unknown)
 		-> ConsentRecord
 	{
 		ConsentRecord(
@@ -63,13 +57,6 @@ public actor PrivatePreferences {
 		try await ffiClient.setConsentStates(records: entries.map(\.toFFI))
 	}
 
-	public func addressState(address: String) async throws -> ConsentState {
-		return try await ffiClient.getConsentState(
-			entityType: .address,
-			entity: address
-		).fromFFI
-	}
-
 	public func conversationState(conversationId: String) async throws
 		-> ConsentState
 	{
@@ -79,7 +66,7 @@ public actor PrivatePreferences {
 		).fromFFI
 	}
 
-	public func inboxIdState(inboxId: String) async throws -> ConsentState {
+	public func inboxIdState(inboxId: InboxId) async throws -> ConsentState {
 		return try await ffiClient.getConsentState(
 			entityType: .inboxId,
 			entity: inboxId

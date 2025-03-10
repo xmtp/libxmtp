@@ -13,7 +13,7 @@ class AttachmentsTests: XCTestCase {
 					.utf8))!
 		let fixtures = try await fixtures()
 		let conversation = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		Client.register(codec: AttachmentCodec())
 

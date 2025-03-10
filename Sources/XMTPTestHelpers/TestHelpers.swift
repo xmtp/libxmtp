@@ -33,14 +33,14 @@
 		}
 	}
 
-	public struct FakeWallet: SigningKey {
+public struct FakeWallet: SigningKey {
+		public var identity: XMTPiOS.PublicIdentity {
+			XMTPiOS.PublicIdentity(kind: .ethereum, identifier: key.walletAddress)
+		}
+	
 		public static func generate() throws -> FakeWallet {
 			let key = try PrivateKey.generate()
 			return FakeWallet(key)
-		}
-
-		public var address: String {
-			key.walletAddress
 		}
 
 		public func sign(_ data: Data) async throws -> XMTPiOS.Signature {

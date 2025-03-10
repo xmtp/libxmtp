@@ -46,7 +46,7 @@ class CodecTests: XCTestCase {
 
 		let alixClient = fixtures.alixClient!
 		let alixConversation = try await alixClient.conversations
-			.newConversation(with: fixtures.bo.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		Client.register(codec: NumberCodec())
 
@@ -68,7 +68,7 @@ class CodecTests: XCTestCase {
 
 		let alixClient = fixtures.alixClient!
 		let alixConversation = try await alixClient.conversations
-			.newConversation(with: fixtures.bo.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		Client.register(codec: NumberCodec())
 

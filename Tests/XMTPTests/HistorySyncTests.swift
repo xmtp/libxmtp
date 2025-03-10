@@ -28,7 +28,7 @@ class HistorySyncTests: XCTestCase {
 		)
 
 		let group = try await alixClient.conversations.newGroup(
-			with: [fixtures.bo.walletAddress])
+			with: [fixtures.boClient.inboxID])
 		try await group.updateConsentState(state: .denied)
 		XCTAssertEqual(try group.consentState(), .denied)
 
@@ -89,7 +89,7 @@ class HistorySyncTests: XCTestCase {
 		)
 
 		let group = try await alixClient.conversations.newGroup(
-			with: [fixtures.bo.walletAddress])
+			with: [fixtures.boClient.inboxID])
 		let messageCount = try await group.messages().count
 		XCTAssertEqual(messageCount, 1)
 
@@ -143,7 +143,7 @@ class HistorySyncTests: XCTestCase {
 		)
 
 		let alixGroup = try await alixClient.conversations.newGroup(with: [
-			fixtures.bo.walletAddress
+			fixtures.boClient.inboxID
 		])
 
 		let alixClient2 = try await Client.create(

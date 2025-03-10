@@ -36,17 +36,17 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessageList = try await Client.canMessage(
-			accountAddresses: [
-				fixtures.alix.walletAddress,
-				notOnNetwork.address,
-				fixtures.bo.walletAddress,
+			identities: [
+				fixtures.alix.identity,
+				notOnNetwork.identity,
+				fixtures.bo.identity,
 			],
 			api: ClientOptions.Api(env: .local, isSecure: false)
 		)
 
 		let expectedResults: [String: Bool] = [
 			fixtures.alix.walletAddress.lowercased(): true,
-			notOnNetwork.address.lowercased(): false,
+			notOnNetwork.walletAddress.lowercased(): false,
 			fixtures.bo.walletAddress.lowercased(): true,
 		]
 
@@ -69,12 +69,12 @@ class ClientTests: XCTestCase {
 		)
 
 		XCTAssertEqual(
-			inboxStates.first!.recoveryAddress.lowercased(),
-			fixtures.alixClient.address.lowercased()
+			inboxStates.first!.recoveryIdentity.identifier,
+			fixtures.alix.walletAddress.lowercased()
 		)
 		XCTAssertEqual(
-			inboxStates.last!.recoveryAddress.lowercased(),
-			fixtures.boClient.address.lowercased()
+			inboxStates.last!.recoveryIdentity.identifier,
+			fixtures.bo.walletAddress.lowercased()
 		)
 	}
 
@@ -98,7 +98,7 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		_ = try await boClient.conversations.newGroup(with: [alixClient.address]
+		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID]
 		)
 		try await boClient.conversations.sync()
 
@@ -141,7 +141,7 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		_ = try await boClient.conversations.newGroup(with: [alixClient.address]
+		_ = try await boClient.conversations.newGroup(with: [alixClient.inboxID]
 		)
 		try await boClient.conversations.sync()
 
@@ -164,9 +164,9 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessage = try await fixtures.alixClient.canMessage(
-			address: fixtures.boClient.address)
+			identities: fixtures.bo.identity)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
-			address: notOnNetwork.address)
+			identities: notOnNetwork.identity)
 		XCTAssertTrue(canMessage)
 		XCTAssertFalse(cannotMessage)
 	}
@@ -209,7 +209,7 @@ class ClientTests: XCTestCase {
 		)
 
 		let bundleClient = try await Client.build(
-			address: bo.address,
+			publicIdentity: bo.identity,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
@@ -217,13 +217,13 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		XCTAssertEqual(client.address, bundleClient.address)
+		XCTAssertEqual(client.inboxID, bundleClient.inboxID)
 		XCTAssertEqual(client.dbPath, bundleClient.dbPath)
 		XCTAssert(!client.installationID.isEmpty)
 
 		await assertThrowsAsyncError(
 			_ = try await Client.build(
-				address: bo.address,
+				publicIdentity: bo.identity,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
 					dbEncryptionKey: key,
@@ -257,7 +257,7 @@ class ClientTests: XCTestCase {
 		)
 
 		_ = try await boClient.conversations.newGroup(with: [
-			alixClient.address
+			alixClient.inboxID
 		])
 
 		let key2 = try Crypto.secureRandomBytes(count: 32)
@@ -292,8 +292,8 @@ class ClientTests: XCTestCase {
 				dbEncryptionKey: key
 			)
 		)
-		let boInboxId = try await alixClient.inboxIdFromAddress(
-			address: boClient.address)
+		let boInboxId = try await alixClient.inboxIdFromIdentity(
+			identity: bo.identity)
 		XCTAssertEqual(boClient.inboxID, boInboxId)
 	}
 
@@ -306,7 +306,7 @@ class ClientTests: XCTestCase {
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, address: alix.address)
+			api: options.api, publicIdentity: alix.identity)
 		let alixClient = try await Client.create(
 			account: alix,
 			options: options
@@ -315,7 +315,7 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxId, alixClient.inboxID)
 
 		let alixClient2 = try await Client.build(
-			address: alix.address,
+			publicIdentity: alix.identity,
 			options: options
 		)
 
@@ -411,10 +411,10 @@ class ClientTests: XCTestCase {
 			inboxIds: [fixtures.boClient.inboxID, fixtures.caroClient.inboxID]
 		)
 		XCTAssertEqual(
-			states.first!.recoveryAddress.lowercased(),
+			states.first!.recoveryIdentity.identifier,
 			fixtures.bo.walletAddress.lowercased())
 		XCTAssertEqual(
-			states.last!.recoveryAddress.lowercased(),
+			states.last!.recoveryIdentity.identifier,
 			fixtures.caro.walletAddress.lowercased())
 	}
 
@@ -429,16 +429,16 @@ class ClientTests: XCTestCase {
 		let state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
 		XCTAssertEqual(state.installations.count, 1)
-		XCTAssertEqual(state.addresses.count, 3)
+		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
-			state.recoveryAddress.lowercased(),
-			fixtures.alixClient.address.lowercased())
+			state.recoveryIdentity.identifier,
+			fixtures.alix.walletAddress.lowercased())
 		XCTAssertEqual(
-			state.addresses.sorted(),
+			state.identities.map { $0.identifier }.sorted(),
 			[
-				alix2Wallet.address.lowercased(),
-				alix3Wallet.address.lowercased(),
-				fixtures.alixClient.address.lowercased(),
+				alix2Wallet.walletAddress.lowercased(),
+				alix3Wallet.walletAddress.lowercased(),
+				fixtures.alix.walletAddress.lowercased(),
 			].sorted()
 		)
 	}
@@ -455,10 +455,10 @@ class ClientTests: XCTestCase {
 
 		let state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
-		XCTAssertEqual(state.addresses.count, 2)
+		XCTAssertEqual(state.identities.count, 2)
 
-		let inboxId = try await fixtures.alixClient.inboxIdFromAddress(
-			address: fixtures.boClient.address)
+		let inboxId = try await fixtures.alixClient.inboxIdFromIdentity(
+			identity: fixtures.bo.identity)
 		XCTAssertEqual(inboxId, fixtures.alixClient.inboxID)
 	}
 
@@ -472,26 +472,27 @@ class ClientTests: XCTestCase {
 
 		var state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
-		XCTAssertEqual(state.addresses.count, 3)
+		XCTAssertEqual(state.identities.count, 3)
 		XCTAssertEqual(
-			state.recoveryAddress.lowercased(),
-			fixtures.alixClient.address.lowercased())
+			state.recoveryIdentity.identifier,
+			fixtures.alix.walletAddress.lowercased())
 
 		try await fixtures.alixClient.removeAccount(
-			recoveryAccount: fixtures.alix, addressToRemove: alix2Wallet.address
+			recoveryAccount: fixtures.alix,
+			identityToRemove: alix2Wallet.identity
 		)
 
 		state = try await fixtures.alixClient.inboxState(
 			refreshFromNetwork: true)
-		XCTAssertEqual(state.addresses.count, 2)
+		XCTAssertEqual(state.identities.count, 2)
 		XCTAssertEqual(
-			state.recoveryAddress.lowercased(),
-			fixtures.alixClient.address.lowercased())
+			state.recoveryIdentity.identifier,
+			fixtures.alix.walletAddress.lowercased())
 		XCTAssertEqual(
-			state.addresses.sorted(),
+			state.identities.map { $0.identifier }.sorted(),
 			[
-				alix3Wallet.address.lowercased(),
-				fixtures.alixClient.address.lowercased(),
+				alix3Wallet.walletAddress.lowercased(),
+				fixtures.alix.walletAddress.lowercased(),
 			].sorted()
 		)
 		XCTAssertEqual(state.installations.count, 1)
@@ -500,7 +501,7 @@ class ClientTests: XCTestCase {
 		await assertThrowsAsyncError(
 			try await fixtures.alixClient.removeAccount(
 				recoveryAccount: alix3Wallet,
-				addressToRemove: fixtures.alixClient.address
+				identityToRemove: fixtures.alix.identity
 			))
 	}
 
@@ -580,16 +581,18 @@ class ClientTests: XCTestCase {
 		)
 
 		let inboxId = try await Client.getOrCreateInboxId(
-			api: options.api, address: alix.address)
+			api: options.api, publicIdentity: alix.identity)
 		let client = try await Client.ffiCreateClient(
-			address: alix.address, clientOptions: options)
+			identity: alix.identity, clientOptions: options)
 		let sigRequest = client.ffiSignatureRequest()
 		try await sigRequest!.addEcdsaSignature(
 			signatureBytes: try alix.sign(message: sigRequest!.signatureText())
 				.rawData)
 		try await client.ffiRegisterIdentity(signatureRequest: sigRequest!)
-		let canMessage = try await client.canMessage(addresses: [client.address]
-		)[client.address]
+		let state = try await client.inboxState(refreshFromNetwork: true)
+			.identities
+		let canMessage = try await client.canMessage(identities: state)[
+			state.first!.identifier]
 
 		XCTAssertTrue(canMessage == true)
 		XCTAssertEqual(inboxId, client.inboxID)

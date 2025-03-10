@@ -47,11 +47,11 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
-	public func creatorInboxId() async throws -> String {
+	public func creatorInboxId() async throws -> InboxId {
 		return try await metadata().creatorInboxId()
 	}
 
-	public func addedByInboxId() throws -> String {
+	public func addedByInboxId() throws -> InboxId {
 		return try ffiConversation.addedByInboxId()
 	}
 
@@ -64,7 +64,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public var peerInboxId: String {
+	public var peerInboxId: InboxId {
 		get throws {
 			try ffiConversation.dmPeerInboxId()
 		}

@@ -75,35 +75,35 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try await metadata().creatorInboxId() == client.inboxID
 	}
 
-	public func isAdmin(inboxId: String) throws -> Bool {
+	public func isAdmin(inboxId: InboxId) throws -> Bool {
 		return try ffiGroup.isAdmin(inboxId: inboxId)
 	}
 
-	public func isSuperAdmin(inboxId: String) throws -> Bool {
+	public func isSuperAdmin(inboxId: InboxId) throws -> Bool {
 		return try ffiGroup.isSuperAdmin(inboxId: inboxId)
 	}
 
-	public func addAdmin(inboxId: String) async throws {
+	public func addAdmin(inboxId: InboxId) async throws {
 		try await ffiGroup.addAdmin(inboxId: inboxId)
 	}
 
-	public func removeAdmin(inboxId: String) async throws {
+	public func removeAdmin(inboxId: InboxId) async throws {
 		try await ffiGroup.removeAdmin(inboxId: inboxId)
 	}
 
-	public func addSuperAdmin(inboxId: String) async throws {
+	public func addSuperAdmin(inboxId: InboxId) async throws {
 		try await ffiGroup.addSuperAdmin(inboxId: inboxId)
 	}
 
-	public func removeSuperAdmin(inboxId: String) async throws {
+	public func removeSuperAdmin(inboxId: InboxId) async throws {
 		try await ffiGroup.removeSuperAdmin(inboxId: inboxId)
 	}
 
-	public func listAdmins() throws -> [String] {
+	public func listAdmins() throws -> [InboxId] {
 		try ffiGroup.adminList()
 	}
 
-	public func listSuperAdmins() throws -> [String] {
+	public func listSuperAdmins() throws -> [InboxId] {
 		try ffiGroup.superAdminList()
 	}
 
@@ -112,11 +112,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try permissions().policySet())
 	}
 
-	public func creatorInboxId() async throws -> String {
+	public func creatorInboxId() async throws -> InboxId {
 		return try await metadata().creatorInboxId()
 	}
 
-	public func addedByInboxId() throws -> String {
+	public func addedByInboxId() throws -> InboxId {
 		return try ffiGroup.addedByInboxId()
 	}
 
@@ -128,7 +128,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public var peerInboxIds: [String] {
+	public var peerInboxIds: [InboxId] {
 		get async throws {
 			var ids = try await members.map(\.inboxId)
 			if let index = ids.firstIndex(of: client.inboxID) {
@@ -142,20 +142,27 @@ public struct Group: Identifiable, Equatable, Hashable {
 		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())
 	}
 
-	public func addMembers(addresses: [String]) async throws {
-		try await ffiGroup.addMembers(accountAddresses: addresses)
-	}
-
-	public func removeMembers(addresses: [String]) async throws {
-		try await ffiGroup.removeMembers(accountAddresses: addresses)
-	}
-
-	public func addMembersByInboxId(inboxIds: [String]) async throws {
+	public func addMembers(inboxIds: [InboxId]) async throws {
+		try validateInboxIds(inboxIds)
 		try await ffiGroup.addMembersByInboxId(inboxIds: inboxIds)
 	}
 
-	public func removeMembersByInboxId(inboxIds: [String]) async throws {
+	public func removeMembers(inboxIds: [InboxId]) async throws {
+		try validateInboxIds(inboxIds)
 		try await ffiGroup.removeMembersByInboxId(inboxIds: inboxIds)
+	}
+
+	public func addMembersByIdentity(identities: [PublicIdentity]) async throws
+	{
+		try await ffiGroup.addMembers(
+			accountIdentifiers: identities.map { $0.ffiPrivate })
+	}
+
+	public func removeMembersByIdentity(identities: [PublicIdentity])
+		async throws
+	{
+		try await ffiGroup.removeMembers(
+			accountIdentifiers: identities.map { $0.ffiPrivate })
 	}
 
 	public func groupName() throws -> String {

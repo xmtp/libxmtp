@@ -6,6 +6,7 @@ public typealias PreEventCallback = () async throws -> Void
 public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 	case creationError(String)
 	case missingInboxId
+	case invalidInboxId(String)
 
 	public var description: String {
 		switch self {
@@ -13,6 +14,9 @@ public enum ClientError: Error, CustomStringConvertible, LocalizedError {
 			return "ClientError.creationError: \(err)"
 		case .missingInboxId:
 			return "ClientError.missingInboxId"
+		case .invalidInboxId(let inboxId):
+			return
+				"Invalid inboxId: \(inboxId). Inbox IDs cannot start with '0x'."
 		}
 	}
 
@@ -97,9 +101,10 @@ actor ApiClientCache {
 	}
 }
 
+public typealias InboxId = String
+
 public final class Client {
-	public let address: String
-	public let inboxID: String
+	public let inboxID: InboxId
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
 	public let installationID: String
@@ -120,20 +125,19 @@ public final class Client {
 	}
 
 	static func initializeClient(
-		accountAddress: String,
+		publicIdentity: PublicIdentity,
 		options: ClientOptions,
 		signingKey: SigningKey?,
-		inboxId: String,
+		inboxId: InboxId,
 		apiClient: XmtpApiClient? = nil
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
-			accountAddress: accountAddress.lowercased(),
+			accountIdentifier: publicIdentity,
 			options: options,
 			inboxId: inboxId
 		)
 
 		let client = try Client(
-			address: accountAddress.lowercased(),
 			ffiClient: libxmtpClient,
 			dbPath: dbPath,
 			installationID: libxmtpClient.installationId().toHex,
@@ -174,12 +178,12 @@ public final class Client {
 	)
 		async throws -> Client
 	{
-		let accountAddress = account.address.lowercased()
+		let identity = account.identity
 		let inboxId = try await getOrCreateInboxId(
-			api: options.api, address: accountAddress)
+			api: options.api, publicIdentity: identity)
 
 		return try await initializeClient(
-			accountAddress: accountAddress,
+			publicIdentity: identity,
 			options: options,
 			signingKey: account,
 			inboxId: inboxId
@@ -187,21 +191,21 @@ public final class Client {
 	}
 
 	public static func build(
-		address: String, options: ClientOptions, inboxId: String? = nil
+		publicIdentity: PublicIdentity, options: ClientOptions,
+		inboxId: InboxId? = nil
 	)
 		async throws -> Client
 	{
-		let accountAddress = address.lowercased()
 		let resolvedInboxId: String
 		if let existingInboxId = inboxId {
 			resolvedInboxId = existingInboxId
 		} else {
 			resolvedInboxId = try await getOrCreateInboxId(
-				api: options.api, address: accountAddress)
+				api: options.api, publicIdentity: publicIdentity)
 		}
 
 		return try await initializeClient(
-			accountAddress: accountAddress,
+			publicIdentity: publicIdentity,
 			options: options,
 			signingKey: nil,
 			inboxId: resolvedInboxId
@@ -218,20 +222,18 @@ public final class Client {
 			"""
 	)
 	public static func ffiCreateClient(
-		address: String, clientOptions: ClientOptions
+		identity: PublicIdentity, clientOptions: ClientOptions
 	) async throws -> Client {
-		let accountAddress = address.lowercased()
 		let recoveredInboxId = try await getOrCreateInboxId(
-			api: clientOptions.api, address: accountAddress)
+			api: clientOptions.api, publicIdentity: identity)
 
 		let (ffiClient, dbPath) = try await initFFiClient(
-			accountAddress: accountAddress,
+			accountIdentifier: identity,
 			options: clientOptions,
 			inboxId: recoveredInboxId
 		)
 
 		return try Client(
-			address: accountAddress,
 			ffiClient: ffiClient,
 			dbPath: dbPath,
 			installationID: ffiClient.installationId().toHex,
@@ -241,12 +243,10 @@ public final class Client {
 	}
 
 	private static func initFFiClient(
-		accountAddress: String,
+		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
-		inboxId: String
+		inboxId: InboxId
 	) async throws -> (FfiXmtpClient, String) {
-		let address = accountAddress.lowercased()
-
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
 		if let mlsDbDirectory = mlsDbDirectory {
@@ -276,7 +276,7 @@ public final class Client {
 			db: dbURL,
 			encryptionKey: options.dbEncryptionKey,
 			inboxId: inboxId,
-			accountAddress: address,
+			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
 			historySyncUrl: options.historySyncUrl
@@ -298,7 +298,7 @@ public final class Client {
 				message: signatureRequest.signatureText())
 			try await signatureRequest.addScwSignature(
 				signatureBytes: signedData,
-				address: signingKey.address.lowercased(),
+				address: signingKey.identity.identifier,
 				chainId: UInt64(chainId),
 				blockNumber: signingKey.blockNumber.flatMap {
 					$0 >= 0 ? UInt64($0) : nil
@@ -328,35 +328,37 @@ public final class Client {
 	}
 
 	public static func getOrCreateInboxId(
-		api: ClientOptions.Api, address: String
-	) async throws -> String {
+		api: ClientOptions.Api, publicIdentity: PublicIdentity
+	) async throws -> InboxId {
 		var inboxId: String
 		do {
 			inboxId =
-				try await getInboxIdForAddress(
+				try await getInboxIdForIdentifier(
 					api: connectToApiBackend(api: api),
-					accountAddress: address.lowercased()
-				)
+					accountIdentifier: publicIdentity.ffiPrivate)
 				?? generateInboxId(
-					accountAddress: address.lowercased(), nonce: 0)
+					accountIdentifier: publicIdentity.ffiPrivate, nonce: 0)
 		} catch {
 			inboxId = try generateInboxId(
-				accountAddress: address.lowercased(), nonce: 0)
+				accountIdentifier: publicIdentity.ffiPrivate, nonce: 0)
 		}
 		return inboxId
 	}
 
 	private static func prepareClient(
 		api: ClientOptions.Api,
-		address: String = "0x0000000000000000000000000000000000000000"
+		identity: PublicIdentity = PublicIdentity(
+			kind: .ethereum,
+			identifier: "0x0000000000000000000000000000000000000000")
 	) async throws -> FfiXmtpClient {
-		let inboxId = try await getOrCreateInboxId(api: api, address: address)
+		let inboxId = try await getOrCreateInboxId(
+			api: api, publicIdentity: identity)
 		return try await LibXMTP.createClient(
 			api: connectToApiBackend(api: api),
 			db: nil,
 			encryptionKey: nil,
 			inboxId: inboxId,
-			accountAddress: address,
+			accountIdentifier: identity.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
 			historySyncUrl: nil
@@ -364,16 +366,19 @@ public final class Client {
 	}
 
 	public static func canMessage(
-		accountAddresses: [String],
-		api: ClientOptions.Api
+		identities: [PublicIdentity], api: ClientOptions.Api
 	) async throws -> [String: Bool] {
 		let ffiClient = try await prepareClient(api: api)
-		return try await ffiClient.canMessage(
-			accountAddresses: accountAddresses)
+		let ffiIdentifiers = identities.map { $0.ffiPrivate }
+		let result = try await ffiClient.canMessage(
+			accountIdentifiers: ffiIdentifiers)
+
+		return Dictionary(
+			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) })
 	}
 
 	public static func inboxStatesForInboxIds(
-		inboxIds: [String],
+		inboxIds: [InboxId],
 		api: ClientOptions.Api
 	) async throws -> [InboxState] {
 		let ffiClient = try await prepareClient(api: api)
@@ -383,10 +388,9 @@ public final class Client {
 	}
 
 	init(
-		address: String, ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
-		installationID: String, inboxID: String, environment: XMTPEnvironment
+		ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
+		installationID: String, inboxID: InboxId, environment: XMTPEnvironment
 	) throws {
-		self.address = address
 		self.ffiClient = ffiClient
 		self.dbPath = dbPath
 		self.installationID = installationID
@@ -397,7 +401,7 @@ public final class Client {
 	@available(
 		*, deprecated,
 		message:
-			"This function is delicate and should be used with caution. Adding a wallet already associated with an inboxId will cause the wallet to loose access to that inbox. See: inboxIdFromAddress(address)"
+			"This function is delicate and should be used with caution. Adding a wallet already associated with an inboxId will cause the wallet to loose access to that inbox. See: inboxIdFromIdentity(publicIdentity)"
 	)
 	public func addAccount(
 		newAccount: SigningKey, allowReassignInboxId: Bool = false
@@ -406,12 +410,13 @@ public final class Client {
 	{
 		let inboxId: String? =
 			allowReassignInboxId
-			? nil : try await inboxIdFromAddress(address: newAccount.address)
+			? nil : try await inboxIdFromIdentity(identity: newAccount.identity)
 
 		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
-			let signatureRequest = try await ffiAddWallet(
-				addressToAdd: newAccount.address.lowercased())
-
+			let signatureRequest = try await ffiAddIdentity(
+				identityToAdd: newAccount.identity,
+                allowReassignInboxId: allowReassignInboxId
+            )
 			do {
 				try await Client.handleSignature(
 					for: signatureRequest.ffiSignatureRequest,
@@ -430,10 +435,10 @@ public final class Client {
 	}
 
 	public func removeAccount(
-		recoveryAccount: SigningKey, addressToRemove: String
+		recoveryAccount: SigningKey, identityToRemove: PublicIdentity
 	) async throws {
-		let signatureRequest = try await ffiRevokeWallet(
-			addressToRemove: addressToRemove.lowercased())
+		let signatureRequest = try await ffiRevokeIdentity(
+			identityToRemove: identityToRemove)
 		do {
 			try await Client.handleSignature(
 				for: signatureRequest.ffiSignatureRequest,
@@ -479,15 +484,21 @@ public final class Client {
 		}
 	}
 
-	public func canMessage(address: String) async throws -> Bool {
-		let canMessage = try await ffiClient.canMessage(accountAddresses: [
-			address
+	public func canMessage(identities: PublicIdentity) async throws -> Bool {
+		let canMessage = try await canMessage(identities: [
+			identities
 		])
-		return canMessage[address.lowercased()] ?? false
+		return canMessage[identities.identifier] ?? false
 	}
 
-	public func canMessage(addresses: [String]) async throws -> [String: Bool] {
-		return try await ffiClient.canMessage(accountAddresses: addresses)
+	func canMessage(identities: [PublicIdentity]) async throws -> [String: Bool]
+	{
+		let ffiIdentifiers = identities.map { $0.ffiPrivate }
+		let result = try await ffiClient.canMessage(
+			accountIdentifiers: ffiIdentifiers)
+
+		return Dictionary(
+			uniqueKeysWithValues: result.map { ($0.key.identifier, $0.value) })
 	}
 
 	public func deleteLocalDatabase() throws {
@@ -509,8 +520,10 @@ public final class Client {
 		try await ffiClient.dbReconnect()
 	}
 
-	public func inboxIdFromAddress(address: String) async throws -> String? {
-		return try await ffiClient.findInboxId(address: address.lowercased())
+	public func inboxIdFromIdentity(identity: PublicIdentity) async throws
+		-> InboxId?
+	{
+		return try await ffiClient.findInboxId(identifier: identity.ffiPrivate)
 	}
 
 	public func signWithInstallationKey(message: String) throws -> Data {
@@ -549,7 +562,7 @@ public final class Client {
 	}
 
 	public func inboxStatesForInboxIds(
-		refreshFromNetwork: Bool, inboxIds: [String]
+		refreshFromNetwork: Bool, inboxIds: [InboxId]
 	) async throws -> [InboxState] {
 		return try await ffiClient.addressesFromInboxId(
 			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
@@ -611,14 +624,14 @@ public final class Client {
 		message: """
 			This function is delicate and should be used with caution. 
 			Should only be used if trying to manage the signature flow independently; 
-			otherwise use `removeWallet()` instead.
+			otherwise use `removeIdentity()` instead.
 			"""
 	)
-	public func ffiRevokeWallet(addressToRemove: String) async throws
+	public func ffiRevokeIdentity(identityToRemove: PublicIdentity) async throws
 		-> SignatureRequest
 	{
-		let ffiSigReq = try await ffiClient.revokeWallet(
-			walletAddress: addressToRemove.lowercased())
+		let ffiSigReq = try await ffiClient.revokeIdentity(
+			identifier: identityToRemove.ffiPrivate)
 		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
 	}
 
@@ -628,15 +641,32 @@ public final class Client {
 		message: """
 			This function is delicate and should be used with caution. 
 			Should only be used if trying to manage the create and register flow independently; 
-			otherwise use `addWallet()` instead.
+			otherwise use `addIdentity()` instead.
 			"""
 	)
-	public func ffiAddWallet(addressToAdd: String) async throws
+    public func ffiAddIdentity(
+        identityToAdd: PublicIdentity, allowReassignInboxId: Bool = false
+    ) async throws
 		-> SignatureRequest
 	{
-		let ffiSigReq = try await ffiClient.addWallet(
-			newWalletAddress: addressToAdd.lowercased())
-		return SignatureRequest(ffiSignatureRequest: ffiSigReq)
+		let inboxId: InboxId? =
+			await !allowReassignInboxId
+			? try inboxIdFromIdentity(
+				identity: PublicIdentity(
+					kind: identityToAdd.kind,
+					identifier: identityToAdd.identifier
+				)
+			) : nil
+
+		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
+			let ffiSigReq = try await ffiClient.addIdentity(
+				newIdentity: identityToAdd.ffiPrivate)
+			return SignatureRequest(ffiSignatureRequest: ffiSigReq)
+		} else {
+			throw ClientError.creationError(
+				"This wallet is already associated with inbox \(inboxId ?? "Unknown")"
+			)
+		}
 	}
 
 	@available(

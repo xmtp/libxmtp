@@ -24,4 +24,3 @@ public struct Installation {
 		return Date(timeIntervalSince1970: TimeInterval(timestampNs) / 1_000_000_000)
 	}
 }
-

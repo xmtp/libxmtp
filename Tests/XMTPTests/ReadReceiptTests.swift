@@ -10,7 +10,7 @@ class ReadReceiptTests: XCTestCase {
 		Client.register(codec: ReadReceiptCodec())
 
 		let conversation = try await fixtures.alixClient.conversations
-			.newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
 
 		_ = try await conversation.send(text: "hey alix 2 bo")
 

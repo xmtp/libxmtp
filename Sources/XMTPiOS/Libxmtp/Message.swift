@@ -30,7 +30,7 @@ public struct Message: Identifiable {
 		ffiMessage.conversationId.toHex
 	}
 
-	public var senderInboxId: String {
+	public var senderInboxId: InboxId {
 		ffiMessage.senderInboxId
 	}
 

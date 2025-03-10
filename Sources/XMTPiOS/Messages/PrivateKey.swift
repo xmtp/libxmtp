@@ -21,8 +21,8 @@ enum PrivateKeyError: Error, CustomStringConvertible {
 }
 
 extension PrivateKey: SigningKey {
-	public var address: String {
-		walletAddress
+	public var identity: PublicIdentity {
+		return PublicIdentity(kind: .ethereum, identifier: walletAddress)
 	}
 
 	public func sign(_ data: Data) async throws -> Signature {

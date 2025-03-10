@@ -23,7 +23,7 @@ class PerformanceTests: XCTestCase {
 				do {
 					PerformanceTests.dm = try await fixtures.alixClient
 						.conversations.findOrCreateDm(
-							with: fixtures.boClient.address)
+							with: fixtures.boClient.inboxID)
 
 					let elapsedTime =
 						(CFAbsoluteTimeGetCurrent() - startTime) * 1000
@@ -90,9 +90,9 @@ class PerformanceTests: XCTestCase {
 					PerformanceTests.group = try await fixtures.alixClient
 						.conversations.newGroup(
 							with: [
-								fixtures.boClient.address,
-								fixtures.caroClient.address,
-								fixtures.davonClient.address,
+								fixtures.boClient.inboxID,
+								fixtures.caroClient.inboxID,
+								fixtures.davonClient.inboxID,
 							]
 						)
 
@@ -168,7 +168,7 @@ class PerformanceTests: XCTestCase {
 		// Measure time to build a client
 		let start2 = Date()
 		let buildClient1 = try await Client.build(
-			address: fakeWallet.address,
+			publicIdentity: fakeWallet.identity,
 			options: ClientOptions(
 				api: ClientOptions.Api(env: .dev, isSecure: true),
 				dbEncryptionKey: key
@@ -181,7 +181,7 @@ class PerformanceTests: XCTestCase {
 		// Measure time to build a client with an inboxId
 		let start3 = Date()
 		let buildClient2 = try await Client.build(
-			address: fakeWallet.address,
+			publicIdentity: fakeWallet.identity,
 			options: ClientOptions(
 				api: ClientOptions.Api(env: .dev, isSecure: true),
 				dbEncryptionKey: key

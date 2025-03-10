@@ -55,7 +55,7 @@ class ReactionTests: XCTestCase {
     func testCanUseReactionCodec() async throws {
         let fixtures = try await fixtures()
         let conversation = try await fixtures.alixClient.conversations
-            .newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
         
         Client.register(codec: ReactionCodec())
         
@@ -136,7 +136,7 @@ class ReactionTests: XCTestCase {
         
         let fixtures = try await fixtures()
         let conversation = try await fixtures.alixClient.conversations
-            .newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
         
         _ = try await conversation.send(text: "hey alice 2 bob")
         
@@ -165,7 +165,7 @@ class ReactionTests: XCTestCase {
         XCTAssertEqual(FfiReactionSchema.unicode, content.schema)
         
         let messagesWithReactions = try await conversation.messagesWithReactions()
-        XCTAssertEqual(messagesWithReactions.count, 1)
+        XCTAssertEqual(messagesWithReactions.count, 2)
         XCTAssertEqual(messagesWithReactions[0].id, messageToReact.id)
         
         let reactionContent: FfiReaction = try messagesWithReactions[0].childMessages![0].content()
@@ -179,7 +179,7 @@ class ReactionTests: XCTestCase {
         
         let fixtures = try await fixtures()
         let conversation = try await fixtures.alixClient.conversations
-            .newConversation(with: fixtures.boClient.address)
+			.newConversation(with: fixtures.boClient.inboxID)
         
         // Send initial message
         _ = try await conversation.send(text: "hey alice 2 bob")
@@ -213,7 +213,7 @@ class ReactionTests: XCTestCase {
         // Verify both reactions appear in messagesWithReactions
         let messagesWithReactions = try await conversation.messagesWithReactions()
         
-        XCTAssertEqual(1, messagesWithReactions.count)
+        XCTAssertEqual(2, messagesWithReactions.count)
         XCTAssertEqual(messageToReact.id, messagesWithReactions[0].id)
         XCTAssertEqual(2, messagesWithReactions[0].childMessages?.count)
         

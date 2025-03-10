@@ -30,7 +30,7 @@ class GroupPermissionTests: XCTestCase {
 	func testGroupCreatedWithCorrectAdminList() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address])
+			with: [fixtures.alixClient.inboxID])
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
 			.listGroups().first!
@@ -39,7 +39,7 @@ class GroupPermissionTests: XCTestCase {
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssertTrue(
 			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
-        let isAlixGroupCreator = try await alixGroup.isCreator()
+		let isAlixGroupCreator = try await alixGroup.isCreator()
 		XCTAssertFalse(isAlixGroupCreator)
 		XCTAssertFalse(
 			try alixGroup.isAdmin(inboxId: fixtures.alixClient.inboxID))
@@ -58,7 +58,7 @@ class GroupPermissionTests: XCTestCase {
 	func testGroupCanUpdateAdminList() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
 			permissions: .adminOnly)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
@@ -68,8 +68,8 @@ class GroupPermissionTests: XCTestCase {
 			try boGroup.isAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssertTrue(
 			try boGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
-        let isAlixGroupCreator = try await alixGroup.isCreator()
-        XCTAssertFalse(isAlixGroupCreator)
+		let isAlixGroupCreator = try await alixGroup.isCreator()
+		XCTAssertFalse(isAlixGroupCreator)
 		XCTAssertFalse(
 			try alixGroup.isAdmin(inboxId: fixtures.alixClient.inboxID))
 		XCTAssertFalse(
@@ -136,7 +136,7 @@ class GroupPermissionTests: XCTestCase {
 	func testGroupCanUpdateSuperAdminList() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
 			permissions: .adminOnly)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
@@ -174,7 +174,7 @@ class GroupPermissionTests: XCTestCase {
 	func testGroupMembersAndPermissionLevel() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
 			permissions: .adminOnly)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
@@ -236,7 +236,7 @@ class GroupPermissionTests: XCTestCase {
 	func testCanCommitAfterInvalidPermissionsCommit() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
 			permissions: .allMembers)
 		try await fixtures.alixClient.conversations.sync()
 		let alixGroup = try await fixtures.alixClient.conversations
@@ -265,7 +265,7 @@ class GroupPermissionTests: XCTestCase {
 	func testCanUpdatePermissions() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
-			with: [fixtures.alix.address, fixtures.caro.address],
+			with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
 			permissions: .adminOnly
 		)
 		try await fixtures.alixClient.conversations.sync()
@@ -315,11 +315,13 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-            updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
 			.newGroupCustomPermissions(
-				with: [fixtures.alix.address, fixtures.caro.address],
+				with: [
+					fixtures.alixClient.inboxID, fixtures.caroClient.inboxID,
+				],
 				permissionPolicySet: permissionPolicySet
 			)
 
@@ -342,7 +344,7 @@ class GroupPermissionTests: XCTestCase {
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin)
 	}
-	
+
 	func testCanCreateGroupWithInboxIdCustomPermissions() async throws {
 		let fixtures = try await fixtures()
 		let permissionPolicySet = PermissionPolicySet(
@@ -353,11 +355,11 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-            updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		_ = try await fixtures.boClient.conversations
-			.newGroupCustomPermissionsWithInboxIds(
-				with: [fixtures.alixClient.inboxID, fixtures.caroClient.inboxID],
+			.newGroupCustomPermissionsWithIdentities(
+				with: [fixtures.alix.identity, fixtures.caro.identity],
 				permissionPolicySet: permissionPolicySet
 			)
 
@@ -392,12 +394,15 @@ class GroupPermissionTests: XCTestCase {
 			updateGroupNamePolicy: PermissionOption.admin,
 			updateGroupDescriptionPolicy: PermissionOption.allow,
 			updateGroupImagePolicy: PermissionOption.admin,
-            updateMessageDisappearingPolicy: PermissionOption.allow
+			updateMessageDisappearingPolicy: PermissionOption.allow
 		)
 		await assertThrowsAsyncError(
 			try await fixtures.boClient.conversations
 				.newGroupCustomPermissions(
-					with: [fixtures.alix.address, fixtures.caro.address],
+					with: [
+						fixtures.alixClient.inboxID,
+						fixtures.caroClient.inboxID,
+					],
 					permissionPolicySet: permissionPolicySetInvalid
 				)
 		)

@@ -19,12 +19,12 @@ public struct Member {
         self.ffiGroupMember = ffiGroupMember
     }
 
-    public var inboxId: String {
+    public var inboxId: InboxId {
         ffiGroupMember.inboxId
     }
     
-    public var addresses: [String] {
-        ffiGroupMember.accountAddresses
+    public var identities: [PublicIdentity] {
+		ffiGroupMember.accountIdentifiers.map { PublicIdentity(ffiPrivate: $0) }
     }
 
 	public var permissionLevel: PermissionLevel {
