@@ -90,9 +90,29 @@ pub use wasm::*;
 #[cfg(not(target_arch = "wasm32"))]
 mod not_wasm {
     use super::*;
+    use xmtp_proto::api_client::ApiBuilder;
     use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
     #[derive(Clone)]
     pub struct ApiClient;
+    pub struct MockApiBuilder;
+
+    impl ApiBuilder for MockApiBuilder {
+        type Output = ApiClient;
+        type Error = MockError;
+
+        fn set_libxmtp_version(&mut self, _version: String) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn set_app_version(&mut self, _version: String) -> Result<(), Self::Error> {
+            Ok(())
+        }
+        fn set_host(&mut self, _host: String) {}
+        fn set_payer(&mut self, _host: String) {}
+        fn set_tls(&mut self, _tls: bool) {}
+        async fn build(self) -> Result<Self::Output, Self::Error> {
+            Ok(ApiClient)
+        }
+    }
 
     mock! {
         pub ApiClient { }
@@ -112,7 +132,7 @@ mod not_wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
-            fn stats(&self) -> &ApiStats;
+            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait]
@@ -139,15 +159,16 @@ mod not_wasm {
             async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, MockError>;
             async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, MockError>;
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
-            async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
-            -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> &IdentityStats;
+            async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
+            fn identity_stats(&self) -> IdentityStats;
         }
 
-        #[async_trait::async_trait]
         impl XmtpTestClient for ApiClient {
-            async fn create_local() -> Self { ApiClient }
-            async fn create_dev() -> Self { ApiClient }
+            type Builder = MockApiBuilder;
+            fn create_local() -> MockApiBuilder { MockApiBuilder }
+            fn create_dev() -> MockApiBuilder { MockApiBuilder }
+            fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
         }
     }
 }
@@ -177,7 +198,7 @@ mod wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
-            fn stats(&self) -> &ApiStats;
+            fn stats(&self) -> ApiStats;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -206,13 +227,17 @@ mod wasm {
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
             -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
-            fn identity_stats(&self) -> &IdentityStats;
+            fn identity_stats(&self) -> IdentityStats;
         }
 
         #[async_trait::async_trait(?Send)]
         impl XmtpTestClient for ApiClient {
-            async fn create_local() -> Self { ApiClient }
-            async fn create_dev() -> Self { ApiClient }
+            type Builder = ();
+            fn create_local() -> () { () }
+            fn create_dev() -> () { () }
+            fn create_local_payer() -> () { () }
+            fn create_local_d14n() -> () { () }
+
         }
     }
 }

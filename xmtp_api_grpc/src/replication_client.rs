@@ -535,7 +535,7 @@ impl XmtpIdentityClient for ClientV4 {
         unimplemented!()
     }
 
-    fn identity_stats(&self) -> &IdentityStats {
+    fn identity_stats(&self) -> IdentityStats {
         &self.identity_stats
     }
 }

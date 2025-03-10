@@ -2,7 +2,6 @@ pub mod auth_token;
 pub mod grpc_api_helper;
 pub mod grpc_client;
 mod identity;
-pub mod replication_client;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
@@ -10,41 +9,6 @@ pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 use thiserror::Error;
 use xmtp_proto::ConversionError;
-
-#[derive(Debug, Error)]
-pub struct Error {
-    endpoint: Option<xmtp_proto::ApiEndpoint>,
-    #[source]
-    source: GrpcError,
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(endpoint) = self.endpoint {
-            write!(f, "endpoint: {}, source: {}", endpoint, self.source)
-        } else {
-            write!(f, "{}", self.source)
-        }
-    }
-}
-
-impl Error {
-    pub fn new(endpoint: xmtp_proto::ApiEndpoint, err: GrpcError) -> Self {
-        Error {
-            endpoint: Some(endpoint),
-            source: err,
-        }
-    }
-}
-
-impl From<GrpcError> for Error {
-    fn from(e: GrpcError) -> Error {
-        Error {
-            endpoint: None,
-            source: e,
-        }
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum GrpcBuilderError {
@@ -94,35 +58,9 @@ impl From<ConversionError> for GrpcError {
     }
 }
 
-impl xmtp_common::retry::RetryableError for Error {
-    fn is_retryable(&self) -> bool {
-        true
-    }
-}
-
 impl xmtp_common::retry::RetryableError for GrpcError {
     fn is_retryable(&self) -> bool {
         true
-    }
-}
-
-impl xmtp_proto::XmtpApiError for Error {
-    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
-        self.endpoint
-    }
-
-    fn code(&self) -> Option<xmtp_proto::Code> {
-        match &self.source {
-            GrpcError::Status(status) => Some(status.code().into()),
-            _ => None,
-        }
-    }
-
-    fn grpc_message(&self) -> Option<&str> {
-        match &self.source {
-            GrpcError::Status(status) => Some(status.message()),
-            _ => None,
-        }
     }
 }
 
@@ -142,27 +80,6 @@ impl xmtp_proto::XmtpApiError for GrpcError {
         match &self {
             GrpcError::Status(status) => Some(status.message()),
             _ => None,
-        }
-    }
-}
-mod utils {
-    #[cfg(feature = "test-utils")]
-    mod test {
-        use xmtp_proto::api_client::XmtpTestClient;
-
-        #[async_trait::async_trait]
-        impl XmtpTestClient for crate::Client {
-            async fn create_local() -> Self {
-                crate::Client::create("http://localhost:5556", false)
-                    .await
-                    .unwrap()
-            }
-
-            async fn create_dev() -> Self {
-                crate::Client::create("https://grpc.dev.xmtp.network:443", true)
-                    .await
-                    .unwrap()
-            }
         }
     }
 }

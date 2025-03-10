@@ -46,6 +46,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url.workspace = true
 valuable = { version = "0.1", features = ["derive"] }
+xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
 xmtp_id.workspace = true

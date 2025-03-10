@@ -4,11 +4,13 @@
 #![allow(unused)]
 
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
+use std::marker::PhantomData;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
-use xmtp_proto::traits::{ApiError, Client, HasIdentityStats, HasStats, Query};
+use xmtp_proto::traits::Client;
+use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
     build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
@@ -34,39 +36,45 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
-use xmtp_proto::ConversionError;
+use xmtp_proto::{ConversionError, XmtpApiError};
 
 const DEFAULT_PAGINATION_LIMIT: u32 = 100;
 
 pub struct D14nClient<C, P, E> {
     message_client: C,
     payer_client: P,
-    _marker: E,
+    _marker: PhantomData<E>,
 }
 
-#[async_trait::async_trait]
+impl<C, P, E> D14nClient<C, P, E> {
+    pub fn new(message_client: C, payer_client: P) -> Self {
+        Self {
+            message_client,
+            payer_client,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
-    C: Send + Sync + Client + HasStats + HasIdentityStats,
-    ApiError<E>: From<ApiError<<P as Client>::Error>>
-        + From<ApiError<<C as Client>::Error>>
+    C: Send + Sync + Client,
+    ApiClientError<E>: From<ApiClientError<<P as Client>::Error>>
+        + From<ApiClientError<<C as Client>::Error>>
         + Send
         + Sync
         + 'static,
 {
-    type Error = ApiError<E>;
+    type Error = ApiClientError<E>;
 
     async fn upload_key_package(
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        self.message_client
-            .stats()
-            .upload_key_package
-            .count_request();
-
         let envelope: ClientEnvelope = request.try_into()?;
 
         PublishClientEnvelopes::builder()
@@ -82,11 +90,6 @@ where
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
-        self.message_client
-            .stats()
-            .fetch_key_package
-            .count_request();
-
         let topics = request
             .installation_keys
             .iter()
@@ -117,11 +120,6 @@ where
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
-        self.message_client
-            .stats()
-            .send_group_messages
-            .count_request();
-
         let envelopes: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
@@ -141,11 +139,6 @@ where
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
-        self.message_client
-            .stats()
-            .send_welcome_messages
-            .count_request();
-
         let envelope: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
@@ -165,11 +158,6 @@ where
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
-        self.message_client
-            .stats()
-            .query_group_messages
-            .count_request();
-
         let query_envelopes = EnvelopesQuery {
             topics: vec![build_group_message_topic(request.group_id.as_slice())],
             originator_node_ids: Vec::new(), // todo: set later
@@ -227,11 +215,6 @@ where
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
-        self.message_client
-            .stats()
-            .query_welcome_messages
-            .count_request();
-
         let query = EnvelopesQuery {
             topics: vec![build_welcome_message_topic(
                 request.installation_key.as_slice(),
@@ -287,30 +270,31 @@ where
         })
     }
 
-    fn stats(&self) -> &ApiStats {
-        self.message_client.stats()
+    fn stats(&self) -> ApiStats {
+        Default::default()
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpIdentityClient for D14nClient<C, P, E>
 where
-    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
-    C: Send + Sync + Client<Error = E> + HasIdentityStats,
-    ApiError<E>: From<ApiError<<P as Client>::Error>>
-        + From<ApiError<<C as Client>::Error>>
+    C: Send + Sync + Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<P as Client>::Error>>
+        + From<ApiClientError<<C as Client>::Error>>
         + Send
         + Sync
         + 'static,
 {
-    type Error = ApiError<E>;
+    type Error = ApiClientError<E>;
 
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
-        let envelope: ClientEnvelope = request.try_into().map_err(ApiError::Conversion)?;
+        let envelope: ClientEnvelope = request.try_into().map_err(ApiClientError::Conversion)?;
         let result = PublishClientEnvelopes::builder()
             .envelopes(vec![envelope])
             .build()
@@ -378,6 +362,7 @@ where
             .unwrap()
             .query(&self.message_client)
             .await?;
+
         Ok(GetInboxIdsResponse {
             responses: res
                 .responses
@@ -398,7 +383,7 @@ where
         unimplemented!()
     }
 
-    fn identity_stats(&self) -> &IdentityStats {
-        self.message_client.identity_stats()
+    fn identity_stats(&self) -> IdentityStats {
+        Default::default()
     }
 }

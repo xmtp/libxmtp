@@ -13,7 +13,9 @@ use prost::Message;
 use reqwest::header;
 use reqwest::header::HeaderMap;
 use util::handle_error_proto;
+
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient};
+use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -32,8 +34,11 @@ use xmtp_proto::{
     ApiEndpoint,
 };
 
+#[macro_use]
+extern crate tracing;
+
 use crate::constants::ApiEndpoints;
-pub use crate::error::{Error, ErrorResponse, HttpClientError};
+pub use crate::error::{ErrorResponse, HttpClientError};
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5555";
 
 #[cfg(target_arch = "wasm32")]
@@ -46,7 +51,7 @@ fn reqwest_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder().connection_verbose(true)
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct XmtpHttpApiClient {
     http_client: reqwest::Client,
     host_url: String,
@@ -91,6 +96,7 @@ impl XmtpHttpApiClient {
     }
 }
 
+#[derive(Debug)]
 pub struct XmtpHttpApiClientBuilder {
     host_url: String,
     app_version: Option<String>,
@@ -102,7 +108,7 @@ pub struct XmtpHttpApiClientBuilder {
 impl Default for XmtpHttpApiClientBuilder {
     fn default() -> Self {
         Self {
-            host_url: "".into(),
+            host_url: "".to_string(),
             app_version: None,
             libxmtp_version: None,
             headers: header::HeaderMap::new(),
@@ -121,6 +127,10 @@ pub enum HttpClientBuilderError {
     ReqwestErrror(#[from] reqwest::Error),
     #[error(transparent)]
     InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+    #[error(transparent)]
+    InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    InvalidUriParts(#[from] http::uri::InvalidUriParts),
 }
 
 impl ApiBuilder for XmtpHttpApiClientBuilder {
@@ -152,7 +162,7 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         let http_client = self.reqwest.default_headers(self.headers).build()?;
         let libxmtp_version = self
             .libxmtp_version
-            .ok_or(HttpClientBuilderError::MissingLibxmtpVersion)?;
+            .unwrap_or(env!("CARGO_PKG_VERSION").to_string());
         let app_version = self
             .app_version
             .ok_or(HttpClientBuilderError::MissingAppVersion)?;
@@ -179,9 +189,12 @@ fn protobuf_headers() -> Result<HeaderMap, HttpClientError> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsClient for XmtpHttpApiClient {
-    type Error = Error;
+    type Error = ApiClientError<HttpClientError>;
 
-    async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
+    async fn upload_key_package(
+        &self,
+        request: UploadKeyPackageRequest,
+    ) -> Result<(), Self::Error> {
         self.stats.upload_key_package.count_request();
 
         let res = self
@@ -191,19 +204,19 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::upload_kp)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::UploadKeyPackage, HttpClientError::from(e))
+            })?;
 
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::UploadKeyPackage))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::UploadKeyPackage, e))
     }
 
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
-    ) -> Result<FetchKeyPackagesResponse, Error> {
-        self.stats.fetch_key_package.count_request();
-
+    ) -> Result<FetchKeyPackagesResponse, Self::Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
@@ -211,14 +224,19 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::fetch_kps)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::FetchKeyPackages, HttpClientError::from(e))
+            })?;
         tracing::debug!("fetch_key_packages");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::FetchKeyPackages))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::FetchKeyPackages, e))
     }
 
-    async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
+    async fn send_group_messages(
+        &self,
+        request: SendGroupMessagesRequest,
+    ) -> Result<(), Self::Error> {
         self.stats.send_group_messages.count_request();
 
         let res = self
@@ -228,20 +246,21 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::send_group_messages)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::SendGroupMessages, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("send_group_messages");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::SendGroupMessages))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SendGroupMessages, e))
     }
 
     async fn send_welcome_messages(
         &self,
         request: SendWelcomeMessagesRequest,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         self.stats.send_welcome_messages.count_request();
-
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
@@ -249,20 +268,21 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::send_welcome_messages)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::SendWelcomeMessages, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("send_welcome_messages");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::SendWelcomeMessages))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SendWelcomeMessages, e))
     }
 
     async fn query_group_messages(
         &self,
         request: QueryGroupMessagesRequest,
-    ) -> Result<QueryGroupMessagesResponse, Error> {
+    ) -> Result<QueryGroupMessagesResponse, Self::Error> {
         self.stats.query_group_messages.count_request();
-
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
@@ -270,20 +290,21 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::query_group_messages)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::QueryGroupMessages, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("query_group_messages");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::QueryGroupMessages))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryGroupMessages, e))
     }
 
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
-    ) -> Result<QueryWelcomeMessagesResponse, Error> {
+    ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         self.stats.query_welcome_messages.count_request();
-
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
@@ -291,23 +312,26 @@ impl XmtpMlsClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::query_welcome_messages)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::QueryWelcomeMessages, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("query_welcome_messages");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryWelcomeMessages, e))
     }
 
-    fn stats(&self) -> &ApiStats {
-        &self.stats
+    fn stats(&self) -> ApiStats {
+        self.stats.clone()
     }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpMlsStreams for XmtpHttpApiClient {
-    type Error = Error;
+    type Error = ApiClientError<HttpClientError>;
+
     // hard to avoid boxing here:
     // 1.) use `hyper` instead of `reqwest` and create our own `Stream` type
     // 2.) ise `impl Stream` in return of `XmtpMlsStreams` but that
@@ -315,20 +339,20 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     // `Trait` yet.
 
     #[cfg(not(target_arch = "wasm32"))]
-    type GroupMessageStream<'a> = stream::BoxStream<'a, Result<GroupMessage, Error>>;
+    type GroupMessageStream<'a> = stream::BoxStream<'a, Result<GroupMessage, Self::Error>>;
     #[cfg(not(target_arch = "wasm32"))]
-    type WelcomeMessageStream<'a> = stream::BoxStream<'a, Result<WelcomeMessage, Error>>;
+    type WelcomeMessageStream<'a> = stream::BoxStream<'a, Result<WelcomeMessage, Self::Error>>;
 
     #[cfg(target_arch = "wasm32")]
-    type GroupMessageStream<'a> = stream::LocalBoxStream<'a, Result<GroupMessage, Error>>;
+    type GroupMessageStream<'a> = stream::LocalBoxStream<'a, Result<GroupMessage, Self::Error>>;
     #[cfg(target_arch = "wasm32")]
-    type WelcomeMessageStream<'a> = stream::LocalBoxStream<'a, Result<WelcomeMessage, Error>>;
+    type WelcomeMessageStream<'a> = stream::LocalBoxStream<'a, Result<WelcomeMessage, Self::Error>>;
 
     #[tracing::instrument(skip_all)]
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Error> {
+    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
@@ -341,7 +365,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Error> {
+    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
         tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
@@ -355,11 +379,12 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl XmtpIdentityClient for XmtpHttpApiClient {
-    type Error = Error;
+    type Error = ApiClientError<HttpClientError>;
+
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
-    ) -> Result<PublishIdentityUpdateResponse, Error> {
+    ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
@@ -367,18 +392,20 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::publish_identity_update)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::PublishIdentityUpdate, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("publish_identity_update");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::PublishIdentityUpdate))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::PublishIdentityUpdate, e))
     }
 
     async fn get_identity_updates_v2(
         &self,
         request: GetIdentityUpdatesV2Request,
-    ) -> Result<GetIdentityUpdatesV2Response, Error> {
+    ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
@@ -386,37 +413,41 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::get_identity_updates_v2)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::GetIdentityUpdatesV2, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("get_identity_updates_v2");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::GetIdentityUpdatesV2))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetIdentityUpdatesV2, e))
     }
 
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
-    ) -> Result<GetInboxIdsResponse, Error> {
+    ) -> Result<GetInboxIdsResponse, Self::Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
             .headers(protobuf_headers()?)
-            .body(request.encode_to_vec())
+            .body(request.encode_to_vec());
+        tracing::error!("{:?}", res);
+        let res = res
             .send()
             .await
-            .map_err(Error::get_inbox_ids)?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetInboxIds, HttpClientError::from(e)))?;
 
         tracing::debug!("get_inbox_ids");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::GetInboxIds))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetInboxIds, e))
     }
 
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<VerifySmartContractWalletSignaturesResponse, Error> {
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
@@ -424,16 +455,18 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .body(request.encode_to_vec())
             .send()
             .await
-            .map_err(Error::verify_scw_signature)?;
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::VerifyScwSignature, HttpClientError::from(e))
+            })?;
 
         tracing::debug!("verify_smart_contract_wallet_signatures");
         handle_error_proto(res)
             .await
-            .map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::VerifyScwSignature, e))
     }
 
-    fn identity_stats(&self) -> &IdentityStats {
-        &self.identity_stats
+    fn identity_stats(&self) -> IdentityStats {
+        self.identity_stats.clone()
     }
 }
 
@@ -447,6 +480,14 @@ pub mod tests {
     use crate::constants::ApiUrls;
 
     use super::*;
+
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(test)]
+    fn _setup() {
+        xmtp_common::logger();
+    }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
@@ -475,5 +516,30 @@ pub mod tests {
             .unwrap()
             .to_string()
             .contains("invalid identity"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_inbox_ids() {
+        use xmtp_proto::xmtp::identity::api::v1::{
+            get_inbox_ids_request::Request, GetInboxIdsRequest,
+        };
+        use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_host(ApiUrls::LOCAL_ADDRESS.to_string());
+        client.set_app_version("".into()).unwrap();
+        client
+            .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        let client = client.build().await.unwrap();
+        let result = client
+            .get_inbox_ids(GetInboxIdsRequest {
+                requests: vec![Request {
+                    identifier: "0xC2e3f813297E7b42a89e0b2FAa66f2034831984f".to_string(),
+                    identifier_kind: IdentifierKind::Ethereum as i32,
+                }],
+            })
+            .await;
+        assert!(result.is_ok());
     }
 }

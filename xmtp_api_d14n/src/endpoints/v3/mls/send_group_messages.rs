@@ -21,7 +21,7 @@ impl SendGroupMessages {
 impl Endpoint for SendGroupMessages {
     type Output = ();
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/mls/v1/send-group-messages")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -36,16 +36,11 @@ impl Endpoint for SendGroupMessages {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
     use crate::v3::SendGroupMessages;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::mls::api::v1::{
-        GroupMessageInput, SendGroupMessagesRequest, FILE_DESCRIPTOR_SET,
-    };
+    use xmtp_proto::prelude::*;
+    use xmtp_proto::xmtp::mls::api::v1::*;
 
     #[test]
     fn test_file_descriptor() {
@@ -53,20 +48,15 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
     #[tokio::test]
-    async fn test_get_identity_updates_v2() {
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+    async fn test_send_group_messages() {
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = SendGroupMessages::builder()
             .messages(vec![GroupMessageInput::default()])
             .build()
             .unwrap();
 
-        //todo: fix later with better data samples
         let result = endpoint.query(&client).await;
         assert!(result.is_err());
     }
