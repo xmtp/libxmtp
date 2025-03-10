@@ -7,7 +7,7 @@ import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.codecs.id
-import org.xmtp.android.library.messages.Topic
+import org.xmtp.android.library.Topic
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Content
 import uniffi.xmtpv3.FfiConversationMessageKind

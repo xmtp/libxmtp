@@ -15,7 +15,6 @@ import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.PermissionOption
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
-import org.xmtp.android.library.messages.Topic
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
@@ -28,6 +27,7 @@ import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiMetadataField
 import uniffi.xmtpv3.FfiPermissionUpdateType
 import uniffi.xmtpv3.FfiSubscribeException
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.GroupMembershipResult
 
 import java.util.Date
 
@@ -230,9 +230,10 @@ class Group(
         return metadata().creatorInboxId() == client.inboxId
     }
 
-    suspend fun addMembersByIdentity(identities: List<PublicIdentity>) {
+    suspend fun addMembersByIdentity(identities: List<PublicIdentity>): GroupMembershipResult {
         try {
-            libXMTPGroup.addMembers(identities.map { it.ffiPrivate })
+            val result = libXMTPGroup.addMembers(identities.map { it.ffiPrivate })
+            return GroupMembershipResult(result)
         } catch (e: Exception) {
             throw XMTPException("Unable to add member", e)
         }
@@ -246,10 +247,11 @@ class Group(
         }
     }
 
-    suspend fun addMembers(inboxIds: List<InboxId>) {
+    suspend fun addMembers(inboxIds: List<InboxId>): GroupMembershipResult {
         validateInboxIds(inboxIds)
         try {
-            libXMTPGroup.addMembersByInboxId(inboxIds)
+            val result = libXMTPGroup.addMembersByInboxId(inboxIds)
+            return GroupMembershipResult(result)
         } catch (e: Exception) {
             throw XMTPException("Unable to add member", e)
         }

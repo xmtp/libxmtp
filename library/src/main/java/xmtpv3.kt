@@ -1129,6 +1129,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1215,6 +1219,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disapp
 fun uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_list_members(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message(
 ): Short
@@ -1321,6 +1327,8 @@ fun uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update(
 fun uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature(
 ): Short
@@ -1514,6 +1522,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_is_super_admin(`ptr`: Pointer,`inbox
 ): Byte
 fun uniffi_xmtpv3_fn_method_fficonversation_list_members(`ptr`: Pointer,
 ): Long
+fun uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_process_streamed_conversation_message(`ptr`: Pointer,`envelopeBytes`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_publish_messages(`ptr`: Pointer,
@@ -1663,6 +1673,8 @@ fun uniffi_xmtpv3_fn_clone_ffisignaturerequest(`ptr`: Pointer,uniffi_out_err: Un
 fun uniffi_xmtpv3_fn_free_ffisignaturerequest(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 fun uniffi_xmtpv3_fn_method_ffisignaturerequest_add_ecdsa_signature(`ptr`: Pointer,`signatureBytes`: RustBuffer.ByValue,
+): Long
+fun uniffi_xmtpv3_fn_method_ffisignaturerequest_add_passkey_signature(`ptr`: Pointer,`signature`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffisignaturerequest_add_scw_signature(`ptr`: Pointer,`signatureBytes`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,`chainId`: Long,`blockNumber`: RustBuffer.ByValue,
 ): Long
@@ -2002,6 +2014,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 21260.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 61438.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 4359.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2159,6 +2174,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 8706.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 11222.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 52793.toShort()) {
@@ -3099,6 +3117,8 @@ public interface FfiConversationInterface {
     
     suspend fun `listMembers`(): List<FfiConversationMember>
     
+    fun `pausedForVersion`(): kotlin.String?
+    
     suspend fun `processStreamedConversationMessage`(`envelopeBytes`: kotlin.ByteArray): FfiMessage
     
     /**
@@ -3622,6 +3642,19 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
         GenericException.ErrorHandler,
     )
     }
+
+    
+    @Throws(GenericException::class)override fun `pausedForVersion`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_paused_for_version(
+        it, _status)
+}
+    }
+    )
+    }
+    
 
     
     @Throws(FfiSubscribeException::class)
@@ -6739,6 +6772,8 @@ public interface FfiSignatureRequestInterface {
     
     suspend fun `addEcdsaSignature`(`signatureBytes`: kotlin.ByteArray)
     
+    suspend fun `addPasskeySignature`(`signature`: FfiPasskeySignature)
+    
     suspend fun `addScwSignature`(`signatureBytes`: kotlin.ByteArray, `address`: kotlin.String, `chainId`: kotlin.ULong, `blockNumber`: kotlin.ULong?)
     
     suspend fun `isReady`(): kotlin.Boolean
@@ -6844,6 +6879,28 @@ open class FfiSignatureRequest: Disposable, AutoCloseable, FfiSignatureRequestIn
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffisignaturerequest_add_ecdsa_signature(
                 thisPtr,
                 FfiConverterByteArray.lower(`signatureBytes`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
+    
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `addPasskeySignature`(`signature`: FfiPasskeySignature) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffisignaturerequest_add_passkey_signature(
+                thisPtr,
+                FfiConverterTypeFfiPasskeySignature.lower(`signature`),
             )
         },
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
@@ -8679,8 +8736,7 @@ public object FfiConverterTypeFfiHmacKey: FfiConverterRustBuffer<FfiHmacKey> {
 
 data class FfiIdentifier (
     var `identifier`: kotlin.String, 
-    var `identifierKind`: FfiIdentifierKind, 
-    var `relyingPartner`: kotlin.String?
+    var `identifierKind`: FfiIdentifierKind
 ) {
     
     companion object
@@ -8694,20 +8750,17 @@ public object FfiConverterTypeFfiIdentifier: FfiConverterRustBuffer<FfiIdentifie
         return FfiIdentifier(
             FfiConverterString.read(buf),
             FfiConverterTypeFfiIdentifierKind.read(buf),
-            FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: FfiIdentifier) = (
             FfiConverterString.allocationSize(value.`identifier`) +
-            FfiConverterTypeFfiIdentifierKind.allocationSize(value.`identifierKind`) +
-            FfiConverterOptionalString.allocationSize(value.`relyingPartner`)
+            FfiConverterTypeFfiIdentifierKind.allocationSize(value.`identifierKind`)
     )
 
     override fun write(value: FfiIdentifier, buf: ByteBuffer) {
             FfiConverterString.write(value.`identifier`, buf)
             FfiConverterTypeFfiIdentifierKind.write(value.`identifierKind`, buf)
-            FfiConverterOptionalString.write(value.`relyingPartner`, buf)
     }
 }
 
@@ -9024,6 +9077,46 @@ public object FfiConverterTypeFfiMultiRemoteAttachment: FfiConverterRustBuffer<F
 
     override fun write(value: FfiMultiRemoteAttachment, buf: ByteBuffer) {
             FfiConverterSequenceTypeFfiRemoteAttachmentInfo.write(value.`attachments`, buf)
+    }
+}
+
+
+
+data class FfiPasskeySignature (
+    var `publicKey`: kotlin.ByteArray, 
+    var `signature`: kotlin.ByteArray, 
+    var `authenticatorData`: kotlin.ByteArray, 
+    var `clientDataJson`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiPasskeySignature: FfiConverterRustBuffer<FfiPasskeySignature> {
+    override fun read(buf: ByteBuffer): FfiPasskeySignature {
+        return FfiPasskeySignature(
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiPasskeySignature) = (
+            FfiConverterByteArray.allocationSize(value.`publicKey`) +
+            FfiConverterByteArray.allocationSize(value.`signature`) +
+            FfiConverterByteArray.allocationSize(value.`authenticatorData`) +
+            FfiConverterByteArray.allocationSize(value.`clientDataJson`)
+    )
+
+    override fun write(value: FfiPasskeySignature, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`publicKey`, buf)
+            FfiConverterByteArray.write(value.`signature`, buf)
+            FfiConverterByteArray.write(value.`authenticatorData`, buf)
+            FfiConverterByteArray.write(value.`clientDataJson`, buf)
     }
 }
 

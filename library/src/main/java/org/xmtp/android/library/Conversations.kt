@@ -11,7 +11,6 @@ import org.xmtp.android.library.libxmtp.GroupPermissionPreconfiguration
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.libxmtp.PublicIdentity
-import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.keystore.api.v1.Keystore
 import org.xmtp.android.library.libxmtp.PermissionPolicySet
 import uniffi.xmtpv3.FfiConversation
