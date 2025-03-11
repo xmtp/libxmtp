@@ -8,8 +8,6 @@ pub struct Identifier {
   pub identifier: String,
   #[wasm_bindgen(js_name = identifierKind)]
   pub identifier_kind: IdentifierKind,
-  #[wasm_bindgen(js_name = relyingParty)]
-  pub relying_party: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -18,12 +16,10 @@ impl Identifier {
   pub fn new(
     identifier: String,
     #[wasm_bindgen(js_name = identifierKind)] identifier_kind: IdentifierKind,
-    #[wasm_bindgen(js_name = relyingParty)] relying_party: Option<String>,
   ) -> Self {
     Self {
       identifier,
       identifier_kind,
-      relying_party,
     }
   }
 }
@@ -41,12 +37,10 @@ impl From<XmtpIdentifier> for Identifier {
       XmtpIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
         identifier: addr,
         identifier_kind: IdentifierKind::Ethereum,
-        relying_party: None,
       },
-      XmtpIdentifier::Passkey(ident::Passkey { key, relying_party }) => Self {
+      XmtpIdentifier::Passkey(ident::Passkey { key, .. }) => Self {
         identifier: hex::encode(key),
         identifier_kind: IdentifierKind::Passkey,
-        relying_party,
       },
     }
   }
@@ -57,7 +51,7 @@ impl TryFrom<Identifier> for XmtpIdentifier {
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
       IdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, ident.relying_party)?,
+      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
     };
     Ok(ident)
   }

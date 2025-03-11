@@ -8,7 +8,6 @@ use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 pub struct Identifier {
   pub identifier: String,
   pub identifier_kind: IdentifierKind,
-  pub relying_party: Option<String>,
 }
 
 #[napi]
@@ -25,12 +24,10 @@ impl From<XmtpIdentifier> for Identifier {
       XmtpIdentifier::Ethereum(ident::Ethereum(addr)) => Self {
         identifier: addr,
         identifier_kind: IdentifierKind::Ethereum,
-        relying_party: None,
       },
-      XmtpIdentifier::Passkey(ident::Passkey { key, relying_party }) => Self {
+      XmtpIdentifier::Passkey(ident::Passkey { key, .. }) => Self {
         identifier: hex::encode(key),
         identifier_kind: IdentifierKind::Passkey,
-        relying_party,
       },
     }
   }
@@ -41,7 +38,7 @@ impl TryFrom<Identifier> for XmtpIdentifier {
   fn try_from(ident: Identifier) -> Result<Self, Self::Error> {
     let ident = match ident.identifier_kind {
       IdentifierKind::Ethereum => Self::eth(ident.identifier)?,
-      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, ident.relying_party)?,
+      IdentifierKind::Passkey => Self::passkey_str(&ident.identifier, None)?,
     };
     Ok(ident)
   }
