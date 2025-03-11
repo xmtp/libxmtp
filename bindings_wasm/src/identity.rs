@@ -13,6 +13,22 @@ pub struct Identifier {
 }
 
 #[wasm_bindgen]
+impl Identifier {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    identifier: String,
+    #[wasm_bindgen(js_name = identifierKind)] identifier_kind: IdentifierKind,
+    #[wasm_bindgen(js_name = relyingParty)] relying_party: Option<String>,
+  ) -> Self {
+    Self {
+      identifier,
+      identifier_kind,
+      relying_party,
+    }
+  }
+}
+
+#[wasm_bindgen]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub enum IdentifierKind {
   Ethereum,
