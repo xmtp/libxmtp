@@ -51,7 +51,7 @@ pub struct SignatureRequestBuilder {
 }
 
 impl SignatureRequestBuilder {
-    /// Create a new IdentityUpdateBuilder for the given `inbox_id`
+    /// Create a new SignatureRequestBuilder for the given `inbox_id`
     pub fn new<S: AsRef<str>>(inbox_id: S) -> Self {
         Self {
             inbox_id: inbox_id.as_ref().to_string(),
