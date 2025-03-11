@@ -1,5 +1,11 @@
 # @xmtp/wasm-bindings
 
+## 1.0.0-rc2
+
+- Updated some WASM aliases to remove references to addresses
+- Added new camelCase aliases
+- Added `Identifier` class constructor
+
 ## 1.0.0-rc1
 
 - Added `pausedForVersion` to groups for client enforcement
