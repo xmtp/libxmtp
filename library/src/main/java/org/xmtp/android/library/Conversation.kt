@@ -192,6 +192,14 @@ sealed class Conversation {
         }
     }
 
+    // Returns null if conversation is not paused, otherwise the min version required to unpause this conversation
+    fun pausedForVersion(): String? {
+        return when (this) {
+            is Group -> group.pausedForVersion()
+            is Dm -> dm.pausedForVersion()
+        }
+    }
+
     val client: Client
         get() {
             return when (this) {

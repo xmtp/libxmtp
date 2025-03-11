@@ -1165,4 +1165,17 @@ class GroupTest {
         assert(boGroup.isDisappearingMessagesEnabled)
         assert(alixGroup.isDisappearingMessagesEnabled)
     }
+
+    @Test
+    fun testGroupPausedForVersionReturnsNone() = runBlocking {
+        val boGroup = boClient.conversations.newGroup(
+            listOf(alixClient.inboxId)
+        )
+        val pausedForVersionGroup = boGroup.pausedForVersion()
+        assertNull(pausedForVersionGroup)
+
+        val boDm = boClient.conversations.newConversation(alixClient.inboxId)
+        val pausedForVersionDm = boDm.pausedForVersion()
+        assertNull(pausedForVersionDm)
+    }
 }

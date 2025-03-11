@@ -429,6 +429,11 @@ class Group(
         return libXMTPGroup.superAdminList()
     }
 
+    // Returns null if group is not paused, otherwise the min version required to unpause this group
+    fun pausedForVersion(): String? {
+        return libXMTPGroup.pausedForVersion()
+    }
+
     fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {

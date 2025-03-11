@@ -264,4 +264,9 @@ class Dm(
     fun consentState(): ConsentState {
         return ConsentState.fromFfiConsentState(libXMTPGroup.consentState())
     }
+
+    // Returns null if dm is not paused, otherwise the min version required to unpause this dm
+    fun pausedForVersion(): String? {
+        return libXMTPGroup.pausedForVersion()
+    }
 }
