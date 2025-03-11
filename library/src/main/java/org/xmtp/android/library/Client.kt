@@ -47,6 +47,7 @@ class Client(
     val installationId: String,
     val inboxId: InboxId,
     val environment: XMTPEnvironment,
+    val publicIdentity: PublicIdentity
 ) {
     val preferences: PrivatePreferences =
         PrivatePreferences(client = this, ffiClient = libXMTPClient)
@@ -178,6 +179,7 @@ class Client(
                 ffiClient.installationId().toHex(),
                 ffiClient.inboxId(),
                 clientOptions.api.env,
+                publicIdentity
             )
         }
 
@@ -279,6 +281,7 @@ class Client(
                 ffiClient.installationId().toHex(),
                 ffiClient.inboxId(),
                 clientOptions.api.env,
+                publicIdentity
             )
         }
     }

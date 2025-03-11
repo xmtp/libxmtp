@@ -77,6 +77,7 @@ class ClientTest {
         }
         assert(client.installationId.isNotEmpty())
         assertEquals(inboxId, client.inboxId)
+        assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
     }
 
     @Test
