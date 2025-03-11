@@ -249,7 +249,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			metadataField: FfiMetadataField.description)
 	}
 
-	public func updateImageUrlSquarePermission(
+	public func updateImageUrlPermission(
 		newPermissionOption: PermissionOption
 	) async throws {
 		try await ffiGroup.updatePermissionPolicy(
