@@ -2,7 +2,7 @@
 
 ## 1.0.0-rc2
 
-- Removed an optional `relying_party` field in the `Identity` struct
+- Removed an optional `relying_party` field in the `Identifier` struct
 
 ## 1.0.0-rc1
 
