@@ -274,11 +274,16 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func clearDisappearingMessageSettings() async throws {
-		try await ffiGroup.removeConversationMessageDisappearingSettings()
-	}
-
-	public func updateConsentState(state: ConsentState) async throws {
+    public func clearDisappearingMessageSettings() async throws {
+        try await ffiGroup.removeConversationMessageDisappearingSettings()
+    }
+    
+    // Returns null if group is not paused, otherwise the min version required to unpause this group
+    public func pausedForVersion() throws -> String? {
+        return try ffiGroup.pausedForVersion()
+    }
+    
+    public func updateConsentState(state: ConsentState) async throws {
 		try ffiGroup.updateConsentState(state: state.toFFI)
 	}
 

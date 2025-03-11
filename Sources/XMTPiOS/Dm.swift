@@ -101,6 +101,11 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	public func clearDisappearingMessageSettings() async throws {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
+    
+    // Returns null if dm is not paused, otherwise the min version required to unpause this dm
+    public func pausedForVersion() throws -> String? {
+        return try ffiConversation.pausedForVersion()
+    }
 
 	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
 		let message =

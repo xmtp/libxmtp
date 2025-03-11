@@ -1215,4 +1215,21 @@ class GroupTests: XCTestCase {
 		XCTAssert(try boGroup.isDisappearingMessagesEnabled())
 		XCTAssert(try alixGroup!.isDisappearingMessagesEnabled())
 	}
+    
+    func testGroupPausedForVersionReturnsNone() async throws {
+        let fixtures = try await fixtures()
+        
+        // Create group with disappearing messages enabled
+        let boGroup = try await fixtures.boClient.conversations.newGroup(
+            with: [fixtures.alixClient.inboxID]
+        )
+        
+        let pausedForVersionGroup = try boGroup.pausedForVersion()
+        XCTAssert(pausedForVersionGroup == nil)
+        
+        let boDm = try await fixtures.boClient.conversations.newConversation(with: fixtures.alixClient.inboxID)
+        let pausedForVersionDm = try boDm.pausedForVersion()
+        XCTAssert(pausedForVersionDm == nil)
+    }
+    
 }
