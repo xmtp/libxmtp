@@ -3324,7 +3324,8 @@ mod tests {
             // should be good
             .unwrap();
 
-        // TODO: uncomment this when xmtp-node-go is updated to recognize Passkey MemberIdentifiers
+        // TODO: I'll uncomment this as soon as PR 1733 goes live.
+        // Tested locally with this uncommented and it works.
         // alex.apply_signature_request(sig_request).await.unwrap();
     }
 
