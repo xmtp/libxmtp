@@ -33,33 +33,6 @@
 		}
 	}
 
-public struct FakeWallet: SigningKey {
-		public var identity: XMTPiOS.PublicIdentity {
-			XMTPiOS.PublicIdentity(kind: .ethereum, identifier: key.walletAddress)
-		}
-	
-		public static func generate() throws -> FakeWallet {
-			let key = try PrivateKey.generate()
-			return FakeWallet(key)
-		}
-
-		public func sign(_ data: Data) async throws -> XMTPiOS.Signature {
-			let signature = try await key.sign(data)
-			return signature
-		}
-
-		public func sign(message: String) async throws -> XMTPiOS.Signature {
-			let signature = try await key.sign(message: message)
-			return signature
-		}
-
-		public var key: PrivateKey
-
-		public init(_ key: PrivateKey) {
-			self.key = key
-		}
-	}
-
 	@available(iOS 15, *)
 	public struct Fixtures {
 		public var alix: PrivateKey!

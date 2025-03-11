@@ -586,7 +586,7 @@ class ClientTests: XCTestCase {
 			identity: alix.identity, clientOptions: options)
 		let sigRequest = client.ffiSignatureRequest()
 		try await sigRequest!.addEcdsaSignature(
-			signatureBytes: try alix.sign(message: sigRequest!.signatureText())
+			signatureBytes: try alix.sign(sigRequest!.signatureText())
 				.rawData)
 		try await client.ffiRegisterIdentity(signatureRequest: sigRequest!)
 		let state = try await client.inboxState(refreshFromNetwork: true)
@@ -616,9 +616,8 @@ class ClientTests: XCTestCase {
 
 		let sigRequest = try await alix.ffiAddIdentity(
 			identityToAdd: boWallet.identity)
-		let signedMessage = try await boWallet.sign(
-			message: sigRequest.signatureText()
-		).rawData
+		let signedMessage = try await boWallet.sign(sigRequest.signatureText())
+			.rawData
 
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
 		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest)
@@ -629,7 +628,7 @@ class ClientTests: XCTestCase {
 		let sigRequest2 = try await alix.ffiRevokeIdentity(
 			identityToRemove: boWallet.identity)
 		let signedMessage2 = try await alixWallet.sign(
-			message: sigRequest2.signatureText()
+			sigRequest2.signatureText()
 		).rawData
 
 		try await sigRequest2.addEcdsaSignature(signatureBytes: signedMessage2)
@@ -691,7 +690,7 @@ class ClientTests: XCTestCase {
 			alix2.installationID.hexToData
 		])
 		let signedMessage = try await alixWallet.sign(
-			message: sigRequest.signatureText()
+			sigRequest.signatureText()
 		).rawData
 
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
@@ -702,7 +701,7 @@ class ClientTests: XCTestCase {
 
 		let sigRequest2 = try await alix.ffiRevokeAllOtherInstallations()
 		let signedMessage2 = try await alixWallet.sign(
-			message: sigRequest2.signatureText()
+			sigRequest2.signatureText()
 		).rawData
 
 		try await sigRequest2.addEcdsaSignature(signatureBytes: signedMessage2)

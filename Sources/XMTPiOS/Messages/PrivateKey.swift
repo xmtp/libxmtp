@@ -4,6 +4,7 @@ import LibXMTP
 /// Represents a secp256k1 private key.  ``PrivateKey`` conforms to ``SigningKey`` so you can use it
 /// to create a ``Client``.
 public typealias PrivateKey = Xmtp_MessageContents_PrivateKey
+typealias PublicKey = Xmtp_MessageContents_PublicKey
 
 enum PrivateKeyError: Error, CustomStringConvertible {
 	case invalidSignatureText, invalidPrefix, invalidSignature
@@ -25,29 +26,34 @@ extension PrivateKey: SigningKey {
 		return PublicIdentity(kind: .ethereum, identifier: walletAddress)
 	}
 
-	public func sign(_ data: Data) async throws -> Signature {
-		let signatureData = try KeyUtilx.sign(
-			message: data, with: secp256K1.bytes, hashing: false)
-		var signature = Signature()
+	public func sign(_ message: String) async throws -> SignedData {
+		let digest = try KeyUtilx.ethHash(message)
+		let signatureData = try KeyUtilx.sign(message: digest, with: secp256K1.bytes, hashing: false)
 
-		signature.ecdsaCompact.bytes = signatureData[0..<64]
-		signature.ecdsaCompact.recovery = UInt32(signatureData[64])
+		guard signatureData.count == 65 else {
+			throw PrivateKeyError.invalidSignature
+		}
 
-		return signature
-	}
-
-	public func sign(message: String) async throws -> Signature {
-		let digest = try Signature.ethHash(message)
-
-		return try await sign(digest)
+		return SignedData(
+			rawData: signatureData,
+			publicKey: publicKey.secp256K1Uncompressed.bytes,
+			authenticatorData: nil,
+			clientDataJson: nil
+		)
 	}
 }
 
 extension PrivateKey {
-	// Easier conversion from the secp256k1 library's Private keys to our proto type.
+	/// **Generate a new private key like in Kotlin**
+	public static func generate() throws -> PrivateKey {
+		let privateKeyData = Data(try Crypto.secureRandomBytes(count: 32))
+		return try PrivateKey(privateKeyData)
+	}
+
+	/// **Initialize from raw private key data**
 	public init(_ privateKeyData: Data) throws {
 		self.init()
-		timestamp = UInt64(Date().millisecondsSinceEpoch)
+		timestamp = UInt64(Date().timeIntervalSince1970 * 1000) // Match Kotlin's timestamp
 		secp256K1.bytes = privateKeyData
 
 		let publicData = try KeyUtilx.generatePublicKey(from: privateKeyData)
@@ -55,12 +61,15 @@ extension PrivateKey {
 		publicKey.timestamp = timestamp
 	}
 
-	public static func generate() throws -> PrivateKey {
-		let data = Data(try Crypto.secureRandomBytes(count: 32))
-		return try PrivateKey(data)
-	}
-
+	/// **Compute Ethereum wallet address from public key (matching Kotlin)**
 	internal var walletAddress: String {
-		publicKey.walletAddress
+		return publicKey.walletAddress
+	}
+}
+
+/// **Compute wallet address from PublicKey like in Kotlin**
+extension PublicKey {
+	var walletAddress: String {
+		KeyUtilx.generateAddress(from: secp256K1Uncompressed.bytes).lowercased()
 	}
 }

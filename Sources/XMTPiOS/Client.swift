@@ -281,27 +281,25 @@ public final class Client {
 	}
 
 	private static func handleSignature(
-		for signatureRequest: FfiSignatureRequest,
-		signingKey: SigningKey
+		for signatureRequest: FfiSignatureRequest, signingKey: SigningKey
 	) async throws {
-		if signingKey.type == .SCW {
+		let signedData = try await signingKey.sign(
+			signatureRequest.signatureText())
+
+		switch signingKey.type {
+		case .SCW:
 			guard let chainId = signingKey.chainId else {
 				throw ClientError.creationError(
 					"Chain id must be present to sign Smart Contract Wallet")
 			}
-			let signedData = try await signingKey.signSCW(
-				message: signatureRequest.signatureText())
 			try await signatureRequest.addScwSignature(
-				signatureBytes: signedData,
+				signatureBytes: signedData.rawData,
 				address: signingKey.identity.identifier,
 				chainId: UInt64(chainId),
-				blockNumber: signingKey.blockNumber.flatMap {
-					$0 >= 0 ? UInt64($0) : nil
-				}
+				blockNumber: signingKey.blockNumber.map { UInt64($0) }
 			)
-		} else {
-			let signedData = try await signingKey.sign(
-				message: signatureRequest.signatureText())
+
+		case .EOA:
 			try await signatureRequest.addEcdsaSignature(
 				signatureBytes: signedData.rawData)
 		}
@@ -410,8 +408,8 @@ public final class Client {
 		if allowReassignInboxId || (inboxId?.isEmpty ?? true) {
 			let signatureRequest = try await ffiAddIdentity(
 				identityToAdd: newAccount.identity,
-                allowReassignInboxId: allowReassignInboxId
-            )
+				allowReassignInboxId: allowReassignInboxId
+			)
 			do {
 				try await Client.handleSignature(
 					for: signatureRequest.ffiSignatureRequest,
@@ -639,9 +637,9 @@ public final class Client {
 			otherwise use `addIdentity()` instead.
 			"""
 	)
-    public func ffiAddIdentity(
-        identityToAdd: PublicIdentity, allowReassignInboxId: Bool = false
-    ) async throws
+	public func ffiAddIdentity(
+		identityToAdd: PublicIdentity, allowReassignInboxId: Bool = false
+	) async throws
 		-> SignatureRequest
 	{
 		let inboxId: InboxId? =

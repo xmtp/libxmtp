@@ -13,6 +13,14 @@ enum KeyUtilError: Error {
 	case parseError
 }
 
+enum SignatureError: Error, CustomStringConvertible {
+	case invalidMessage
+
+	var description: String {
+		return "SignatureError.invalidMessage"
+	}
+}
+
 enum KeyUtilx {
 	static func generatePublicKey(from data: Data) throws -> Data {
 		guard data.count == 32 else { throw KeyUtilError.privateKeyInvalid }
@@ -125,5 +133,27 @@ enum KeyUtilx {
 		let hash = publicKeyData.sha3(.keccak256)
 		let address = hash.subdata(in: 12..<hash.count)
 		return "0x" + address.toHex
+	}
+	
+	static func ethPersonalMessage(_ message: String) throws -> Data {
+		let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
+
+		guard var data = prefix.data(using: .ascii) else {
+			throw PrivateKeyError.invalidPrefix
+		}
+
+		guard let messageData = message.data(using: .utf8) else {
+			throw SignatureError.invalidMessage
+		}
+
+		data.append(messageData)
+
+		return data
+	}
+	
+	static func ethHash(_ message: String) throws -> Data {
+		let data = try ethPersonalMessage(message)
+
+		return data.sha3(.keccak256)
 	}
 }

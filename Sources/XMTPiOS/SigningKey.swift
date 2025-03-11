@@ -5,59 +5,27 @@ public enum SignerType {
 	case EOA, SCW
 }
 
-/// Defines a type that is used by a ``Client`` to sign keys and messages.
-///
-/// You can use ``Account`` for an easier WalletConnect flow, or ``PrivateKey``
-/// for quick key generation.
-///
-/// > Tip: You can make your own object that conforms to ``SigningKey`` if you want to
-/// handle key management yourself.
+/// A standardized signing interface for XMTP clients supporting EOA, SCW, and Passkeys.
 public protocol SigningKey {
-	/// A wallet address for this key
+	/// The identity associated with the signing key (e.g., Ethereum address or Passkey identifier).
 	var identity: PublicIdentity { get }
 	
-	/// The wallet type if Smart Contract Wallet this should be type SCW. Default EOA
+	/// The signer type (default: EOA).
 	var type: SignerType { get }
 	
-	/// The name of the chainId for example "1"
+	/// The blockchain chain ID (used for SCW, nil for others).
 	var chainId: Int64? { get }
 	
-	/// The blockNumber of the chain for example "1"
+	/// The block number for verification (optional).
 	var blockNumber: Int64? { get }
 
-	/// Sign the data and return a secp256k1 compact recoverable signature.
-	func sign(_ data: Data) async throws -> Signature
-
-	/// Pass a personal Ethereum signed message string text to be signed, returning
-	/// a secp256k1 compact recoverable signature. You can use ``Signature.ethPersonalMessage`` to generate this text.
-	func sign(message: String) async throws -> Signature
-	
-	/// Pass a personal Ethereum signed message string text to be signed, return bytes to be verified
-	func signSCW(message: String) async throws -> Data
+	/// Sign a message and return a `SignedData` structure containing the signature and metadata.
+	func sign(_ message: String) async throws -> SignedData
 }
 
+/// Default implementations for properties
 extension SigningKey {
-	public var type: SignerType {
-		return SignerType.EOA
-	}
-	
-	public var chainId: Int64? {
-		return nil
-	}
-	
-	public var blockNumber: Int64? {
-		return nil
-	}
-	
-	public func sign(_ data: Data) async throws -> Signature {
-		throw NSError(domain: "NotImplemented", code: 1, userInfo: [NSLocalizedDescriptionKey: "sign(Data) not implemented."])
-	}
-
-	public func sign(message: String) async throws -> Signature {
-		throw NSError(domain: "NotImplemented", code: 1, userInfo: [NSLocalizedDescriptionKey: "sign(String) not implemented."])
-	}
-
-	public func signSCW(message: String) async throws -> Data {
-		throw NSError(domain: "NotImplemented", code: 1, userInfo: [NSLocalizedDescriptionKey: "signSCW(String) not implemented."])
-	}
+	public var type: SignerType { .EOA }
+	public var chainId: Int64? { nil }
+	public var blockNumber: Int64? { nil }
 }
