@@ -1,8 +1,7 @@
 # WASM bindings for the libXMTP rust library
 
-> [!CAUTION]
-> These bindings are currently in alpha and under heavy development. The API is
-> subject to change and it is not yet recommended for production use.
+> [!INFO]
+> These bindings are not intended to be used directly, use the associated SDK instead.
 
 ## Useful commands
 

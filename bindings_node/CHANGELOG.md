@@ -1,5 +1,11 @@
 # @xmtp/node-bindings
 
+## 1.0.0-rc1
+
+- Added `pausedForVersion` to groups for client enforcement
+- Removed addresses from all major functions and replaced with new `Identifier`
+- Added `addPasskeySignature` as a new signing type
+
 ## 0.0.41
 
 - Fix `should_push` field on messages for push notifications
