@@ -6,7 +6,9 @@ use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Identifier {
   pub identifier: String,
+  #[wasm_bindgen(js_name = identifierKind)]
   pub identifier_kind: IdentifierKind,
+  #[wasm_bindgen(js_name = relyingParty)]
   pub relying_party: Option<String>,
 }
 

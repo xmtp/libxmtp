@@ -184,7 +184,7 @@ pub async fn create_client(
 
 #[wasm_bindgen]
 impl Client {
-  #[wasm_bindgen(getter, js_name = accountAddress)]
+  #[wasm_bindgen(getter, js_name = accountIdentifier)]
   pub fn account_identifier(&self) -> Identifier {
     self.account_identifier.clone()
   }
@@ -286,7 +286,7 @@ impl Client {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = findInboxIdByAddress)]
+  #[wasm_bindgen(js_name = findInboxIdByIdentifier)]
   pub async fn find_inbox_id_by_identifier(
     &self,
     identifier: Identifier,
