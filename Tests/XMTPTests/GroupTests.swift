@@ -1228,7 +1228,7 @@ class GroupTests: XCTestCase {
         XCTAssert(pausedForVersionGroup == nil)
         
         let boDm = try await fixtures.boClient.conversations.newConversation(with: fixtures.alixClient.inboxID)
-        let pausedForVersionDm = try boDm.pausedForVersion()
+        let pausedForVersionDm = try await boDm.pausedForVersion()
         XCTAssert(pausedForVersionDm == nil)
     }
     
