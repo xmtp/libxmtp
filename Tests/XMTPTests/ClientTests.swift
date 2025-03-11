@@ -319,6 +319,7 @@ class ClientTests: XCTestCase {
 			options: options
 		)
 
+		XCTAssertEqual(alixClient2.publicIdentity.identifier, alixClient.publicIdentity.identifier)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
 	}
 

@@ -103,6 +103,7 @@ public final class Client {
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
 	public let installationID: String
+	public let publicIdentity: PublicIdentity
 	public let environment: XMTPEnvironment
 	private let ffiClient: LibXMTP.FfiXmtpClient
 	private static let apiCache = ApiClientCache()
@@ -137,7 +138,8 @@ public final class Client {
 			dbPath: dbPath,
 			installationID: libxmtpClient.installationId().toHex,
 			inboxID: libxmtpClient.inboxId(),
-			environment: options.api.env
+			environment: options.api.env,
+			publicIdentity: publicIdentity
 		)
 
 		try await options.preAuthenticateToInboxCallback?()
@@ -233,7 +235,8 @@ public final class Client {
 			dbPath: dbPath,
 			installationID: ffiClient.installationId().toHex,
 			inboxID: ffiClient.inboxId(),
-			environment: clientOptions.api.env
+			environment: clientOptions.api.env,
+			publicIdentity: identity
 		)
 	}
 
@@ -382,13 +385,15 @@ public final class Client {
 
 	init(
 		ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
-		installationID: String, inboxID: InboxId, environment: XMTPEnvironment
+		installationID: String, inboxID: InboxId, environment: XMTPEnvironment,
+		publicIdentity: PublicIdentity
 	) throws {
 		self.ffiClient = ffiClient
 		self.dbPath = dbPath
 		self.installationID = installationID
 		self.inboxID = inboxID
 		self.environment = environment
+		self.publicIdentity = publicIdentity
 	}
 
 	@available(
