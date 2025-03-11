@@ -57,7 +57,7 @@ pub struct GroupMember {
   #[wasm_bindgen(js_name = inboxId)]
   #[serde(rename = "inboxId")]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = accountAddresses)]
+  #[wasm_bindgen(js_name = accountIdentifiers)]
   #[serde(rename = "accountIdentifiers")]
   pub account_identifiers: Vec<Identifier>,
   #[wasm_bindgen(js_name = installationIds)]
@@ -75,11 +75,11 @@ pub struct GroupMember {
 impl GroupMember {
   #[wasm_bindgen(constructor)]
   pub fn new(
-    inbox_id: String,
-    account_identifiers: Vec<Identifier>,
-    installation_ids: Vec<String>,
-    permission_level: PermissionLevel,
-    consent_state: ConsentState,
+    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
+    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
+    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<String>,
+    #[wasm_bindgen(js_name = permissionLevel)] permission_level: PermissionLevel,
+    #[wasm_bindgen(js_name = consentState)] consent_state: ConsentState,
   ) -> Self {
     Self {
       inbox_id,

@@ -31,7 +31,7 @@ pub struct InboxState {
   #[wasm_bindgen(js_name = recoveryIdentifier)]
   pub recovery_identifier: Identifier,
   pub installations: Vec<Installation>,
-  #[wasm_bindgen(js_name = accountAddresses)]
+  #[wasm_bindgen(js_name = accountIdentifiers)]
   pub account_identifiers: Vec<Identifier>,
 }
 
