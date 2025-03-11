@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.0.0-rc2
+
+- Removed an optional `relying_party` field in the `Identity` struct
+
 ## 1.0.0-rc1
 
 - Added `pausedForVersion` to groups for client enforcement

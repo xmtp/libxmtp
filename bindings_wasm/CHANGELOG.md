@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 1.0.0-rc3
+
+- Removed an optional `relying_party` field in the `Identity` struct
+
 ## 1.0.0-rc2
 
 - Updated some WASM aliases to remove references to addresses
