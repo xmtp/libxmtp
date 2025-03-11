@@ -317,7 +317,9 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID])
 
-		try await group.addMembers(inboxIds: [fixtures.caroClient.inboxID])
+		let result = try await group.addMembers(inboxIds: [fixtures.caroClient.inboxID])
+
+		XCTAssertEqual(result.addedMembers.first, fixtures.caroClient.inboxID)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -381,10 +383,12 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID])
 
-		try await group.addMembersByIdentity(identities: [
+		let result = try await group.addMembersByIdentity(identities: [
 			PublicIdentity(
 				kind: .ethereum, identifier: fixtures.caro.walletAddress)
 		])
+		
+		XCTAssertEqual(result.addedMembers.first, fixtures.caroClient.inboxID)
 
 		try await group.sync()
 		let members = try await group.members.map(\.inboxId).sorted()
@@ -764,7 +768,7 @@ class GroupTests: XCTestCase {
 
 		let alixGroup = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID])
-		try await alixGroup.updateGroupName(groupName: "hello")
+		try await alixGroup.updateName(name: "hello")
 		_ = try await alixGroup.send(content: "hello1")
 
 		try await fixtures.boClient.conversations.sync()
@@ -841,19 +845,19 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [fixtures.boClient.inboxID], name: "Start Name",
-			imageUrlSquare: "starturl.com")
+			imageUrl: "starturl.com")
 
-		var groupName = try group.groupName()
-		var groupImageUrlSquare = try group.groupImageUrlSquare()
+		var groupName = try group.name()
+		var groupImageUrlSquare = try group.imageUrl()
 
 		XCTAssertEqual(groupName, "Start Name")
 		XCTAssertEqual(groupImageUrlSquare, "starturl.com")
 
-		try await group.updateGroupName(groupName: "Test Group Name 1")
-		try await group.updateGroupImageUrlSquare(imageUrlSquare: "newurl.com")
+		try await group.updateName(name: "Test Group Name 1")
+		try await group.updateImageUrl(imageUrl: "newurl.com")
 
-		groupName = try group.groupName()
-		groupImageUrlSquare = try group.groupImageUrlSquare()
+		groupName = try group.name()
+		groupImageUrlSquare = try group.imageUrl()
 
 		XCTAssertEqual(groupName, "Test Group Name 1")
 		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
@@ -861,12 +865,12 @@ class GroupTests: XCTestCase {
 		try await fixtures.boClient.conversations.sync()
 		let boGroup = try await fixtures.boClient.conversations.findGroup(
 			groupId: group.id)!
-		groupName = try boGroup.groupName()
+		groupName = try boGroup.name()
 		XCTAssertEqual(groupName, "Start Name")
 
 		try await boGroup.sync()
-		groupName = try boGroup.groupName()
-		groupImageUrlSquare = try boGroup.groupImageUrlSquare()
+		groupName = try boGroup.name()
+		groupImageUrlSquare = try boGroup.imageUrl()
 
 		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
 		XCTAssertEqual(groupName, "Test Group Name 1")

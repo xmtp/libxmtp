@@ -102,11 +102,11 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		try await ffiConversation.removeConversationMessageDisappearingSettings()
 	}
 
-	public func processMessage(messageBytes: Data) async throws -> Message? {
+	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
 		let message =
 			try await ffiConversation.processStreamedConversationMessage(
 				envelopeBytes: messageBytes)
-		return Message.create(ffiMessage: message)
+		return DecodedMessage.create(ffiMessage: message)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws
@@ -187,7 +187,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		self.streamHolder.stream?.end()
 	}
 
-	public func streamMessages() -> AsyncThrowingStream<Message, Error> {
+	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiConversation.stream(
@@ -197,7 +197,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 							continuation.finish()
 							return
 						}
-						if let message = Message.create(ffiMessage: message) {
+						if let message = DecodedMessage.create(ffiMessage: message) {
 							continuation.yield(message)
 						}
 					}
@@ -215,9 +215,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func lastMessage() async throws -> Message? {
+	public func lastMessage() async throws -> DecodedMessage? {
 		if let ffiMessage = ffiLastMessage {
-			return Message.create(ffiMessage: ffiMessage)
+			return DecodedMessage.create(ffiMessage: ffiMessage)
 		} else {
 			return try await messages(limit: 1).first
 		}
@@ -229,7 +229,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all
-	) async throws -> [Message] {
+	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
 			sentAfterNs: nil,
@@ -280,7 +280,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		return try await ffiConversation.findMessages(opts: options).compactMap
 		{
 			ffiMessage in
-			return Message.create(ffiMessage: ffiMessage)
+			return DecodedMessage.create(ffiMessage: ffiMessage)
 		}
 	}
 
@@ -290,7 +290,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		limit: Int? = nil,
 		direction: SortDirection? = .descending,
 		deliveryStatus: MessageDeliveryStatus = .all
-	) async throws -> [Message] {
+	) async throws -> [DecodedMessage] {
 		var options = FfiListMessagesOptions(
 			sentBeforeNs: nil,
 			sentAfterNs: nil,
@@ -342,7 +342,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			opts: options
 		).compactMap {
 			ffiMessageWithReactions in
-			return Message.create(ffiMessage: ffiMessageWithReactions)
+			return DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
 		}
 	}
 }

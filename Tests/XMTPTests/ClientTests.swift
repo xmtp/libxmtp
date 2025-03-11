@@ -597,4 +597,118 @@ class ClientTests: XCTestCase {
 		XCTAssertTrue(canMessage == true)
 		XCTAssertEqual(inboxId, client.inboxID)
 	}
+
+	func testCanManageAddRemoveManually() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alixWallet = try PrivateKey.generate()
+		let boWallet = try PrivateKey.generate()
+
+		let options = ClientOptions(
+			api: .init(env: .local, isSecure: false),
+			dbEncryptionKey: key
+		)
+
+		let alix = try await Client.create(
+			account: alixWallet, options: options)
+
+		var inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.identities.count, 1)
+
+		let sigRequest = try await alix.ffiAddIdentity(
+			identityToAdd: boWallet.identity)
+		let signedMessage = try await boWallet.sign(
+			message: sigRequest.signatureText()
+		).rawData
+
+		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
+		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest)
+
+		inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.identities.count, 2)
+
+		let sigRequest2 = try await alix.ffiRevokeIdentity(
+			identityToRemove: boWallet.identity)
+		let signedMessage2 = try await alixWallet.sign(
+			message: sigRequest2.signatureText()
+		).rawData
+
+		try await sigRequest2.addEcdsaSignature(signatureBytes: signedMessage2)
+		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest2)
+
+		inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.identities.count, 1)
+	}
+
+	func testCanManageRevokeManually() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alixWallet = try PrivateKey.generate()
+
+		let dbDirPath = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db").path
+		let dbDirPath2 = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db2").path
+		let dbDirPath3 = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db3").path
+
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath, withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath2, withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath3, withIntermediateDirectories: true)
+
+		let alix = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath
+			)
+		)
+
+		let alix2 = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath2
+			)
+		)
+
+		let alix3 = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath3
+			)
+		)
+
+		var inboxState = try await alix3.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.installations.count, 3)
+
+		let sigRequest = try await alix.ffiRevokeInstallations(ids: [
+			alix2.installationID.hexToData
+		])
+		let signedMessage = try await alixWallet.sign(
+			message: sigRequest.signatureText()
+		).rawData
+
+		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
+		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest)
+
+		inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.installations.count, 2)
+
+		let sigRequest2 = try await alix.ffiRevokeAllOtherInstallations()
+		let signedMessage2 = try await alixWallet.sign(
+			message: sigRequest2.signatureText()
+		).rawData
+
+		try await sigRequest2.addEcdsaSignature(signatureBytes: signedMessage2)
+		try await alix.ffiApplySignatureRequest(signatureRequest: sigRequest2)
+
+		inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.installations.count, 1)
+	}
 }

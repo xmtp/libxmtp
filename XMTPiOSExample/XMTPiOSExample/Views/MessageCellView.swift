@@ -58,7 +58,7 @@ struct MessageTextView: View {
 			return try message.content()
 		} catch {
 			do {
-				return try message.fallbackContent
+				return try message.fallback
 			} catch {
 				return "Failed to retrieve content"
 			}
@@ -126,7 +126,7 @@ struct MessageCellView: View {
 			case ContentTypeGroupUpdated:
 				return AnyView(MessageGroupMembershipChangedView(message: message))
 			default:
-				return AnyView(Text(try message.fallbackContent))
+				return AnyView(Text(try message.fallback))
 			}
 		} catch {
 			return AnyView(Text("Failed to load content"))

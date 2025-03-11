@@ -1,7 +1,7 @@
 import Foundation
 import LibXMTP
 
-enum MessageError: Error {
+enum DecodedMessageError: Error {
 	case decodeError(String)
 }
 
@@ -17,16 +17,16 @@ public enum SortDirection {
 	case descending
 }
 
-public struct Message: Identifiable {
+public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
-    public let childMessages: [Message]?
+	public let childMessages: [DecodedMessage]?
 
 	public var id: String {
 		ffiMessage.id.toHex
 	}
 
-	public var convoId: String {
+	public var conversationId: String {
 		ffiMessage.conversationId.toHex
 	}
 
@@ -56,19 +56,19 @@ public struct Message: Identifiable {
 	}
 
 	public var topic: String {
-		Topic.groupMessage(convoId).description
+		Topic.groupMessage(conversationId).description
 	}
 
 	public func content<T>() throws -> T {
 		guard let result = decodedContent as? T else {
-			throw MessageError.decodeError(
+			throw DecodedMessageError.decodeError(
 				"Decoded content could not be cast to the expected type \(T.self)."
 			)
 		}
 		return result
 	}
 
-	public var fallbackContent: String {
+	public var fallback: String {
 		get throws {
 			try encodedContent.fallback
 		}
@@ -79,7 +79,7 @@ public struct Message: Identifiable {
 			do {
 				return try content() as String
 			} catch {
-				return try fallbackContent
+				return try fallback
 			}
 		}
 	}
@@ -91,7 +91,7 @@ public struct Message: Identifiable {
 	}
 
 	public static func create(ffiMessage: FfiMessage)
-		-> Message?
+		-> DecodedMessage?
 	{
 		do {
 			let encodedContent = try EncodedContent(
@@ -99,47 +99,51 @@ public struct Message: Identifiable {
 			if encodedContent.type == ContentTypeGroupUpdated
 				&& ffiMessage.kind != .membershipChange
 			{
-				throw MessageError.decodeError(
+				throw DecodedMessageError.decodeError(
 					"Error decoding group membership change")
 			}
 			// Decode the content once during creation
 			let decodedContent: Any = try encodedContent.decoded()
-			return Message(
-                ffiMessage: ffiMessage, decodedContent: decodedContent, childMessages: nil)
+			return DecodedMessage(
+				ffiMessage: ffiMessage, decodedContent: decodedContent,
+				childMessages: nil)
 		} catch {
 			print("Error creating Message: \(error)")
 			return nil
 		}
 	}
-    
-    public static func create(ffiMessage: FfiMessageWithReactions)
-        -> Message?
-    {
-        do {
-            let encodedContent = try EncodedContent(
-                serializedBytes: ffiMessage.message.content)
-            if encodedContent.type == ContentTypeGroupUpdated
-                && ffiMessage.message.kind != .membershipChange
-            {
-                throw MessageError.decodeError(
-                    "Error decoding group membership change")
-            }
-            // Decode the content once during creation
-            let decodedContent: Any = try encodedContent.decoded()
+
+	public static func create(ffiMessage: FfiMessageWithReactions)
+		-> DecodedMessage?
+	{
+		do {
+			let encodedContent = try EncodedContent(
+				serializedBytes: ffiMessage.message.content)
+			if encodedContent.type == ContentTypeGroupUpdated
+				&& ffiMessage.message.kind != .membershipChange
+			{
+				throw DecodedMessageError.decodeError(
+					"Error decoding group membership change")
+			}
+			// Decode the content once during creation
+			let decodedContent: Any = try encodedContent.decoded()
 
 			let childMessages = try ffiMessage.reactions.map { reaction in
-                let encodedContent = try EncodedContent(
-                    serializedBytes: reaction.content)
-                // Decode the content once during creation
-                let decodedContent: Any = try encodedContent.decoded()
-                return Message(ffiMessage: reaction, decodedContent: decodedContent, childMessages: nil)
+				let encodedContent = try EncodedContent(
+					serializedBytes: reaction.content)
+				// Decode the content once during creation
+				let decodedContent: Any = try encodedContent.decoded()
+				return DecodedMessage(
+					ffiMessage: reaction, decodedContent: decodedContent,
+					childMessages: nil)
 			}
 
-            return Message(
-                ffiMessage: ffiMessage.message, decodedContent: decodedContent, childMessages: childMessages)
-        } catch {
-            print("Error creating Message: \(error)")
-            return nil
-        }
-    }
+			return DecodedMessage(
+				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
+				childMessages: childMessages)
+		} catch {
+			print("Error creating Message: \(error)")
+			return nil
+		}
+	}
 }

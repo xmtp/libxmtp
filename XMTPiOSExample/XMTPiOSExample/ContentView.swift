@@ -84,7 +84,7 @@ struct ContentView: View {
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(
-						api: .init(env: .dev, isSecure: true, appVersion: "XMTPTest/v1.0.0"),
+						api: .init(env: .dev, isSecure: true),
 						codecs: [GroupUpdatedCodec()],
 						dbEncryptionKey: key
 					)

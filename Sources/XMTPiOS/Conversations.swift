@@ -30,7 +30,7 @@ public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
 	}
 }
 
-public enum ConversationType {
+public enum ConversationFilterType {
 	case all, groups, dms
 }
 
@@ -146,9 +146,9 @@ public actor Conversations {
 		return try findDmByInboxId(inboxId: inboxId)
 	}
 
-	public func findMessage(messageId: String) throws -> Message? {
+	public func findMessage(messageId: String) throws -> DecodedMessage? {
 		do {
-			return Message.create(
+			return DecodedMessage.create(
 				ffiMessage: try ffiClient.message(
 					messageId: messageId.hexToData))
 		} catch {
@@ -248,7 +248,7 @@ public actor Conversations {
 		return conversations
 	}
 
-	public func stream(type: ConversationType = .all) -> AsyncThrowingStream<
+	public func stream(type: ConversationFilterType = .all) -> AsyncThrowingStream<
 		Conversation, Error
 	> {
 		AsyncThrowingStream { continuation in
@@ -383,7 +383,7 @@ public actor Conversations {
 		with identities: [PublicIdentity],
 		permissions: GroupPermissionPreconfiguration = .allMembers,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) async throws -> Group {
@@ -393,7 +393,7 @@ public actor Conversations {
 				GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
 					option: permissions),
 			name: name,
-			imageUrlSquare: imageUrlSquare,
+			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
 			disappearingMessageSettings: disappearingMessageSettings
@@ -404,7 +404,7 @@ public actor Conversations {
 		with identities: [PublicIdentity],
 		permissionPolicySet: PermissionPolicySet,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) async throws -> Group {
@@ -412,7 +412,7 @@ public actor Conversations {
 			with: identities,
 			permissions: FfiGroupPermissionsOptions.customPolicy,
 			name: name,
-			imageUrlSquare: imageUrlSquare,
+			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet),
@@ -424,7 +424,7 @@ public actor Conversations {
 		with identities: [PublicIdentity],
 		permissions: FfiGroupPermissionsOptions = .default,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -434,7 +434,7 @@ public actor Conversations {
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
 				groupName: name,
-				groupImageUrlSquare: imageUrlSquare,
+				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: FfiMessageDisappearingSettings(
@@ -452,7 +452,7 @@ public actor Conversations {
 		with inboxIds: [InboxId],
 		permissions: GroupPermissionPreconfiguration = .allMembers,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) async throws -> Group {
@@ -462,7 +462,7 @@ public actor Conversations {
 				GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
 					option: permissions),
 			name: name,
-			imageUrlSquare: imageUrlSquare,
+			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: nil,
 			disappearingMessageSettings: disappearingMessageSettings
@@ -473,7 +473,7 @@ public actor Conversations {
 		with inboxIds: [InboxId],
 		permissionPolicySet: PermissionPolicySet,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) async throws -> Group {
@@ -481,7 +481,7 @@ public actor Conversations {
 			with: inboxIds,
 			permissions: FfiGroupPermissionsOptions.customPolicy,
 			name: name,
-			imageUrlSquare: imageUrlSquare,
+			imageUrl: imageUrl,
 			description: description,
 			permissionPolicySet: PermissionPolicySet.toFfiPermissionPolicySet(
 				permissionPolicySet),
@@ -493,7 +493,7 @@ public actor Conversations {
 		with inboxIds: [InboxId],
 		permissions: FfiGroupPermissionsOptions = .default,
 		name: String = "",
-		imageUrlSquare: String = "",
+		imageUrl: String = "",
 		description: String = "",
 		permissionPolicySet: FfiPermissionPolicySet? = nil,
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
@@ -504,7 +504,7 @@ public actor Conversations {
 			opts: FfiCreateGroupOptions(
 				permissions: permissions,
 				groupName: name,
-				groupImageUrlSquare: imageUrlSquare,
+				groupImageUrlSquare: imageUrl,
 				groupDescription: description,
 				customPermissionPolicySet: permissionPolicySet,
 				messageDisappearingSettings: FfiMessageDisappearingSettings(
@@ -518,8 +518,8 @@ public actor Conversations {
 		return group
 	}
 
-	public func streamAllMessages(type: ConversationType = .all)
-		-> AsyncThrowingStream<Message, Error>
+	public func streamAllMessages(type: ConversationFilterType = .all)
+		-> AsyncThrowingStream<DecodedMessage, Error>
 	{
 		AsyncThrowingStream { continuation in
 			let ffiStreamActor = FfiStreamActor()
@@ -533,7 +533,7 @@ public actor Conversations {
 					}
 					return
 				}
-				if let message = Message.create(ffiMessage: message) {
+				if let message = DecodedMessage.create(ffiMessage: message) {
 					continuation.yield(message)
 				}
 			}

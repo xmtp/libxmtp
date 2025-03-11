@@ -83,15 +83,15 @@ class GroupPermissionTests: XCTestCase {
 		XCTAssertTrue(superAdminList.contains(fixtures.boClient.inboxID))
 
 		// Verify that alix can NOT update group name
-		XCTAssertEqual(try boGroup.groupName(), "")
+		XCTAssertEqual(try boGroup.name(), "")
 		await assertThrowsAsyncError(
-			try await alixGroup.updateGroupName(groupName: "alix group name")
+			try await alixGroup.updateName(name: "alix group name")
 		)
 
 		try await alixGroup.sync()
 		try await boGroup.sync()
-		XCTAssertEqual(try boGroup.groupName(), "")
-		XCTAssertEqual(try alixGroup.groupName(), "")
+		XCTAssertEqual(try boGroup.name(), "")
+		XCTAssertEqual(try alixGroup.name(), "")
 
 		try await boGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
 		try await boGroup.sync()
@@ -107,11 +107,11 @@ class GroupPermissionTests: XCTestCase {
 		XCTAssertEqual(superAdminList.count, 1)
 
 		// Verify that alix can now update group name
-		try await alixGroup.updateGroupName(groupName: "alix group name")
+		try await alixGroup.updateName(name: "alix group name")
 		try await alixGroup.sync()
 		try await boGroup.sync()
-		XCTAssertEqual(try boGroup.groupName(), "alix group name")
-		XCTAssertEqual(try alixGroup.groupName(), "alix group name")
+		XCTAssertEqual(try boGroup.name(), "alix group name")
+		XCTAssertEqual(try alixGroup.name(), "alix group name")
 
 		try await boGroup.removeAdmin(inboxId: fixtures.alixClient.inboxID)
 		try await boGroup.sync()
@@ -128,8 +128,8 @@ class GroupPermissionTests: XCTestCase {
 
 		// Verify that alix can NOT update group name
 		await assertThrowsAsyncError(
-			try await alixGroup.updateGroupName(
-				groupName: "alix group name 2")
+			try await alixGroup.updateName(
+				name: "alix group name 2")
 		)
 	}
 
@@ -243,7 +243,7 @@ class GroupPermissionTests: XCTestCase {
 			.listGroups().first!
 
 		// Verify that alix can NOT add an admin
-		XCTAssertEqual(try boGroup.groupName(), "")
+		XCTAssertEqual(try boGroup.name(), "")
 		await assertThrowsAsyncError(
 			try await alixGroup.addAdmin(inboxId: fixtures.alixClient.inboxID)
 		)
@@ -254,12 +254,12 @@ class GroupPermissionTests: XCTestCase {
 		// Verify that alix can update group name
 		try await boGroup.sync()
 		try await alixGroup.sync()
-		try await alixGroup.updateGroupName(groupName: "alix group name")
+		try await alixGroup.updateName(name: "alix group name")
 		try await alixGroup.sync()
 		try await boGroup.sync()
 
-		XCTAssertEqual(try boGroup.groupName(), "alix group name")
-		XCTAssertEqual(try alixGroup.groupName(), "alix group name")
+		XCTAssertEqual(try boGroup.name(), "alix group name")
+		XCTAssertEqual(try alixGroup.name(), "alix group name")
 	}
 
 	func testCanUpdatePermissions() async throws {
@@ -273,10 +273,10 @@ class GroupPermissionTests: XCTestCase {
 			.listGroups().first!
 
 		// Verify that alix cannot update group description
-		XCTAssertEqual(try boGroup.groupDescription(), "")
+		XCTAssertEqual(try boGroup.description(), "")
 		await assertThrowsAsyncError(
-			try await alixGroup.updateGroupDescription(
-				groupDescription: "new group description")
+			try await alixGroup.updateDescription(
+				description: "new group description")
 		)
 
 		try await alixGroup.sync()
@@ -286,7 +286,7 @@ class GroupPermissionTests: XCTestCase {
 			.admin)
 
 		// Update group description permissions so alix can update
-		try await boGroup.updateGroupDescriptionPermission(
+		try await boGroup.updateDescriptionPermission(
 			newPermissionOption: .allow)
 		try await boGroup.sync()
 		try await alixGroup.sync()
@@ -295,14 +295,14 @@ class GroupPermissionTests: XCTestCase {
 			.allow)
 
 		// Verify that alix can now update group description
-		try await alixGroup.updateGroupDescription(
-			groupDescription: "alix group description")
+		try await alixGroup.updateDescription(
+			description: "alix group description")
 		try await alixGroup.sync()
 		try await boGroup.sync()
 		XCTAssertEqual(
-			try boGroup.groupDescription(), "alix group description")
+			try boGroup.description(), "alix group description")
 		XCTAssertEqual(
-			try alixGroup.groupDescription(), "alix group description")
+			try alixGroup.description(), "alix group description")
 	}
 
 	func testCanCreateGroupWithCustomPermissions() async throws {
