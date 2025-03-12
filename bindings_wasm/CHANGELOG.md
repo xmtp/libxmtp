@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 1.0.0-rc4
+
+- Refactored `Identifier` and `IdentifierKind` to use `tsify`
+
 ## 1.0.0-rc3
 
 - Removed an optional `relying_party` field in the `Identifier` struct
