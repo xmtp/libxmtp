@@ -10,7 +10,7 @@ import XMTPiOS
 
 struct MessageTextView: View {
 	var myAddress: String
-	var message: Message
+	var message: DecodedMessage
 	var isGroup: Bool = false
 	@State private var isDebugging = false
 
@@ -83,7 +83,7 @@ struct MessageTextView: View {
 }
 
 struct MessageGroupMembershipChangedView: View {
-	var message: Message
+	var message: DecodedMessage
 
 	var body: some View {
 		Text(label)
@@ -114,7 +114,7 @@ struct MessageGroupMembershipChangedView: View {
 
 struct MessageCellView: View {
 	var myAddress: String
-	var message: Message
+	var message: DecodedMessage
 	var isGroup: Bool = false
 	@State private var isDebugging = false
 

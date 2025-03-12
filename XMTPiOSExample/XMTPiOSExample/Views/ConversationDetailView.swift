@@ -12,11 +12,11 @@ struct ConversationDetailView: View {
 	var client: Client
 	var conversation: Conversation
 
-	@State private var messages: [Message] = []
+    @State private var messages: [DecodedMessage] = []
 
 	var body: some View {
 		VStack {
-			MessageListView(myAddress: client.address, messages: messages)
+			MessageListView(myAddress: client.publicIdentity.identifier, messages: messages)
 				.refreshable {
 					await loadMessages()
 				}

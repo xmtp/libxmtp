@@ -36,7 +36,7 @@ struct NewConversationView: View {
 				}
 			}
 
-			Section("Or Create a Group") {
+			Section(header: Text("Or Create a Group")) {
 				ForEach(groupMembers, id: \.self) { member in
 					Text(member)
 				}
@@ -44,7 +44,7 @@ struct NewConversationView: View {
 				HStack {
 					TextField("Add member", text: $newGroupMember)
 					Button("Add") {
-						if newGroupMember.lowercased() == client.address {
+						if newGroupMember.lowercased() == client.publicIdentity.identifier.lowercased() {
 							self.groupError = "You cannot add yourself to a group"
 							return
 						}
@@ -53,7 +53,7 @@ struct NewConversationView: View {
 
 						Task {
 							do {
-								if try await self.client.canMessage(address: newGroupMember) {
+								if try await self.client.canMessage(identity: PublicIdentity(kind: .ethereum, identifier: newGroupMember)) {
 									await MainActor.run {
 										self.groupError = ""
 										self.groupMembers.append(newGroupMember)
@@ -89,7 +89,8 @@ struct NewConversationView: View {
 				Button("Create Group") {
 					Task {
 						do {
-							let group = try await client.conversations.newGroup(with: groupMembers)
+                            let identities = groupMembers.map { PublicIdentity(kind: .ethereum, identifier: $0) }
+							let group = try await client.conversations.newGroupWithIdentities(with: identities)
 							try await client.conversations.sync()
 							await MainActor.run {
 								dismiss()
@@ -130,7 +131,7 @@ struct NewConversationView: View {
 
 		Task {
 			do {
-				let conversation = try await client.conversations.newConversation(with: address)
+                let conversation = try await client.conversations.newConversationWithIdentity(with: PublicIdentity(kind: .ethereum, identifier: address))
 				await MainActor.run {
 					dismiss()
 					onCreate(conversation)

@@ -33,7 +33,7 @@ struct ContentView: View {
 							if let keysData = Persistence().loadKeys() {
 								if let address = Persistence().loadAddress() {
 									let client = try await Client.build(
-										address: address,
+                                        publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
 										options: .init(
 											api: .init(env: .dev, isSecure: true),
 											codecs: [GroupUpdatedCodec()],
@@ -80,7 +80,7 @@ struct ContentView: View {
 				let wallet = try PrivateKey.generate()
 				let key = try secureRandomBytes(count: 32)
 				Persistence().saveKeys(key)
-				Persistence().saveAddress(wallet.address)
+                Persistence().saveAddress(wallet.identity.identifier)
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(

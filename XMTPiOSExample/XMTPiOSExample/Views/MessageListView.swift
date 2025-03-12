@@ -10,7 +10,7 @@ import XMTPiOS
 
 struct MessageListView: View {
 	var myAddress: String
-	var messages: [Message]
+	var messages: [DecodedMessage]
 	var isGroup: Bool = false
 
 	var body: some View {

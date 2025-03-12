@@ -12,12 +12,12 @@ struct GroupDetailView: View {
 	var client: Client
 	var group: XMTPiOS.Group
 
-	@State private var messages: [Message] = []
+	@State private var messages: [DecodedMessage] = []
 	@State private var isShowingSettings = false
 
 	var body: some View {
 		VStack {
-			MessageListView(myAddress: client.address, messages: messages, isGroup: true)
+            MessageListView(myAddress: client.publicIdentity.identifier, messages: messages, isGroup: true)
 				.refreshable {
 					await loadMessages()
 				}

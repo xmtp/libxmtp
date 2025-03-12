@@ -84,7 +84,8 @@ struct ConversationListView: View {
 		case .dm(let conversation):
 			return (try? Util.abbreviate(address: conversation.peerInboxId)) ?? "Unknown Address"
 		case .group(let group):
-			return (try? group.groupName()) ?? "Group Name"
+			let name = (try? group.name()) ?? ""
+			return name.isEmpty ? "Group Id: \(group.id)" : name
 		}
 	}
 
