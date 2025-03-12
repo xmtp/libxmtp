@@ -3404,6 +3404,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.added_members.len(), 2);
+
+        let members = group.list_members().await.unwrap();
+        let passkey_ident = client2.account_identifier.identifier.clone();
+        assert!(members.into_iter().any(|m| m
+            .account_identifiers
+            .into_iter()
+            .any(|i| i.identifier == passkey_ident)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
