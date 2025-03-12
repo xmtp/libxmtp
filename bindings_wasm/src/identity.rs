@@ -1,18 +1,18 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
+#[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Identifier {
   pub identifier: String,
-  #[wasm_bindgen(js_name = identifierKind)]
+  #[serde(rename = "identifierKind")]
   pub identifier_kind: IdentifierKind,
 }
 
 #[wasm_bindgen]
 impl Identifier {
-  #[wasm_bindgen(constructor)]
   pub fn new(
     identifier: String,
     #[wasm_bindgen(js_name = identifierKind)] identifier_kind: IdentifierKind,
@@ -24,8 +24,8 @@ impl Identifier {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
+#[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum IdentifierKind {
   Ethereum,
   Passkey,
