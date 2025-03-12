@@ -8,10 +8,12 @@
 , jdk17
 , cargo-ndk
 , sqlite
+, sqlcipher
 , openssl
 , lib
 , fenix
 , gnused
+, perl
 }:
 let
   frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
@@ -84,7 +86,9 @@ mkShell {
 
     # System Libraries
     sqlite
+    sqlcipher
     openssl
+    perl
   ] ++ lib.optionals stdenv.isDarwin [
     # optional packages if on darwin, in order to check if build passes locally
     frameworks.CoreServices
