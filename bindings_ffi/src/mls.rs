@@ -3290,7 +3290,7 @@ mod tests {
         };
 
         let cred = pk_client
-            .authenticate(origin, request, DefaultClientData)
+            .authenticate(origin.clone(), request, DefaultClientData)
             .await
             .unwrap();
         let resp = cred.response;
@@ -3326,7 +3326,68 @@ mod tests {
 
         // TODO: I'll uncomment this as soon as PR 1733 goes live.
         // Tested locally with this uncommented and it works.
-        // alex.apply_signature_request(sig_request).await.unwrap();
+        alex.apply_signature_request(sig_request).await.unwrap();
+
+        let nonce = 0;
+        let db_path = tmp_path();
+        let db_enc_key = static_enc_key().to_vec();
+        let ident = FfiIdentifier {
+            identifier: hex::encode(public_key.clone()),
+            identifier_kind: FfiIdentifierKind::Passkey,
+        };
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(db_path),
+            Some(db_enc_key),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let sig_request = client.signature_request().unwrap().clone();
+        let challenge = sig_request.signature_text().await.unwrap();
+        let challenge_bytes = challenge.as_bytes().to_vec();
+
+        let request = CredentialRequestOptions {
+            public_key: PublicKeyCredentialRequestOptions {
+                challenge: Bytes::from(challenge_bytes),
+                timeout: None,
+                rp_id: Some(String::from(origin.domain().unwrap())),
+                allow_credentials: None,
+                user_verification: UserVerificationRequirement::default(),
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        let cred = pk_client
+            .authenticate(origin, request, DefaultClientData)
+            .await
+            .unwrap();
+        let resp = cred.response;
+
+        let signature = resp.signature.to_vec();
+        sig_request
+            .add_passkey_signature(FfiPasskeySignature {
+                authenticator_data: resp.authenticator_data.to_vec(),
+                signature: signature.clone(),
+                client_data_json: resp.client_data_json.to_vec(),
+                public_key: public_key.clone(),
+            })
+            .await
+            // should be good
+            .unwrap();
+
+        client.register_identity(sig_request).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
