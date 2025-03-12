@@ -3388,6 +3388,19 @@ mod tests {
             .unwrap();
 
         client.register_identity(sig_request).await.unwrap();
+
+        let bob = new_test_client().await;
+        let fernando = new_test_client().await;
+        let group = client
+            .conversations()
+            .create_group_with_inbox_ids(vec![bob.inbox_id()], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        let result = group
+            .add_members_by_inbox_id(vec![fernando.inbox_id()])
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
