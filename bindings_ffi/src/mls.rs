@@ -1491,7 +1491,7 @@ impl FfiConversationListItem {
     }
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct FfiUpdateGroupMembershipResult {
     added_members: HashMap<String, u64>,
     removed_members: Vec<String>,
@@ -3336,7 +3336,7 @@ mod tests {
             identifier_kind: FfiIdentifierKind::Passkey,
         };
         let inbox_id = ident.inbox_id(nonce).unwrap();
-        let client = create_client(
+        let client2 = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -3351,7 +3351,7 @@ mod tests {
         .await
         .unwrap();
 
-        let sig_request = client.signature_request().unwrap().clone();
+        let sig_request = client2.signature_request().unwrap().clone();
         let challenge = sig_request.signature_text().await.unwrap();
         let challenge_bytes = challenge.as_bytes().to_vec();
 
@@ -3387,7 +3387,29 @@ mod tests {
             // should be good
             .unwrap();
 
-        client.register_identity(sig_request).await.unwrap();
+        client2.register_identity(sig_request).await.unwrap();
+
+        let bob = new_test_client().await;
+        let fernando = new_test_client().await;
+        let group = client2
+            .conversations()
+            .create_group_with_inbox_ids(vec![bob.inbox_id()], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        let result = group
+            .add_members_by_inbox_id(vec![fernando.inbox_id(), alex.inbox_id()])
+            .await
+            .unwrap();
+
+        assert_eq!(result.added_members.len(), 2);
+
+        let members = group.list_members().await.unwrap();
+        let passkey_ident = client2.account_identifier.identifier.clone();
+        assert!(members.into_iter().any(|m| m
+            .account_identifiers
+            .into_iter()
+            .any(|i| i.identifier == passkey_ident)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

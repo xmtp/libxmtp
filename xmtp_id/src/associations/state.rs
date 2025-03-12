@@ -139,8 +139,9 @@ impl AssociationState {
     }
 
     pub fn identifiers(&self) -> Vec<Identifier> {
-        self.members_by_kind(MemberKind::Ethereum)
-            .into_iter()
+        self.members
+            .values()
+            .cloned()
             .filter_map(|member| match member.identifier {
                 MemberIdentifier::Ethereum(eth) => Some(Identifier::Ethereum(eth)),
                 MemberIdentifier::Passkey(pk) => Some(Identifier::Passkey(pk)),
