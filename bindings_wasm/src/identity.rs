@@ -11,19 +11,6 @@ pub struct Identifier {
   pub identifier_kind: IdentifierKind,
 }
 
-#[wasm_bindgen]
-impl Identifier {
-  pub fn new(
-    identifier: String,
-    #[wasm_bindgen(js_name = identifierKind)] identifier_kind: IdentifierKind,
-  ) -> Self {
-    Self {
-      identifier,
-      identifier_kind,
-    }
-  }
-}
-
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum IdentifierKind {
