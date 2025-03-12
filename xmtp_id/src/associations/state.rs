@@ -142,7 +142,6 @@ impl AssociationState {
         self.members
             .values()
             .cloned()
-            .into_iter()
             .filter_map(|member| match member.identifier {
                 MemberIdentifier::Ethereum(eth) => Some(Identifier::Ethereum(eth)),
                 MemberIdentifier::Passkey(pk) => Some(Identifier::Passkey(pk)),
