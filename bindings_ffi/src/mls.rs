@@ -3388,7 +3388,6 @@ mod tests {
             .unwrap();
 
         client2.register_identity(sig_request).await.unwrap();
-        tracing::error!("AAAAAA {:?}", client2.account_identifier.identifier_kind);
 
         let bob = new_test_client().await;
         let fernando = new_test_client().await;
