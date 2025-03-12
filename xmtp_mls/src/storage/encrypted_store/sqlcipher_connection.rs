@@ -46,7 +46,7 @@ impl EncryptedConnection {
     /// Creates a file for the salt and stores it
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
-        Self::check_for_sqlcipher(opts)?;
+        Self::check_for_sqlcipher(opts, None)?;
 
         let salt = match opts {
             Ephemeral => None,
@@ -222,17 +222,20 @@ impl EncryptedConnection {
         }
     }
 
-    fn check_for_sqlcipher(opts: &StorageOption) -> Result<(), StorageError> {
+    fn check_for_sqlcipher(
+        opts: &StorageOption,
+        conn: Option<SqliteConnection>,
+    ) -> Result<CipherVersion, StorageError> {
         if let Some(path) = opts.path() {
             let exists = std::path::Path::new(path).exists();
             tracing::debug!("db @ [{}] exists? [{}]", path, exists);
         }
-        let conn = &mut opts.conn()?;
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+        let conn = &mut conn.unwrap_or(opts.conn()?);
+        let mut cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
         if cipher_version.is_empty() {
             return Err(StorageError::SqlCipherNotLoaded);
         }
-        Ok(())
+        Ok(cipher_version.pop().expect("checked for empty"))
     }
 }
 
@@ -240,10 +243,7 @@ impl super::native::ValidatedConnection for EncryptedConnection {
     fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
         let conn = &mut opts.conn()?;
 
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-        if cipher_version.is_empty() {
-            return Err(StorageError::SqlCipherNotLoaded);
-        }
+        let cipher_version = EncryptedConnection::check_for_sqlcipher(opts, None)?;
 
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
@@ -259,8 +259,8 @@ impl super::native::ValidatedConnection for EncryptedConnection {
         } = sql_query("PRAGMA cipher_provider_version")
             .get_result::<CipherProviderVersion>(conn)?;
         tracing::info!(
-            "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
-            cipher_version.first().as_ref().map(|v| &v.cipher_version),
+            "Sqlite cipher_version={}, cipher_provider_version={:?}",
+            cipher_version.cipher_version,
             cipher_provider_version
         );
         if tracing::enabled!(tracing::Level::DEBUG) {
@@ -313,6 +313,16 @@ mod tests {
     use super::*;
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
     use StorageOption::*;
+
+    #[tokio::test]
+    async fn test_sqlcipher_version() {
+        let db_path = tmp_path();
+        {
+            let opts = Persistent(db_path.clone());
+            let v = EncryptedConnection::check_for_sqlcipher(&opts, None).unwrap();
+            println!("SQLCipher Version {}", v.cipher_version);
+        }
+    }
 
     #[tokio::test]
     async fn test_db_creates_with_plaintext_header() {

@@ -156,6 +156,9 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
+pkg-config = "0.3"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
 ethers = { workspace = true, features = ["openssl"] }

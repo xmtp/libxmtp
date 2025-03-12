@@ -7674,6 +7674,7 @@ dependencies = [
  "openssl-sys",
  "parking_lot 0.12.3",
  "pin-project-lite",
+ "pkg-config",
  "prost",
  "rand",
  "reqwest 0.12.12",

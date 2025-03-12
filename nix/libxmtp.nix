@@ -19,6 +19,7 @@
 , zstd
 , llvmPackages_19
 , wasm-bindgen-cli
+, sqlcipher
 , ...
 }:
 
@@ -70,6 +71,7 @@ mkShell {
       # native libs
       openssl
       sqlite
+      sqlcipher
 
       mktemp
       jdk21
