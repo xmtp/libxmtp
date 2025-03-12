@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tsify_next::Tsify;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use wasm_bindgen::JsError;
 use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,8 +14,8 @@ pub struct Identifier {
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum IdentifierKind {
-  Ethereum,
-  Passkey,
+  Ethereum = 0,
+  Passkey = 1,
 }
 
 impl From<XmtpIdentifier> for Identifier {

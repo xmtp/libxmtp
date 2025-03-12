@@ -1,39 +1,22 @@
 use js_sys::Uint8Array;
 use prost::Message;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::ContentCodec;
 use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-#[wasm_bindgen(getter_with_clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Reaction {
   pub reference: String,
-  #[wasm_bindgen(js_name = "referenceInboxId")]
+  #[serde(rename = "referenceInboxId")]
   pub reference_inbox_id: String,
   pub action: ReactionAction,
   pub content: String,
   pub schema: ReactionSchema,
-}
-
-#[wasm_bindgen]
-impl Reaction {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    reference: String,
-    #[wasm_bindgen(js_name = "referenceInboxId")] reference_inbox_id: String,
-    action: ReactionAction,
-    content: String,
-    schema: ReactionSchema,
-  ) -> Self {
-    Self {
-      reference,
-      reference_inbox_id,
-      action,
-      content,
-      schema,
-    }
-  }
 }
 
 impl From<Reaction> for ReactionV2 {
@@ -98,13 +81,13 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, JsError> {
     .map_err(|e| JsError::new(&format!("{}", e)))
 }
 
-#[wasm_bindgen]
-#[derive(Clone, Copy, Default, PartialEq, Debug)]
+#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ReactionAction {
-  Unknown,
+  Unknown = 0,
   #[default]
-  Added,
-  Removed,
+  Added = 1,
+  Removed = 2,
 }
 
 impl From<ReactionAction> for i32 {
@@ -117,14 +100,14 @@ impl From<ReactionAction> for i32 {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Default, PartialEq)]
+#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ReactionSchema {
-  Unknown,
+  Unknown = 0,
   #[default]
-  Unicode,
-  Shortcode,
-  Custom,
+  Unicode = 1,
+  Shortcode = 2,
+  Custom = 3,
 }
 
 impl From<ReactionSchema> for i32 {

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
@@ -6,9 +7,8 @@ use xmtp_mls::storage::consent_record::{
 
 use crate::{client::Client, conversation::Conversation};
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Serialize, Deserialize)]
-#[repr(u16)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ConsentState {
   Unknown = 0,
   Allowed = 1,
@@ -35,9 +35,8 @@ impl From<ConsentState> for XmtpConsentState {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Serialize, Deserialize)]
-#[repr(u16)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ConsentEntityType {
   GroupId = 0,
   InboxId = 1,
@@ -52,43 +51,13 @@ impl From<ConsentEntityType> for XmtpConsentType {
   }
 }
 
-fn entity_to_u16<S>(consent_entity_type: &ConsentEntityType, s: S) -> Result<S::Ok, S::Error>
-where
-  S: serde::Serializer,
-{
-  let num: u16 = (*consent_entity_type) as u16;
-  s.serialize_u16(num)
-}
-
-fn state_to_u16<S>(consent_state: &ConsentState, s: S) -> Result<S::Ok, S::Error>
-where
-  S: serde::Serializer,
-{
-  let num: u16 = (*consent_state) as u16;
-  s.serialize_u16(num)
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Consent {
-  #[wasm_bindgen(js_name = entityType)]
-  #[serde(rename = "entityType", serialize_with = "entity_to_u16")]
+  #[serde(rename = "entityType")]
   pub entity_type: ConsentEntityType,
-  #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
-}
-
-#[wasm_bindgen]
-impl Consent {
-  #[wasm_bindgen(constructor)]
-  pub fn new(entity_type: ConsentEntityType, state: ConsentState, entity: String) -> Self {
-    Self {
-      entity_type,
-      state,
-      entity,
-    }
-  }
 }
 
 impl From<Consent> for StoredConsentRecord {

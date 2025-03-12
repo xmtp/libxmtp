@@ -3,7 +3,9 @@ use crate::{
   identity::{Identifier, IdentifierKind},
 };
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tsify_next::Tsify;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
@@ -31,21 +33,26 @@ pub fn verify_signed_with_public_key(
     .map_err(|e| JsError::new(format!("{}", e).as_str()))
 }
 
-#[wasm_bindgen]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct PasskeySignature {
+  #[serde(with = "serde_bytes", rename = "publicKey")]
   public_key: Vec<u8>,
+  #[serde(with = "serde_bytes")]
   signature: Vec<u8>,
+  #[serde(with = "serde_bytes", rename = "authenticatorData")]
   authenticator_data: Vec<u8>,
+  #[serde(with = "serde_bytes", rename = "clientDataJson")]
   client_data_json: Vec<u8>,
 }
 
-#[wasm_bindgen]
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Tsify, Clone, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum SignatureRequestType {
-  AddWallet,
-  CreateInbox,
-  RevokeWallet,
-  RevokeInstallations,
+  AddWallet = 0,
+  CreateInbox = 1,
+  RevokeWallet = 2,
+  RevokeInstallations = 3,
 }
 
 #[wasm_bindgen]

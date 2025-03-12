@@ -6,7 +6,10 @@ use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
+use prost::Message as ProstMessage;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tsify_next::Tsify;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::groups::{
@@ -18,8 +21,6 @@ use xmtp_mls::groups::{
 use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
-
-use prost::Message as ProstMessage;
 
 #[wasm_bindgen]
 pub struct GroupMetadata {
@@ -43,52 +44,27 @@ impl GroupMetadata {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone, serde::Serialize)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum PermissionLevel {
-  Member,
-  Admin,
-  SuperAdmin,
+  Member = 0,
+  Admin = 1,
+  SuperAdmin = 2,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct GroupMember {
-  #[wasm_bindgen(js_name = inboxId)]
   #[serde(rename = "inboxId")]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = accountIdentifiers)]
   #[serde(rename = "accountIdentifiers")]
   pub account_identifiers: Vec<Identifier>,
-  #[wasm_bindgen(js_name = installationIds)]
   #[serde(rename = "installationIds")]
   pub installation_ids: Vec<String>,
-  #[wasm_bindgen(js_name = permissionLevel)]
   #[serde(rename = "permissionLevel")]
   pub permission_level: PermissionLevel,
-  #[wasm_bindgen(js_name = consentState)]
   #[serde(rename = "consentState")]
   pub consent_state: ConsentState,
-}
-
-#[wasm_bindgen]
-impl GroupMember {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
-    #[wasm_bindgen(js_name = accountIdentifiers)] account_identifiers: Vec<Identifier>,
-    #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<String>,
-    #[wasm_bindgen(js_name = permissionLevel)] permission_level: PermissionLevel,
-    #[wasm_bindgen(js_name = consentState)] consent_state: ConsentState,
-  ) -> Self {
-    Self {
-      inbox_id,
-      account_identifiers,
-      installation_ids,
-      permission_level,
-      consent_state,
-    }
-  }
 }
 
 #[wasm_bindgen]
@@ -185,10 +161,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = findMessages)]
-  pub async fn find_messages(
-    &self,
-    opts: Option<ListMessagesOptions>,
-  ) -> Result<Vec<Message>, JsError> {
+  pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<JsValue, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
     let provider = group
@@ -215,14 +188,14 @@ impl Conversation {
       .map(Into::into)
       .collect();
 
-    Ok(messages)
+    Ok(crate::to_value(&messages)?)
   }
 
   #[wasm_bindgen(js_name = findMessagesWithReactions)]
   pub async fn find_messages_with_reactions(
     &self,
     opts: Option<ListMessagesOptions>,
-  ) -> Result<Vec<MessageWithReactions>, JsError> {
+  ) -> Result<JsValue, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
     let provider = group
@@ -249,7 +222,7 @@ impl Conversation {
       .map(Into::into)
       .collect();
 
-    Ok(messages)
+    Ok(crate::to_value(&messages)?)
   }
 
   #[wasm_bindgen(js_name = listMembers)]

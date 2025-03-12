@@ -5,8 +5,10 @@ use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::user_preferences::UserPreference;
 use crate::{client::RustXmtpClient, conversation::Conversation};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tsify_next::Tsify;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
@@ -19,8 +21,8 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -47,8 +49,8 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Debug, Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
@@ -75,16 +77,16 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Default)]
+#[derive(Tsify, Clone, Default, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct ListConversationsOptions {
-  #[wasm_bindgen(js_name = consentStates)]
+  #[serde(rename = "consentStates")]
   pub consent_states: Option<Vec<ConsentState>>,
-  #[wasm_bindgen(js_name = createdAfterNs)]
+  #[serde(rename = "createdAfterNs")]
   pub created_after_ns: Option<i64>,
-  #[wasm_bindgen(js_name = createdBeforeNs)]
+  #[serde(rename = "createdBeforeNs")]
   pub created_before_ns: Option<i64>,
-  #[wasm_bindgen(js_name = includeDuplicateDms)]
+  #[serde(rename = "includeDuplicateDms")]
   pub include_duplicate_dms: bool,
   pub limit: Option<i64>,
 }
@@ -104,32 +106,12 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
   }
 }
 
-#[wasm_bindgen]
-impl ListConversationsOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    consent_states: Option<Vec<ConsentState>>,
-    created_after_ns: Option<i64>,
-    created_before_ns: Option<i64>,
-    include_duplicate_dms: bool,
-    limit: Option<i64>,
-  ) -> Self {
-    Self {
-      consent_states,
-      created_after_ns,
-      created_before_ns,
-      include_duplicate_dms,
-      limit,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct MessageDisappearingSettings {
-  #[wasm_bindgen(js_name = fromNs)]
+  #[serde(rename = "fromNs")]
   pub from_ns: i64,
-  #[wasm_bindgen(js_name = inNs)]
+  #[serde(rename = "inNs")]
   pub in_ns: i64,
 }
 
@@ -151,51 +133,20 @@ impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
   }
 }
 
-#[wasm_bindgen]
-impl MessageDisappearingSettings {
-  #[wasm_bindgen(constructor)]
-  pub fn new(from_ns: i64, in_ns: i64) -> Self {
-    Self { from_ns, in_ns }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct CreateGroupOptions {
   pub permissions: Option<GroupPermissionsOptions>,
-  #[wasm_bindgen(js_name = groupName)]
+  #[serde(rename = "groupName")]
   pub group_name: Option<String>,
-  #[wasm_bindgen(js_name = groupImageUrlSquare)]
+  #[serde(rename = "groupImageUrlSquare")]
   pub group_image_url_square: Option<String>,
-  #[wasm_bindgen(js_name = groupDescription)]
+  #[serde(rename = "groupDescription")]
   pub group_description: Option<String>,
-  #[wasm_bindgen(js_name = customPermissionPolicySet)]
+  #[serde(rename = "customPermissionPolicySet")]
   pub custom_permission_policy_set: Option<PermissionPolicySet>,
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  #[serde(rename = "messageDisappearingSettings")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[wasm_bindgen]
-impl CreateGroupOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    permissions: Option<GroupPermissionsOptions>,
-    group_name: Option<String>,
-    group_image_url_square: Option<String>,
-    group_description: Option<String>,
-    custom_permission_policy_set: Option<PermissionPolicySet>,
-    message_disappearing_settings: Option<MessageDisappearingSettings>,
-  ) -> Self {
-    Self {
-      permissions,
-      group_name,
-      group_image_url_square,
-      group_description,
-      custom_permission_policy_set,
-      message_disappearing_settings,
-    }
-  }
 }
 
 impl CreateGroupOptions {
@@ -211,22 +162,11 @@ impl CreateGroupOptions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Default)]
+#[derive(Tsify, Clone, Default, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct CreateDMOptions {
-  #[wasm_bindgen(js_name = messageDisappearingSettings)]
+  #[serde(rename = "messageDisappearingSettings")]
   pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[wasm_bindgen]
-impl CreateDMOptions {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(message_disappearing_settings: Option<MessageDisappearingSettings>) -> Self {
-    Self {
-      message_disappearing_settings,
-    }
-  }
 }
 
 impl CreateDMOptions {
@@ -239,8 +179,8 @@ impl CreateDMOptions {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(serde::Serialize)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct HmacKey {
   pub key: Vec<u8>,
   pub epoch: i64,
@@ -260,17 +200,6 @@ pub struct ConversationListItem {
   pub conversation: Conversation,
   #[wasm_bindgen(js_name = lastMessage)]
   pub last_message: Option<Message>,
-}
-
-#[wasm_bindgen]
-impl ConversationListItem {
-  #[wasm_bindgen(constructor)]
-  pub fn new(conversation: Conversation, last_message: Option<Message>) -> Self {
-    Self {
-      conversation,
-      last_message,
-    }
-  }
 }
 
 #[wasm_bindgen]
@@ -542,10 +471,10 @@ impl Conversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(ConversationListItem::new(
-          group.group.into(),
-          group.last_message.map(|m| m.into()),
-        ))
+        JsValue::from(ConversationListItem {
+          conversation: group.group.into(),
+          last_message: group.last_message.map(|m| m.into()),
+        })
       })
       .collect();
 
@@ -566,10 +495,10 @@ impl Conversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(ConversationListItem::new(
-          group.group.into(),
-          group.last_message.map(|m| m.into()),
-        ))
+        JsValue::from(ConversationListItem {
+          conversation: group.group.into(),
+          last_message: group.last_message.map(|m| m.into()),
+        })
       })
       .collect();
 
@@ -586,10 +515,10 @@ impl Conversations {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
-        JsValue::from(ConversationListItem::new(
-          group.group.into(),
-          group.last_message.map(|m| m.into()),
-        ))
+        JsValue::from(ConversationListItem {
+          conversation: group.group.into(),
+          last_message: group.last_message.map(|m| m.into()),
+        })
       })
       .collect();
 

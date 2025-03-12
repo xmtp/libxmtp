@@ -1,40 +1,21 @@
-use js_sys::Uint8Array;
-use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::UnwrapThrowExt;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tsify_next::Tsify;
 use xmtp_proto::xmtp::mls::message_contents::{
   ContentTypeId as XmtpContentTypeId, EncodedContent as XmtpEncodedContent,
 };
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct ContentTypeId {
-  #[wasm_bindgen(js_name = authorityId)]
+  #[serde(rename = "authorityId")]
   pub authority_id: String,
-  #[wasm_bindgen(js_name = typeId)]
+  #[serde(rename = "typeId")]
   pub type_id: String,
-  #[wasm_bindgen(js_name = versionMajor)]
+  #[serde(rename = "versionMajor")]
   pub version_major: u32,
-  #[wasm_bindgen(js_name = versionMinor)]
+  #[serde(rename = "versionMinor")]
   pub version_minor: u32,
-}
-
-#[wasm_bindgen]
-impl ContentTypeId {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    authority_id: String,
-    type_id: String,
-    version_major: u32,
-    version_minor: u32,
-  ) -> Self {
-    Self {
-      authority_id,
-      type_id,
-      version_major,
-      version_minor,
-    }
-  }
 }
 
 impl From<XmtpContentTypeId> for ContentTypeId {
@@ -59,34 +40,15 @@ impl From<ContentTypeId> for XmtpContentTypeId {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct EncodedContent {
   pub r#type: Option<ContentTypeId>,
-  pub parameters: JsValue,
+  pub parameters: HashMap<String, String>,
   pub fallback: Option<String>,
   pub compression: Option<i32>,
-  pub content: Uint8Array,
-}
-
-#[wasm_bindgen]
-impl EncodedContent {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    r#type: Option<ContentTypeId>,
-    parameters: JsValue,
-    fallback: Option<String>,
-    compression: Option<i32>,
-    content: Uint8Array,
-  ) -> EncodedContent {
-    EncodedContent {
-      r#type,
-      parameters,
-      fallback,
-      compression,
-      content,
-    }
-  }
+  #[serde(with = "serde_bytes")]
+  pub content: Vec<u8>,
 }
 
 impl From<XmtpEncodedContent> for EncodedContent {
@@ -95,10 +57,10 @@ impl From<XmtpEncodedContent> for EncodedContent {
 
     EncodedContent {
       r#type,
-      parameters: crate::to_value(&content.parameters).unwrap_throw(),
+      parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
-      content: content.content.as_slice().into(),
+      content: content.content,
     }
   }
 }
@@ -109,7 +71,7 @@ impl From<EncodedContent> for XmtpEncodedContent {
 
     XmtpEncodedContent {
       r#type,
-      parameters: serde_wasm_bindgen::from_value(content.parameters).unwrap_throw(),
+      parameters: content.parameters,
       fallback: content.fallback,
       compression: content.compression,
       content: content.content.to_vec(),

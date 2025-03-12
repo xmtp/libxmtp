@@ -1,10 +1,12 @@
 use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
+use tsify_next::Tsify;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
@@ -41,20 +43,39 @@ impl Client {
 static LOGGER_INIT: std::sync::OnceLock<Result<(), filter::LevelParseError>> =
   std::sync::OnceLock::new();
 
-#[wasm_bindgen]
-#[derive(Copy, Clone, Debug)]
+#[derive(Tsify, Clone, Debug, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum LogLevel {
-  Off = "off",
-  Error = "error",
-  Warn = "warn",
-  Info = "info",
-  Debug = "debug",
-  Trace = "trace",
+  #[serde(rename = "off")]
+  Off,
+  #[serde(rename = "error")]
+  Error,
+  #[serde(rename = "warn")]
+  Warn,
+  #[serde(rename = "info")]
+  Info,
+  #[serde(rename = "debug")]
+  Debug,
+  #[serde(rename = "trace")]
+  Trace,
+}
+
+impl std::fmt::Display for LogLevel {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      LogLevel::Off => write!(f, "off"),
+      LogLevel::Error => write!(f, "error"),
+      LogLevel::Warn => write!(f, "warn"),
+      LogLevel::Info => write!(f, "info"),
+      LogLevel::Debug => write!(f, "debug"),
+      LogLevel::Trace => write!(f, "trace"),
+    }
+  }
 }
 
 /// Specify options for the logger
-#[derive(Default)]
-#[wasm_bindgen(getter_with_clone)]
+#[derive(Tsify, Clone, Default, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct LogOptions {
   /// enable structured JSON logging to stdout.Useful for third-party log viewers
   pub structured: bool,
@@ -64,24 +85,12 @@ pub struct LogOptions {
   pub level: Option<LogLevel>,
 }
 
-#[wasm_bindgen]
-impl LogOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(structured: bool, performance: bool, level: Option<LogLevel>) -> Self {
-    Self {
-      structured,
-      performance,
-      level,
-    }
-  }
-}
-
 fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
       console_error_panic_hook::set_once();
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(f.to_str())
+        tracing_subscriber::filter::LevelFilter::from_str(&f.to_string())
       } else {
         Ok(tracing_subscriber::filter::LevelFilter::INFO)
       }?;

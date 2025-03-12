@@ -1,6 +1,6 @@
-use js_sys::Uint8Array;
 use prost::Message as ProstMessage;
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use xmtp_mls::storage::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
@@ -9,11 +9,11 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 
 use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum GroupMessageKind {
-  Application,
-  MembershipChange,
+  Application = 0,
+  MembershipChange = 1,
 }
 
 impl From<XmtpGroupMessageKind> for GroupMessageKind {
@@ -25,12 +25,12 @@ impl From<XmtpGroupMessageKind> for GroupMessageKind {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum DeliveryStatus {
-  Unpublished,
-  Published,
-  Failed,
+  Unpublished = 0,
+  Published = 1,
+  Failed = 2,
 }
 
 impl From<XmtpDeliveryStatus> for DeliveryStatus {
@@ -53,11 +53,12 @@ impl From<DeliveryStatus> for XmtpDeliveryStatus {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Copy, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum SortDirection {
-  Ascending,
-  Descending,
+  Ascending = 0,
+  Descending = 1,
 }
 
 impl From<SortDirection> for XmtpSortDirection {
@@ -69,18 +70,24 @@ impl From<SortDirection> for XmtpSortDirection {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Default)]
+#[derive(Tsify, Default, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct ListMessagesOptions {
-  #[wasm_bindgen(js_name = contentTypes)]
+  #[serde(rename = "contentTypes")]
+  #[tsify(optional)]
   pub content_types: Option<Vec<ContentType>>,
-  #[wasm_bindgen(js_name = sentBeforeNs)]
+  #[serde(rename = "sentBeforeNs")]
+  #[tsify(optional)]
   pub sent_before_ns: Option<i64>,
-  #[wasm_bindgen(js_name = sentAfterNs)]
+  #[serde(rename = "sentAfterNs")]
+  #[tsify(optional)]
   pub sent_after_ns: Option<i64>,
+  #[tsify(optional)]
   pub limit: Option<i64>,
-  #[wasm_bindgen(js_name = deliveryStatus)]
+  #[serde(rename = "deliveryStatus")]
+  #[tsify(optional)]
   pub delivery_status: Option<DeliveryStatus>,
+  #[tsify(optional)]
   pub direction: Option<SortDirection>,
 }
 
@@ -100,66 +107,20 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
   }
 }
 
-#[wasm_bindgen]
-impl ListMessagesOptions {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    sent_before_ns: Option<i64>,
-    sent_after_ns: Option<i64>,
-    limit: Option<i64>,
-    delivery_status: Option<DeliveryStatus>,
-    direction: Option<SortDirection>,
-    content_types: Option<Vec<ContentType>>,
-  ) -> Self {
-    Self {
-      sent_before_ns,
-      sent_after_ns,
-      limit,
-      delivery_status,
-      direction,
-      content_types,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Message {
   pub id: String,
-  #[wasm_bindgen(js_name = sentAtNs)]
+  #[serde(rename = "sentAtNs")]
   pub sent_at_ns: i64,
-  #[wasm_bindgen(js_name = convoId)]
+  #[serde(rename = "convoId")]
   pub convo_id: String,
-  #[wasm_bindgen(js_name = senderInboxId)]
+  #[serde(rename = "senderInboxId")]
   pub sender_inbox_id: String,
   pub content: EncodedContent,
   pub kind: GroupMessageKind,
-  #[wasm_bindgen(js_name = deliveryStatus)]
+  #[serde(rename = "deliveryStatus")]
   pub delivery_status: DeliveryStatus,
-}
-
-#[wasm_bindgen]
-impl Message {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    id: String,
-    sent_at_ns: i64,
-    convo_id: String,
-    sender_inbox_id: String,
-    content: EncodedContent,
-    kind: GroupMessageKind,
-    delivery_status: DeliveryStatus,
-  ) -> Self {
-    Self {
-      id,
-      sent_at_ns,
-      convo_id,
-      sender_inbox_id,
-      content,
-      kind,
-      delivery_status,
-    }
-  }
 }
 
 impl From<StoredGroupMessage> for Message {
@@ -176,7 +137,7 @@ impl From<StoredGroupMessage> for Message {
           parameters: Default::default(),
           fallback: None,
           compression: None,
-          content: Uint8Array::new_with_length(0),
+          content: vec![],
         }
       }
     };
@@ -193,8 +154,8 @@ impl From<StoredGroupMessage> for Message {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct MessageWithReactions {
   pub message: Message,
   pub reactions: Vec<Message>,

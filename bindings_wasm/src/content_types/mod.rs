@@ -1,22 +1,23 @@
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use xmtp_mls::storage::group_message::ContentType as XmtpContentType;
 
 pub mod multi_remote_attachment;
 pub mod reaction;
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum ContentType {
-  Unknown,
-  Text,
-  GroupMembershipChange,
-  GroupUpdated,
-  Reaction,
-  ReadReceipt,
-  Reply,
-  Attachment,
-  RemoteAttachment,
-  TransactionReference,
+  Unknown = 0,
+  Text = 1,
+  GroupMembershipChange = 2,
+  GroupUpdated = 3,
+  Reaction = 4,
+  ReadReceipt = 5,
+  Reply = 6,
+  Attachment = 7,
+  RemoteAttachment = 8,
+  TransactionReference = 9,
 }
 
 impl From<ContentType> for XmtpContentType {

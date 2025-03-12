@@ -1,56 +1,29 @@
 use crate::{client::Client, identity::Identifier};
-use js_sys::Uint8Array;
+use serde::{Deserialize, Serialize};
+use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Installation {
-  pub bytes: Uint8Array,
+  #[serde(with = "serde_bytes")]
+  pub bytes: Vec<u8>,
   pub id: String,
-  #[wasm_bindgen(js_name = clientTimestampNs)]
+  #[serde(rename = "clientTimestampNs")]
   pub client_timestamp_ns: Option<u64>,
 }
 
-#[wasm_bindgen]
-impl Installation {
-  #[wasm_bindgen(constructor)]
-  pub fn new(bytes: Uint8Array, id: String, client_timestamp_ns: Option<u64>) -> Self {
-    Self {
-      bytes,
-      client_timestamp_ns,
-      id,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct InboxState {
-  #[wasm_bindgen(js_name = inboxId)]
+  #[serde(rename = "inboxId")]
   pub inbox_id: String,
-  #[wasm_bindgen(js_name = recoveryIdentifier)]
+  #[serde(rename = "recoveryIdentifier")]
   pub recovery_identifier: Identifier,
   pub installations: Vec<Installation>,
-  #[wasm_bindgen(js_name = accountIdentifiers)]
+  #[serde(rename = "accountIdentifiers")]
   pub account_identifiers: Vec<Identifier>,
-}
-
-#[wasm_bindgen]
-impl InboxState {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    inbox_id: String,
-    recovery_identifier: Identifier,
-    installations: Vec<Installation>,
-    account_identifiers: Vec<Identifier>,
-  ) -> Self {
-    Self {
-      inbox_id,
-      recovery_identifier,
-      installations,
-      account_identifiers,
-    }
-  }
 }
 
 impl From<AssociationState> for InboxState {
@@ -64,7 +37,7 @@ impl From<AssociationState> for InboxState {
         .into_iter()
         .filter_map(|m| match m.identifier {
           MemberIdentifier::Installation(ident::Installation(key)) => Some(Installation {
-            bytes: Uint8Array::from(key.as_slice()),
+            bytes: key.clone(),
             client_timestamp_ns: m.client_timestamp_ns,
             id: hex::encode(key),
           }),

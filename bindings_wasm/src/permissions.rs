@@ -1,4 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::groups::{
   group_mutable_metadata::MetadataField as XmtpMetadataField,
@@ -11,21 +13,22 @@ use xmtp_mls::groups::{
   PreconfiguredPolicies,
 };
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum GroupPermissionsOptions {
-  Default,
-  AdminOnly,
-  CustomPolicy,
+  Default = 0,
+  AdminOnly = 1,
+  CustomPolicy = 2,
 }
 
-#[wasm_bindgen]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum PermissionUpdateType {
-  AddMember,
-  RemoveMember,
-  AddAdmin,
-  RemoveAdmin,
-  UpdateMetadata,
+  AddMember = 0,
+  RemoveMember = 1,
+  AddAdmin = 2,
+  RemoveAdmin = 3,
+  UpdateMetadata = 4,
 }
 
 impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
@@ -40,15 +43,15 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum PermissionPolicy {
-  Allow,
-  Deny,
-  Admin,
-  SuperAdmin,
-  DoesNotExist,
-  Other,
+  Allow = 0,
+  Deny = 1,
+  Admin = 2,
+  SuperAdmin = 3,
+  DoesNotExist = 4,
+  Other = 5,
 }
 
 impl TryInto<PermissionPolicyOption> for PermissionPolicy {
@@ -151,52 +154,25 @@ impl TryInto<MembershipPolicies> for PermissionPolicy {
   }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct PermissionPolicySet {
-  #[wasm_bindgen(js_name = addMemberPolicy)]
+  #[serde(rename = "addMemberPolicy")]
   pub add_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeMemberPolicy)]
+  #[serde(rename = "removeMemberPolicy")]
   pub remove_member_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = addAdminPolicy)]
+  #[serde(rename = "addAdminPolicy")]
   pub add_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = removeAdminPolicy)]
+  #[serde(rename = "removeAdminPolicy")]
   pub remove_admin_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupNamePolicy)]
+  #[serde(rename = "updateGroupNamePolicy")]
   pub update_group_name_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupDescriptionPolicy)]
+  #[serde(rename = "updateGroupDescriptionPolicy")]
   pub update_group_description_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateGroupImageUrlSquarePolicy)]
+  #[serde(rename = "updateGroupImageUrlSquarePolicy")]
   pub update_group_image_url_square_policy: PermissionPolicy,
-  #[wasm_bindgen(js_name = updateMessageDisappearingPolicy)]
+  #[serde(rename = "updateMessageDisappearingPolicy")]
   pub update_message_disappearing_policy: PermissionPolicy,
-}
-
-#[wasm_bindgen]
-impl PermissionPolicySet {
-  #[wasm_bindgen(constructor)]
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    add_member_policy: PermissionPolicy,
-    remove_member_policy: PermissionPolicy,
-    add_admin_policy: PermissionPolicy,
-    remove_admin_policy: PermissionPolicy,
-    update_group_name_policy: PermissionPolicy,
-    update_group_description_policy: PermissionPolicy,
-    update_group_image_url_square_policy: PermissionPolicy,
-    update_message_disappearing_policy: PermissionPolicy,
-  ) -> Self {
-    Self {
-      add_member_policy,
-      remove_member_policy,
-      add_admin_policy,
-      remove_admin_policy,
-      update_group_name_policy,
-      update_group_description_policy,
-      update_group_image_url_square_policy,
-      update_message_disappearing_policy,
-    }
-  }
 }
 
 impl From<PreconfiguredPolicies> for GroupPermissionsOptions {
@@ -289,13 +265,14 @@ impl TryFrom<PermissionPolicySet> for PolicySet {
   }
 }
 
-#[wasm_bindgen]
+#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum MetadataField {
-  GroupName,
-  Description,
-  ImageUrlSquare,
-  MessageExpirationFromMS,
-  MessageExpirationMS,
+  GroupName = 0,
+  Description = 1,
+  ImageUrlSquare = 2,
+  MessageExpirationFromMS = 3,
+  MessageExpirationMS = 4,
 }
 
 impl From<&MetadataField> for XmtpMetadataField {
