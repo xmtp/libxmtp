@@ -87,7 +87,7 @@ impl IdentityAction for CreateInbox {
         }
 
         allowed_signature_for_kind(
-            &MemberKind::Ethereum,
+            &self.account_identifier.kind(),
             &self.initial_identifier_signature.kind,
         )?;
 
