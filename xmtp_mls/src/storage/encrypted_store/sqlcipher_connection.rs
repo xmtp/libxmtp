@@ -263,11 +263,16 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             cipher_version.cipher_version,
             cipher_provider_version
         );
-        if tracing::enabled!(tracing::Level::DEBUG) {
+
+        let log = std::env::var("SQLCIPHER_LOG");
+        let is_sqlcipher_log_enabled = matches!(log, Ok(s) if s == "true" || s == "1");
+        if is_sqlcipher_log_enabled {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
-        } else {
-            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = WARN;")
+        }
+
+        if is_sqlcipher_log_enabled {
+            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
         }
         tracing::debug!("SQLCipher Database validated.");
