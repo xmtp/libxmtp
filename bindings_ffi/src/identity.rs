@@ -4,13 +4,13 @@ use xmtp_id::associations::{ident, Identifier};
 
 use crate::GenericError;
 
-#[derive(uniffi::Record, Hash, PartialEq, Eq, Clone)]
+#[derive(uniffi::Record, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct FfiIdentifier {
     pub identifier: String,
     pub identifier_kind: FfiIdentifierKind,
 }
 
-#[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone)]
+#[derive(uniffi::Enum, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum FfiIdentifierKind {
     Ethereum,
     Passkey,
