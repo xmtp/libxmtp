@@ -8,6 +8,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::sync::Arc;
 use tsify_next::Tsify;
 use wasm_bindgen::JsValue;
@@ -44,8 +45,9 @@ impl GroupMetadata {
   }
 }
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum PermissionLevel {
   Member = 0,
   Admin = 1,

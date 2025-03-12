@@ -1,5 +1,6 @@
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use tsify_next::Tsify;
 use xmtp_mls::storage::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
@@ -9,8 +10,9 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 
 use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum GroupMessageKind {
   Application = 0,
   MembershipChange = 1,
@@ -25,8 +27,9 @@ impl From<XmtpGroupMessageKind> for GroupMessageKind {
   }
 }
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum DeliveryStatus {
   Unpublished = 0,
   Published = 1,
@@ -53,7 +56,7 @@ impl From<DeliveryStatus> for XmtpDeliveryStatus {
   }
 }
 
-#[derive(Tsify, Clone, Copy, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Copy, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[repr(u16)]
 pub enum SortDirection {

@@ -6,6 +6,7 @@ use crate::streams::{StreamCallback, StreamCloser};
 use crate::user_preferences::UserPreference;
 use crate::{client::RustXmtpClient, conversation::Conversation};
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tsify_next::Tsify;
@@ -21,8 +22,9 @@ use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
 use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_mls::storage::group::GroupQueryArgs;
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -49,8 +51,9 @@ impl From<ConversationType> for XmtpConversationType {
   }
 }
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,

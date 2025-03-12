@@ -13,6 +13,7 @@ pub struct Identifier {
 
 #[derive(Tsify, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum IdentifierKind {
   Ethereum = 0,
   Passkey = 1,

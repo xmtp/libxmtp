@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_mls::storage::consent_record::{
@@ -9,6 +10,7 @@ use crate::{client::Client, conversation::Conversation};
 
 #[derive(Tsify, Clone, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum ConsentState {
   Unknown = 0,
   Allowed = 1,
@@ -35,8 +37,9 @@ impl From<ConsentState> for XmtpConsentState {
   }
 }
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u8)]
 pub enum ConsentEntityType {
   GroupId = 0,
   InboxId = 1,

@@ -4,6 +4,7 @@ use crate::{
 };
 use js_sys::Uint8Array;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::sync::Arc;
 use tsify_next::Tsify;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
@@ -46,8 +47,9 @@ pub struct PasskeySignature {
   client_data_json: Vec<u8>,
 }
 
-#[derive(Tsify, Clone, Serialize, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr, Eq, Hash, PartialEq)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum SignatureRequestType {
   AddWallet = 0,
   CreateInbox = 1,

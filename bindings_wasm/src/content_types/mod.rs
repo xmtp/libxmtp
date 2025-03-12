@@ -1,12 +1,13 @@
-use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use tsify_next::Tsify;
 use xmtp_mls::storage::group_message::ContentType as XmtpContentType;
 
 pub mod multi_remote_attachment;
 pub mod reaction;
 
-#[derive(Tsify, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u16)]
 pub enum ContentType {
   Unknown = 0,
   Text = 1,

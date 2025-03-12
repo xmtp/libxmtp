@@ -1,6 +1,7 @@
 use js_sys::Uint8Array;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use tsify_next::Tsify;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_content_types::reaction::ReactionCodec;
@@ -81,8 +82,9 @@ pub fn decode_reaction(bytes: Uint8Array) -> Result<Reaction, JsError> {
     .map_err(|e| JsError::new(&format!("{}", e)))
 }
 
-#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u8)]
 pub enum ReactionAction {
   Unknown = 0,
   #[default]
@@ -100,8 +102,9 @@ impl From<ReactionAction> for i32 {
   }
 }
 
-#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Tsify, Copy, Default, PartialEq, Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
+#[repr(u8)]
 pub enum ReactionSchema {
   Unknown = 0,
   #[default]
