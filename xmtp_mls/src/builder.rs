@@ -122,8 +122,6 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             inbox_id = identity.inbox_id(),
             installation_id = hex::encode(identity.installation_keys.public_bytes()),
             "Initialized identity inbox_id={},installation_id={}",
-            identity.inbox_id(),
-            hex::encode(identity.installation_keys.public_bytes())
         );
         // get sequence_id from identity updates and loaded into the DB
         load_identity_updates(
