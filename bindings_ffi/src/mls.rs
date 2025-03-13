@@ -3173,7 +3173,6 @@ mod tests {
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
-        // Why is this 2?
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
         assert_eq!(stats.send_group_messages.get_count(), 2);
@@ -3183,7 +3182,6 @@ mod tests {
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
-        // Why is this 2?
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
         assert_eq!(stats.send_group_messages.get_count(), 2);
