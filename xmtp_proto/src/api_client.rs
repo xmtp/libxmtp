@@ -178,7 +178,7 @@ where
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ApiStats {
     pub upload_key_package: Arc<EndpointStats>,
     pub fetch_key_package: Arc<EndpointStats>,
@@ -188,7 +188,7 @@ pub struct ApiStats {
     pub query_welcome_messages: Arc<EndpointStats>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct EndpointStats {
     request_count: AtomicUsize,
 }

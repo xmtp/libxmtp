@@ -2,7 +2,7 @@
 
 use mockall::mock;
 use xmtp_proto::{
-    api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    api_client::{ApiStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -112,6 +112,7 @@ mod not_wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
+            fn stats(&self) -> &ApiStats;
         }
 
         #[async_trait::async_trait]

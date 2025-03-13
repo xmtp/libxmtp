@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
 
-use crate::{ApiEndpoint, Code, ProtoError, XmtpApiError};
+use crate::{api_client::ApiStats, ApiEndpoint, Code, ProtoError, XmtpApiError};
 
 pub trait Endpoint {
     type Output: prost::Message + Default;
@@ -25,6 +25,10 @@ where
     inner: S,
 }
 */
+
+pub trait Stats {
+    fn stats(&self) -> &ApiStats;
+}
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

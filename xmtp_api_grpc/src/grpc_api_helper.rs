@@ -11,7 +11,7 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use tracing::Instrument;
 
 use crate::{GrpcBuilderError, GrpcError};
-use xmtp_proto::api_client::{ApiBuilder, XmtpMlsStreams};
+use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
@@ -73,6 +73,7 @@ pub struct Client {
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) stats: ApiStats,
 }
 
 impl Client {
@@ -97,6 +98,7 @@ impl Client {
             app_version,
             libxmtp_version,
             identity_client,
+            stats: ApiStats::default(),
         })
     }
 
@@ -173,6 +175,7 @@ impl ApiBuilder for ClientBuilder {
             libxmtp_version: self
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+            stats: ApiStats::default(),
         })
     }
 }
@@ -450,6 +453,10 @@ impl XmtpMlsClient for Client {
             .await
             .map(|r| r.into_inner())
             .map_err(|e| crate::Error::new(ApiEndpoint::QueryWelcomeMessages, e.into()))
+    }
+
+    fn stats(&self) -> &ApiStats {
+        &self.stats
     }
 }
 
