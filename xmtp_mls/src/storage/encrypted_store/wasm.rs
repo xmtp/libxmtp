@@ -29,8 +29,14 @@ impl WasmDb {
         let name = xmtp_common::rand_string::<12>();
         let name = format!("file:/xmtp-test-{}.db?vfs=memdb", name);
         let conn = match opts {
-            Ephemeral => SqliteConnection::establish(name.as_str()),
-            Persistent(ref db_path) => SqliteConnection::establish(db_path),
+            Ephemeral => {
+                tracing::debug!("creating ephemeral db at {}", name);
+                SqliteConnection::establish(name.as_str())
+            }
+            Persistent(ref db_path) => {
+                tracing::debug!("creating persistent db at {}", db_path);
+                SqliteConnection::establish(db_path)
+            }
         }?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
