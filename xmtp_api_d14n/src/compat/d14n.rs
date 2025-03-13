@@ -288,7 +288,7 @@ where
     }
 
     fn stats(&self) -> &ApiStats {
-        &self.message_client.stats()
+        self.message_client.stats()
     }
 }
 
@@ -399,6 +399,6 @@ where
     }
 
     fn identity_stats(&self) -> &IdentityStats {
-        &self.message_client.identity_stats()
+        self.message_client.identity_stats()
     }
 }
