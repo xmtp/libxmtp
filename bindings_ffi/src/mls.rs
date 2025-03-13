@@ -2911,27 +2911,36 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, false).await
+    }
+
+    /// Create a new test client with a given wallet.
+    async fn new_test_client_with_wallet_dev(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Arc<FfiXmtpClient> {
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, true).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()), false)
             .await
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
+        is_dev: bool,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
+        let backend_address = if is_dev { xmtp_api_grpc::DEV_ADDRESS.to_string() } else { xmtp_api_grpc::LOCALHOST_ADDRESS.to_string() };
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(backend_address, false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -2956,10 +2965,14 @@ mod tests {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
     }
-
+    
+    async fn new_test_client_dev() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_dev(wallet).await
+    }
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()), false)
             .await
     }
 
@@ -7428,5 +7441,15 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+
+    #[tokio::test]
+    async fn test_broken_address_on_dev() {
+        let client = new_test_client_dev().await;
+        let broken_identifier = FfiIdentifier {
+            identifier: "0x72984f2c4136e081583b062d88da7166c0da2bf2".to_string(),
+            identifier_kind: FfiIdentifierKind::Ethereum,
+        };
+        let group = client.conversations().create_group(vec![broken_identifier], FfiCreateGroupOptions::default()).await.unwrap();
     }
 }
