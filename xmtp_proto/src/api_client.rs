@@ -15,6 +15,7 @@ use crate::xmtp::mls::api::v1::{
     SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
 };
 use futures::Stream;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -177,6 +178,31 @@ where
     }
 }
 
+#[derive(Clone, Default)]
+pub struct ApiStats {
+    pub upload_key_package: Arc<EndpointStats>,
+    pub fetch_key_package: Arc<EndpointStats>,
+    pub send_group_messages: Arc<EndpointStats>,
+    pub send_welcome_messages: Arc<EndpointStats>,
+    pub query_group_messages: Arc<EndpointStats>,
+    pub query_welcome_messages: Arc<EndpointStats>,
+}
+
+#[derive(Default)]
+pub struct EndpointStats {
+    request_count: AtomicUsize,
+}
+
+impl EndpointStats {
+    pub fn count_request(&self) {
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn request_count(&self) -> usize {
+        self.request_count.load(Ordering::Relaxed)
+    }
+}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[allow(async_fn_in_trait)]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -205,6 +231,7 @@ pub trait XmtpMlsClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error>;
+    fn stats(&self) -> &ApiStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -256,6 +283,10 @@ where
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         (**self).query_welcome_messages(request).await
     }
+
+    fn stats(&self) -> &ApiStats {
+        (**self).stats()
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -306,6 +337,10 @@ where
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         (**self).query_welcome_messages(request).await
+    }
+
+    fn stats(&self) -> &ApiStats {
+        (**self).stats()
     }
 }
 #[cfg(not(target_arch = "wasm32"))]

@@ -13,7 +13,7 @@ use prost::Message;
 use reqwest::header;
 use reqwest::header::HeaderMap;
 use util::handle_error_proto;
-use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient};
+use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -52,6 +52,7 @@ pub struct XmtpHttpApiClient {
     host_url: String,
     app_version: String,
     libxmtp_version: String,
+    stats: ApiStats,
 }
 
 impl XmtpHttpApiClient {
@@ -62,11 +63,14 @@ impl XmtpHttpApiClient {
         headers.insert("x-libxmtp-version", libxmtp_version.parse()?);
         let client = client.default_headers(headers).build()?;
 
+        let stats = ApiStats::default();
+
         Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
             app_version,
             libxmtp_version,
+            stats,
         })
     }
 
@@ -152,11 +156,14 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         let app_version = self
             .app_version
             .ok_or(HttpClientBuilderError::MissingAppVersion)?;
+        let stats = ApiStats::default();
+
         Ok(XmtpHttpApiClient {
             http_client,
             host_url: self.host_url,
             app_version,
             libxmtp_version,
+            stats,
         })
     }
 }
@@ -175,6 +182,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     type Error = Error;
 
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error> {
+        self.stats.upload_key_package.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::UPLOAD_KEY_PACKAGE))
@@ -193,6 +202,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
+        self.stats.fetch_key_package.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
@@ -208,6 +219,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
     }
 
     async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error> {
+        self.stats.send_group_messages.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_GROUP_MESSAGES))
@@ -227,6 +240,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Error> {
+        self.stats.send_welcome_messages.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::SEND_WELCOME_MESSAGES))
@@ -246,6 +261,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
+        self.stats.query_group_messages.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_GROUP_MESSAGES))
@@ -265,6 +282,8 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
+        self.stats.query_welcome_messages.count_request();
+
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::QUERY_WELCOME_MESSAGES))
@@ -278,6 +297,10 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         handle_error_proto(res)
             .await
             .map_err(|e| e.with(ApiEndpoint::QueryWelcomeMessages))
+    }
+
+    fn stats(&self) -> &ApiStats {
+        &self.stats
     }
 }
 
