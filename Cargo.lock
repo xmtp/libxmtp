@@ -7745,6 +7745,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "passkey",
  "prost",
+ "public-suffix",
  "rand",
  "thiserror 2.0.11",
  "tokio",

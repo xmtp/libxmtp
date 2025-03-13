@@ -2661,6 +2661,7 @@ mod tests {
         client::{Client, DefaultClientData},
         types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
     };
+    use public_suffix::{PublicSuffixList, DEFAULT_PROVIDER};
 
     struct PkUserValidationMethod {}
     #[async_trait::async_trait]
@@ -2951,7 +2952,17 @@ mod tests {
         register_client(&ffi_inbox_owner, &client).await;
         client
     }
-    async fn new_passkey_client() -> Arc<FfiXmtpClient> {
+
+    type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
+    type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+
+    struct PasskeyUser {
+        pk_cred: PasskeyCredential,
+        pk_client: PasskeyClient,
+        client: Arc<FfiXmtpClient>,
+    }
+
+    async fn new_passkey_cred() -> PasskeyUser {
         let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
         let parameters_from_rp = PublicKeyCredentialParameters {
             ty: PublicKeyCredentialType::PublicKey,
@@ -2996,7 +3007,7 @@ mod tests {
             .await
             .unwrap();
 
-        let public_key = pk_cred.response.public_key.unwrap()[26..].to_vec();
+        let public_key = pk_cred.response.public_key.as_ref().unwrap()[26..].to_vec();
 
         let identity = FfiIdentifier {
             identifier: hex::encode(public_key.clone()),
@@ -3009,7 +3020,7 @@ mod tests {
         let db_path = tmp_path();
         let db_enc_key = static_enc_key().to_vec();
 
-        create_client(
+        let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -3022,7 +3033,56 @@ mod tests {
             None,
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        let signature_request = client.signature_request().unwrap();
+        let challenge = signature_request
+            .signature_text()
+            .await
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let sign_request = CredentialRequestOptions {
+            public_key: PublicKeyCredentialRequestOptions {
+                challenge: Bytes::from(challenge),
+                timeout: None,
+                rp_id: Some(String::from(origin.domain().unwrap())),
+                allow_credentials: None,
+                user_verification: UserVerificationRequirement::default(),
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        let cred = pk_client
+            .authenticate(origin.clone(), sign_request, DefaultClientData)
+            .await
+            .unwrap();
+        let resp = cred.response;
+
+        let signature = resp.signature.to_vec();
+
+        signature_request
+            .add_passkey_signature(FfiPasskeySignature {
+                public_key,
+                signature,
+                client_data_json: resp.client_data_json.to_vec(),
+                authenticator_data: resp.authenticator_data.to_vec(),
+            })
+            .await
+            .unwrap();
+        client.register_identity(signature_request).await.unwrap();
+
+        PasskeyUser {
+            pk_client,
+            pk_cred,
+            client,
+        }
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
@@ -3615,6 +3675,8 @@ mod tests {
         let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
+        let coda = new_passkey_cred().await;
+
         let client_amal = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -3629,6 +3691,17 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // Check if can message a passkey identifier
+        let can_msg = client_amal
+            .can_message(vec![coda.client.account_identifier.clone()])
+            .await
+            .unwrap();
+        let can_msg = *can_msg
+            .get(&coda.client.account_identifier)
+            .unwrap_or(&false);
+        assert!(can_msg);
+
         let can_message_result = client_amal
             .can_message(vec![bola.identifier()])
             .await
