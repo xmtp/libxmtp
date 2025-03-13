@@ -2951,6 +2951,79 @@ mod tests {
         register_client(&ffi_inbox_owner, &client).await;
         client
     }
+    async fn new_passkey_client() -> Arc<FfiXmtpClient> {
+        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
+        let parameters_from_rp = PublicKeyCredentialParameters {
+            ty: PublicKeyCredentialType::PublicKey,
+            alg: coset::iana::Algorithm::ES256,
+        };
+        let pk_user_entity = PublicKeyCredentialUserEntity {
+            id: random_vec(32).into(),
+            display_name: "Alex Passkey".into(),
+            name: "apk@example.org".into(),
+        };
+        let pk_auth_store: Option<Passkey> = None;
+        let pk_aaguid = Aaguid::new_empty();
+        let pk_user_validation_method = PkUserValidationMethod {};
+        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
+        let mut pk_client = Client::new(pk_auth);
+
+        let request = CredentialCreationOptions {
+            public_key: PublicKeyCredentialCreationOptions {
+                rp: PublicKeyCredentialRpEntity {
+                    id: None, // Leaving the ID as None means use the effective domain
+                    name: origin.domain().unwrap().into(),
+                },
+                user: pk_user_entity,
+                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
+                // It's guaranteed to be unique, and that's good enough for us.
+                // All we care about is if that unique credential signs below.
+                challenge: Bytes::from(vec![]),
+                pub_key_cred_params: vec![parameters_from_rp],
+                timeout: None,
+                exclude_credentials: None,
+                authenticator_selection: None,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        // Now create the credential.
+        let pk_cred = pk_client
+            .register(origin.clone(), request, DefaultClientData)
+            .await
+            .unwrap();
+
+        let public_key = pk_cred.response.public_key.unwrap()[26..].to_vec();
+
+        let identity = FfiIdentifier {
+            identifier: hex::encode(public_key.clone()),
+            identifier_kind: FfiIdentifierKind::Passkey,
+        };
+
+        let nonce = 0;
+        let inbox_id = identity.inbox_id(nonce).unwrap();
+
+        let db_path = tmp_path();
+        let db_enc_key = static_enc_key().to_vec();
+
+        create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(db_path),
+            Some(db_enc_key),
+            &inbox_id,
+            identity,
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+    }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
