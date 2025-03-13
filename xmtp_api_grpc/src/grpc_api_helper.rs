@@ -388,6 +388,7 @@ impl XmtpMlsClient for Client {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
+        self.stats.upload_key_package.count_request();
         let client = &mut self.mls_client.clone();
 
         client
@@ -402,6 +403,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        self.stats.fetch_key_package.count_request();
         let client = &mut self.mls_client.clone();
         let res = client.fetch_key_packages(self.build_request(req)).await;
 
@@ -411,6 +413,7 @@ impl XmtpMlsClient for Client {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
+        self.stats.send_group_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .send_group_messages(self.build_request(req))
@@ -424,6 +427,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.stats.send_welcome_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .send_welcome_messages(self.build_request(req))
@@ -437,6 +441,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        self.stats.query_group_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .query_group_messages(self.build_request(req))
@@ -450,6 +455,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        self.stats.query_welcome_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .query_welcome_messages(self.build_request(req))

@@ -206,7 +206,7 @@ impl EndpointStats {
         self.request_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn request_count(&self) -> usize {
+    pub fn get_count(&self) -> usize {
         self.request_count.load(Ordering::Relaxed)
     }
 }
