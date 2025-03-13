@@ -177,6 +177,7 @@ mod wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
+            fn stats(&self) -> &ApiStats;
         }
 
         #[async_trait::async_trait(?Send)]
@@ -205,6 +206,7 @@ mod wasm {
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
             -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
+            fn identity_stats(&self) -> &IdentityStats;
         }
 
         #[async_trait::async_trait(?Send)]
