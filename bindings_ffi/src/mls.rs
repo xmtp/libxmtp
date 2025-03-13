@@ -3147,6 +3147,15 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn radio_silence() {
+        let client = new_test_client().await;
+
+        let stats = client.inner_client.api_stats();
+
+        tracing::info!("kp upload {}", stats.upload_key_package.request_count());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_add_wallet_to_inbox() {
         // Setup the initial first client
         let ffi_inbox_owner = LocalWalletInboxOwner::new();

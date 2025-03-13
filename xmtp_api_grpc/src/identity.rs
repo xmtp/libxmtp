@@ -1,6 +1,6 @@
 use crate::Client;
 use xmtp_proto::{
-    api_client::XmtpIdentityClient,
+    api_client::{IdentityStats, XmtpIdentityClient},
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -19,6 +19,8 @@ impl XmtpIdentityClient for Client {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        self.identity_stats.publish_identity_update.count_request();
+
         let client = &mut self.identity_client.clone();
 
         client
@@ -33,6 +35,8 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
+        self.identity_stats.get_inbox_ids.count_request();
+
         let client = &mut self.identity_client.clone();
 
         client
@@ -47,6 +51,8 @@ impl XmtpIdentityClient for Client {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        self.identity_stats.get_identity_updates_v2.count_request();
+
         let client = &mut self.identity_client.clone();
 
         client
@@ -61,6 +67,10 @@ impl XmtpIdentityClient for Client {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        self.identity_stats
+            .verify_smart_contract_wallet_signature
+            .count_request();
+
         let client = &mut self.identity_client.clone();
 
         let res = client
@@ -69,5 +79,9 @@ impl XmtpIdentityClient for Client {
 
         res.map(|response| response.into_inner())
             .map_err(|err| crate::Error::new(ApiEndpoint::VerifyScwSignature, err.into()))
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        &self.identity_stats
     }
 }

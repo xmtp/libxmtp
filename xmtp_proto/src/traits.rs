@@ -26,8 +26,11 @@ where
 }
 */
 
-pub trait Stats {
+pub trait HasStats {
     fn stats(&self) -> &ApiStats;
+}
+pub trait HasIdentityStats {
+    fn identity_stats(&self) -> &crate::api_client::IdentityStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]

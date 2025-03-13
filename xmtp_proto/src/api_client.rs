@@ -188,6 +188,14 @@ pub struct ApiStats {
     pub query_welcome_messages: Arc<EndpointStats>,
 }
 
+#[derive(Clone, Default, Debug)]
+pub struct IdentityStats {
+    pub publish_identity_update: Arc<EndpointStats>,
+    pub get_identity_updates_v2: Arc<EndpointStats>,
+    pub get_inbox_ids: Arc<EndpointStats>,
+    pub verify_smart_contract_wallet_signature: Arc<EndpointStats>,
+}
+
 #[derive(Default, Debug)]
 pub struct EndpointStats {
     request_count: AtomicUsize,
@@ -476,6 +484,8 @@ pub trait XmtpIdentityClient {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
+
+    fn identity_stats(&self) -> &IdentityStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -515,6 +525,9 @@ where
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
+    fn identity_stats(&self) -> &IdentityStats {
+        (**self).identity_stats()
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -553,6 +566,10 @@ where
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        (**self).identity_stats()
     }
 }
 

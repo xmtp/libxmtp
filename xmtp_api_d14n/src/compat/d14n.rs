@@ -5,9 +5,10 @@
 
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
-use xmtp_proto::api_client::{ApiStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::traits::{ApiError, Query};
-use xmtp_proto::traits::{Client, Stats};
+use xmtp_proto::api_client::{
+    ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+};
+use xmtp_proto::traits::{ApiError, Client, HasIdentityStats, HasStats, Query};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
     build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
@@ -48,7 +49,7 @@ impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
-    C: Send + Sync + Client + Stats,
+    C: Send + Sync + Client + HasStats + HasIdentityStats,
     ApiError<E>: From<ApiError<<P as Client>::Error>>
         + From<ApiError<<C as Client>::Error>>
         + Send
@@ -296,7 +297,7 @@ impl<C, P, E> XmtpIdentityClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
-    C: Send + Sync + Client<Error = E>,
+    C: Send + Sync + Client<Error = E> + HasIdentityStats,
     ApiError<E>: From<ApiError<<P as Client>::Error>>
         + From<ApiError<<C as Client>::Error>>
         + Send
@@ -395,5 +396,9 @@ where
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        &self.message_client.identity_stats()
     }
 }

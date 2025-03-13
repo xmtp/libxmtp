@@ -13,7 +13,7 @@ use prost::Message;
 use reqwest::header;
 use reqwest::header::HeaderMap;
 use util::handle_error_proto;
-use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpIdentityClient};
+use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -53,6 +53,7 @@ pub struct XmtpHttpApiClient {
     app_version: String,
     libxmtp_version: String,
     stats: ApiStats,
+    identity_stats: IdentityStats,
 }
 
 impl XmtpHttpApiClient {
@@ -63,14 +64,13 @@ impl XmtpHttpApiClient {
         headers.insert("x-libxmtp-version", libxmtp_version.parse()?);
         let client = client.default_headers(headers).build()?;
 
-        let stats = ApiStats::default();
-
         Ok(XmtpHttpApiClient {
             http_client: client,
             host_url,
             app_version,
             libxmtp_version,
-            stats,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 
@@ -156,14 +156,14 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         let app_version = self
             .app_version
             .ok_or(HttpClientBuilderError::MissingAppVersion)?;
-        let stats = ApiStats::default();
 
         Ok(XmtpHttpApiClient {
             http_client,
             host_url: self.host_url,
             app_version,
             libxmtp_version,
-            stats,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 }
@@ -430,6 +430,10 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         handle_error_proto(res)
             .await
             .map_err(|e| e.with(ApiEndpoint::VerifyScwSignature))
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        &self.identity_stats
     }
 }
 

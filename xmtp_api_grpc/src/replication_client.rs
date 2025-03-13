@@ -14,7 +14,9 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::api_client::{ApiBuilder, ApiStats, XmtpIdentityClient, XmtpMlsStreams};
+use xmtp_proto::api_client::{
+    ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsStreams,
+};
 
 use crate::{
     grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription},
@@ -74,6 +76,7 @@ pub struct ClientV4 {
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) stats: ApiStats,
+    pub(crate) identity_stats: IdentityStats,
 }
 
 impl ClientV4 {
@@ -105,6 +108,7 @@ impl ClientV4 {
             app_version,
             libxmtp_version,
             stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 
@@ -184,6 +188,7 @@ impl ApiBuilder for ClientBuilder {
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
             stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 }
@@ -445,6 +450,7 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        self.identity_stats.publish_identity_update.count_request();
         self.publish_envelopes_to_payer(vec![request]).await?;
         Ok(PublishIdentityUpdateResponse {})
     }
@@ -454,6 +460,7 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
+        self.identity_stats.get_inbox_ids.count_request();
         let client = &mut self.client.clone();
         let req = GetInboxIdsRequestV4 {
             requests: request
@@ -489,6 +496,8 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        self.identity_stats.get_identity_updates_v2.count_request();
+
         let topics = request
             .requests
             .iter()
@@ -524,6 +533,10 @@ impl XmtpIdentityClient for ClientV4 {
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        &self.identity_stats
     }
 }
 

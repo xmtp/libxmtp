@@ -2,7 +2,7 @@
 
 use mockall::mock;
 use xmtp_proto::{
-    api_client::{ApiStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     xmtp::{
         identity::api::v1::{
             GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -141,6 +141,7 @@ mod not_wasm {
             async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, MockError>;
             async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest)
             -> Result<VerifySmartContractWalletSignaturesResponse, MockError>;
+            fn identity_stats(&self) -> &IdentityStats;
         }
 
         #[async_trait::async_trait]

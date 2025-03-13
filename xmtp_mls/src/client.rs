@@ -49,6 +49,7 @@ use xmtp_id::{
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
 };
+use xmtp_proto::api_client::{ApiStats, IdentityStats};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 /// Enum representing the network the Client is connected to
@@ -229,6 +230,14 @@ where
     #[cfg(test)]
     pub fn test_update_version(&mut self, version: &str) {
         Arc::make_mut(&mut self.version_info).test_update_version(version);
+    }
+
+    pub fn api_stats(&self) -> &ApiStats {
+        self.api_client.api_client.stats()
+    }
+
+    pub fn identity_api_stats(&self) -> &IdentityStats {
+        self.api_client.api_client.identity_stats()
     }
 }
 
