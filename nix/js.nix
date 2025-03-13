@@ -10,7 +10,6 @@
 , playwright-driver
 , playwright
 , lib
-, yalc
 ,
 }:
 
@@ -41,7 +40,6 @@ mkShell {
       geckodriver
       playwright
       playwright-driver.browsers
-      yalc
       corepack
     ]
     ++ lib.optionals stdenv.isDarwin [

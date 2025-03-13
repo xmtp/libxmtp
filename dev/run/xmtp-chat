@@ -18,7 +18,6 @@ WORKSPACE_MANIFEST="$($CARGO locate-project --workspace --message-format=plain)"
 WORKSPACE_PATH="$(dirname $WORKSPACE_MANIFEST)"
 PLAYWRIGHT_VERSION=$(nix develop .#js --command bash -c 'echo $PLAYWRIGHT_VERSION')
 YARN="nix develop -i ${WORKSPACE_PATH}#js --command yarn"
-YALC="nix develop -i ${WORKSPACE_PATH}#js --command yalc"
 
 trap ctrl_c INT
 function ctrl_c() {
