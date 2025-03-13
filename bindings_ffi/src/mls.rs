@@ -7458,6 +7458,7 @@ mod tests {
         // let group = client.conversations().create_group(vec![broken_identifier], FfiCreateGroupOptions::default()).await.unwrap();
         let inbox_id = get_inbox_id_for_identifier(api, broken_identifier).await.unwrap().unwrap();
         assert_eq!(inbox_id, "7881166c8d3f128a5a3d56c0596134544710f742981e0eaf650bb4facab80971");
-        let group = client.conversations().create_group_with_inbox_ids(vec!["7881166c8d3f128a5a3d56c0596134544710f742981e0eaf650bb4facab80971".to_string()], FfiCreateGroupOptions::default()).await.unwrap();
+        // Errors on next line with `Err Client(Group(InstallationDiff(Client(Association(MultipleCreate)))))`
+        let _group = client.conversations().create_group_with_inbox_ids(vec!["7881166c8d3f128a5a3d56c0596134544710f742981e0eaf650bb4facab80971".to_string()], FfiCreateGroupOptions::default()).await.unwrap();
     }
 }
