@@ -2656,6 +2656,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::{join_all, try_join_all};
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
         client::{Client, DefaultClientData},
@@ -2703,6 +2704,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        GenericError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2907,6 +2909,23 @@ mod tests {
         client.register_identity(signature_request).await.unwrap();
     }
 
+    async fn register_clientt(
+        inbox_owner: &LocalWalletInboxOwner,
+        client: &FfiXmtpClient,
+    ) -> Result<(), GenericError> {
+        let signature_request = client.signature_request().unwrap();
+        signature_request
+            .add_ecdsa_signature(
+                inbox_owner
+                    .sign(signature_request.signature_text().await.unwrap())
+                    .unwrap(),
+            )
+            .await?;
+        client.register_identity(signature_request).await?;
+
+        Ok(())
+    }
+
     /// Create a new test client with a given wallet.
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
@@ -2959,6 +2978,36 @@ mod tests {
 
         register_client(&ffi_inbox_owner, &client).await;
         client
+    }
+
+    async fn new_test_clientt(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            None,
+        )
+        .await?;
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        register_clientt(&ffi_inbox_owner, &client).await?;
+
+        Ok(client)
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
@@ -3224,6 +3273,27 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn rapidfire_duplicate_create() {
+        let wallet = generate_local_wallet();
+        let mut futs = vec![];
+        for _ in 0..10 {
+            futs.push(new_test_clientt(wallet.clone()));
+        }
+
+        let results = join_all(futs).await;
+
+        let mut num_okay = 0;
+        for result in results {
+            if result.is_ok() {
+                num_okay += 1;
+            }
+        }
+
+        // Only one client should get to sign up
+        assert_eq!(num_okay, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
