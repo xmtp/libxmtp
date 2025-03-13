@@ -727,4 +727,54 @@ pub(crate) mod tests {
             ));
         }
     }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_duplicate_create_inbox() {
+        // Create first inbox
+        let create_request = CreateInbox::default();
+        let inbox_id = create_request
+            .account_identifier
+            .inbox_id(create_request.nonce)
+            .unwrap();
+
+        let identity_update =
+            IdentityUpdate::new_test(vec![Action::CreateInbox(create_request.clone())], inbox_id.clone());
+        
+        // Create a duplicate create inbox action with the same account and nonce
+        let duplicate_update =
+            IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
+        
+        // First update should succeed
+        let initial_state = get_state(vec![identity_update]).unwrap();
+        assert_eq!(initial_state.members().len(), 1);
+        
+        // Applying the duplicate update should fail with MultipleCreate error
+        let result = apply_update(initial_state, duplicate_update);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(AssociationError::MultipleCreate)));
+    }
+
+    #[wasm_bindgen_test(unsupported = test)]
+    fn test_duplicate_create_inbox_in_batch() {
+        // Create a create inbox action
+        let create_request = CreateInbox::default();
+        let inbox_id = create_request
+            .account_identifier
+            .inbox_id(create_request.nonce)
+            .unwrap();
+
+        // Create an identity update with two identical create inbox actions
+        let identity_update = IdentityUpdate::new_test(
+            vec![
+                Action::CreateInbox(create_request.clone()),
+                Action::CreateInbox(create_request),
+            ],
+            inbox_id.clone(),
+        );
+        
+        // Applying the update with duplicate create actions should fail
+        let result = get_state(vec![identity_update]);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(AssociationError::MultipleCreate)));
+    }
 }
