@@ -1,13 +1,8 @@
-version: "3.8"
+version: '3.8'
 
 services:
   node:
-    build:
-      dockerfile: ./dev/docker/Dockerfile
-      context: ../../../xmtp-node-go
-      args:
-        - GO_VERSION=1.20
-    # image: xmtp/node-go:latest
+    image: xmtp/node-go:latest
     platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
@@ -19,6 +14,8 @@ services:
       - --mls-validation.grpc-address=validation:50051
       - --api.enable-mls
       - --wait-for-db=30s
+      # Disable authn until we have reliable support for generating auth tokens
+      # - --api.authn.enable
     ports:
       - 5555:5555
       - 5556:5556
@@ -26,11 +23,11 @@ services:
       - db
 
   validation:
-    # image: ghcr.io/xmtp/mls-validation-service:main
+    image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ./dev/validation_service/Dockerfile
+      dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
 
@@ -62,7 +59,7 @@ services:
     environment:
       POSTGRES_PASSWORD: xmtp
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -96,6 +93,6 @@ services:
       chain:
         condition: service_started
       replicationdb:
-        condition: service_healthy
+          condition: service_healthy
     ports:
       - 5050:5050
