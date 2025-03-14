@@ -11,7 +11,7 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use tracing::Instrument;
 
 use crate::{GrpcBuilderError, GrpcError};
-use xmtp_proto::api_client::{ApiBuilder, XmtpMlsStreams};
+use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
@@ -73,6 +73,8 @@ pub struct Client {
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) stats: ApiStats,
+    pub(crate) identity_stats: IdentityStats,
 }
 
 impl Client {
@@ -97,6 +99,8 @@ impl Client {
             app_version,
             libxmtp_version,
             identity_client,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 
@@ -173,6 +177,8 @@ impl ApiBuilder for ClientBuilder {
             libxmtp_version: self
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 }
@@ -382,6 +388,7 @@ impl XmtpMlsClient for Client {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
+        self.stats.upload_key_package.count_request();
         let client = &mut self.mls_client.clone();
 
         client
@@ -396,6 +403,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        self.stats.fetch_key_package.count_request();
         let client = &mut self.mls_client.clone();
         let res = client.fetch_key_packages(self.build_request(req)).await;
 
@@ -405,6 +413,7 @@ impl XmtpMlsClient for Client {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
+        self.stats.send_group_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .send_group_messages(self.build_request(req))
@@ -418,6 +427,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.stats.send_welcome_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .send_welcome_messages(self.build_request(req))
@@ -431,6 +441,7 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        self.stats.query_group_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .query_group_messages(self.build_request(req))
@@ -444,12 +455,17 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        self.stats.query_welcome_messages.count_request();
         let client = &mut self.mls_client.clone();
         client
             .query_welcome_messages(self.build_request(req))
             .await
             .map(|r| r.into_inner())
             .map_err(|e| crate::Error::new(ApiEndpoint::QueryWelcomeMessages, e.into()))
+    }
+
+    fn stats(&self) -> &ApiStats {
+        &self.stats
     }
 }
 

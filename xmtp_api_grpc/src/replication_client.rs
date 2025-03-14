@@ -14,7 +14,9 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 
 #[cfg(any(feature = "test-utils", test))]
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::api_client::{ApiBuilder, XmtpIdentityClient, XmtpMlsStreams};
+use xmtp_proto::api_client::{
+    ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsStreams,
+};
 
 use crate::{
     grpc_api_helper::{create_tls_channel, GrpcMutableSubscription, Subscription},
@@ -73,6 +75,8 @@ pub struct ClientV4 {
     pub(crate) payer_client: PayerApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) stats: ApiStats,
+    pub(crate) identity_stats: IdentityStats,
 }
 
 impl ClientV4 {
@@ -103,6 +107,8 @@ impl ClientV4 {
             payer_client,
             app_version,
             libxmtp_version,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 
@@ -181,6 +187,8 @@ impl ApiBuilder for ClientBuilder {
             libxmtp_version: self
                 .libxmtp_version
                 .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+            stats: ApiStats::default(),
+            identity_stats: IdentityStats::default(),
         })
     }
 }
@@ -228,6 +236,7 @@ impl XmtpMlsClient for ClientV4 {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
+        self.stats.upload_key_package.count_request();
         self.publish_envelopes_to_payer(std::iter::once(req))
             .await
             .map_err(Error::from)
@@ -238,6 +247,8 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        self.stats.fetch_key_package.count_request();
+
         let topics = req
             .installation_keys
             .iter()
@@ -276,6 +287,8 @@ impl XmtpMlsClient for ClientV4 {
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Self::Error> {
+        self.stats.send_group_messages.count_request();
+
         self.publish_envelopes_to_payer(req.messages)
             .await
             .map_err(Error::from)
@@ -286,6 +299,8 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.stats.send_welcome_messages.count_request();
+
         self.publish_envelopes_to_payer(req.messages)
             .await
             .map_err(Error::from)
@@ -296,6 +311,8 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        self.stats.query_group_messages.count_request();
+
         let client = &mut self.client.clone();
         let res = client
             .query_envelopes(QueryEnvelopesRequest {
@@ -350,6 +367,8 @@ impl XmtpMlsClient for ClientV4 {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        self.stats.query_welcome_messages.count_request();
+
         let client = &mut self.client.clone();
         let res = client
             .query_envelopes(QueryEnvelopesRequest {
@@ -396,6 +415,10 @@ impl XmtpMlsClient for ClientV4 {
         };
         Ok(response)
     }
+
+    fn stats(&self) -> &ApiStats {
+        &self.stats
+    }
 }
 
 #[async_trait::async_trait]
@@ -427,6 +450,7 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        self.identity_stats.publish_identity_update.count_request();
         self.publish_envelopes_to_payer(vec![request]).await?;
         Ok(PublishIdentityUpdateResponse {})
     }
@@ -436,6 +460,7 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
+        self.identity_stats.get_inbox_ids.count_request();
         let client = &mut self.client.clone();
         let req = GetInboxIdsRequestV4 {
             requests: request
@@ -471,6 +496,8 @@ impl XmtpIdentityClient for ClientV4 {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        self.identity_stats.get_identity_updates_v2.count_request();
+
         let topics = request
             .requests
             .iter()
@@ -506,6 +533,10 @@ impl XmtpIdentityClient for ClientV4 {
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        &self.identity_stats
     }
 }
 

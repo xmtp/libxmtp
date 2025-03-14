@@ -5,9 +5,10 @@
 
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
-use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams};
-use xmtp_proto::traits::Client;
-use xmtp_proto::traits::{ApiError, Query};
+use xmtp_proto::api_client::{
+    ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
+};
+use xmtp_proto::traits::{ApiError, Client, HasIdentityStats, HasStats, Query};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
     build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
@@ -48,7 +49,7 @@ impl<C, P, E> XmtpMlsClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
-    C: Send + Sync + Client,
+    C: Send + Sync + Client + HasStats + HasIdentityStats,
     ApiError<E>: From<ApiError<<P as Client>::Error>>
         + From<ApiError<<C as Client>::Error>>
         + Send
@@ -61,6 +62,11 @@ where
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
+        self.message_client
+            .stats()
+            .upload_key_package
+            .count_request();
+
         let envelope: ClientEnvelope = request.try_into()?;
 
         PublishClientEnvelopes::builder()
@@ -76,6 +82,11 @@ where
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        self.message_client
+            .stats()
+            .fetch_key_package
+            .count_request();
+
         let topics = request
             .installation_keys
             .iter()
@@ -106,6 +117,11 @@ where
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.message_client
+            .stats()
+            .send_group_messages
+            .count_request();
+
         let envelopes: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
@@ -125,6 +141,11 @@ where
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.message_client
+            .stats()
+            .send_welcome_messages
+            .count_request();
+
         let envelope: Vec<ClientEnvelope> = request
             .messages
             .into_iter()
@@ -144,6 +165,11 @@ where
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        self.message_client
+            .stats()
+            .query_group_messages
+            .count_request();
+
         let query_envelopes = EnvelopesQuery {
             topics: vec![build_group_message_topic(request.group_id.as_slice())],
             originator_node_ids: Vec::new(), // todo: set later
@@ -201,6 +227,11 @@ where
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        self.message_client
+            .stats()
+            .query_welcome_messages
+            .count_request();
+
         let query = EnvelopesQuery {
             topics: vec![build_welcome_message_topic(
                 request.installation_key.as_slice(),
@@ -255,6 +286,10 @@ where
             paging_info: None,
         })
     }
+
+    fn stats(&self) -> &ApiStats {
+        self.message_client.stats()
+    }
 }
 
 #[async_trait::async_trait]
@@ -262,7 +297,7 @@ impl<C, P, E> XmtpIdentityClient for D14nClient<C, P, E>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
-    C: Send + Sync + Client<Error = E>,
+    C: Send + Sync + Client<Error = E> + HasIdentityStats,
     ApiError<E>: From<ApiError<<P as Client>::Error>>
         + From<ApiError<<C as Client>::Error>>
         + Send
@@ -361,5 +396,9 @@ where
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         unimplemented!()
+    }
+
+    fn identity_stats(&self) -> &IdentityStats {
+        self.message_client.identity_stats()
     }
 }
