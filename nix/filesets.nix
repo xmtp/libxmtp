@@ -19,6 +19,7 @@ let
     ./../xmtp_id/src/scw_verifier/chain_urls_default.json
     ./../xmtp_id/artifact
     ./../xmtp_mls/migrations
+    ./../bindings_wasm/package.json
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../examples/cli)
@@ -27,6 +28,8 @@ let
     (commonCargoSources ./../bindings_wasm)
     (commonCargoSources ./../bindings_ffi)
     (commonCargoSources ./../xmtp_debug)
+    ./../bindings_wasm/package.json
+    ./../bindings_wasm/yarn.lock
   ];
   forCrate = crate: lib.fileset.unions [
     workspace

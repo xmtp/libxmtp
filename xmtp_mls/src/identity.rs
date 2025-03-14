@@ -126,7 +126,15 @@ impl IdentityStrategy {
 
         debug!("identity in store: {:?}", stored_identity);
         match self {
-            CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
+            CachedOnly => {
+                let cached = stored_identity.ok_or(IdentityError::RequiredIdentityNotFound)?;
+                info!(
+                    "returning cached identity inbox_id = {}, installation_id={}",
+                    cached.inbox_id,
+                    hex::encode(cached.installation_keys.public_bytes())
+                );
+                Ok(cached)
+            }
             CreateIfNotFound {
                 inbox_id,
                 identifier,
@@ -138,7 +146,9 @@ impl IdentityStrategy {
                         installation_id =
                             hex::encode(stored_identity.installation_keys.public_bytes()),
                         inbox_id = stored_identity.inbox_id,
-                        "Found existing identity in store"
+                        "Found existing identity in store inbox_id ={}, installation_id ={}",
+                        stored_identity.inbox_id,
+                        hex::encode(stored_identity.installation_keys.public_bytes()),
                     );
                     if inbox_id != stored_identity.inbox_id {
                         return Err(IdentityError::InboxIdMismatch {
@@ -149,7 +159,7 @@ impl IdentityStrategy {
 
                     Ok(stored_identity)
                 } else {
-                    Identity::new(
+                    let identity = Identity::new(
                         inbox_id,
                         identifier,
                         nonce,
@@ -158,7 +168,13 @@ impl IdentityStrategy {
                         provider,
                         scw_signature_verifier,
                     )
-                    .await
+                    .await?;
+                    tracing::debug!(
+                        "created new identity inbox_id={}, installation_id={}",
+                        identity.inbox_id(),
+                        hex::encode(identity.installation_keys.public_bytes())
+                    );
+                    Ok(identity)
                 }
             }
             #[cfg(test)]

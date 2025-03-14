@@ -89,8 +89,8 @@ let
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
         cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
-
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
+        cp ./bindings_wasm/package.json $out/dist/package.json
       '';
     });
   devShell = mkShell {
