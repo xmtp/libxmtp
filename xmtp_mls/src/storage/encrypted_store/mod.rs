@@ -581,6 +581,7 @@ pub(crate) mod tests {
         assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
         use crate::storage::native::NativeStorageError;
