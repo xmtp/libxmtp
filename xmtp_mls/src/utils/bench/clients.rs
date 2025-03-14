@@ -9,7 +9,7 @@ use xmtp_id::{
     },
     InboxOwner,
 };
-use xmtp_proto::api_client::XmtpTestClient;
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 pub type BenchClient = Client<TestApiClient>;
 
@@ -27,10 +27,16 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 
     let api_client = if is_dev_network {
         tracing::info!("Using Dev GRPC");
-        <TestApiClient as XmtpTestClient>::create_dev().await
+        <TestApiClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap()
     } else {
         tracing::info!("Using Local GRPC");
-        <TestApiClient as XmtpTestClient>::create_local().await
+        <TestApiClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap()
     };
 
     let client = crate::Client::builder(IdentityStrategy::new(

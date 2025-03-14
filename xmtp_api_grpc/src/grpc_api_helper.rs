@@ -536,3 +536,40 @@ impl XmtpMlsStreams for Client {
         Ok(stream.into())
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use super::*;
+    use xmtp_proto::api_client::XmtpTestClient;
+
+    impl XmtpTestClient for Client {
+        type Builder = ClientBuilder;
+        fn create_local() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5556".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_d14n() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_payer() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_dev() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".into());
+            client.set_tls(true);
+            client
+        }
+    }
+}

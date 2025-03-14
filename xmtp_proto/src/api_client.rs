@@ -18,11 +18,12 @@ use futures::Stream;
 use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpTestClient {
-    async fn create_local() -> Self;
-    async fn create_dev() -> Self;
+    type Builder: ApiBuilder;
+    fn create_local() -> Self::Builder;
+    fn create_local_d14n() -> Self::Builder;
+    fn create_local_payer() -> Self::Builder;
+    fn create_dev() -> Self::Builder;
 }
 
 pub type BoxedXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;

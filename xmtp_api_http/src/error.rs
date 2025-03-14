@@ -167,6 +167,12 @@ pub enum HttpClientError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Uri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    InvalidUri(#[from] http::uri::InvalidUriParts),
+    #[error(transparent)]
+    Http(#[from] http::Error),
 }
 
 impl xmtp_common::RetryableError for HttpClientError {

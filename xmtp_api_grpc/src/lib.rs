@@ -2,7 +2,6 @@ pub mod auth_token;
 pub mod grpc_api_helper;
 pub mod grpc_client;
 mod identity;
-pub mod replication_client;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
@@ -142,27 +141,6 @@ impl xmtp_proto::XmtpApiError for GrpcError {
         match &self {
             GrpcError::Status(status) => Some(status.message()),
             _ => None,
-        }
-    }
-}
-mod utils {
-    #[cfg(feature = "test-utils")]
-    mod test {
-        use xmtp_proto::api_client::XmtpTestClient;
-
-        #[async_trait::async_trait]
-        impl XmtpTestClient for crate::Client {
-            async fn create_local() -> Self {
-                crate::Client::create("http://localhost:5556", false)
-                    .await
-                    .unwrap()
-            }
-
-            async fn create_dev() -> Self {
-                crate::Client::create("https://grpc.dev.xmtp.network:443", true)
-                    .await
-                    .unwrap()
-            }
         }
     }
 }

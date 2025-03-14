@@ -31,11 +31,16 @@ impl Client for GrpcClient {
     type Error = crate::GrpcError;
     type Stream = tonic::Streaming<Bytes>;
 
-    async fn request(
+    async fn request<T>(
         &self,
         request: http::request::Builder,
+        uri: http::uri::Builder,
         body: Vec<u8>,
-    ) -> Result<http::Response<Bytes>, ApiError<Self::Error>> {
+    ) -> Result<http::Response<T>, ApiError<Self::Error>>
+    where
+        Self: Sized,
+        T: Default + prost::Message + 'static,
+    {
         let client = &mut self.inner.clone();
         client
             .ready()
@@ -50,14 +55,18 @@ impl Client for GrpcClient {
 
         let request = request.body(body)?;
         let (parts, body) = request.into_parts();
-        //TODO: HANDLE
-        let path = parts.uri.into_parts().path_and_query.expect("must exist");
+        let path = uri
+            .build()?
+            .into_parts()
+            .path_and_query
+            .expect("must exist");
         let mut tonic_request = tonic::Request::from_parts(
             MetadataMap::from_headers(parts.headers),
             parts.extensions,
             body,
         );
         let metadata = tonic_request.metadata_mut();
+
         // must be lowercase otherwise panics
         metadata.append("x-app-version", self.app_version.clone());
         metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
@@ -196,4 +205,41 @@ pub async fn create_tls_channel(address: String) -> Result<Channel, GrpcBuilderE
         .await?;
 
     Ok(channel)
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use super::*;
+    use xmtp_proto::api_client::XmtpTestClient;
+
+    impl XmtpTestClient for GrpcClient {
+        type Builder = ClientBuilder;
+        fn create_local() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5556".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_d14n() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_payer() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_dev() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".into());
+            client.set_tls(true);
+            client
+        }
+    }
 }

@@ -32,6 +32,9 @@ use xmtp_proto::{
     ApiEndpoint,
 };
 
+#[macro_use]
+extern crate tracing;
+
 use crate::constants::ApiEndpoints;
 pub use crate::error::{Error, ErrorResponse, HttpClientError};
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5555";
@@ -117,6 +120,10 @@ pub enum HttpClientBuilderError {
     ReqwestErrror(#[from] reqwest::Error),
     #[error(transparent)]
     InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+    #[error(transparent)]
+    InvalidUri(#[from] http::uri::InvalidUri),
+    #[error(transparent)]
+    InvalidUriParts(#[from] http::uri::InvalidUriParts),
 }
 
 impl ApiBuilder for XmtpHttpApiClientBuilder {
@@ -421,6 +428,14 @@ pub mod tests {
 
     use super::*;
 
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(test)]
+    fn _setup() {
+        xmtp_common::logger();
+    }
+
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {
@@ -448,5 +463,30 @@ pub mod tests {
             .unwrap()
             .to_string()
             .contains("invalid identity"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_get_inbox_ids() {
+        use xmtp_proto::identity::api::v1::prelude::{
+            get_inbox_ids_request::Request, GetInboxIdsRequest,
+        };
+        use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_host(ApiUrls::LOCAL_ADDRESS.to_string());
+        client.set_app_version("".into()).unwrap();
+        client
+            .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+            .unwrap();
+        let client = client.build().await.unwrap();
+        let result = client
+            .get_inbox_ids(GetInboxIdsRequest {
+                requests: vec![Request {
+                    identifier: "0xC2e3f813297E7b42a89e0b2FAa66f2034831984f".to_string(),
+                    identifier_kind: IdentifierKind::Ethereum as i32,
+                }],
+            })
+            .await;
+        assert!(result.is_ok());
     }
 }

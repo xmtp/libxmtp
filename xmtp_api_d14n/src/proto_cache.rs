@@ -13,11 +13,16 @@ pub static PROTO_CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| RwLock::new(HashMap::
 
 // TODO: Create proc macro to get FILE_DESCRIPTOR from rust path of `Type` to remove
 // file_descriptor arg
+// maybe by using eval macro? https://docs.rs/eval-macro/latest/eval_macro/
+// just need to collect the file descriptor set and created a static lookup table
 pub fn path_and_query<Type: prost::Name>(file_descriptor: &'static [u8]) -> Cow<'static, str> {
     let pnq = |service: &ServiceDescriptorProto, method: &MethodDescriptorProto| -> String {
         String::new() + "/" + Type::PACKAGE + "." + service.name() + "/" + method.name()
     };
-    if let Some((service, method)) = crate::PROTO_CACHE.read().get(Type::NAME) {
+    if let Some((service, method)) = crate::PROTO_CACHE
+        .read()
+        .get((Type::PACKAGE.to_owned() + "." + Type::NAME).as_str())
+    {
         return Cow::Owned(pnq(service, method));
     }
 
