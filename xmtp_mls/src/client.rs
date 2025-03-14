@@ -98,6 +98,15 @@ pub enum ClientError {
     Generic(String),
 }
 
+impl ClientError {
+    pub fn db_needs_connection(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            _ => false,
+        }
+    }
+}
+
 impl From<NotFound> for ClientError {
     fn from(value: NotFound) -> Self {
         ClientError::Storage(StorageError::NotFound(value))

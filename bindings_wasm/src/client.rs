@@ -1,5 +1,7 @@
+use futures::FutureExt;
 use js_sys::Uint8Array;
 use std::collections::HashMap;
+use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
@@ -12,6 +14,7 @@ use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
+use xmtp_mls::storage::{OpfsSAHError, OpfsSAHPoolUtil};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
@@ -143,10 +146,10 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
-        .map_err(|_| JsError::new("Error creating encrypted message store"))?
+        .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .map_err(|_| JsError::new("Error creating unencrypted message store"))?,
+      .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?,
   };
 
   let identity_strategy = IdentityStrategy::new(
@@ -165,14 +168,14 @@ pub async fn create_client(
       .history_sync_url(&url)
       .build()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+      .map_err(|e| JsError::new(&e.to_string()))?,
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
       .build()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+      .map_err(|e| JsError::new(&e.to_string()))?,
   };
 
   Ok(Client {
@@ -308,5 +311,82 @@ impl Client {
   #[wasm_bindgen]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
+  }
+}
+
+#[wasm_bindgen]
+pub struct Opfs;
+
+#[wasm_bindgen]
+impl Opfs {
+  /// Check if the global OPFS object has been initialized
+  #[wasm_bindgen]
+  pub fn exists() -> bool {
+    xmtp_mls::storage::SQLITE.get().is_some()
+  }
+
+  /// gets the error from Opfs, if any.
+  #[wasm_bindgen]
+  pub fn error() -> Option<String> {
+    if let Some(Err(e)) = xmtp_mls::storage::SQLITE.get() {
+      Some(e.to_string())
+    } else {
+      None
+    }
+  }
+
+  #[wasm_bindgen(js_name = "wipeFiles")]
+  pub async fn wipe_files() -> Result<(), JsError> {
+    opfs_op_async(move |u| async move { u.wipe_files().await }).await
+  }
+
+  /// If a virtual file exists with the given name, disassociates it from the pool and returns true, else returns false without side effects.
+  #[wasm_bindgen]
+  pub fn rm(name: &str) -> Result<bool, JsError> {
+    opfs_op(|u| u.unlink(name))
+  }
+
+  #[wasm_bindgen(js_name = "getFileNames")]
+  pub fn get_file_names(&self) -> Vec<String> {
+    opfs_op(|u| Ok(u.get_file_names())).expect("get_file_names is infallible")
+  }
+
+  #[wasm_bindgen(js_name = "importDb")]
+  pub fn import_db(&self, path: &str, bytes: &[u8]) -> Result<(), JsError> {
+    opfs_op(|u| u.import_db(path, bytes))
+  }
+
+  #[wasm_bindgen(js_name = "exportFile")]
+  pub fn export_file(&self, name: &str) -> Result<Vec<u8>, JsError> {
+    opfs_op(|u| u.export_file(name))
+  }
+
+  #[wasm_bindgen(js_name = "getFileCount")]
+  pub fn get_file_count(&self) -> u32 {
+    opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
+  }
+}
+
+fn opfs_op<F, T>(f: F) -> Result<T, JsError>
+where
+  F: Fn(&OpfsSAHPoolUtil) -> Result<T, OpfsSAHError>,
+{
+  opfs_op_async(|opfs| async { f(opfs) })
+    .now_or_never()
+    .expect("sync op must resolve immediately")
+}
+
+async fn opfs_op_async<'a, F, Fut, T>(f: F) -> Result<T, JsError>
+where
+  F: Fn(&'a OpfsSAHPoolUtil) -> Fut,
+  Fut: Future<Output = Result<T, OpfsSAHError>> + 'a,
+{
+  if let Some(pool) = xmtp_mls::storage::SQLITE.get() {
+    match pool {
+      Ok(p) => Ok(f(p).await?),
+      Err(e) => Err(JsError::new(&e.to_string())),
+    }
+  } else {
+    Err(JsError::new("no pool initialized"))
   }
 }

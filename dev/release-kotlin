@@ -80,7 +80,7 @@ cd $WORKSPACE_PATH
 LIBRARY_NAME="libxmtpv3"
 TARGET_NAME="libuniffi_xmtpv3"
 
-$CARGO ndk -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
+$CARGO ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path ./bindings_ffi/Cargo.toml \
   -t aarch64-linux-android \
   -t x86_64-linux-android \
   -t i686-linux-android \

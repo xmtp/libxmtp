@@ -1297,7 +1297,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.4"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -1310,7 +1310,7 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -1322,7 +1322,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -1332,7 +1332,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "syn 2.0.90",
 ]
@@ -1447,7 +1447,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "darling",
  "either",
@@ -1465,9 +1465,9 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "dyn-clone"
-version = "1.0.17"
+version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d6ef0072f8a535281e4876be788938b528e9a1d43900b82c2569af7da799125"
+checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
 
 [[package]]
 name = "dynosaur"
@@ -3238,9 +3238,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.29.0"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4588d65215825ee71ebff9e1c9982067833b1355d7546845ffdb3165cbd7456"
+checksum = "fbb8270bb4060bd76c6e96f20c52d80620f1d82a3470885694e41e0f81ef6fe7"
 dependencies = [
  "cc",
  "openssl-sys",
@@ -3350,7 +3350,7 @@ dependencies = [
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "serde",
  "toml 0.8.19",
@@ -3359,7 +3359,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#828e51f848d31390632d1b19c760df404642e0c6"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#a5325d0d70c33c1952448121e1e52f4f5be6e9e5"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -4549,7 +4549,7 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0f3e5beed80eb580c68e2c600937ac2c4eedabdfd5ef1e5b7ea4f3fba84497b"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.13.0",
  "log",
  "multimap",
@@ -5585,6 +5585,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "xshell",
 ]
 
 [[package]]
@@ -7764,6 +7765,21 @@ dependencies = [
  "xmtp_mls",
  "xmtp_proto",
 ]
+
+[[package]]
+name = "xshell"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e7290c623014758632efe00737145b6867b66292c42167f2ec381eb566a373d"
+dependencies = [
+ "xshell-macros",
+]
+
+[[package]]
+name = "xshell-macros"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32ac00cd3f8ec9c1d33fb3e7958a82df6989c42d747bd326c822b1d625283547"
 
 [[package]]
 name = "xxhash-rust"

@@ -1,6 +1,6 @@
 /// Native SQLite connection using SqlCipher
 use crate::storage::encrypted_store::DbConnectionPrivate;
-use crate::storage::StorageError;
+use crate::storage::NotFound;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection},
@@ -9,6 +9,8 @@ use diesel::{
 };
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+use thiserror::Error;
+use xmtp_common::RetryableError;
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
@@ -34,7 +36,7 @@ impl<T> XmtpConnection for T where
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
-    fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), NativeStorageError> {
         Ok(())
     }
 }
@@ -89,6 +91,45 @@ impl StorageOption {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum NativeStorageError {
+    #[error("Pool error: {0}")]
+    Pool(#[from] diesel::r2d2::PoolError),
+    #[error("Error with connection to Sqlite {0}")]
+    DbConnection(#[from] diesel::r2d2::Error),
+    #[error("Pool needs to  reconnect before use")]
+    PoolNeedsConnection,
+    #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
+    SqlCipherNotLoaded,
+    #[error("PRAGMA key or salt has incorrect value")]
+    SqlCipherKeyIncorrect,
+    #[error(transparent)]
+    DieselResult(#[from] diesel::result::Error),
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    FromHex(#[from] hex::FromHexError),
+    #[error(transparent)]
+    DieselConnect(#[from] diesel::ConnectionError),
+    #[error(transparent)]
+    Boxed(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl RetryableError for NativeStorageError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Pool(_) => true,
+            Self::SqlCipherNotLoaded => true,
+            Self::PoolNeedsConnection => true,
+            Self::SqlCipherKeyIncorrect => false,
+
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
@@ -104,7 +145,7 @@ impl NativeDb {
     pub(super) fn new(
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
-    ) -> Result<Self, StorageError> {
+    ) -> Result<Self, NativeStorageError> {
         let mut builder = Pool::builder();
 
         let customizer = if let Some(key) = enc_key {
@@ -140,12 +181,12 @@ impl NativeDb {
         })
     }
 
-    fn raw_conn(&self) -> Result<RawDbConnection, StorageError> {
+    fn raw_conn(&self) -> Result<RawDbConnection, NativeStorageError> {
         let pool_guard = self.pool.read();
 
         let pool = pool_guard
             .as_ref()
-            .ok_or(StorageError::PoolNeedsConnection)?;
+            .ok_or(NativeStorageError::PoolNeedsConnection)?;
 
         tracing::trace!(
             "pulling connection from pool, idle={}, total={}",
@@ -160,9 +201,10 @@ impl NativeDb {
 impl XmtpDb for NativeDb {
     type Connection = RawDbConnection;
     type TransactionManager = PoolTransactionManager<AnsiTransactionManager>;
+    type Error = NativeStorageError;
 
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
+    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error> {
         let conn = match self.opts {
             StorageOption::Ephemeral => None,
             StorageOption::Persistent(_) => Some(self.raw_conn()?),
@@ -175,7 +217,7 @@ impl XmtpDb for NativeDb {
         ))
     }
 
-    fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
+    fn validate(&self, opts: &StorageOption) -> Result<(), Self::Error> {
         if let Some(c) = &self.customizer {
             c.validate(opts)
         } else {
@@ -183,14 +225,14 @@ impl XmtpDb for NativeDb {
         }
     }
 
-    fn release_connection(&self) -> Result<(), StorageError> {
+    fn release_connection(&self) -> Result<(), Self::Error> {
         tracing::warn!("released sqlite database connection");
         let mut pool_guard = self.pool.write();
         pool_guard.take();
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), StorageError> {
+    fn reconnect(&self) -> Result<(), Self::Error> {
         tracing::info!("reconnecting sqlite database connection");
         let mut builder = Pool::builder();
 

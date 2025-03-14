@@ -13,6 +13,7 @@
 , cargo-flamegraph
 , inferno
 , openssl
+, sqlcipher
 , sqlite
 , corepack
 , lnav
@@ -70,6 +71,7 @@ mkShell {
       # native libs
       openssl
       sqlite
+      sqlcipher
 
       mktemp
       jdk21
