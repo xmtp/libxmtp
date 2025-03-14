@@ -347,22 +347,22 @@ impl Opfs {
   }
 
   #[wasm_bindgen(js_name = "getFileNames")]
-  pub fn get_file_names(&self) -> Vec<String> {
+  pub fn get_file_names() -> Vec<String> {
     opfs_op(|u| Ok(u.get_file_names())).expect("get_file_names is infallible")
   }
 
   #[wasm_bindgen(js_name = "importDb")]
-  pub fn import_db(&self, path: &str, bytes: &[u8]) -> Result<(), JsError> {
+  pub fn import_db(path: &str, bytes: &[u8]) -> Result<(), JsError> {
     opfs_op(|u| u.import_db(path, bytes))
   }
 
   #[wasm_bindgen(js_name = "exportFile")]
-  pub fn export_file(&self, name: &str) -> Result<Vec<u8>, JsError> {
+  pub fn export_file(name: &str) -> Result<Vec<u8>, JsError> {
     opfs_op(|u| u.export_file(name))
   }
 
   #[wasm_bindgen(js_name = "getFileCount")]
-  pub fn get_file_count(&self) -> u32 {
+  pub fn get_file_count() -> u32 {
     opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
   }
 }
