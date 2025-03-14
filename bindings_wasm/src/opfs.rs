@@ -35,21 +35,25 @@ impl Opfs {
     opfs_op(|u| u.unlink(name))
   }
 
+  /// list files in current pool
   #[wasm_bindgen(js_name = "getFileNames")]
   pub fn ls() -> Vec<String> {
     opfs_op(|u| Ok(u.get_file_names())).expect("get_file_names is infallible")
   }
 
+  /// import a db file at 'path'
   #[wasm_bindgen(js_name = "importDb")]
   pub fn import_db(path: &str, bytes: &[u8]) -> Result<(), JsError> {
     opfs_op(|u| u.import_db(path, bytes))
   }
 
+  /// export db file with 'name'
   #[wasm_bindgen(js_name = "exportFile")]
   pub fn export_file(name: &str) -> Result<Vec<u8>, JsError> {
     opfs_op(|u| u.export_file(name))
   }
 
+  /// get number of files in pool
   #[wasm_bindgen(js_name = "getFileCount")]
   pub fn get_file_count() -> u32 {
     opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
