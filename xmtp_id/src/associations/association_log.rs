@@ -378,7 +378,7 @@ impl IdentityAction for IdentityUpdate {
         existing_state: Option<AssociationState>,
         _client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
-        let mut state = existing_state.clone();
+        let mut state = existing_state;
         for action in &self.actions {
             state = Some(action.update_state(state, self.client_timestamp_ns)?);
         }

@@ -114,6 +114,7 @@ where
                 identifier_kind: r.identifier_kind as i32,
             })
             .collect();
+
         let result = self
             .api_client
             .get_inbox_ids(GetInboxIdsRequest { requests })
