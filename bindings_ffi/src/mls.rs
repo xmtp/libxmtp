@@ -2656,6 +2656,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::{join_all, try_join_all};
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
         client::{Client, DefaultClientData},
@@ -2703,6 +2704,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        GenericError,
     };
     use ethers::utils::hex;
     use prost::Message;
@@ -2908,31 +2910,57 @@ mod tests {
         client.register_identity(signature_request).await.unwrap();
     }
 
+    async fn register_clientt(
+        inbox_owner: &LocalWalletInboxOwner,
+        client: &FfiXmtpClient,
+    ) -> Result<(), GenericError> {
+        let signature_request = client.signature_request().unwrap();
+        signature_request
+            .add_ecdsa_signature(
+                inbox_owner
+                    .sign(signature_request.signature_text().await.unwrap())
+                    .unwrap(),
+            )
+            .await?;
+        client.register_identity(signature_request).await?;
+
+        Ok(())
+    }
+
     /// Create a new test client with a given wallet.
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, false).await
+    }
+
+    /// Create a new test client with a given wallet.
+    async fn new_test_client_with_wallet_dev(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Arc<FfiXmtpClient> {
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, true).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()), false)
             .await
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
+        is_dev: bool,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
+        let backend_address = if is_dev { xmtp_api_grpc::DEV_ADDRESS.to_string() } else { xmtp_api_grpc::LOCALHOST_ADDRESS.to_string() };
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(backend_address, false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -2953,14 +2981,48 @@ mod tests {
         client
     }
 
+    async fn new_test_clientt(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            None,
+        )
+        .await?;
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        register_clientt(&ffi_inbox_owner, &client).await?;
+
+        Ok(client)
+    }
+
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
     }
-
+    
+    async fn new_test_client_dev() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_dev(wallet).await
+    }
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()), false)
             .await
     }
 
@@ -3253,6 +3315,27 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn rapidfire_duplicate_create() {
+        let wallet = generate_local_wallet();
+        let mut futs = vec![];
+        for _ in 0..10 {
+            futs.push(new_test_clientt(wallet.clone()));
+        }
+
+        let results = join_all(futs).await;
+
+        let mut num_okay = 0;
+        for result in results {
+            if result.is_ok() {
+                num_okay += 1;
+            }
+        }
+
+        // Only one client should get to sign up
+        assert_eq!(num_okay, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -7470,5 +7553,24 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+
+    #[tokio::test]
+    async fn test_broken_address_on_dev() {
+        let client = new_test_client_dev().await;
+        let broken_identifier = FfiIdentifier {
+            identifier: "0x72984f2c4136e081583b062d88da7166c0da2bf2".to_string(),
+            identifier_kind: FfiIdentifierKind::Ethereum,
+        };
+        let api = connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+    
+        // let group = client.conversations().create_group(vec![broken_identifier], FfiCreateGroupOptions::default()).await.unwrap();
+        let inbox_id = get_inbox_id_for_identifier(api, broken_identifier).await.unwrap().unwrap();
+        assert_eq!(inbox_id, "7881166c8d3f128a5a3d56c0596134544710f742981e0eaf650bb4facab80971");
+        // Errors on next line with `Err Client(Group(InstallationDiff(Client(Association(MultipleCreate)))))`
+        let _group = client.conversations().create_group_with_inbox_ids(vec!["7881166c8d3f128a5a3d56c0596134544710f742981e0eaf650bb4facab80971".to_string()], FfiCreateGroupOptions::default()).await.unwrap();
     }
 }
