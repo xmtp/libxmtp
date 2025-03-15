@@ -12,28 +12,18 @@ pub struct Mls;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("Diesel connection error")]
+    #[error(transparent)]
     DieselConnect(#[from] diesel::ConnectionError),
-    #[error("Diesel result error: {0}")]
+    #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
-    #[error("Pool error: {0}")]
-    Pool(#[from] diesel::r2d2::PoolError),
-    #[error("Error with connection to Sqlite {0}")]
-    DbConnection(#[from] diesel::r2d2::Error),
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     NotFound(#[from] NotFound),
-    #[error("Pool needs to  reconnect before use")]
-    PoolNeedsConnection,
     #[error(transparent)]
     Intent(#[from] IntentError),
-    #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
-    SqlCipherNotLoaded,
-    #[error("PRAGMA key or salt has incorrect value")]
-    SqlCipherKeyIncorrect,
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -52,6 +42,28 @@ pub enum StorageError {
     DbSerialize,
     #[error(transparent)]
     MissingRequired(#[from] MissingRequired),
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
+    Native(#[from] super::native::NativeStorageError),
+    #[cfg(target_arch = "wasm32")]
+    #[cfg_attr(target_arch = "wasm32", error("wasm"))]
+    Wasm,
+}
+
+impl StorageError {
+    // release conn is a noop in wasm
+    #[cfg(target_arch = "wasm32")]
+    pub fn db_needs_connection(&self) -> bool {
+        false
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn db_needs_connection(&self) -> bool {
+        matches!(
+            self,
+            Self::Native(super::native::NativeStorageError::PoolNeedsConnection)
+        )
+    }
 }
 
 #[derive(Error, Debug)]
@@ -131,10 +143,6 @@ impl RetryableError for StorageError {
         match self {
             Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
-            Self::Pool(_) => true,
-            Self::SqlCipherNotLoaded => true,
-            Self::PoolNeedsConnection => true,
-            Self::SqlCipherKeyIncorrect => false,
             Self::Duplicate(d) => retryable!(d),
             _ => false,
         }

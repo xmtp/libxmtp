@@ -41,6 +41,7 @@ impl WasmDb {
 }
 
 impl XmtpDb for WasmDb {
+    type Error = StorageError;
     type Connection = SqliteConnection;
     type TransactionManager = AnsiTransactionManager;
 

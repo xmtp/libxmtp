@@ -1,6 +1,9 @@
 use openmls::versions::ProtocolVersion;
 use openmls_traits::types::Ciphersuite;
 
+/// Duration to wait before restarting workers in case of an error.
+pub const WORKER_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub const CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
 

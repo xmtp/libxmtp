@@ -7,7 +7,6 @@ pub mod xmtp_openmls_provider;
 use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;
-
 impl DbConnection {
     #[allow(unused)]
     pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
@@ -23,25 +22,34 @@ impl DbConnection {
 }
 
 #[cfg(target_arch = "wasm32")]
-static SQLITE_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-/// Initialize the SQLite WebAssembly Library
+pub use wasm_export::*;
+
 #[cfg(target_arch = "wasm32")]
-pub async fn init_sqlite() {
-    use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
-    SQLITE_INIT
-        .get_or_init(|| async {
-            let cfg = OpfsSAHPoolCfg {
-                vfs_name: "opfs-libxmtp".to_string(),
-                directory: ".opfs-libxmtp-metadata".to_string(),
-                clear_on_init: false,
-                initial_capacity: 6,
-            };
-            let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
-            if let Err(e) = r {
-                tracing::warn!("Encountered possible vfs error {e}");
-            }
-        })
-        .await;
+mod wasm_export {
+    pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
+        tokio::sync::OnceCell::const_new();
+    pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
+
+    /// Initialize the SQLite WebAssembly Library
+    pub async fn init_sqlite() {
+        use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
+        SQLITE
+            .get_or_init(|| async {
+                let cfg = OpfsSAHPoolCfg {
+                    vfs_name: "opfs-libxmtp".to_string(),
+                    directory: ".opfs-libxmtp-metadata".to_string(),
+                    clear_on_init: false,
+                    initial_capacity: 6,
+                };
+                let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
+                if let Err(ref e) = r {
+                    tracing::warn!("Encountered possible vfs error {e}");
+                }
+                // the error is not send or sync as required by tokio OnceCell
+                r.map_err(|e| format!("{e}"))
+            })
+            .await;
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
