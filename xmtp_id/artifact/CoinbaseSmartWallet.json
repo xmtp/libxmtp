@@ -1688,7 +1688,7 @@
             "notice": "Returns the implementation of the ERC1967 proxy."
           },
           "initialize(bytes[])": {
-            "notice": "Initializes the account with the the given owners."
+            "notice": "Initializes the account with the given owners."
           },
           "isOwnerAddress(address)": {
             "notice": "Checks if the given `account` address is registered as owner."
@@ -3541,7 +3541,7 @@
               "id": 50039,
               "nodeType": "StructuredDocumentation",
               "src": "4439:227:40",
-              "text": "@notice Initializes the account with the the given owners.\n @dev Reverts if the account has already been initialized.\n @param owners The initial array of owners to initialize this account with."
+              "text": "@notice Initializes the account with the given owners.\n @dev Reverts if the account has already been initialized.\n @param owners The initial array of owners to initialize this account with."
             },
             "functionSelector": "6f2de70e",
             "implemented": true,
