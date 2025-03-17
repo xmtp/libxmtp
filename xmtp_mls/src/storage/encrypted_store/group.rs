@@ -7,7 +7,7 @@ use super::{
 };
 
 use crate::{
-    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
+    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, Fetch, StorageError,
 };
 
 use crate::storage::NotFound;
@@ -60,8 +60,40 @@ pub struct StoredGroup {
     pub paused_for_version: Option<String>,
 }
 
-impl_fetch!(StoredGroup, groups, Vec<u8>);
+// impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
+
+impl Fetch<StoredGroup> for DbConnection {
+    type Key = Vec<u8>;
+    fn fetch(&self, key: &Self::Key) -> Result<Option<StoredGroup>, StorageError> {
+        let group: Option<StoredGroup> = self.raw_query_read(|conn| {
+            Ok::<_, StorageError>(
+                groups::table
+                    .filter(groups::id.eq(key))
+                    .first::<StoredGroup>(conn)
+                    .optional()?,
+            )
+        })?;
+
+        // Is this group a DM?
+        let Some(StoredGroup {
+            dm_id: Some(dm_id), ..
+        }) = group
+        else {
+            // If not, return the group
+            return Ok(group);
+        };
+
+        // Otherwise, return the stitched group
+        self.raw_query_read(|conn| {
+            Ok(groups::table
+                .filter(groups::dm_id.eq(dm_id))
+                .order_by(groups::last_message_ns.desc())
+                .first::<StoredGroup>(conn)
+                .optional()?)
+        })
+    }
+}
 
 impl StoredGroup {
     /// Create a new group from a welcome message
