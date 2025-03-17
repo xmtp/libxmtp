@@ -7496,9 +7496,11 @@ mod tests {
         log::info!("DMs created: Bo ID = {}, Alix ID = {}", hex::encode(convo_bo.id()), hex::encode(convo_alix.id()));
 
         // Send messages
-        convo_bo.send("Bo hey".into()).await.unwrap();
+        let text_message_bo = TextCodec::encode("Bo hey".to_string()).unwrap();
+        convo_bo.send(encoded_content_to_bytes(text_message_bo)).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        convo_alix.send("Alix hey".into()).await.unwrap();
+        let text_message_alix = TextCodec::encode("Alix hey".to_string()).unwrap();
+        convo_alix.send(encoded_content_to_bytes(text_message_alix)).await.unwrap();
 
         log::info!("Messages sent: Bo -> 'Bo hey', Alix -> 'Alix hey'");
         
@@ -7506,20 +7508,18 @@ mod tests {
         let bo_messages = convo_bo.find_messages(FfiListMessagesOptions::default()).await.unwrap();
         let alix_messages = convo_alix.find_messages(FfiListMessagesOptions::default()).await.unwrap();
         
-        // let bo_decoded_messages: Vec<String> = bo_messages.iter().map(|m| {
-        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
-        //     TextCodec::decode(encoded_content).unwrap()
-        // }).collect();
-        // let alix_decoded_messages: Vec<String> = alix_messages.iter().map(|m| {
-        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
-        //     TextCodec::decode(encoded_content).unwrap()
-        // }).collect();
+        let bo_decoded_messages: Vec<String> = bo_messages.iter().map(|m| {
+            TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap()
+        }).collect();
+        let alix_decoded_messages: Vec<String> = alix_messages.iter().map(|m| {
+            TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap()
+        }).collect();
         
-        // log::info!("Bo messages: {:?}", bo_decoded_messages);
-        // log::info!("Alix messages: {:?}", alix_decoded_messages);
+        log::info!("Bo messages: {:?}", bo_decoded_messages);
+        log::info!("Alix messages: {:?}", alix_decoded_messages);
         
-        assert_eq!(bo_messages.len(), 2, "Bo should see 2 messages");
-        assert_eq!(alix_messages.len(), 2, "Alix should see 2 messages");
+        assert_eq!(bo_decoded_messages.len(), 2, "Bo should see 2 messages");
+        assert_eq!(alix_decoded_messages.len(), 2, "Alix should see 2 messages");
         
         // Sync conversations
         client_bo.conversations().sync_all_conversations(None).await.unwrap();
@@ -7561,8 +7561,10 @@ mod tests {
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
         
         // Send additional messages
-        same_convo_bo.send("Bo hey2".into()).await.unwrap();
-        same_convo_alix.send("Alix hey2".into()).await.unwrap();
+        let text_message_bo2 = TextCodec::encode("Bo hey2".to_string()).unwrap();
+        same_convo_bo.send(encoded_content_to_bytes(text_message_bo2)).await.unwrap();
+        let text_message_alix2 = TextCodec::encode("Alix hey2".to_string()).unwrap();
+        same_convo_alix.send(encoded_content_to_bytes(text_message_alix2)).await.unwrap();
         same_convo_alix.sync().await.unwrap();
         same_convo_bo.sync().await.unwrap();
         
@@ -7572,20 +7574,17 @@ mod tests {
         let final_bo_messages = same_convo_bo.find_messages(FfiListMessagesOptions::default()).await.unwrap();
         let final_alix_messages = same_convo_alix.find_messages(FfiListMessagesOptions::default()).await.unwrap();
         
-        // let final_bo_decoded_messages: Vec<String> = final_bo_messages.iter().map(|m| {
-        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
-        //     TextCodec::decode(encoded_content).unwrap()
-        // }).collect();
-        // let final_alix_decoded_messages: Vec<String> = final_alix_messages.iter().map(|m| {
-        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
-        //     TextCodec::decode(encoded_content).unwrap()
-        // }).collect();
+        let final_bo_decoded_messages: Vec<String> = final_bo_messages.iter().map(|m| {
+            TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap()
+        }).collect();
+        let final_alix_decoded_messages: Vec<String> = final_alix_messages.iter().map(|m| {
+            TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap()
+        }).collect();
         
-        // log::info!("Final Bo messages: {:?}", final_bo_decoded_messages);
-        // log::info!("Final Alix messages: {:?}", final_alix_decoded_messages);
+        log::info!("Final Bo messages: {:?}", final_bo_decoded_messages);
+        log::info!("Final Alix messages: {:?}", final_alix_decoded_messages);
         
-        assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
-        assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+        assert_eq!(final_bo_decoded_messages.len(), 5, "Bo should see 5 messages");
+        assert_eq!(final_alix_decoded_messages.len(), 5, "Alix should see 5 messages");
     }
-
 }
