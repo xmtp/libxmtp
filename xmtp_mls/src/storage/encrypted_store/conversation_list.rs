@@ -183,9 +183,8 @@ pub(crate) mod tests {
     use crate::storage::group_message::ContentType;
     use crate::storage::tests::with_connection;
     use crate::Store;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn test_single_group_multiple_messages() {
         with_connection(|conn| {
             // Create a group
@@ -221,7 +220,8 @@ pub(crate) mod tests {
         })
         .await
     }
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+
+    #[xmtp_common::test]
     async fn test_three_groups_specific_ordering() {
         with_connection(|conn| {
             // Create three groups
@@ -262,7 +262,8 @@ pub(crate) mod tests {
         })
         .await
     }
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+
+    #[xmtp_common::test]
     async fn test_group_with_newer_message_update() {
         with_connection(|conn| {
             // Create a group
@@ -313,8 +314,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_conversations_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));

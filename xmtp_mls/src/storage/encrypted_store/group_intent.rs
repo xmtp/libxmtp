@@ -487,8 +487,7 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_store_and_fetch() {
         let group_id = rand_vec::<24>();
         let data = rand_vec::<24>();
@@ -521,8 +520,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_query() {
         let group_id = rand_vec::<24>();
 
@@ -601,8 +599,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn find_by_payload_hash() {
         let group_id = rand_vec::<24>();
 
@@ -645,8 +642,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_happy_path_state_transitions() {
         let group_id = rand_vec::<24>();
 
@@ -692,8 +688,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_republish_state_transition() {
         let group_id = rand_vec::<24>();
 
@@ -738,8 +733,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_invalid_state_transition() {
         let group_id = rand_vec::<24>();
 
@@ -775,8 +769,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_increment_publish_attempts() {
         let group_id = rand_vec::<24>();
         with_connection(|conn| {

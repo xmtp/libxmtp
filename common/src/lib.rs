@@ -7,6 +7,14 @@ mod test;
 #[cfg(any(test, feature = "test-utils"))]
 pub use test::*;
 
+#[allow(unused)]
+#[macro_use]
+extern crate xmtp_macro;
+
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use xmtp_macro::test;
+
 #[cfg(feature = "bench")]
 pub mod bench;
 

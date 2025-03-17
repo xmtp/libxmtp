@@ -118,11 +118,12 @@ mod tests {
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[xmtp_common::test]
+    #[rstest::rstest]
+    #[timeout(Duration::from_secs(5))]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -169,7 +170,9 @@ mod tests {
         assert_msg!(stream, "fifth");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(5))]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -206,7 +209,9 @@ mod tests {
         assert_msg!(stream, "fourth");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(5))]
     async fn test_dm_stream_all_messages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -288,7 +293,9 @@ mod tests {
         counts
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(15))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         xmtp_common::logger();
@@ -390,7 +397,9 @@ mod tests {
         assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(5))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

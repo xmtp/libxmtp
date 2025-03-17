@@ -148,6 +148,7 @@ openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
+
 [dev-dependencies]
 anyhow.workspace = true
 const_format.workspace = true
@@ -160,6 +161,7 @@ xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
+rstest = { workspace = true, features = ["async-timeout"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

@@ -797,8 +797,7 @@ pub(crate) mod tests {
         )
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -813,8 +812,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -832,8 +830,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
@@ -854,8 +851,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_dm_stitching() {
         with_connection(|conn| {
             let dm1 = StoredGroup::new(
@@ -893,8 +889,7 @@ pub(crate) mod tests {
         .await;
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
@@ -974,8 +969,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_installations_last_checked_is_updated() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -997,8 +991,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_new_group_has_correct_purpose() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -1018,8 +1011,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_new_sync_group() {
         with_connection(|conn| {
             let id = rand_vec::<24>();
@@ -1051,8 +1043,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1120,8 +1111,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_get_group_welcome_ids() {
         with_connection(|conn| {
             let mls_groups = vec![

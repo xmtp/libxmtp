@@ -328,8 +328,7 @@ pub(crate) mod tests {
         (buf, address.to_lowercase())
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn builder_test() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -337,8 +336,7 @@ pub(crate) mod tests {
     }
 
     // Test client creation using various identity strategies that creates new inboxes
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_client_creation() {
         struct IdentityStrategyTestCase {
             strategy: IdentityStrategy,
@@ -447,8 +445,7 @@ pub(crate) mod tests {
     // - create client2 from same db with [IdentityStrategy::CachedOnly]
     // - create client3 from same db with [IdentityStrategy::CreateIfNotFound]
     // - create client4 with different db.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_2nd_time_client_creation() {
         let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
         let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
@@ -516,8 +513,7 @@ pub(crate) mod tests {
     }
 
     // Should return error if inbox associated with given account_address doesn't match the provided one.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn api_identity_mismatch() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -560,8 +556,7 @@ pub(crate) mod tests {
     }
 
     // Use the account_address associated inbox
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn api_identity_happy_path() {
         let mut mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -603,8 +598,7 @@ pub(crate) mod tests {
     }
 
     // Use a stored identity as long as the inbox_id matches the one provided.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn stored_identity_happy_path() {
         let mock_api = MockApiClient::new();
         let tmpdb = tmp_path();
@@ -638,8 +632,7 @@ pub(crate) mod tests {
             .is_ok());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn stored_identity_mismatch() {
         let mock_api = MockApiClient::new();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
@@ -681,8 +674,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
         let wallet = &generate_local_wallet();

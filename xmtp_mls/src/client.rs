@@ -1079,8 +1079,7 @@ pub(crate) mod tests {
         XmtpApi,
     };
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_group_member_recovery() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -1107,8 +1106,7 @@ pub(crate) mod tests {
         assert_eq!(members.len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
@@ -1121,8 +1119,7 @@ pub(crate) mod tests {
         assert!(error_string.contains("invalid identity"));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1172,8 +1169,7 @@ pub(crate) mod tests {
         assert_ne!(init1, init2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client
@@ -1189,8 +1185,7 @@ pub(crate) mod tests {
         assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_inbox_id() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1522,8 +1517,7 @@ pub(crate) mod tests {
         serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider()?)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_key_package_rotation() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();
@@ -1599,8 +1593,7 @@ pub(crate) mod tests {
         assert!(bo_original_after_delete.is_err());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_or_create_dm_by_inbox_id() {
         let user1 = generate_local_wallet();
         let user2 = generate_local_wallet();
@@ -1649,8 +1642,7 @@ pub(crate) mod tests {
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn should_stream_consent() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();

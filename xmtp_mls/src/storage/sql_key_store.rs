@@ -1047,8 +1047,7 @@ pub(crate) mod tests {
     };
     use xmtp_common::tmp_path;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn store_read_delete() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -1097,8 +1096,7 @@ pub(crate) mod tests {
     impl Key<CURRENT_VERSION> for ProposalRef {}
     impl Entity<CURRENT_VERSION> for ProposalRef {}
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn list_append_remove() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
@@ -1180,8 +1178,7 @@ pub(crate) mod tests {
         assert!(proposals_read.unwrap().is_empty());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn group_state() {
         let db_path = tmp_path();
         let store = EncryptedMessageStore::new(

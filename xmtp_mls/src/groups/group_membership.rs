@@ -150,8 +150,7 @@ pub(crate) mod tests {
 
     use super::GroupMembership;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_common::test]
     fn test_equality_works() {
         let inbox_id_1 = "inbox_1".to_string();
         let sequence_id_1: u64 = 1;
@@ -170,8 +169,7 @@ pub(crate) mod tests {
         assert!(member_map_1.ne(&member_map_2));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_common::test]
     fn test_diff() {
         let mut initial_members = GroupMembership::new();
         initial_members.add("inbox_1".into(), 1);

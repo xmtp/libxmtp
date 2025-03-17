@@ -93,8 +93,7 @@ mod tests {
 
     use super::*;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_insert_and_update_preferences() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;

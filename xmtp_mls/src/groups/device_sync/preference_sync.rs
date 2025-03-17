@@ -97,7 +97,6 @@ mod tests {
         storage::consent_record::{ConsentState, ConsentType},
     };
     use crypto_utils::generate_local_wallet;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -105,7 +104,7 @@ mod tests {
         ConsentUpdate(StoredConsentRecord) = 1,
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     async fn test_can_deserialize_between_versions() {
         let consent_record = StoredConsentRecord {
             entity: "hello there".to_string(),
@@ -122,7 +121,7 @@ mod tests {
         assert_eq!(update.state, ConsentState::Allowed);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     async fn test_hmac_sync() {
         let wallet = generate_local_wallet();
         let amal_a =

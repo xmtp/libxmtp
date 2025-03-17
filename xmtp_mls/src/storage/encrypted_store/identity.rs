@@ -74,8 +74,7 @@ pub(crate) mod tests {
     use crate::Store;
     use xmtp_common::rand_vec;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn can_only_store_one_identity() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
