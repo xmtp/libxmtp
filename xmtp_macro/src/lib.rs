@@ -33,7 +33,7 @@ pub fn test(
 
     // Skip over other attributes to `fn #ident ...`, and extract `#ident`
     let mut leading_tokens = Vec::new();
-    while let Some(token) = body.next() {
+    for token in body.by_ref() {
         leading_tokens.push(token.clone());
         if let TokenTree::Ident(token) = token {
             if token == "async" {
@@ -81,18 +81,10 @@ fn find_ident(iter: &mut impl Iterator<Item = TokenTree>) -> Option<Ident> {
     }
 }
 
+#[derive(Default)]
 struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
-}
-
-impl Default for Attributes {
-    fn default() -> Self {
-        Self {
-            r#async: false,
-            flavor: None,
-        }
-    }
 }
 
 impl Attributes {
