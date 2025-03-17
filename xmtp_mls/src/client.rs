@@ -1247,8 +1247,6 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        let inbox_ids: Vec<_> = groups.iter().map(|g| g.dm_inbox_id().unwrap()).collect();
-        tracing::info!("{inbox_ids:?}");
         assert_eq!(groups.len(), 1);
 
         groups[0].sync().await.unwrap();
