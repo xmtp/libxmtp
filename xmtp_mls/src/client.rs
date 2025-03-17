@@ -1241,7 +1241,7 @@ pub(crate) mod tests {
 
         alice_dm.send_message(b"Welcome from 1").await.unwrap();
 
-        // This message will set bob's dm as the primary DM
+        // This message will set bob's dm as the primary DM for all clients
         bob_dm.send_message(b"Bob says hi 1").await.unwrap();
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
