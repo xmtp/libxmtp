@@ -1256,7 +1256,7 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 1);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

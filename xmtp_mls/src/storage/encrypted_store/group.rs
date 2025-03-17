@@ -412,6 +412,7 @@ impl DbConnection {
         Ok(groups.into_iter().next())
     }
 
+    /// Load the other DMs that are stitched into this group
     pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, StorageError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
