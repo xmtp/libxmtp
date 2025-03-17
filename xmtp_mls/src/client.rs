@@ -1266,8 +1266,10 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 3);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
-        let new_alice_dm = alice.group(alice_dm.group_id).unwrap();
+        let new_alice_dm = alice.group(alice_dm.group_id.clone()).unwrap();
 
+        // The group_id should not be what we asked for because it was stitched
+        assert_ne!(alice_dm.group_id, new_alice_dm.group_id);
         // They should be the same, due the the message that Bob sent above.
         assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
     }
