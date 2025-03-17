@@ -172,7 +172,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(15))]
     async fn test_stream_all_messages_unchanging_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;

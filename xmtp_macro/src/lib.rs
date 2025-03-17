@@ -50,14 +50,12 @@ pub fn test(
         #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
     });
 
-    if attributes.flavor.is_some() && attributes.r#async {
-        let flavor = attributes.flavor.expect("checked for none");
+    if attributes.r#async {
+        let flavor = attributes
+            .flavor
+            .unwrap_or(syn::LitStr::new("current_thread", Span::call_site()));
         tokens.extend(quote!{
             #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor))]
-        });
-    } else if attributes.r#async {
-        tokens.extend(quote!{
-            #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = "current_thread"))]
         });
     } else {
         tokens.extend(quote!{

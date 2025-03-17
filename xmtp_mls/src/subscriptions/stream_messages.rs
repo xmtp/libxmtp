@@ -528,6 +528,8 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[xmtp_common::test]
+    #[rstest::rstest]
+    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
