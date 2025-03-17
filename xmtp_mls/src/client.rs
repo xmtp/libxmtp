@@ -1208,6 +1208,62 @@ pub(crate) mod tests {
         not(target_arch = "wasm32"),
         tokio::test(flavor = "multi_thread", worker_threads = 2)
     )]
+    async fn double_dms() {
+        let alice_wallet = generate_local_wallet();
+        let alice = ClientBuilder::new_test_client(&alice_wallet).await;
+        let alice_provider = alice.mls_provider().unwrap();
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alice_dm = alice
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+        alice_dm.send_message(b"Welcome 1").await.unwrap();
+
+        let bob_dm = bob
+            .create_dm_by_inbox_id(alice.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+
+        let alice2 = ClientBuilder::new_test_client(&alice_wallet).await;
+        let alice2_provider = alice2.mls_provider().unwrap();
+        let alice_dm2 = alice
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+        alice_dm2.send_message(b"Welcome 2").await.unwrap();
+
+        alice_dm.update_installations().await.unwrap();
+        alice.sync_welcomes(&alice_provider).await.unwrap();
+
+        alice_dm.send_message(b"Welcome from 1").await.unwrap();
+
+        bob_dm.send_message(b"Bob says hi 1").await.unwrap();
+
+        alice2.sync_welcomes(&alice2_provider).await.unwrap();
+        let groups = alice2
+            .find_groups(GroupQueryArgs {
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+
+        groups[0].sync().await.unwrap();
+        let messages = groups[0]
+            .find_messages(&MsgQueryArgs {
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
