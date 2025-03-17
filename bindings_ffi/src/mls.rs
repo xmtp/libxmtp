@@ -7471,4 +7471,121 @@ mod tests {
             assert_eq!(decoded.url, original.url);
         }
     }
+
+    #[tokio::test]
+    async fn test_can_successfully_thread_dms() {        
+        // Create two test users
+        let wallet_bo = generate_local_wallet();
+        let wallet_alix = generate_local_wallet();
+
+        let client_bo = new_test_client_with_wallet(wallet_bo).await;
+        let client_alix = new_test_client_with_wallet(wallet_alix).await;
+
+        log::info!("Clients created successfully");
+        
+        // Find or create DM conversations
+        let convo_bo = client_bo
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+            .await.unwrap();
+        let convo_alix = client_alix
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+            .await.unwrap();
+        
+        log::info!("DMs created: Bo ID = {}, Alix ID = {}", hex::encode(convo_bo.id()), hex::encode(convo_alix.id()));
+
+        // Send messages
+        convo_bo.send("Bo hey".into()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        convo_alix.send("Alix hey".into()).await.unwrap();
+
+        log::info!("Messages sent: Bo -> 'Bo hey', Alix -> 'Alix hey'");
+        
+        // Check messages
+        let bo_messages = convo_bo.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        let alix_messages = convo_alix.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        
+        // let bo_decoded_messages: Vec<String> = bo_messages.iter().map(|m| {
+        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
+        //     TextCodec::decode(encoded_content).unwrap()
+        // }).collect();
+        // let alix_decoded_messages: Vec<String> = alix_messages.iter().map(|m| {
+        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
+        //     TextCodec::decode(encoded_content).unwrap()
+        // }).collect();
+        
+        // log::info!("Bo messages: {:?}", bo_decoded_messages);
+        // log::info!("Alix messages: {:?}", alix_decoded_messages);
+        
+        assert_eq!(bo_messages.len(), 2, "Bo should see 2 messages");
+        assert_eq!(alix_messages.len(), 2, "Alix should see 2 messages");
+        
+        // Sync conversations
+        client_bo.conversations().sync_all_conversations(None).await.unwrap();
+        client_alix.conversations().sync_all_conversations(None).await.unwrap();
+        
+        log::info!("Conversations synced");
+        
+        assert_eq!(convo_bo.find_messages(FfiListMessagesOptions::default()).await.unwrap().len(), 3, "Bo should see 3 messages after sync");
+        assert_eq!(convo_alix.find_messages(FfiListMessagesOptions::default()).await.unwrap().len(), 3, "Alix should see 3 messages after sync");
+        
+        // Ensure conversations remain the same
+        let same_convo_bo = client_alix
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+        let same_convo_alix = client_bo
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+        
+        log::info!("Validated that conversations remain the same");
+        
+        let topic_bo_same = client_bo
+            .conversation(convo_bo.id())
+            .unwrap();
+        let topic_alix_same = client_alix
+            .conversation(convo_alix.id())
+            .unwrap();
+        
+        log::info!("Bo groupId: {}, Alix groupId: {}", hex::encode(convo_bo.id()), hex::encode(convo_alix.id()));
+        log::info!("Bo2 groupId: {}, Alix2 groupId: {}", hex::encode(same_convo_bo.id()), hex::encode(same_convo_alix.id()));
+        log::info!("Bo topic groupId: {}, Alix topic groupId: {}", hex::encode(topic_bo_same.id()), hex::encode(topic_alix_same.id()));
+        
+        assert_eq!(convo_alix.id(), same_convo_bo.id(), "Conversations should match");
+        assert_eq!(convo_alix.id(), same_convo_alix.id(), "Conversations should match");
+        assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
+        assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
+        
+        // Send additional messages
+        same_convo_bo.send("Bo hey2".into()).await.unwrap();
+        same_convo_alix.send("Alix hey2".into()).await.unwrap();
+        same_convo_alix.sync().await.unwrap();
+        same_convo_bo.sync().await.unwrap();
+        
+        log::info!("Additional messages sent and synced");
+        
+        // Validate final message count
+        let final_bo_messages = same_convo_bo.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        let final_alix_messages = same_convo_alix.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        
+        // let final_bo_decoded_messages: Vec<String> = final_bo_messages.iter().map(|m| {
+        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
+        //     TextCodec::decode(encoded_content).unwrap()
+        // }).collect();
+        // let final_alix_decoded_messages: Vec<String> = final_alix_messages.iter().map(|m| {
+        //     let encoded_content = EncodedContent::decode(m.content.clone().as_slice()).unwrap();
+        //     TextCodec::decode(encoded_content).unwrap()
+        // }).collect();
+        
+        // log::info!("Final Bo messages: {:?}", final_bo_decoded_messages);
+        // log::info!("Final Alix messages: {:?}", final_alix_decoded_messages);
+        
+        assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
+        assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+    }
+
 }
