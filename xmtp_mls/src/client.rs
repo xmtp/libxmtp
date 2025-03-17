@@ -1266,13 +1266,10 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 3);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
-        let alice_dm = alice
-            .find_or_create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
-            .await
-            .unwrap();
+        let new_alice_dm = alice.group(alice_dm.group_id).unwrap();
 
         // They should be the same, due the the message that Bob sent above.
-        assert_eq!(alice_dm.group_id, bob_dm.group_id);
+        assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -81,7 +81,7 @@ impl Fetch<StoredGroup> for DbConnection {
             return Ok(group);
         };
 
-        // Otherwise, return the stitched group
+        // Otherwise, return the stitched DM
         self.raw_query_read(|conn| {
             Ok(groups::table
                 .filter(groups::dm_id.eq(dm_id))
