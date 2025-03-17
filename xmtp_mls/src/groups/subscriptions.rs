@@ -143,8 +143,8 @@ pub(crate) mod tests {
         }
     }
 
-    #[xmtp_common::test(flavor = "current_thread")]
     #[rstest::rstest]
+    #[xmtp_common::test(flavor = "current_thread")]
     #[timeout(Duration::from_secs(5))]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -179,8 +179,8 @@ pub(crate) mod tests {
     }
 
     // TODO: THIS TESTS ALSO LOSES MESSAGES
-    #[xmtp_common::test(flavor = "multi_thread")]
     #[rstest::rstest]
+    #[xmtp_common::test(flavor = "multi_thread")]
     #[timeout(Duration::from_secs(5))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
@@ -211,8 +211,8 @@ pub(crate) mod tests {
         }
     }
 
-    #[xmtp_common::test]
     #[rstest::rstest]
+    #[xmtp_common::test]
     #[timeout(Duration::from_secs(5))]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

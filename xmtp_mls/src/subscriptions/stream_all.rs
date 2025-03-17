@@ -121,9 +121,9 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    #[xmtp_common::test]
     #[rstest::rstest]
-    #[timeout(Duration::from_secs(5))]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(15))]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;

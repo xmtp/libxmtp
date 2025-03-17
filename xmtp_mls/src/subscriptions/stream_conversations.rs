@@ -459,8 +459,8 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[xmtp_common::test]
     #[rstest::rstest]
+    #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -480,8 +480,8 @@ mod test {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[xmtp_common::test]
     #[rstest::rstest]
+    #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -588,8 +588,8 @@ mod test {
         assert_eq!(groups.len(), 3);
     }
 
-    #[xmtp_common::test]
     #[rstest::rstest]
+    #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

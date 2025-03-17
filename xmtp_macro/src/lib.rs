@@ -8,6 +8,7 @@ use quote::quote;
 /// On wasm32 architecture, it delegates to `wasm_bindgen_test::wasm_bindgen_test`.
 /// On all other architectures, it delegates to `tokio::test`.
 ///
+/// When using with 'rstest', ensure any other test invocations come after rstest invocation.
 /// # Example
 ///
 /// ```ignore
