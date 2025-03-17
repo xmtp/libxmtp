@@ -10,7 +10,8 @@ use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
-use xmtp_content_types::ContentCodec;
+use xmtp_content_types::text::TextCodec;
+use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
@@ -1748,6 +1749,12 @@ impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let message_id = self.inner.send_message(content_bytes.as_slice()).await?;
         Ok(message_id)
+    }
+
+    pub(crate) async fn send_text(&self, text: &str) -> Result<Vec<u8>, GenericError> {
+        let content = TextCodec::encode(text.to_string())
+            .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+        self.send(encoded_content_to_bytes(content)).await
     }
 
     /// send a message without immediately publishing to the delivery service.
@@ -7481,7 +7488,10 @@ mod tests {
         let client_bo = new_test_client_with_wallet(wallet_bo).await;
         let client_alix = new_test_client_with_wallet(wallet_alix).await;
 
-        log::info!("Clients created successfully");
+        let bo_provider = client_bo.inner_client.mls_provider().unwrap();
+        let bo_conn = bo_provider.conn_ref();
+        let alix_provider = client_alix.inner_client.mls_provider().unwrap();
+        let alix_conn = alix_provider.conn_ref();
 
         // Find or create DM conversations
         let convo_bo = client_bo
@@ -7495,26 +7505,15 @@ mod tests {
             .await
             .unwrap();
 
-        log::info!(
-            "DMs created: Bo ID = {}, Alix ID = {}",
-            hex::encode(convo_bo.id()),
-            hex::encode(convo_alix.id())
-        );
-
         // Send messages
-        let text_message_bo = TextCodec::encode("Bo hey".to_string()).unwrap();
-        convo_bo
-            .send(encoded_content_to_bytes(text_message_bo))
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let text_message_alix = TextCodec::encode("Alix hey".to_string()).unwrap();
-        convo_alix
-            .send(encoded_content_to_bytes(text_message_alix))
-            .await
-            .unwrap();
+        convo_bo.send_text("Bo hey").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        convo_alix.send_text("Alix hey").await.unwrap();
 
-        log::info!("Messages sent: Bo -> 'Bo hey', Alix -> 'Alix hey'");
+        let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
+        let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
+        assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
+        assert_eq!(group_bo.id, convo_bo.id());
 
         // Check messages
         let bo_messages = convo_bo
@@ -7526,20 +7525,8 @@ mod tests {
             .await
             .unwrap();
 
-        let bo_decoded_messages: Vec<String> = bo_messages
-            .iter()
-            .map(|m| TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap())
-            .collect();
-        let alix_decoded_messages: Vec<String> = alix_messages
-            .iter()
-            .map(|m| TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap())
-            .collect();
-
-        log::info!("Bo messages: {:?}", bo_decoded_messages);
-        log::info!("Alix messages: {:?}", alix_decoded_messages);
-
-        assert_eq!(bo_decoded_messages.len(), 2, "Bo should see 2 messages");
-        assert_eq!(alix_decoded_messages.len(), 2, "Alix should see 2 messages");
+        assert_eq!(bo_messages.len(), 2, "Bo should see 2 messages");
+        assert_eq!(alix_messages.len(), 2, "Alix should see 2 messages");
 
         // Sync conversations
         client_bo
@@ -7553,68 +7540,51 @@ mod tests {
             .await
             .unwrap();
 
-        log::info!("Conversations synced");
-
+        let bo_messages = convo_bo
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let alix_messages = convo_alix
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bo_messages.len(), 3, "Bo should see 3 messages after sync");
         assert_eq!(
-            convo_bo
-                .find_messages(FfiListMessagesOptions::default())
-                .await
-                .unwrap()
-                .len(),
-            3,
-            "Bo should see 3 messages after sync"
-        );
-        assert_eq!(
-            convo_alix
-                .find_messages(FfiListMessagesOptions::default())
-                .await
-                .unwrap()
-                .len(),
+            alix_messages.len(),
             3,
             "Alix should see 3 messages after sync"
         );
 
+        let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
+        let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
+        assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
+
+        // 1742250698805377000
+        // 1742250698729664963
+
         // Ensure conversations remain the same
-        let same_convo_bo = client_alix
+        let convo_alix_2 = client_alix
             .conversations()
             .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-        let same_convo_alix = client_bo
+        let convo_bo_2 = client_bo
             .conversations()
             .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
-        log::info!("Validated that conversations remain the same");
-
         let topic_bo_same = client_bo.conversation(convo_bo.id()).unwrap();
         let topic_alix_same = client_alix.conversation(convo_alix.id()).unwrap();
 
-        log::info!(
-            "Bo groupId: {}, Alix groupId: {}",
-            hex::encode(convo_bo.id()),
-            hex::encode(convo_alix.id())
-        );
-        log::info!(
-            "Bo2 groupId: {}, Alix2 groupId: {}",
-            hex::encode(same_convo_bo.id()),
-            hex::encode(same_convo_alix.id())
-        );
-        log::info!(
-            "Bo topic groupId: {}, Alix topic groupId: {}",
-            hex::encode(topic_bo_same.id()),
-            hex::encode(topic_alix_same.id())
-        );
-
         assert_eq!(
             convo_alix.id(),
-            same_convo_bo.id(),
+            convo_alix_2.id(),
             "Conversations should match"
         );
         assert_eq!(
             convo_alix.id(),
-            same_convo_alix.id(),
+            convo_bo_2.id(),
             "Conversations should match"
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
@@ -7622,26 +7592,26 @@ mod tests {
 
         // Send additional messages
         let text_message_bo2 = TextCodec::encode("Bo hey2".to_string()).unwrap();
-        same_convo_bo
+        convo_alix_2
             .send(encoded_content_to_bytes(text_message_bo2))
             .await
             .unwrap();
         let text_message_alix2 = TextCodec::encode("Alix hey2".to_string()).unwrap();
-        same_convo_alix
+        convo_bo_2
             .send(encoded_content_to_bytes(text_message_alix2))
             .await
             .unwrap();
-        same_convo_alix.sync().await.unwrap();
-        same_convo_bo.sync().await.unwrap();
+        convo_bo_2.sync().await.unwrap();
+        convo_alix_2.sync().await.unwrap();
 
         log::info!("Additional messages sent and synced");
 
         // Validate final message count
-        let final_bo_messages = same_convo_bo
+        let final_bo_messages = convo_alix_2
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        let final_alix_messages = same_convo_alix
+        let final_alix_messages = convo_bo_2
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
