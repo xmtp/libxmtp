@@ -1227,14 +1227,16 @@ pub(crate) mod tests {
 
         let alice2 = ClientBuilder::new_test_client(&alice_wallet).await;
         let alice2_provider = alice2.mls_provider().unwrap();
-        // let alice_dm2 = alice
-        // .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
-        // .await
-        // .unwrap();
-        // alice_dm2.send_message(b"Welcome 2").await.unwrap();
+        let alice_dm2 = alice
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+        alice_dm2.send_message(b"Welcome 2").await.unwrap();
 
         alice_dm.update_installations().await.unwrap();
         alice.sync_welcomes(&alice_provider).await.unwrap();
+
+        alice_dm.send_message(b"Welcome from 1").await.unwrap();
 
         bob_dm.send_message(b"Bob says hi 1").await.unwrap();
 
@@ -1256,7 +1258,7 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 3);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
