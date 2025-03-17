@@ -408,11 +408,30 @@ impl DbConnection {
             .order(dsl::last_message_ns.desc());
 
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
-        if groups.len() > 1 {
-            tracing::info!("More than one group found for dm_inbox_id {members:?}");
-        }
 
         Ok(groups.into_iter().next())
+    }
+
+    pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, StorageError> {
+        let query = dsl::groups.filter(dsl::id.eq(group_id));
+        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+
+        // Grab the dm_id of the group
+        let Some(StoredGroup {
+            id,
+            dm_id: Some(dm_id),
+            ..
+        }) = groups.into_iter().next()
+        else {
+            return Ok(vec![]);
+        };
+
+        let query = dsl::groups
+            .filter(dsl::dm_id.eq(dm_id))
+            .filter(dsl::id.ne(id));
+
+        let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        Ok(other_dms)
     }
 
     /// Updates group membership state

@@ -8,11 +8,11 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
+use crate::{configuration::sync_update_installations_interval_ns, storage::group::GroupQueryArgs};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -189,6 +189,8 @@ where
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
+        let conn = mls_provider.conn_ref();
+
         let epoch = self.epoch(&mls_provider).await?;
         tracing::info!(
             inbox_id = self.client.inbox_id(),
@@ -199,8 +201,18 @@ where
             self.client.inbox_id(),
             epoch
         );
-        self.maybe_update_installations(&mls_provider, None).await?;
 
+        // Also sync the "stitched DMs", if any...
+        for other_dm in conn.other_dms(&self.group_id)? {
+            let other_dm =
+                Self::new_from_arc(self.client.clone(), other_dm.id, other_dm.created_at_ns);
+            other_dm
+                .maybe_update_installations(&mls_provider, None)
+                .await?;
+            other_dm.sync_with_conn(&mls_provider).await?;
+        }
+
+        self.maybe_update_installations(&mls_provider, None).await?;
         self.sync_with_conn(&mls_provider).await
     }
 
@@ -1522,7 +1534,7 @@ where
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed_ns = now_ns - last_ns;
-        if elapsed_ns > interval_ns {
+        if elapsed_ns > interval_ns || true {
             self.add_missing_installations(provider).await?;
             provider
                 .conn_ref()
