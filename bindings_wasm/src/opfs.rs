@@ -58,6 +58,23 @@ impl Opfs {
   pub fn get_file_count() -> u32 {
     opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
   }
+
+  #[wasm_bindgen(js_name = "getCapacity")]
+  pub fn get_capacity() -> u32 {
+    opfs_op(|u| Ok(u.get_capacity())).expect("get_capacity is infallible")
+  }
+
+  /// Adds n entries to the current pool.
+  #[wasm_bindgen(js_name = "addCapacity")]
+  pub async fn add_capacity(n: u32) -> Result<u32, JsError> {
+    opfs_op_async(|u| u.add_capacity(n)).await
+  }
+
+  /// Removes up to n entries from the pool, with the caveat that it can only remove currently-unused entries.
+  #[wasm_bindgen(js_name = "reduceCapacity")]
+  pub async fn reduce_capacity(n: u32) -> Result<u32, JsError> {
+    opfs_op_async(|u| u.reduce_capacity(n)).await
+  }
 }
 
 fn opfs_op<F, T>(f: F) -> Result<T, JsError>
