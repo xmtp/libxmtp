@@ -401,10 +401,8 @@ impl DbConnection {
         &self,
         members: &DmMembers<&str>,
     ) -> Result<Option<StoredGroup>, StorageError> {
-        let dm_id = String::from(members);
-
         let query = dsl::groups
-            .filter(dsl::dm_id.eq(Some(dm_id)))
+            .filter(dsl::dm_id.eq(Some(format!("{members}"))))
             .order(dsl::last_message_ns.desc());
 
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
