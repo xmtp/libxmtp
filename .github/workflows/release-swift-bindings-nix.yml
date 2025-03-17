@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Nix
-        uses: cachix/install-nix-action@v30
+        uses: cachix/install-nix-action@v31
         with:
           # Mostly to avoid GitHub rate limiting
           extra_nix_config: |
@@ -50,7 +50,7 @@ jobs:
           workspaces: |
             .
       - name: Install Nix
-        uses: cachix/install-nix-action@v30
+        uses: cachix/install-nix-action@v31
         with:
           # Mostly to avoid GitHub rate limiting
           extra_nix_config: |
