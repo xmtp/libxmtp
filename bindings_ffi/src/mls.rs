@@ -2656,13 +2656,13 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use futures::future::{join_all, try_join_all};
+    use futures::future::join_all;
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
         client::{Client, DefaultClientData},
         types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
     };
-    use public_suffix::{PublicSuffixList, DEFAULT_PROVIDER};
+    use public_suffix::PublicSuffixList;
 
     struct PkUserValidationMethod {}
     #[async_trait::async_trait]
@@ -2898,19 +2898,10 @@ mod tests {
     }
 
     async fn register_client(inbox_owner: &LocalWalletInboxOwner, client: &FfiXmtpClient) {
-        let signature_request = client.signature_request().unwrap();
-        signature_request
-            .add_ecdsa_signature(
-                inbox_owner
-                    .sign(signature_request.signature_text().await.unwrap())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        client.register_identity(signature_request).await.unwrap();
+        register_client_no_panic(inbox_owner, client).await.unwrap()
     }
 
-    async fn register_clientt(
+    async fn register_client_no_panic(
         inbox_owner: &LocalWalletInboxOwner,
         client: &FfiXmtpClient,
     ) -> Result<(), GenericError> {
@@ -2972,8 +2963,9 @@ mod tests {
         client
     }
 
-    async fn new_test_clientt(
+    async fn new_test_client_no_panic(
         wallet: xmtp_cryptography::utils::LocalWallet,
+        history_sync_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -2990,14 +2982,14 @@ mod tests {
             ident,
             nonce,
             None,
-            None,
+            history_sync_url,
         )
         .await?;
 
         let conn = client.inner_client.context().store().conn().unwrap();
         conn.register_triggers();
 
-        register_clientt(&ffi_inbox_owner, &client).await?;
+        register_client_no_panic(&ffi_inbox_owner, &client).await?;
 
         Ok(client)
     }
@@ -3400,7 +3392,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let mut futs = vec![];
         for _ in 0..10 {
-            futs.push(new_test_clientt(wallet.clone()));
+            futs.push(new_test_client_no_panic(wallet.clone(), None));
         }
 
         let results = join_all(futs).await;

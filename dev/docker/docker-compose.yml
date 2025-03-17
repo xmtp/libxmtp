@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   node:
@@ -27,7 +27,7 @@ services:
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ./dev/validation_service/local.Dockerfile
+      dockerfile: ./dev/validation_service/Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
 
@@ -59,7 +59,7 @@ services:
     environment:
       POSTGRES_PASSWORD: xmtp
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -93,6 +93,6 @@ services:
       chain:
         condition: service_started
       replicationdb:
-          condition: service_healthy
+        condition: service_healthy
     ports:
       - 5050:5050
