@@ -6,9 +6,7 @@ use super::{
     Sqlite,
 };
 
-use crate::{
-    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, Fetch, StorageError,
-};
+use crate::{groups::group_metadata::DmMembers, impl_store, DuplicateItem, Fetch, StorageError};
 
 use crate::storage::NotFound;
 
@@ -60,13 +58,12 @@ pub struct StoredGroup {
     pub paused_for_version: Option<String>,
 }
 
-// impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
 
 impl Fetch<StoredGroup> for DbConnection {
     type Key = Vec<u8>;
     fn fetch(&self, key: &Self::Key) -> Result<Option<StoredGroup>, StorageError> {
-        let group: Option<StoredGroup> = self.raw_query_read(|conn| {
+        let group = self.raw_query_read(|conn| {
             Ok::<_, StorageError>(
                 groups::table
                     .filter(groups::id.eq(key))
