@@ -7586,15 +7586,24 @@ mod tests {
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
-        let alix_dms = client_alix.conversations()
+        let alix_dms = client_alix
+            .conversations()
             .list_dms(FfiListConversationsOptions::default())
             .unwrap();
-        let bo_dms = client_alix.conversations()
+        let bo_dms = client_alix
+            .conversations()
             .list_dms(FfiListConversationsOptions::default())
             .unwrap();
-        assert_eq!(convo_alix.id(), bo_dms[0].conversation.id(), "Dms should match");
-        assert_eq!(convo_alix.id(), alix_dms[0].conversation.id(), "Dms should match");
-
+        assert_eq!(
+            convo_alix.id(),
+            bo_dms[0].conversation.id(),
+            "Dms should match"
+        );
+        assert_eq!(
+            convo_alix.id(),
+            alix_dms[0].conversation.id(),
+            "Dms should match"
+        );
 
         // Send additional messages
         let text_message_bo2 = TextCodec::encode("Bo hey2".to_string()).unwrap();
