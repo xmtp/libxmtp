@@ -1133,6 +1133,8 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1239,6 +1241,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin(
 fun uniffi_xmtpv3_checksum_method_fficonversation_send(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversation_send_text(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversation_stream(
 ): Short
@@ -1542,6 +1546,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_send(`ptr`: Pointer,`contentBytes`: 
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_send_optimistic(`ptr`: Pointer,`contentBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_fficonversation_send_text(`ptr`: Pointer,`text`: RustBuffer.ByValue,
+): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_stream(`ptr`: Pointer,`messageCallback`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_super_admin_list(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2042,6 +2048,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 5885.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 55684.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_stream() != 26870.toShort()) {
@@ -3143,6 +3152,8 @@ public interface FfiConversationInterface {
      */
     fun `sendOptimistic`(`contentBytes`: kotlin.ByteArray): kotlin.ByteArray
     
+    suspend fun `sendText`(`text`: kotlin.String): kotlin.ByteArray
+    
     suspend fun `stream`(`messageCallback`: FfiMessageCallback): FfiStreamCloser
     
     fun `superAdminList`(): List<kotlin.String>
@@ -3848,6 +3859,27 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     )
     }
     
+
+    
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `sendText`(`text`: kotlin.String) : kotlin.ByteArray {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_send_text(
+                thisPtr,
+                FfiConverterString.lower(`text`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterByteArray.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
 
     
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")

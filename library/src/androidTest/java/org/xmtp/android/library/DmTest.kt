@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert
@@ -64,6 +65,78 @@ class DmTest {
             alixClient.conversations.sync()
             val sameConvo1 = alixClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(convo1.id, sameConvo1.id)
+        }
+    }
+
+    @Test
+    fun testCanSuccessfullyThreadDms() {
+        val convoBo = runBlocking {
+            boClient.conversations.findOrCreateDm(alixClient.inboxId)
+        }
+        val convoAlix = runBlocking {
+            alixClient.conversations.findOrCreateDm(boClient.inboxId)
+        }
+
+        runBlocking {
+            convoBo.send("Bo hey")
+            delay(5000)
+            convoAlix.send("Alix hey")
+        }
+
+        runBlocking {
+            assertEquals(2, convoBo.messages().size) // memberAdd and Bo hey
+            assertEquals(2, convoAlix.messages().size) // memberAdd and Alix hey
+        }
+
+        runBlocking {
+            boClient.conversations.syncAllConversations()
+        }
+        runBlocking {
+            alixClient.conversations.syncAllConversations()
+        }
+
+        runBlocking {
+            assertEquals(3, convoBo.messages().size) // memberAdd and Bo hey Alix hey
+            assertEquals(3, convoAlix.messages().size) // memberAdd and Bo hey Alix hey
+        }
+
+        val sameConvoBo = runBlocking {
+            alixClient.conversations.findOrCreateDm(boClient.inboxId)
+        }
+        val sameConvoAlix = runBlocking {
+            boClient.conversations.findOrCreateDm(alixClient.inboxId)
+        }
+        val topicBoSame = runBlocking {
+            boClient.conversations.findConversationByTopic(convoBo.topic)!!
+        }
+        val topicAlixSame = runBlocking {
+            alixClient.conversations.findConversationByTopic(convoAlix.topic)!!
+        }
+        runBlocking {
+            assertEquals(convoAlix.id, sameConvoBo.id)
+            assertEquals(convoAlix.id, sameConvoAlix.id)
+            assertEquals(convoAlix.id, topicBoSame.id)
+            assertEquals(convoAlix.id, topicAlixSame.id)
+            assertEquals(alixClient.conversations.listDms().first().id, convoAlix.id)
+            assertEquals(boClient.conversations.listDms().first().id, convoAlix.id)
+        }
+
+        runBlocking {
+            sameConvoBo.send("Bo hey2")
+            sameConvoAlix.send("Alix hey2")
+            sameConvoAlix.sync()
+            sameConvoBo.sync()
+        }
+
+        runBlocking {
+            assertEquals(
+                5,
+                sameConvoBo.messages().size
+            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
+            assertEquals(
+                5,
+                sameConvoAlix.messages().size
+            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
         }
     }
 
@@ -159,7 +232,14 @@ class DmTest {
         val chux: PrivateKey = chuxAccount.getPrivateKey()
 
         assertThrows(GenericException::class.java) {
-            runBlocking { boClient.conversations.findOrCreateDmWithIdentity(PublicIdentity(IdentityKind.ETHEREUM, chux.walletAddress)) }
+            runBlocking {
+                boClient.conversations.findOrCreateDmWithIdentity(
+                    PublicIdentity(
+                        IdentityKind.ETHEREUM,
+                        chux.walletAddress
+                    )
+                )
+            }
         }
     }
 
