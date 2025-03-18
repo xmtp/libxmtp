@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-- Fixed dm stitching
+- Improved DM stitching
 
 ## 1.0.0-rc3
 
