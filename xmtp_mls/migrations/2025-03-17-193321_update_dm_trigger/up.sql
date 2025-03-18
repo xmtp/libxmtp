@@ -1,6 +1,6 @@
 DROP TRIGGER IF EXISTS msg_inserted;
 
-CREATE TRIGGER msg_inserted AFTER INSERT ON group_messages BEGIN
+CREATE TRIGGER msg_inserted AFTER INSERT ON group_messages FOR EACH ROW BEGIN
 UPDATE groups
 SET
     last_message_ns = NEW.sent_at_ns

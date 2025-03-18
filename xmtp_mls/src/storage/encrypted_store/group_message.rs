@@ -742,6 +742,8 @@ pub(crate) mod tests {
             let group = generate_group(None);
             group.store(conn).unwrap();
 
+            assert_eq!(group.last_message_ns, None);
+
             let messages = vec![
                 generate_message(None, Some(&group.id), Some(10_000), None),
                 generate_message(None, Some(&group.id), Some(1_000), None),
@@ -750,6 +752,9 @@ pub(crate) mod tests {
             ];
 
             assert_ok!(messages.store(conn));
+
+            let group = conn.find_group(&group.id).unwrap().unwrap();
+            assert_eq!(group.last_message_ns.unwrap(), 1_000_000);
 
             let messages_asc = conn
                 .get_group_messages(

@@ -630,7 +630,7 @@ where
         conn: &DbConnection,
         group_id: &Vec<u8>,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let stored_group: Option<StoredGroup> = conn.fetch_stitched(group_id)?;
+        let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
             .ok_or(NotFound::GroupById(group_id.clone()))
@@ -642,8 +642,33 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+        let conn = &self.store().conn()?;
         self.group_with_conn(conn, &group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Self>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        self.stitched_group_with_conn(conn, group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group_with_conn(
+        &self,
+        conn: &DbConnection,
+        group_id: &[u8],
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        let stored_group = conn.fetch_stitched(&group_id)?;
+        stored_group
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .map_err(Into::into)
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -1266,7 +1291,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 3);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
-        let new_alice_dm = alice.group(alice_dm.group_id.clone()).unwrap();
+        let new_alice_dm = alice.stitched_group(&alice_dm.group_id).unwrap();
 
         // The group_id should not be what we asked for because it was stitched
         assert_ne!(alice_dm.group_id, new_alice_dm.group_id);

@@ -305,7 +305,7 @@ impl FfiXmtpClient {
 
     pub fn conversation(&self, conversation_id: Vec<u8>) -> Result<FfiConversation, GenericError> {
         self.inner_client
-            .group(conversation_id)
+            .stitched_group(&conversation_id)
             .map(Into::into)
             .map_err(Into::into)
     }
@@ -7507,7 +7507,7 @@ mod tests {
 
         // Send messages
         convo_bo.send_text("Bo hey").await.unwrap();
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         convo_alix.send_text("Alix hey").await.unwrap();
 
         let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
@@ -7559,9 +7559,6 @@ mod tests {
         let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
         assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
 
-        // 1742250698805377000
-        // 1742250698729664963
-
         // Ensure conversations remain the same
         let convo_alix_2 = client_alix
             .conversations()
@@ -7578,8 +7575,8 @@ mod tests {
         let topic_alix_same = client_alix.conversation(convo_alix.id()).unwrap();
 
         assert_eq!(
-            convo_alix.id(),
             convo_alix_2.id(),
+            convo_bo_2.id(),
             "Conversations should match"
         );
         assert_eq!(
