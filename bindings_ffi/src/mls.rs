@@ -7619,8 +7619,6 @@ mod tests {
         convo_bo_2.sync().await.unwrap();
         convo_alix_2.sync().await.unwrap();
 
-        log::info!("Additional messages sent and synced");
-
         // Validate final message count
         let final_bo_messages = convo_alix_2
             .find_messages(FfiListMessagesOptions::default())
@@ -7631,27 +7629,7 @@ mod tests {
             .await
             .unwrap();
 
-        let final_bo_decoded_messages: Vec<String> = final_bo_messages
-            .iter()
-            .map(|m| TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap())
-            .collect();
-        let final_alix_decoded_messages: Vec<String> = final_alix_messages
-            .iter()
-            .map(|m| TextCodec::decode(bytes_to_encoded_content(m.content.clone())).unwrap())
-            .collect();
-
-        log::info!("Final Bo messages: {:?}", final_bo_decoded_messages);
-        log::info!("Final Alix messages: {:?}", final_alix_decoded_messages);
-
-        assert_eq!(
-            final_bo_decoded_messages.len(),
-            5,
-            "Bo should see 5 messages"
-        );
-        assert_eq!(
-            final_alix_decoded_messages.len(),
-            5,
-            "Alix should see 5 messages"
-        );
+        assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
+        assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
     }
 }
