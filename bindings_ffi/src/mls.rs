@@ -3005,6 +3005,7 @@ mod tests {
     type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
     type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
 
+    #[allow(dead_code)]
     struct PasskeyUser {
         pk_cred: PasskeyCredential,
         pk_client: PasskeyClient,
