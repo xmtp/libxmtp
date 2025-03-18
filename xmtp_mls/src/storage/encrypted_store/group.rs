@@ -284,7 +284,7 @@ impl DbConnection {
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Use a window function to get the latest DM per dm_id
+            // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id FROM (
