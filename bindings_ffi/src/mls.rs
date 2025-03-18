@@ -2718,6 +2718,7 @@ mod tests {
     use prost::Message;
     use std::{
         collections::HashMap,
+        ops::Deref,
         sync::{
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
@@ -3012,7 +3013,15 @@ mod tests {
         client: Arc<FfiXmtpClient>,
     }
 
-    async fn new_passkey_cred() -> PasskeyUser {
+    impl Deref for PasskeyUser {
+        type Target = Arc<FfiXmtpClient>;
+        fn deref(&self) -> &Self::Target {
+            &self.client
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn new_passkey_client() -> PasskeyUser {
         let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
         let parameters_from_rp = PublicKeyCredentialParameters {
             ty: PublicKeyCredentialType::PublicKey,
@@ -3331,7 +3340,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = new_test_client().await;
+        let alex = new_passkey_client().await;
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
