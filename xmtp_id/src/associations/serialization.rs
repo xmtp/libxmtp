@@ -444,7 +444,10 @@ impl From<MemberIdentifierKindProto> for MemberIdentifier {
                 Self::Installation(ident::Installation(public_key))
             }
             MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party }) => {
-                Self::Passkey(ident::Passkey { key, relying_party })
+                Self::Passkey(ident::Passkey {
+                    key,
+                    relying_party: relying_party,
+                })
             }
         }
     }
@@ -495,7 +498,7 @@ impl From<MemberIdentifier> for MemberIdentifierProto {
                 MemberIdentifierProto {
                     kind: Some(MemberIdentifierKindProto::Passkey(PasskeyProto {
                         key,
-                        relying_party,
+                        relying_party: relying_party,
                     })),
                 }
             }
@@ -517,7 +520,7 @@ impl TryFrom<MemberIdentifierProto> for MemberIdentifier {
             Some(MemberIdentifierKindProto::Passkey(PasskeyProto { key, relying_party })) => {
                 Ok(MemberIdentifier::Passkey(ident::Passkey {
                     key,
-                    relying_party,
+                    relying_party: relying_party,
                 }))
             }
             None => Err(ConversionError::Missing {

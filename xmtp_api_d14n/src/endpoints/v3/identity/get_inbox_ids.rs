@@ -3,15 +3,17 @@ use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    get_inbox_ids_request::Request, GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
+    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
 };
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 #[derive(Debug, Builder, Default)]
 #[builder(setter(strip_option))]
 pub struct GetInboxIds {
-    #[builder(setter(into))]
+    #[builder(setter(into), default)]
     addresses: Vec<String>,
+    #[builder(setter(into), default)]
+    passkeys: Vec<String>,
 }
 
 impl GetInboxIds {
@@ -31,14 +33,23 @@ impl Endpoint for GetInboxIds {
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
+        let addresses = self
+            .addresses
+            .iter()
+            .cloned()
+            .map(|a| (a, IdentifierKind::Ethereum));
+        let passkeys = self
+            .passkeys
+            .iter()
+            .cloned()
+            .map(|p| (p, IdentifierKind::Passkey));
+
         Ok(GetInboxIdsRequest {
-            requests: self
-                .addresses
-                .iter()
-                .cloned()
-                .map(|i| Request {
+            requests: addresses
+                .chain(passkeys)
+                .map(|(i, kind)| get_inbox_ids_request::Request {
                     identifier: i,
-                    identifier_kind: IdentifierKind::Ethereum as i32,
+                    identifier_kind: kind as i32,
                 })
                 .collect(),
         }

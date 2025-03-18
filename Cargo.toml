@@ -46,6 +46,7 @@ ctor = "0.2"
 diesel = { version = "2.2", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
 dyn-clone = "1"
+derive_builder = "0.20"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
 ethers = { version = "2.0", default-features = false }

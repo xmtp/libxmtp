@@ -22,6 +22,7 @@
 , llvmPackages_19
 , wasm-bindgen-cli
 , foundry-bin
+, graphite-cli
 , ...
 }:
 
@@ -80,6 +81,7 @@ mkShell {
       jdk21
       kotlin
       diesel-cli
+      graphite-cli
 
       # Random devtools
       # tokio-console

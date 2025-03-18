@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 pub struct QueryWelcomeMessages {
     #[builder(setter(into))]
     installation_key: Vec<u8>,
-    #[builder(setter(skip))]
+    #[builder(setter(into), default)]
     paging_info: Option<PagingInfo>,
 }
 

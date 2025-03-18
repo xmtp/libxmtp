@@ -9,9 +9,9 @@ use xmtp_proto::xmtp::xmtpv4::payer_api::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct PublishClientEnvelopes {
-    #[builder(setter(into))]
+    #[builder(setter(each(name = "envelope", into)))]
     envelopes: Vec<ClientEnvelope>,
 }
 
@@ -32,10 +32,11 @@ impl Endpoint for PublishClientEnvelopes {
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
-        Ok(PublishClientEnvelopesRequest {
+        let publish = PublishClientEnvelopesRequest {
             envelopes: self.envelopes.clone(),
-        }
-        .encode_to_vec())
+        };
+        tracing::debug!("publish {:?}", publish);
+        Ok(publish.encode_to_vec())
     }
 }
 
@@ -58,7 +59,7 @@ mod test {
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 
-        let client = crate::TestClient::create_local_payer();
+        let client = crate::TestClient::create_local_d14n();
         let client = client.build().await.unwrap();
 
         let endpoint = PublishClientEnvelopes::builder()

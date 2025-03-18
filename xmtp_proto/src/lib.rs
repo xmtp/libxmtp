@@ -33,3 +33,11 @@ pub mod prelude {
     pub use super::traits::{ApiClientError, Client, Endpoint, Query};
     pub use super::XmtpApiError;
 }
+
+pub mod identity_v1 {
+    pub use super::xmtp::identity::api::v1::*;
+}
+
+pub mod mls_v1 {
+    pub use super::xmtp::mls::api::v1::*;
+}

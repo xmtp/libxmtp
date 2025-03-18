@@ -230,8 +230,8 @@ impl<E: std::error::Error + XmtpApiError> From<std::convert::Infallible> for Api
 
 #[derive(Debug, Error)]
 pub enum BodyError {
-    #[error("placeholder")]
-    Placeholder,
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl RetryableError for BodyError {

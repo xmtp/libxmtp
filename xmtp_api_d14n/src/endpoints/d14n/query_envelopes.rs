@@ -8,8 +8,9 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
+#[builder(build_fn(error = "BodyError"))]
 pub struct QueryEnvelope {
-    #[builder(setter(into))]
+    #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
     #[builder(setter(into))]
     originator_node_ids: Vec<u32>,
@@ -33,21 +34,22 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
-        Ok(QueryEnvelopesRequest {
+        let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
                 originator_node_ids: self.originator_node_ids.clone(),
                 last_seen: None,
             }),
-            limit: 1,
-        }
-        .encode_to_vec())
+            limit: 0,
+        };
+        tracing::debug!("{:?}", query);
+        Ok(query.encode_to_vec())
     }
 }
 
 /// Batch Query
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct QueryEnvelopes {
     #[builder(setter(into))]
     envelopes: EnvelopesQuery,
@@ -73,11 +75,12 @@ impl Endpoint for QueryEnvelopes {
     }
 
     fn body(&self) -> Result<Vec<u8>, BodyError> {
-        Ok(QueryEnvelopesRequest {
+        let query = QueryEnvelopesRequest {
             query: Some(self.envelopes.clone()),
             limit: self.limit,
-        }
-        .encode_to_vec())
+        };
+        tracing::debug!("QUERY: {:?}", query);
+        Ok(query.encode_to_vec())
     }
 }
 
