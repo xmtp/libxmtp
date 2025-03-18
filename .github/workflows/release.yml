@@ -22,20 +22,20 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
       - name: Run build with Gradle Wrapper
         run: ./gradlew build
-      - name: Tag version 4.0.0-rc1
+      - name: Tag version 4.0.0
         run: |
-          git tag 4.0.0-rc1
-          git push origin 4.0.0-rc1
-      - name: Create a GitHub release for version 4.0.0-rc1
+          git tag 4.0.0
+          git push origin 4.0.0
+      - name: Create a GitHub release for version 4.0.0
         uses: ncipollo/release-action@v1
         with:
-          tag: "4.0.0-rc1"
-          name: "Release 4.0.0-rc1"
-          body: "A release candidate for the new identity scheme"
+          tag: "4.0.0"
+          name: "Release 4.0.0"
+          body: "A release for the new identity scheme"
 
       - name: Gradle Publish
         env:
-          RELEASE_VERSION: "4.0.0-rc1"
+          RELEASE_VERSION: "4.0.0"
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
           SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}

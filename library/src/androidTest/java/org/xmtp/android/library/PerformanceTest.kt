@@ -41,7 +41,7 @@ class PerformanceTest {
         @BeforeClass
         @JvmStatic
         fun setUpClass() {
-            val fixtures = fixtures(ClientOptions.Api(XMTPEnvironment.DEV, true))
+            val fixtures = fixtures(ClientOptions.Api(XMTPEnvironment.LOCAL, false))
             alixWallet = fixtures.alixAccount
             alix = fixtures.alix
             boWallet = fixtures.boAccount
