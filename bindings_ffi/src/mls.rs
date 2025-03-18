@@ -3702,8 +3702,6 @@ mod tests {
         let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
 
-        let coda = new_passkey_cred().await;
-
         let client_amal = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -3719,6 +3717,7 @@ mod tests {
         .await
         .unwrap();
 
+        // let coda = new_passkey_cred().await;
         // Check if can message a passkey identifier
         // TODO: enable when xmtp-node-go is updated
         // let can_msg = client_amal
