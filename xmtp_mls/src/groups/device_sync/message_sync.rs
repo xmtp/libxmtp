@@ -58,7 +58,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_message_history_sync() {
         let wallet = generate_local_wallet();
@@ -146,7 +146,7 @@ pub(crate) mod tests {
         .unwrap();
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     async fn test_sync_continues_during_db_disconnect() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
@@ -208,7 +208,7 @@ pub(crate) mod tests {
         assert_ne!(old_group_id, new_group_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     async fn test_prepare_groups_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -225,7 +225,7 @@ pub(crate) mod tests {
         assert_eq!(result.len(), 2);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 1))]
+    #[xmtp_common::test]
     async fn test_externals_cant_join_sync_group() {
         let wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;

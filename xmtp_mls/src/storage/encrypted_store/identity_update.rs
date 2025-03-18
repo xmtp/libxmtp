@@ -145,8 +145,7 @@ pub(crate) mod tests {
         )
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn insert_and_read() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
@@ -171,8 +170,7 @@ pub(crate) mod tests {
         .await;
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_filter() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";
@@ -205,8 +203,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_get_latest_sequence_id() {
         with_connection(|conn| {
             let inbox_1 = "inbox_1";
@@ -242,8 +239,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn get_single_sequence_id() {
         with_connection(|conn| {
             let inbox_id = "inbox_1";

@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::storage::{NotFound, StorageError};
+use crate::storage::{native::NativeStorageError, NotFound};
 
 use super::{EncryptionKey, StorageOption};
 
@@ -44,9 +44,9 @@ pub struct EncryptedConnection {
 
 impl EncryptedConnection {
     /// Creates a file for the salt and stores it
-    pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, StorageError> {
+    pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, NativeStorageError> {
         use super::StorageOption::*;
-        Self::check_for_sqlcipher(opts)?;
+        Self::check_for_sqlcipher(opts, None)?;
 
         let salt = match opts {
             Ephemeral => None,
@@ -110,7 +110,11 @@ impl EncryptedConnection {
 
     /// create a new database + salt file.
     /// writes the 16-bytes hex-encoded salt to `salt`
-    fn create(path: &String, key: EncryptionKey, salt: &mut [u8]) -> Result<(), StorageError> {
+    fn create(
+        path: &String,
+        key: EncryptionKey,
+        salt: &mut [u8],
+    ) -> Result<(), NativeStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
         conn.batch_execute(&format!(
             r#"
@@ -131,7 +135,11 @@ impl EncryptedConnection {
     /// persisting it to SALT_FILE_NAME.
     ///
     /// if the salt file already exists, deletes it.
-    fn migrate(path: &String, key: EncryptionKey, salt: &mut [u8]) -> Result<(), StorageError> {
+    fn migrate(
+        path: &String,
+        key: EncryptionKey,
+        salt: &mut [u8],
+    ) -> Result<(), NativeStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
 
         conn.batch_execute(&format!(
@@ -162,7 +170,7 @@ impl EncryptedConnection {
         path: &String,
         conn: &mut SqliteConnection,
         buf: &mut [u8],
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), NativeStorageError> {
         let mut row_iter = conn.load(sql_query("PRAGMA cipher_salt"))?;
         // cipher salt should always exist. if it doesn't SQLCipher is misconfigured.
         let row = row_iter
@@ -222,28 +230,31 @@ impl EncryptedConnection {
         }
     }
 
-    fn check_for_sqlcipher(opts: &StorageOption) -> Result<(), StorageError> {
+    fn check_for_sqlcipher(
+        opts: &StorageOption,
+        conn: Option<&mut SqliteConnection>,
+    ) -> Result<CipherVersion, NativeStorageError> {
         if let Some(path) = opts.path() {
             let exists = std::path::Path::new(path).exists();
             tracing::debug!("db @ [{}] exists? [{}]", path, exists);
         }
-        let conn = &mut opts.conn()?;
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
+        let conn = if let Some(c) = conn {
+            c
+        } else {
+            &mut opts.conn()?
+        };
+        let mut cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
         if cipher_version.is_empty() {
-            return Err(StorageError::SqlCipherNotLoaded);
+            return Err(NativeStorageError::SqlCipherNotLoaded);
         }
-        Ok(())
+        Ok(cipher_version.pop().expect("checked for empty"))
     }
 }
 
 impl super::native::ValidatedConnection for EncryptedConnection {
-    fn validate(&self, opts: &StorageOption) -> Result<(), StorageError> {
+    fn validate(&self, opts: &StorageOption) -> Result<(), NativeStorageError> {
         let conn = &mut opts.conn()?;
-
-        let cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
-        if cipher_version.is_empty() {
-            return Err(StorageError::SqlCipherNotLoaded);
-        }
+        let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, Some(conn))?;
 
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
@@ -252,7 +263,7 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             SELECT count(*) FROM sqlite_master;",
             self.pragmas()
         ))
-        .map_err(|_| StorageError::SqlCipherKeyIncorrect)?;
+        .map_err(|_| NativeStorageError::SqlCipherKeyIncorrect)?;
 
         let CipherProviderVersion {
             cipher_provider_version,
@@ -260,14 +271,13 @@ impl super::native::ValidatedConnection for EncryptedConnection {
             .get_result::<CipherProviderVersion>(conn)?;
         tracing::info!(
             "Sqlite cipher_version={:?}, cipher_provider_version={:?}",
-            cipher_version.first().as_ref().map(|v| &v.cipher_version),
+            sqlcipher_version.cipher_version,
             cipher_provider_version
         );
-        if tracing::enabled!(tracing::Level::DEBUG) {
+        let log = std::env::var("SQLCIPHER_LOG");
+        let is_sqlcipher_log_enabled = matches!(log, Ok(s) if s == "true" || s == "1");
+        if is_sqlcipher_log_enabled {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
-                .ok();
-        } else {
-            conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = WARN;")
                 .ok();
         }
         tracing::debug!("SQLCipher Database validated.");
@@ -313,6 +323,16 @@ mod tests {
     use super::*;
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
     use StorageOption::*;
+
+    #[tokio::test]
+    async fn test_sqlcipher_version() {
+        let db_path = tmp_path();
+        {
+            let opts = Persistent(db_path.clone());
+            let v = EncryptedConnection::check_for_sqlcipher(&opts, None).unwrap();
+            println!("SQLCipher Version {}", v.cipher_version);
+        }
+    }
 
     #[tokio::test]
     async fn test_db_creates_with_plaintext_header() {

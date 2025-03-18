@@ -7,11 +7,6 @@
 LibXMTP is a shared library encapsulating the core functionality of the XMTP
 messaging protocol, such as cryptography, networking, and language bindings.
 
-> **Important** This software is in **alpha** status and ready for you to start
-> experimenting with. However, we do not recommend using alpha software in
-> production apps. Expect frequent changes as we add features and iterate based
-> on feedback.
-
 ## Requirements
 
 - Install [Rustup](https://rustup.rs/)

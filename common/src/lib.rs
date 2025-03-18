@@ -7,6 +7,10 @@ mod test;
 #[cfg(any(test, feature = "test-utils"))]
 pub use test::*;
 
+#[doc(inline)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use xmtp_macro::test;
+
 #[cfg(feature = "bench")]
 pub mod bench;
 

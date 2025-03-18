@@ -74,6 +74,8 @@ pub enum StorageOption {
 
 #[allow(async_fn_in_trait)]
 pub trait XmtpDb {
+    type Error;
+
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
@@ -83,18 +85,18 @@ pub trait XmtpDb {
     type TransactionManager: diesel::connection::TransactionManager<Self::Connection>;
 
     /// Validate a connection is as expected
-    fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
         Ok(())
     }
 
     /// Returns the Connection implementation for this Database
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError>;
+    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error>;
 
     /// Reconnect to the database
-    fn reconnect(&self) -> Result<(), StorageError>;
+    fn reconnect(&self) -> Result<(), Self::Error>;
 
     /// Release connection to the database, closing it
-    fn release_connection(&self) -> Result<(), StorageError>;
+    fn release_connection(&self) -> Result<(), Self::Error>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -167,9 +169,10 @@ pub mod private {
         pub(super) db: Db,
     }
 
-    impl<Db> EncryptedMessageStore<Db>
+    impl<Db, E> EncryptedMessageStore<Db>
     where
-        Db: XmtpDb,
+        Db: XmtpDb<Error = E>,
+        StorageError: From<E>,
     {
         #[tracing::instrument(level = "debug", skip_all)]
         pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
@@ -201,17 +204,17 @@ pub mod private {
         pub fn conn(
             &self,
         ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
-            self.db.conn()
+            Ok(self.db.conn()?)
         }
 
         /// Release connection to the database, closing it
         pub fn release_connection(&self) -> Result<(), StorageError> {
-            self.db.release_connection()
+            Ok(self.db.release_connection()?)
         }
 
         /// Reconnect to the database
         pub fn reconnect(&self) -> Result<(), StorageError> {
-            self.db.reconnect()
+            Ok(self.db.reconnect()?)
         }
     }
 }
@@ -393,7 +396,6 @@ pub(crate) mod tests {
     use diesel::sql_types::{BigInt, Blob, Integer, Text};
     use group::ConversationType;
     use schema::groups;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
     use crate::{
@@ -430,7 +432,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -448,7 +450,7 @@ pub(crate) mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -501,7 +503,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn test_dm_id_migration() {
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
@@ -578,8 +580,10 @@ pub(crate) mod tests {
         assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
+        use crate::storage::native::NativeStorageError;
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
@@ -603,13 +607,18 @@ pub(crate) mod tests {
 
         // Ensure it fails
         assert!(
-            matches!(res.err(), Some(StorageError::SqlCipherKeyIncorrect)),
+            matches!(
+                res.err(),
+                Some(StorageError::Native(
+                    NativeStorageError::SqlCipherKeyIncorrect
+                ))
+            ),
             "Expected SqlCipherKeyIncorrect error"
         );
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         {

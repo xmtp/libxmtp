@@ -1,4 +1,5 @@
 use super::{GroupError, MlsGroup};
+use crate::configuration::WORKER_RESTART_DELAY;
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
 pub use crate::utils::WorkerHandle;
@@ -119,6 +120,15 @@ pub enum DeviceSyncError {
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     Deserialization(#[from] DeserializationError),
+}
+
+impl DeviceSyncError {
+    pub fn db_needs_connection(&self) -> bool {
+        match self {
+            Self::Client(s) => s.db_needs_connection(),
+            _ => false,
+        }
+    }
 }
 
 impl RetryableError for DeviceSyncError {
@@ -364,22 +374,17 @@ where
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
                 tracing::info!("Running worker..");
-                match err {
-                    DeviceSyncError::Client(ClientError::Storage(
-                        StorageError::PoolNeedsConnection,
-                    )) => {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
-                    }
-                    _ => {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                        // Wait 2 seconds before restarting.
-                        xmtp_common::time::sleep(Duration::from_secs(2)).await;
-                    }
+                if err.db_needs_connection() {
+                    tracing::warn!(
+                        inbox_id,
+                        installation_id,
+                        "Pool disconnected. task will restart on reconnect"
+                    );
+                    break;
+                } else {
+                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                    // Wait 2 seconds before restarting.
+                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                 }
             }
         });

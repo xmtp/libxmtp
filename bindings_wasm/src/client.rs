@@ -143,10 +143,10 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
-        .map_err(|_| JsError::new("Error creating encrypted message store"))?
+        .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .map_err(|_| JsError::new("Error creating unencrypted message store"))?,
+      .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?,
   };
 
   let identity_strategy = IdentityStrategy::new(
@@ -165,14 +165,14 @@ pub async fn create_client(
       .history_sync_url(&url)
       .build()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+      .map_err(|e| JsError::new(&e.to_string()))?,
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
       .build()
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
+      .map_err(|e| JsError::new(&e.to_string()))?,
   };
 
   Ok(Client {

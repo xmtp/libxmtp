@@ -16,6 +16,7 @@ let
     (commonCargoSources ./../xmtp_proto)
     (commonCargoSources ./../common)
     (commonCargoSources ./../xmtp_content_types)
+    (commonCargoSources ./../xmtp_macro)
     ./../xmtp_id/src/scw_verifier/chain_urls_default.json
     ./../xmtp_id/artifact
     ./../xmtp_mls/migrations

@@ -296,12 +296,12 @@ impl RetryBuilder<ExponentialBackoff, ()> {
 /// Builder for [`Retry`].
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// use xmtp_common::retry::RetryBuilder;
 ///
 /// RetryBuilder::default()
 ///     .retries(5)
-///     .with_strategy(ExponentialBackoff::default())
+///     .with_strategy(xmtp_common::ExponentialBackoff::default())
 ///     .build();
 /// ```
 impl<S: Strategy, C: Strategy> RetryBuilder<S, C> {
@@ -463,10 +463,11 @@ macro_rules! retryable {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use super::*;
+
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use super::*;
     use thiserror::Error;
     use tokio::sync::mpsc;
 
@@ -493,8 +494,7 @@ pub(crate) mod tests {
         Err(SomeError::ARetryableError)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_retries_twice_and_succeeds() {
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -509,8 +509,7 @@ pub(crate) mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_works_with_random_args() {
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
@@ -525,8 +524,7 @@ pub(crate) mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;
@@ -537,8 +535,7 @@ pub(crate) mod tests {
         assert!(result.is_err())
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_only_runs_non_retryable_once() {
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -551,8 +548,7 @@ pub(crate) mod tests {
         assert_eq!(attempts, 1);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_works_async() {
         async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
             let val = rx.recv().await.unwrap();
@@ -577,8 +573,7 @@ pub(crate) mod tests {
         assert!(rx.is_empty());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_macro::test]
     async fn it_works_async_mut() {
         async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
             if *data == 2 {
@@ -598,8 +593,7 @@ pub(crate) mod tests {
         .unwrap();
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    #[xmtp_macro::test]
     fn backoff_retry() {
         let backoff_retry = Retry::default();
         let time_spent = crate::time::Instant::now();

@@ -95,11 +95,7 @@ mod tests {
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
+    #[xmtp_common::test]
     async fn test_buffer_export_import() {
         use futures::io::BufReader;
         use futures_util::AsyncReadExt;

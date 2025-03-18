@@ -189,6 +189,8 @@ where
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = self.context().store().conn()?;
         let mls_provider = XmtpOpenMlsProvider::from(conn);
+        let conn = mls_provider.conn_ref();
+
         let epoch = self.epoch(&mls_provider).await?;
         tracing::info!(
             inbox_id = self.client.inbox_id(),
@@ -199,8 +201,18 @@ where
             self.client.inbox_id(),
             epoch
         );
-        self.maybe_update_installations(&mls_provider, None).await?;
 
+        // Also sync the "stitched DMs", if any...
+        for other_dm in conn.other_dms(&self.group_id)? {
+            let other_dm =
+                Self::new_from_arc(self.client.clone(), other_dm.id, other_dm.created_at_ns);
+            other_dm
+                .maybe_update_installations(&mls_provider, None)
+                .await?;
+            other_dm.sync_with_conn(&mls_provider).await?;
+        }
+
+        self.maybe_update_installations(&mls_provider, None).await?;
         self.sync_with_conn(&mls_provider).await
     }
 
@@ -2060,8 +2072,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    #[xmtp_common::test]
     async fn hmac_keys_work_as_expected() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);

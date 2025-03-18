@@ -486,7 +486,6 @@ pub(crate) mod tests {
         storage::encrypted_store::{group::tests::generate_group, tests::with_connection},
         Store,
     };
-    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
     use xmtp_content_types::should_push;
 
@@ -513,7 +512,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
@@ -522,7 +521,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_gets_messages() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -538,7 +537,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_cannot_insert_message_without_group() {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
@@ -552,7 +551,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_gets_many_messages() {
         use crate::storage::encrypted_store::schema::group_messages::dsl;
 
@@ -587,7 +586,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_gets_messages_by_time() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -638,7 +637,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_deletes_middle_message_by_expiration_time() {
         with_connection(|conn| {
             let mut group = generate_group(None);
@@ -681,7 +680,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_gets_messages_by_kind() {
         with_connection(|conn| {
             let group = generate_group(None);
@@ -736,11 +735,13 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_orders_messages_by_sent() {
         with_connection(|conn| {
             let group = generate_group(None);
             group.store(conn).unwrap();
+
+            assert_eq!(group.last_message_ns, None);
 
             let messages = vec![
                 generate_message(None, Some(&group.id), Some(10_000), None),
@@ -750,6 +751,9 @@ pub(crate) mod tests {
             ];
 
             assert_ok!(messages.store(conn));
+
+            let group = conn.find_group(&group.id).unwrap().unwrap();
+            assert_eq!(group.last_message_ns.unwrap(), 1_000_000);
 
             let messages_asc = conn
                 .get_group_messages(
@@ -784,7 +788,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn it_gets_messages_by_content_type() {
         with_connection(|conn| {
             let group = generate_group(None);

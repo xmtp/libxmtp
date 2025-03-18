@@ -11,8 +11,10 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
+, cargo-expand
 , inferno
 , openssl
+, sqlcipher
 , sqlite
 , corepack
 , lnav
@@ -70,6 +72,7 @@ mkShell {
       # native libs
       openssl
       sqlite
+      sqlcipher
 
       mktemp
       jdk21
@@ -81,6 +84,7 @@ mkShell {
       gnuplot
       flamegraph
       cargo-flamegraph
+      cargo-expand
       inferno
       lnav
 

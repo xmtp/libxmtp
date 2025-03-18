@@ -51,12 +51,6 @@ async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-] }
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
@@ -114,6 +108,12 @@ tracing-subscriber = { workspace = true, features = [
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+diesel = { workspace = true, features = [
+  "r2d2",
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
 tokio = { workspace = true, features = [
   "macros",
   "tracing",
@@ -132,8 +132,13 @@ tokio-util = { version = "0.7", default-features = false, features = [
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
-  "precompiled",
+  "bundled",
 ] }
 
 chrono = { workspace = true, features = ["wasmbind"] }
@@ -143,6 +148,7 @@ openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
+
 [dev-dependencies]
 anyhow.workspace = true
 const_format.workspace = true
@@ -155,6 +161,7 @@ xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
+rstest = { workspace = true, features = ["async-timeout"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

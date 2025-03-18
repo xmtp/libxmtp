@@ -144,12 +144,12 @@ pub async fn create_client(
       let key: Vec<u8> = key.deref().into();
       let key: EncryptionKey = key
         .try_into()
-        .map_err(|_| Error::from_reason("Malformed 32 byte encryption key".to_string()))?;
+        .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
-        .map_err(|_| Error::from_reason("Error creating encrypted message store"))?
+        .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .map_err(|_| Error::from_reason("Error creating unencrypted message store"))?,
+      .map_err(|e| Error::from_reason(format!("{e} Error creating unencrypted message store")))?,
   };
 
   let internal_account_identifier = account_identifier.clone().try_into()?;

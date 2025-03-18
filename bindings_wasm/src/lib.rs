@@ -8,6 +8,7 @@ pub mod identity;
 pub mod inbox_id;
 pub mod inbox_state;
 pub mod messages;
+pub mod opfs;
 pub mod permissions;
 pub mod signatures;
 pub mod streams;
@@ -25,3 +26,6 @@ pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
   value.serialize(&Serializer::new().serialize_large_number_types_as_bigints(true))
 }
+
+#[cfg(test)]
+mod tests;

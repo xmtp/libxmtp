@@ -1,4 +1,5 @@
 use crate::client::ClientError;
+use crate::configuration::WORKER_RESTART_DELAY;
 use crate::storage::StorageError;
 use crate::Client;
 use futures::StreamExt;
@@ -7,9 +8,6 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-
-/// Duration to wait before restarting the worker in case of an error.
-pub const WORKER_RESTART_DELAY: Duration = Duration::from_secs(1);
 
 /// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
@@ -20,6 +18,15 @@ pub enum DisappearingMessagesCleanerError {
     Storage(#[from] StorageError),
     #[error("client error: {0}")]
     Client(#[from] ClientError),
+}
+
+impl DisappearingMessagesCleanerError {
+    fn db_needs_connection(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(s) => s.db_needs_connection(),
+        }
+    }
 }
 
 pub struct DisappearingMessagesCleanerWorker<ApiClient, V> {
@@ -44,21 +51,17 @@ where
             let installation_id = hex::encode(self.client.installation_public_key());
             while let Err(err) = self.run().await {
                 tracing::info!("Running worker..");
-                match err {
-                    DisappearingMessagesCleanerError::Client(ClientError::Storage(
-                        StorageError::PoolNeedsConnection,
-                    )) => {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
-                    }
-                    _ => {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                    }
+                if err.db_needs_connection() {
+                    tracing::warn!(
+                        inbox_id,
+                        installation_id,
+                        "Pool disconnected. task will restart on reconnect"
+                    );
+                    break;
+                } else {
+                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                    // Wait 2 seconds before restarting.
+                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                 }
             }
         });

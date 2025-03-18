@@ -23,7 +23,6 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_common::time::now_ns;
 
 pub type ID = Vec<u8>;
 
@@ -87,7 +86,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: Some(now_ns()),
+            last_message_ns: None,
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
             paused_for_version,
@@ -117,7 +116,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: Some(now_ns()),
+            last_message_ns: None,
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
             paused_for_version,
@@ -141,7 +140,7 @@ impl StoredGroup {
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: None,
-            last_message_ns: Some(now_ns()),
+            last_message_ns: None,
             message_disappear_from_ns: None,
             message_disappear_in_ns: None,
             paused_for_version: None,
@@ -231,6 +230,36 @@ impl GroupQueryArgs {
 }
 
 impl DbConnection {
+    /// Same behavior as fetched, but will stitch DM groups
+    pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let group = self.raw_query_read(|conn| {
+            Ok::<_, StorageError>(
+                groups::table
+                    .filter(groups::id.eq(key))
+                    .first::<StoredGroup>(conn)
+                    .optional()?,
+            )
+        })?;
+
+        // Is this group a DM?
+        let Some(StoredGroup {
+            dm_id: Some(dm_id), ..
+        }) = group
+        else {
+            // If not, return the group
+            return Ok(group);
+        };
+
+        // Otherwise, return the stitched DM
+        self.raw_query_read(|conn| {
+            Ok(groups::table
+                .filter(groups::dm_id.eq(dm_id))
+                .order_by(groups::last_message_ns.desc())
+                .first::<StoredGroup>(conn)
+                .optional()?)
+        })
+    }
+
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
@@ -258,10 +287,12 @@ impl DbConnection {
             // Group by dm_id and grab the latest group (conversation stitching)
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
-                    SELECT id
-                    FROM groups
-                    GROUP BY CASE WHEN dm_id IS NULL THEN id ELSE dm_id END
-                    ORDER BY last_message_ns DESC
+                    SELECT id FROM (
+                        SELECT id, 
+                            ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
+                        FROM groups
+                    ) AS ranked_groups
+                    WHERE row_num = 1
                 )",
             ));
         }
@@ -401,18 +432,34 @@ impl DbConnection {
         &self,
         members: &DmMembers<&str>,
     ) -> Result<Option<StoredGroup>, StorageError> {
-        let dm_id = String::from(members);
-
         let query = dsl::groups
-            .filter(dsl::dm_id.eq(Some(dm_id)))
+            .filter(dsl::dm_id.eq(Some(format!("{members}"))))
             .order(dsl::last_message_ns.desc());
 
-        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
-        if groups.len() > 1 {
-            tracing::info!("More than one group found for dm_inbox_id {members:?}");
-        }
+        self.raw_query_read(|conn| Ok(query.first(conn).optional()?))
+    }
 
-        Ok(groups.into_iter().next())
+    /// Load the other DMs that are stitched into this group
+    pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, StorageError> {
+        let query = dsl::groups.filter(dsl::id.eq(group_id));
+        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+
+        // Grab the dm_id of the group
+        let Some(StoredGroup {
+            id,
+            dm_id: Some(dm_id),
+            ..
+        }) = groups.into_iter().next()
+        else {
+            return Ok(vec![]);
+        };
+
+        let query = dsl::groups
+            .filter(dsl::dm_id.eq(dm_id))
+            .filter(dsl::id.ne(id));
+
+        let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+        Ok(other_dms)
     }
 
     /// Updates group membership state
@@ -797,8 +844,7 @@ pub(crate) mod tests {
         )
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -813,8 +859,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -832,8 +877,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
@@ -854,8 +898,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_dm_stitching() {
         with_connection(|conn| {
             let dm1 = StoredGroup::new(
@@ -893,8 +936,7 @@ pub(crate) mod tests {
         .await;
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
@@ -974,8 +1016,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_installations_last_checked_is_updated() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -997,8 +1038,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_new_group_has_correct_purpose() {
         with_connection(|conn| {
             let test_group = generate_group(None);
@@ -1018,8 +1058,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_new_sync_group() {
         with_connection(|conn| {
             let id = rand_vec::<24>();
@@ -1051,8 +1090,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
             let test_group_1 = generate_group(Some(GroupMembershipState::Allowed));
@@ -1120,8 +1158,7 @@ pub(crate) mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_get_group_welcome_ids() {
         with_connection(|conn| {
             let mls_groups = vec![

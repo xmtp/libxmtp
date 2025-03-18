@@ -49,6 +49,7 @@ use xmtp_id::{
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
     InboxId, InboxIdRef,
 };
+use xmtp_proto::api_client::{ApiStats, IdentityStats};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
 /// Enum representing the network the Client is connected to
@@ -95,6 +96,15 @@ pub enum ClientError {
     LocalEvent(#[from] LocalEventError),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+impl ClientError {
+    pub fn db_needs_connection(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            _ => false,
+        }
+    }
 }
 
 impl From<NotFound> for ClientError {
@@ -229,6 +239,14 @@ where
     #[cfg(test)]
     pub fn test_update_version(&mut self, version: &str) {
         Arc::make_mut(&mut self.version_info).test_update_version(version);
+    }
+
+    pub fn api_stats(&self) -> &ApiStats {
+        self.api_client.api_client.stats()
+    }
+
+    pub fn identity_api_stats(&self) -> &IdentityStats {
+        self.api_client.api_client.identity_stats()
     }
 }
 
@@ -624,8 +642,33 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+        let conn = &self.store().conn()?;
         self.group_with_conn(conn, &group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Self>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        self.stitched_group_with_conn(conn, group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group_with_conn(
+        &self,
+        conn: &DbConnection,
+        group_id: &[u8],
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        let stored_group = conn.fetch_stitched(group_id)?;
+        stored_group
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .map_err(Into::into)
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -1061,8 +1104,7 @@ pub(crate) mod tests {
         XmtpApi,
     };
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_group_member_recovery() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -1089,8 +1131,7 @@ pub(crate) mod tests {
         assert_eq!(members.len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client
@@ -1103,8 +1144,7 @@ pub(crate) mod tests {
         assert!(error_string.contains("invalid identity"));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1154,8 +1194,7 @@ pub(crate) mod tests {
         assert_ne!(init1, init2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client
@@ -1171,8 +1210,7 @@ pub(crate) mod tests {
         assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_inbox_id() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -1183,6 +1221,77 @@ pub(crate) mod tests {
                 .unwrap(),
             Some(client.inbox_id().to_string())
         );
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        tokio::test(flavor = "multi_thread", worker_threads = 2)
+    )]
+    async fn double_dms() {
+        let alice_wallet = generate_local_wallet();
+        let alice = ClientBuilder::new_test_client(&alice_wallet).await;
+        let alice_provider = alice.mls_provider().unwrap();
+
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob_provider = bob.mls_provider().unwrap();
+
+        let alice_dm = alice
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+        alice_dm.send_message(b"Welcome 1").await.unwrap();
+
+        let bob_dm = bob
+            .create_dm_by_inbox_id(alice.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+
+        let alice2 = ClientBuilder::new_test_client(&alice_wallet).await;
+        let alice2_provider = alice2.mls_provider().unwrap();
+        let alice_dm2 = alice
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .await
+            .unwrap();
+        alice_dm2.send_message(b"Welcome 2").await.unwrap();
+
+        alice_dm.update_installations().await.unwrap();
+        alice.sync_welcomes(&alice_provider).await.unwrap();
+        bob.sync_welcomes(&bob_provider).await.unwrap();
+
+        alice_dm.send_message(b"Welcome from 1").await.unwrap();
+
+        // This message will set bob's dm as the primary DM for all clients
+        bob_dm.send_message(b"Bob says hi 1").await.unwrap();
+        // Alice will sync, pulling in Bob's DM message, which will cause
+        // a database trigger to update `last_message_ns`, putting bob's DM to the top.
+        alice_dm.sync().await.unwrap();
+
+        alice2.sync_welcomes(&alice2_provider).await.unwrap();
+        let groups = alice2
+            .find_groups(GroupQueryArgs {
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(groups.len(), 1);
+
+        groups[0].sync().await.unwrap();
+        let messages = groups[0]
+            .find_messages(&MsgQueryArgs {
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(messages.len(), 3);
+
+        // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
+        let new_alice_dm = alice.stitched_group(&alice_dm.group_id).unwrap();
+
+        // The group_id should not be what we asked for because it was stitched
+        assert_ne!(alice_dm.group_id, new_alice_dm.group_id);
+        // They should be the same, due the the message that Bob sent above.
+        assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1504,8 +1613,7 @@ pub(crate) mod tests {
         serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider()?)
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_key_package_rotation() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();
@@ -1581,8 +1689,7 @@ pub(crate) mod tests {
         assert!(bo_original_after_delete.is_err());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_find_or_create_dm_by_inbox_id() {
         let user1 = generate_local_wallet();
         let user2 = generate_local_wallet();
@@ -1631,8 +1738,7 @@ pub(crate) mod tests {
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn should_stream_consent() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();

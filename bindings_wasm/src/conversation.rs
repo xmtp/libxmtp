@@ -678,7 +678,6 @@ impl Conversation {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use wasm_bindgen_test::wasm_bindgen_test;
   use xmtp_mls::storage::group_message::{
     ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
@@ -702,6 +701,6 @@ mod tests {
       authority_id: String::from("test"),
       reference_id: None,
     };
-    let value = crate::to_value(&stored_message).unwrap();
+    crate::to_value(&stored_message).unwrap();
   }
 }
