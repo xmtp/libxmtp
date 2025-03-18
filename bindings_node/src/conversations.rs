@@ -433,7 +433,7 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .group(group_id)
+      .stitched_group(&group_id)
       .map_err(ErrorWrapper::from)?;
 
     Ok(group.into())

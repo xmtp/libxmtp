@@ -466,7 +466,7 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .group(group_id)
+      .stitched_group(&group_id)
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(group.into())

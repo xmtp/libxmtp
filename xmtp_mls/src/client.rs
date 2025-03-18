@@ -642,8 +642,33 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+        let conn = &self.store().conn()?;
         self.group_with_conn(conn, &group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Self>, ClientError> {
+        let conn = &mut self.store().conn()?;
+        self.stitched_group_with_conn(conn, group_id)
+    }
+
+    /// Look up a group by its ID while stitching DMs
+    ///
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
+    ///
+    pub fn stitched_group_with_conn(
+        &self,
+        conn: &DbConnection,
+        group_id: &[u8],
+    ) -> Result<MlsGroup<Self>, ClientError> {
+        let stored_group = conn.fetch_stitched(group_id)?;
+        stored_group
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .ok_or(NotFound::GroupById(group_id.to_vec()))
+            .map_err(Into::into)
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -1212,7 +1237,9 @@ pub(crate) mod tests {
         let alice_wallet = generate_local_wallet();
         let alice = ClientBuilder::new_test_client(&alice_wallet).await;
         let alice_provider = alice.mls_provider().unwrap();
+
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob_provider = bob.mls_provider().unwrap();
 
         let alice_dm = alice
             .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
@@ -1235,10 +1262,15 @@ pub(crate) mod tests {
 
         alice_dm.update_installations().await.unwrap();
         alice.sync_welcomes(&alice_provider).await.unwrap();
+        bob.sync_welcomes(&bob_provider).await.unwrap();
 
         alice_dm.send_message(b"Welcome from 1").await.unwrap();
 
+        // This message will set bob's dm as the primary DM for all clients
         bob_dm.send_message(b"Bob says hi 1").await.unwrap();
+        // Alice will sync, pulling in Bob's DM message, which will cause
+        // a database trigger to update `last_message_ns`, putting bob's DM to the top.
+        alice_dm.sync().await.unwrap();
 
         alice2.sync_welcomes(&alice2_provider).await.unwrap();
         let groups = alice2
@@ -1257,6 +1289,14 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(messages.len(), 3);
+
+        // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
+        let new_alice_dm = alice.stitched_group(&alice_dm.group_id).unwrap();
+
+        // The group_id should not be what we asked for because it was stitched
+        assert_ne!(alice_dm.group_id, new_alice_dm.group_id);
+        // They should be the same, due the the message that Bob sent above.
+        assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
