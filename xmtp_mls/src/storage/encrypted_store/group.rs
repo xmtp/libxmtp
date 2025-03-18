@@ -23,7 +23,6 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
-use xmtp_common::time::now_ns;
 
 pub type ID = Vec<u8>;
 

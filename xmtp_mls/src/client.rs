@@ -664,7 +664,7 @@ where
         conn: &DbConnection,
         group_id: &[u8],
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let stored_group = conn.fetch_stitched(&group_id)?;
+        let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
             .ok_or(NotFound::GroupById(group_id.to_vec()))
