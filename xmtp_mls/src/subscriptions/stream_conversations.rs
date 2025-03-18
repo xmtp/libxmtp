@@ -454,13 +454,14 @@ mod test {
     use crate::storage::group::GroupQueryArgs;
 
     use futures::StreamExt;
-    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -479,7 +480,9 @@ mod test {
         assert_eq!(bob_received_groups.group_id, group_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -585,7 +588,9 @@ mod test {
         assert_eq!(groups.len(), 3);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

@@ -119,8 +119,7 @@ pub(crate) mod tests {
 
     use super::*;
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_batch_read() {
         with_connection(|conn| {
             let association_state = AssociationState::new(

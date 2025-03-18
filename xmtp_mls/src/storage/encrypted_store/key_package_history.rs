@@ -96,8 +96,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_store_key_package_history_entry() {
         with_connection(|conn| {
             let hash_ref = rand_vec::<24>();
@@ -117,8 +116,7 @@ mod tests {
         .await
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_store_multiple() {
         with_connection(|conn| {
             let hash_ref1 = rand_vec::<24>();

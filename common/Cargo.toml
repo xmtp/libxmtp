@@ -16,6 +16,9 @@ web-time.workspace = true
 xmtp_cryptography.workspace = true
 
 # optional
+xmtp_macro = { workspace = true, optional = true }
+
+
 once_cell = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 tracing-flame = { version = "0.2", optional = true }
@@ -37,6 +40,7 @@ web-sys = { workspace = true, features = ["Window"] }
 wasm-bindgen-futures.workspace = true
 wasm-bindgen.workspace = true
 tokio = { workspace = true, features = ["time", "sync"] }
+wasm-bindgen-test = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream = { workspace = true, features = ["time"] }
@@ -51,6 +55,7 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 parking_lot.workspace = true
 once_cell.workspace = true
+xmtp_macro.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }
@@ -76,6 +81,8 @@ test-utils = [
   "dep:console_error_panic_hook",
   "dep:tracing-forest",
   "dep:once_cell",
+  "dep:wasm-bindgen-test",
+  "dep:xmtp_macro",
 ]
 bench = [
   "test-utils",

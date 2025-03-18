@@ -674,8 +674,7 @@ pub(crate) mod tests {
         assert!(is_member);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
         let wallet_ident = wallet.identifier();
@@ -701,8 +700,7 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_ident.into()).is_some())
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn add_association() {
         let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -796,8 +794,7 @@ pub(crate) mod tests {
         });
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -814,8 +811,7 @@ pub(crate) mod tests {
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn get_installation_diff() {
         let wallet_1 = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
@@ -922,8 +918,7 @@ pub(crate) mod tests {
             .contains(&client_2_installation_key.to_vec()));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     pub async fn revoke_wallet() {
         let recovery_wallet = generate_local_wallet();
         let second_wallet = generate_local_wallet();
@@ -979,8 +974,7 @@ pub(crate) mod tests {
         assert_eq!(inbox_ids.len(), 0);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;

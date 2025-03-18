@@ -115,8 +115,7 @@ pub(crate) mod tests {
     use xmtp_id::associations::Identifier;
 
     // Test storing duplicated wallets (same inbox_id and wallet_address)
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_store_duplicated_wallets() {
         with_connection(|conn| {
             let entry1 = IdentityCache {
@@ -140,8 +139,7 @@ pub(crate) mod tests {
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_fetch_and_store_identity_cache() {
         with_connection(|conn| {
             let ident1 = Identifier::rand_ethereum();

@@ -102,12 +102,14 @@ pub(crate) mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions,
         storage::group_message::GroupMessageKind,
     };
+    use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use futures::StreamExt;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(5))]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -141,7 +143,9 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test(flavor = "current_thread")]
+    #[timeout(Duration::from_secs(5))]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -175,7 +179,9 @@ pub(crate) mod tests {
     }
 
     // TODO: THIS TESTS ALSO LOSES MESSAGES
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[rstest::rstest]
+    #[xmtp_common::test(flavor = "multi_thread")]
+    #[timeout(Duration::from_secs(5))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -205,7 +211,9 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(5))]
     async fn test_subscribe_membership_changes() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;

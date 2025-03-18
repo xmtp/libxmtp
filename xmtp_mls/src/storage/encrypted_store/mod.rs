@@ -396,7 +396,6 @@ pub(crate) mod tests {
     use diesel::sql_types::{BigInt, Blob, Integer, Text};
     use group::ConversationType;
     use schema::groups;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
     use crate::{
@@ -433,7 +432,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn ephemeral_store() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
@@ -451,7 +450,7 @@ pub(crate) mod tests {
         assert_eq!(fetched_identity.inbox_id, inbox_id);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn persistent_store() {
         let db_path = tmp_path();
         {
@@ -504,7 +503,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[wasm_bindgen_test::wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn test_dm_id_migration() {
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
@@ -619,7 +618,7 @@ pub(crate) mod tests {
         EncryptedMessageStore::remove_db_files(db_path)
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         {

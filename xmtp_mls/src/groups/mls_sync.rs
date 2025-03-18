@@ -2072,8 +2072,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "multi_thread"))]
+    #[xmtp_common::test]
     async fn hmac_keys_work_as_expected() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);

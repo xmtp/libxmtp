@@ -2192,7 +2192,7 @@ pub(crate) mod tests {
             .unwrap();
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -2209,7 +2209,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -2229,8 +2229,7 @@ pub(crate) mod tests {
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_receive_message_from_other() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2262,7 +2261,7 @@ pub(crate) mod tests {
     }
 
     // Test members function from non group creator
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_members_func_from_non_creator() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2318,7 +2317,7 @@ pub(crate) mod tests {
 
     // Amal and Bola will both try and add Charlie from the same epoch.
     // The group should resolve to a consistent state
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2464,7 +2463,7 @@ pub(crate) mod tests {
         });
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_dm_stitching() {
         let alix_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
@@ -2536,7 +2535,7 @@ pub(crate) mod tests {
         assert_eq!(msg, "No, let's use this dm");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_add_inbox() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2894,7 +2893,8 @@ pub(crate) mod tests {
             "Bola_2 should have no DM group due to malformed key package"
         );
     }
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+
+    #[xmtp_common::test]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = client
@@ -2906,7 +2906,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_add_unregistered_member() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_ident = Identifier::rand_ethereum();
@@ -2918,7 +2918,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_remove_inbox() {
         let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Add another client onto the network
@@ -2956,7 +2956,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 2);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_key_update() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3000,7 +3000,7 @@ pub(crate) mod tests {
         assert_eq!(bola_messages.len(), 1);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_post_commit() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3023,7 +3023,7 @@ pub(crate) mod tests {
         assert_eq!(welcome_messages.len(), 1);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -3071,7 +3071,7 @@ pub(crate) mod tests {
             .unwrap())
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_removed_members_cannot_send_message_to_others() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = &generate_local_wallet();
@@ -3135,7 +3135,7 @@ pub(crate) mod tests {
         assert!(amal_messages.is_empty());
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
@@ -3172,7 +3172,7 @@ pub(crate) mod tests {
         assert_eq!(num_members, 3);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 10))]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_self_resolve_epoch_mismatch() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3222,7 +3222,7 @@ pub(crate) mod tests {
         assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3248,7 +3248,7 @@ pub(crate) mod tests {
             .is_err(),);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_options() {
         let expected_group_message_disappearing_settings =
             MessageDisappearingSettings::new(100, 200);
@@ -3309,7 +3309,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     #[ignore]
     async fn test_max_limit_add() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3334,7 +3334,7 @@ pub(crate) mod tests {
             .is_err(),);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_mutable_data() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3426,7 +3426,7 @@ pub(crate) mod tests {
         assert_eq!(bola_group_name, "New Group Name 1");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_update_policies_empty_group() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -3493,7 +3493,7 @@ pub(crate) mod tests {
         assert_eq!(group_name_2, "New Group Name 2");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_update_group_image_url_square() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -3531,7 +3531,7 @@ pub(crate) mod tests {
         assert_eq!(amal_group_image_url, "a url");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test(flavor = "current_thread")]
     async fn test_update_group_message_expiration_settings() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -3593,7 +3593,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test(flavor = "current_thread")]
     async fn test_group_mutable_data_group_permissions() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -3682,7 +3682,7 @@ pub(crate) mod tests {
         assert_eq!(amal_group_name, "New Group Name 2");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_admin_list_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
@@ -3801,7 +3801,7 @@ pub(crate) mod tests {
             .expect_err("expected err");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_super_admin_list_update() {
         let bola_wallet = generate_local_wallet();
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3912,7 +3912,7 @@ pub(crate) mod tests {
             .expect_err("expected err");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_group_members_permission_level_update() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4009,7 +4009,7 @@ pub(crate) mod tests {
         assert_eq!(count_member, 0, "no members have no admin status");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_staged_welcome() {
         // Create Clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4052,7 +4052,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_can_read_group_creator_inbox_id() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::Default.to_policy_set());
@@ -4079,7 +4079,7 @@ pub(crate) mod tests {
         assert_eq!(protected_metadata.creator_inbox_id, amal.inbox_id());
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_can_update_gce_after_failed_commit() {
         // Step 1: Amal creates a group
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4147,7 +4147,7 @@ pub(crate) mod tests {
         assert_eq!(bola_group_name, "Name Update 2");
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_can_update_permissions_after_group_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
@@ -4212,7 +4212,7 @@ pub(crate) mod tests {
         assert_eq!(members.len(), 3);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_optimistic_send() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola_wallet = generate_local_wallet();
@@ -4302,7 +4302,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_dm_creation() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4372,7 +4372,7 @@ pub(crate) mod tests {
         assert!(!is_bola_super_admin);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn process_messages_abort_on_retryable_error() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4424,7 +4424,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn skip_already_processed_messages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -4474,7 +4474,7 @@ pub(crate) mod tests {
             .any(|err| err.to_string().contains("already processed")));
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_parallel_syncs() {
         let wallet = generate_local_wallet();
         let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
@@ -4577,7 +4577,7 @@ pub(crate) mod tests {
      * We need to be safe even in situations where there are multiple
      * intents that do the same thing, leading to conflicts
      */
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn add_missing_installs_reentrancy() {
         let wallet = generate_local_wallet();
         let alix1 = ClientBuilder::new_test_client(&wallet).await;
@@ -4654,7 +4654,7 @@ pub(crate) mod tests {
             .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes()));
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 5))]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn respect_allow_epoch_increment() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -4693,7 +4693,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn test_get_and_set_consent() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -4752,7 +4752,7 @@ pub(crate) mod tests {
         assert_eq!(caro_group.consent_state().unwrap(), ConsentState::Allowed);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     // TODO(rich): Generalize the test once fixed - test messages that are 0, 1, 2, 3, 4, 5 epochs behind
     async fn test_max_past_epochs() {
         // Create group with two members
@@ -4936,7 +4936,7 @@ pub(crate) mod tests {
         ));
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_respects_character_limits_for_group_metadata() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -5051,7 +5051,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_increment_patch_version() {
         assert_eq!(increment_patch_version("1.2.3"), Some("1.2.4".to_string()));
         assert_eq!(increment_patch_version("0.0.9"), Some("0.0.10".to_string()));
@@ -5067,7 +5067,7 @@ pub(crate) mod tests {
         assert_eq!(increment_patch_version("invalid"), None);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_can_set_min_supported_protocol_version_for_commit() {
         // Step 1: Create two clients, amal is one version ahead of bo
         let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -5136,7 +5136,7 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 4);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
         // Step 1: Create three clients, amal and bo are one version ahead of caro
         let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -5238,7 +5238,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_only_super_admins_can_set_min_supported_protocol_version() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -5314,7 +5314,7 @@ pub(crate) mod tests {
         assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
         // Create two clients with different versions
         let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -5363,7 +5363,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "current_thread"))]
+    #[xmtp_common::test]
     async fn test_send_message_after_min_version_update_gets_expected_error() {
         // Create two clients with different versions
         let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
