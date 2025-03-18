@@ -7590,7 +7590,7 @@ mod tests {
             .conversations()
             .list_dms(FfiListConversationsOptions::default())
             .unwrap();
-        let bo_dms = client_alix
+        let bo_dms = client_bo
             .conversations()
             .list_dms(FfiListConversationsOptions::default())
             .unwrap();
