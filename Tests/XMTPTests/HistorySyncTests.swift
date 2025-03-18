@@ -175,7 +175,7 @@ class HistorySyncTests: XCTestCase {
 		sleep(1)
 		try await alixGroup2.updateConsentState(state: .denied)
 		let dm = try await alixClient2.conversations.newConversation(
-			with: fixtures.caro.walletAddress)
+            with: fixtures.caroClient.inboxID)
 		try await dm.updateConsentState(state: .denied)
 
 		sleep(5)
