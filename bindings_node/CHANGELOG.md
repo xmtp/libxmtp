@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.0.0
+
+- Fixed dm stitching
+
 ## 1.0.0-rc3
 
 - Fixed passkey signatures

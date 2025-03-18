@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 1.0.0
+
+- Fixed dm stitching
+
 ## 1.0.0-rc4
 
 - Refactored `Identifier` and `IdentifierKind` to use `tsify`
