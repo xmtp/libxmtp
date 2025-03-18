@@ -431,9 +431,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
             .headers(protobuf_headers()?)
-            .body(request.encode_to_vec());
-        tracing::error!("{:?}", res);
-        let res = res
+            .body(request.encode_to_vec())
             .send()
             .await
             .map_err(|e| ApiClientError::new(ApiEndpoint::GetInboxIds, HttpClientError::from(e)))?;

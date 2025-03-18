@@ -9,6 +9,7 @@
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
     mkshell-util.url = "github:insipx/mkShell-util.nix";
+    foundry.url = "github:shazow/foundry.nix/monthly";
     crane = {
       url = "github:ipetkov/crane";
       inputs = {
@@ -22,7 +23,7 @@
     extra-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, crane, ... }:
+  outputs = inputs@{ flake-parts, fenix, crane, foundry, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       perSystem = { pkgs, system, ... }:
@@ -33,7 +34,7 @@
           pkgConfig = {
             inherit system;
             # Rust Overlay
-            overlays = [ fenix.overlays.default ];
+            overlays = [ fenix.overlays.default foundry.overlay ];
             config = {
               android_sdk.accept_license = true;
               allowUnfree = true;
