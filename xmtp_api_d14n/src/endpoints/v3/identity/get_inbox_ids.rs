@@ -51,7 +51,7 @@ mod test {
     use super::*;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
 
@@ -59,7 +59,7 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();

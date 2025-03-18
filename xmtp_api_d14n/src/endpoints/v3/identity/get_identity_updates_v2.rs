@@ -13,11 +13,13 @@ pub struct GetIdentityUpdatesV2 {
     #[builder(setter(into))]
     pub requests: Vec<Request>,
 }
+
 impl GetIdentityUpdatesV2 {
     pub fn builder() -> GetIdentityUpdatesV2Builder {
         Default::default()
     }
 }
+
 impl Endpoint for GetIdentityUpdatesV2 {
     type Output = GetIdentityUpdatesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
@@ -41,13 +43,13 @@ mod test {
     use super::*;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();

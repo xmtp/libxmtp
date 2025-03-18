@@ -43,7 +43,7 @@ mod test {
     use super::*;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::{
             PublishIdentityUpdateRequest, FILE_DESCRIPTOR_SET,
@@ -52,7 +52,7 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_publish_identity_update() {
         use xmtp_common::time::now_ns;
         use xmtp_proto::xmtp::identity::associations::IdentityUpdate;

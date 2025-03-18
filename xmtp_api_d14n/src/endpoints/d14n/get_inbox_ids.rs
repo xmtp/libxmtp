@@ -65,13 +65,13 @@ mod test {
     use crate::d14n::GetInboxIds;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         let client = crate::TestClient::create_local_d14n();
         let client = client.build().await.unwrap();

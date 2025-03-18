@@ -105,7 +105,7 @@ where
 {
     async fn query(&self, client: &C) -> Result<T, ApiClientError<C::Error>> {
         let mut request = http::Request::builder();
-        let endpoint = if cfg!(feature = "http-api") {
+        let endpoint = if cfg!(any(feature = "http-api", target_arch = "wasm32")) {
             request = request.header("Content-Type", "application/x-protobuf");
             request = request.header("Accept", "application/x-protobuf");
             self.http_endpoint()

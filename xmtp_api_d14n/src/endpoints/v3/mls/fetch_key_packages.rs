@@ -41,14 +41,14 @@ mod test {
     use super::*;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_fetch_key_packages() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();

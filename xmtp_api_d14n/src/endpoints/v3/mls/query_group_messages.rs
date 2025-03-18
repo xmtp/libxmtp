@@ -47,13 +47,13 @@ mod test {
     use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<QueryGroupMessagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();

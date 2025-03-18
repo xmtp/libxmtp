@@ -44,13 +44,13 @@ mod test {
         welcome_message_input, SendWelcomeMessagesRequest, WelcomeMessageInput, FILE_DESCRIPTOR_SET,
     };
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<SendWelcomeMessagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_send_welcome_messages() {
         let welcome_message = WelcomeMessageInput {
             version: Some(welcome_message_input::Version::V1(Default::default())),

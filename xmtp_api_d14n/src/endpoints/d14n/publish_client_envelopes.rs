@@ -44,7 +44,7 @@ mod test {
     use super::*;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::payer_api::{
             PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET,
@@ -54,7 +54,7 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_publish_client_envelopes() {
         use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 

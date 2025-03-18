@@ -84,17 +84,16 @@ impl Endpoint for QueryEnvelopes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
+    #[xmtp_common::test]
     async fn test_query_envelopes() {
         use crate::d14n::QueryEnvelopes;
 
@@ -109,7 +108,7 @@ mod test {
             })
             .build()
             .unwrap();
-        if cfg!(feature = "http-api") {
+        if cfg!(any(feature = "http-api", target_arch = "wasm32")) {
             assert!(endpoint.query(&client).await.is_err());
             // TODO: Investigate why fails with http topic
         } else {
