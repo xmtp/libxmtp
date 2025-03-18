@@ -28,8 +28,10 @@ class DmTests: XCTestCase {
 		let dm = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.caroClient.inboxID)
 
-		let caroDm = try await fixtures.boClient.conversations.findDmByIdentity(publicIdentity: fixtures.caro.identity)
-		let alixDm = try await fixtures.boClient.conversations.findDmByIdentity(publicIdentity: fixtures.alix.identity)
+		let caroDm = try await fixtures.boClient.conversations.findDmByIdentity(
+			publicIdentity: fixtures.caro.identity)
+		let alixDm = try await fixtures.boClient.conversations.findDmByIdentity(
+			publicIdentity: fixtures.alix.identity)
 
 		XCTAssertNil(alixDm)
 		XCTAssertEqual(caroDm?.id, dm.id)
@@ -78,16 +80,19 @@ class DmTests: XCTestCase {
 				with: fixtures.alixClient.inboxID)
 		)
 	}
-	
+
 	func testCannotStartDmWithAddressWhenExpectingInboxId() async throws {
 		let fixtures = try await fixtures()
 
 		do {
-			_ = try await fixtures.boClient.conversations.newConversation(with: fixtures.alix.walletAddress)
+			_ = try await fixtures.boClient.conversations.newConversation(
+				with: fixtures.alix.walletAddress)
 			XCTFail("Did not throw error")
 		} catch {
 			if case let ClientError.invalidInboxId(message) = error {
-				XCTAssertEqual(message.lowercased(), fixtures.alix.walletAddress.lowercased())
+				XCTAssertEqual(
+					message.lowercased(),
+					fixtures.alix.walletAddress.lowercased())
 			} else {
 				XCTFail("Did not throw correct error")
 			}
@@ -99,8 +104,9 @@ class DmTests: XCTestCase {
 		let nonRegistered = try PrivateKey.generate()
 
 		await assertThrowsAsyncError(
-			try await fixtures.alixClient.conversations.findOrCreateDmWithIdentity(
-				with: nonRegistered.identity)
+			try await fixtures.alixClient.conversations
+				.findOrCreateDmWithIdentity(
+					with: nonRegistered.identity)
 		)
 	}
 
@@ -296,7 +302,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(isAllowed, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
 	}
-	
+
 	func testDmDisappearingMessages() async throws {
 		let fixtures = try await fixtures()
 
@@ -312,8 +318,9 @@ class DmTests: XCTestCase {
 		)
 		_ = try await boDm.send(content: "howdy")
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
-		
-		let alixDm = try await fixtures.alixClient.conversations.findDmByInboxId(inboxId: fixtures.boClient.inboxID)
+
+		let alixDm = try await fixtures.alixClient.conversations
+			.findDmByInboxId(inboxId: fixtures.boClient.inboxID)
 
 		let boGroupMessagesCount = try await boDm.messages().count
 		let alixGroupMessagesCount = try await alixDm?.messages().count
@@ -416,4 +423,78 @@ class DmTests: XCTestCase {
 		XCTAssert(try boDm.isDisappearingMessagesEnabled())
 		XCTAssert(try alixDm!.isDisappearingMessagesEnabled())
 	}
+
+	func testCanSuccessfullyThreadDms() async throws {
+		let fixtures = try await fixtures()
+
+		let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.alixClient.inboxID)
+		let convoAlix = try await fixtures.alixClient.conversations
+			.findOrCreateDm(with: fixtures.boClient.inboxID)
+
+		try await convoBo.send(content: "Bo hey")
+		try await Task.sleep(nanoseconds: 5_000_000_000)  // 5 seconds delay
+		try await convoAlix.send(content: "Alix hey")
+
+		let boMessages = try await convoBo.messages().map { try $0.body }
+			.joined(separator: ",")
+		let alixMessages = try await convoAlix.messages().map { try $0.body }
+			.joined(separator: ",")
+
+		print("LOPI Bo original: \(boMessages)")
+		print("LOPI Alix original: \(alixMessages)")
+
+		let convoBoMessageCount = try await convoBo.messages().count
+		let convoAlixMessageCount = try await convoAlix.messages().count
+
+		XCTAssertEqual(convoBoMessageCount, 2)  // memberAdd and Bo hey
+		XCTAssertEqual(convoAlixMessageCount, 2)  // memberAdd and Alix hey
+
+		try await fixtures.boClient.conversations.syncAllConversations()
+		try await fixtures.alixClient.conversations.syncAllConversations()
+
+		let convoBoMessageCountAfterSync = try await convoBo.messages().count
+		let convoAlixMessageCountAfterSync = try await convoAlix.messages()
+			.count
+
+		XCTAssertEqual(convoBoMessageCountAfterSync, 3)  // memberAdd, Bo hey, Alix hey
+		XCTAssertEqual(convoAlixMessageCountAfterSync, 3)  // memberAdd, Bo hey, Alix hey
+
+		let sameConvoBo = try await fixtures.alixClient.conversations
+			.findOrCreateDm(with: fixtures.boClient.inboxID)
+		let sameConvoAlix = try await fixtures.boClient.conversations
+			.findOrCreateDm(with: fixtures.alixClient.inboxID)
+
+		let topicBoSame = try await fixtures.boClient.conversations
+			.findConversationByTopic(topic: convoBo.topic)
+		let topicAlixSame = try await fixtures.alixClient.conversations
+			.findConversationByTopic(topic: convoAlix.topic)
+
+		let alixConvoID = convoAlix.id
+		let topicBoSameID = topicBoSame?.id
+		let topicAlixSameID = topicAlixSame?.id
+		let firstAlixDmID = try await fixtures.alixClient.conversations
+			.listDms().first?.id
+		let firstBoDmID = try await fixtures.boClient.conversations.listDms()
+			.first?.id
+
+		XCTAssertEqual(alixConvoID, sameConvoBo.id)
+		XCTAssertEqual(alixConvoID, sameConvoAlix.id)
+		XCTAssertEqual(alixConvoID, topicBoSameID)
+		XCTAssertEqual(alixConvoID, topicAlixSameID)
+		XCTAssertEqual(firstAlixDmID, alixConvoID)
+		XCTAssertEqual(firstBoDmID, alixConvoID)
+
+		try await sameConvoBo.send(content: "Bo hey2")
+		try await sameConvoAlix.send(content: "Alix hey2")
+		try await sameConvoAlix.sync()
+		try await sameConvoBo.sync()
+
+		let sameConvoBoMessageCount = try await sameConvoBo.messages().count
+		let sameConvoAlixMessageCount = try await sameConvoAlix.messages().count
+
+		XCTAssertEqual(sameConvoBoMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
+		XCTAssertEqual(sameConvoAlixMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
+	}
+
 }

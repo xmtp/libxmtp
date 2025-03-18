@@ -36,7 +36,7 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessageList = try await Client.canMessage(
-			identities: [
+			accountIdentities: [
 				fixtures.alix.identity,
 				notOnNetwork.identity,
 				fixtures.bo.identity,
@@ -164,9 +164,9 @@ class ClientTests: XCTestCase {
 		let notOnNetwork = try PrivateKey.generate()
 
 		let canMessage = try await fixtures.alixClient.canMessage(
-			identities: fixtures.bo.identity)
+			identity: fixtures.bo.identity)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
-			identities: notOnNetwork.identity)
+			identity: notOnNetwork.identity)
 		XCTAssertTrue(canMessage)
 		XCTAssertFalse(cannotMessage)
 	}

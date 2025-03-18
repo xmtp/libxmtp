@@ -479,7 +479,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await fixtures()
 		let notOnNetwork = try PrivateKey.generate()
 		let canMessage = try await fixtures.alixClient.canMessage(
-			identities: fixtures.bo.identity)
+			identity: fixtures.bo.identity)
 		let cannotMessage = try await fixtures.alixClient.canMessage(
 			identities: [
 				PublicIdentity(
