@@ -5,14 +5,11 @@ use super::{
     schema::groups::{self, dsl},
     Sqlite,
 };
-
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::storage::NotFound;
 use crate::{
     groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
 };
-
-use crate::storage::NotFound;
-
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -288,7 +285,7 @@ impl DbConnection {
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id FROM (
-                        SELECT id, 
+                        SELECT id,
                             ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
                         FROM groups
                     ) AS ranked_groups

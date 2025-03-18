@@ -1,21 +1,19 @@
-use super::{GroupError, MlsGroup};
-use crate::configuration::WORKER_RESTART_DELAY;
+use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
 #[cfg(any(test, feature = "test-utils"))]
-pub use crate::utils::WorkerHandle;
 use crate::{
     client::ClientError,
     configuration::NS_IN_HOUR,
     storage::{
-        consent_record::StoredConsentRecord,
-        group::{ConversationType, GroupQueryArgs, StoredGroup},
+        group::{ConversationType, GroupQueryArgs},
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         DbConnection, NotFound, StorageError,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
+    subscriptions::{LocalEvents, StreamMessages, SubscribeError},
     Client, Store,
 };
+use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -23,11 +21,15 @@ use aes_gcm::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
-use futures::{Stream, StreamExt};
+use futures::{future::join_all, Stream, StreamExt};
+use handle::SyncWorkerHandle;
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::{atomic::Ordering, Arc},
+};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::{instrument, warn};
@@ -51,19 +53,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backup;
 pub mod consent_sync;
+pub mod handle;
 pub mod message_sync;
 pub mod preference_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
-enum Syncable {
-    Group(StoredGroup),
-    GroupMessage(StoredGroupMessage),
-    ConsentRecord(StoredConsentRecord),
-}
 
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
@@ -120,6 +115,8 @@ pub enum DeviceSyncError {
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
     Deserialization(#[from] DeserializationError),
+    #[error("Sync group already acknowledged by another installation")]
+    SyncGroupAlreadyAcknowledged,
 }
 
 impl DeviceSyncError {
@@ -158,8 +155,7 @@ where
         );
 
         let worker = SyncWorker::new(client);
-        #[cfg(any(test, feature = "test-utils"))]
-        self.set_sync_worker_handle(worker.handle.clone());
+        *self.sync_worker_handle.lock() = Some(worker.handle.clone());
         worker.spawn_worker();
     }
 
@@ -175,6 +171,29 @@ where
         let worker = DisappearingMessagesCleanerWorker::new(client);
         worker.spawn_worker();
     }
+
+    /// This should be triggered when a new sync group appears,
+    /// indicating the presence of a new installation.
+    pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
+        let inbox_id = self.inbox_id();
+        let provider = self.mls_provider()?;
+        let groups = self.find_groups(GroupQueryArgs::default())?;
+
+        for chunk in groups.chunks(20) {
+            let mut add_futs = vec![];
+            for group in chunk {
+                add_futs.push(group.add_missing_installations(&provider));
+            }
+            let results = join_all(add_futs).await;
+            for result in results {
+                if let Err(err) = result {
+                    tracing::warn!("Unable to add new installation to group. {err:?}");
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct SyncWorker<ApiClient, V> {
@@ -185,9 +204,7 @@ pub struct SyncWorker<ApiClient, V> {
     init: OnceCell<()>,
     retry: Retry,
 
-    // Number of events processed
-    #[cfg(any(test, feature = "test-utils"))]
-    handle: std::sync::Arc<WorkerHandle>,
+    handle: Arc<SyncWorkerHandle>,
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -205,14 +222,22 @@ where
         while let Some(event) = self.stream.next().await {
             let event = event?;
             match event {
-                LocalEvents::SyncMessage(msg) => match msg {
-                    SyncMessage::Reply { message_id } => {
+                LocalEvents::SyncEvent(msg) => match msg {
+                    SyncEvent::Reply { message_id } => {
                         let provider = self.client.mls_provider()?;
                         self.on_reply(message_id, &provider).await?
                     }
-                    SyncMessage::Request { message_id } => {
+                    SyncEvent::Request { message_id } => {
                         let provider = self.client.mls_provider()?;
                         self.on_request(message_id, &provider).await?
+                    }
+                    SyncEvent::NewSyncGroupFromWelcome => {
+                        // A new sync group from a welcome indicates a new installation.
+                        // We need to add that installation to the groups.
+                        self.client.add_new_installation_to_groups().await?;
+                        self.handle
+                            .new_installations_added_to_groups
+                            .fetch_add(1, Ordering::Relaxed);
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
@@ -232,11 +257,6 @@ where
                     tracing::info!("Incoming preference update");
                 }
                 _ => {}
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                self.handle.increment();
             }
         }
         Ok(())
@@ -322,13 +342,6 @@ where
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
                 client.ensure_sync_group(&provider).await?;
-
-                client
-                    .send_sync_request(&provider, DeviceSyncKind::Consent)
-                    .await?;
-                client
-                    .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
-                    .await?;
             }
             tracing::info!(
                 inbox_id = client.inbox_id(),
@@ -362,9 +375,7 @@ where
             stream,
             init: OnceCell::new(),
             retry,
-
-            #[cfg(any(test, feature = "test-utils"))]
-            handle: std::sync::Arc::new(Default::default()),
+            handle: Arc::new(SyncWorkerHandle::new()),
         }
     }
 
@@ -405,12 +416,42 @@ where
             Ok(group) => group,
             Err(_) => self.create_sync_group(provider)?,
         };
-        sync_group
-            .maybe_update_installations(provider, None)
-            .await?;
         sync_group.sync_with_conn(provider).await?;
 
         Ok(sync_group)
+    }
+
+    /// Called on sync group creation from a welcome.
+    /// Returns an error if sync group is already acknowledged by another installation.
+    /// The first installation to acknowledge a sync group will the the installation to handle the sync.
+    pub async fn acknowledge_new_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<(), DeviceSyncError> {
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
+        // Pull down any new messages
+        sync_group.sync_with_conn(provider).await?;
+
+        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
+
+        // An empty message is an acknowledgement. Another device is handling the sync.
+        // So we'll stop here
+        let acknowledgement = messages
+            .into_iter()
+            .find(|m| m.decrypted_message_bytes.is_empty());
+        let Some(acknowledgement) = acknowledgement else {
+            // Send an acknowledgement if there is none.
+            sync_group.send_message(&[]).await?;
+            return Ok(());
+        };
+
+        let installation_id = self.installation_id();
+        if installation_id != acknowledgement.sender_installation_id {
+            // Another device acknowledged the group. They're handling it.
+            return Err(DeviceSyncError::SyncGroupAlreadyAcknowledged);
+        }
+
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -621,25 +662,6 @@ where
             let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn ensure_member_of_all_groups(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        inbox_id: &str,
-    ) -> Result<(), GroupError> {
-        let conn = provider.conn_ref();
-        let groups =
-            conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
-        for group in groups {
-            let group = self.group_with_conn(conn, &group.id)?;
-            Box::pin(
-                group.add_members_by_inbox_id_with_provider(provider, &[inbox_id.to_string()]),
-            )
-            .await?;
         }
 
         Ok(())

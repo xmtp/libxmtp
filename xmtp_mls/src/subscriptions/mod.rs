@@ -48,15 +48,16 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncMessage(SyncMessage),
+    SyncEvent(SyncEvent),
     OutgoingPreferenceUpdates(Vec<UserPreferenceUpdate>),
     IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
 }
 
 #[derive(Debug, Clone)]
-pub enum SyncMessage {
+pub enum SyncEvent {
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
+    NewSyncGroupFromWelcome,
 }
 
 impl LocalEvents {
@@ -73,7 +74,7 @@ impl LocalEvents {
         use LocalEvents::*;
 
         match &self {
-            SyncMessage(_) => Some(self),
+            SyncEvent(_) => Some(self),
             OutgoingPreferenceUpdates(_) => Some(self),
             IncomingPreferenceUpdate(_) => Some(self),
             _ => None,

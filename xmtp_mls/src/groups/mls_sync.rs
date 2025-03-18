@@ -37,7 +37,7 @@ use crate::{
         user_preferences::StoredUserPreferences,
         ProviderTransactions, StorageError,
     },
-    subscriptions::{LocalEvents, SyncMessage},
+    subscriptions::{LocalEvents, SyncEvent},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
 };
@@ -773,8 +773,8 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Request { message_id },
+                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                                    SyncEvent::Request { message_id },
                                 ));
                             }
 
@@ -807,9 +807,10 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Reply { message_id },
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,

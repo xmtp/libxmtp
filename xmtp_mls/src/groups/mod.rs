@@ -46,6 +46,7 @@ use crate::storage::{
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
+use crate::subscriptions::SyncEvent;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -745,17 +746,23 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         None,
                     )
                 }
-                ConversationType::Sync => StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Allowed,
-                    added_by_inbox_id,
-                    welcome.id as i64,
-                    conversation_type,
-                    dm_members,
-                    disappearing_settings,
-                    None,
-                ),
+                ConversationType::Sync => {
+                    // Let the DeviceSync worker know about the presence of a new
+                    // sync group that came in from a welcome.
+                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+
+                    StoredGroup::new_from_welcome(
+                        group_id.clone(),
+                        now_ns(),
+                        GroupMembershipState::Allowed,
+                        added_by_inbox_id,
+                        welcome.id as i64,
+                        conversation_type,
+                        dm_members,
+                        disappearing_settings,
+                        None,
+                    )
+                }
             };
 
             // Insert or replace the group in the database.
@@ -770,10 +777,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         })
     }
 
-    pub(crate) fn create_and_insert_sync_group(
+    pub(crate) async fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
+        tracing::info!("Creating sync group.");
+
         let context = client.context();
         let creator_inbox_id = context.inbox_id();
 
@@ -807,12 +816,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
         stored_group.store(provider.conn_ref())?;
+        let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
 
-        Ok(Self::new_from_arc(
-            client,
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
+        group.add_missing_installations(provider).await?;
+
+        Ok(group)
     }
 
     /// Send a message on this users XMTP [`Client`].

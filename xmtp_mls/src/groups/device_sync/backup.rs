@@ -34,6 +34,7 @@ pub struct BackupMetadata {
     pub exported_at_ns: i64,
     pub start_ns: Option<i64>,
     pub end_ns: Option<i64>,
+    pub intended_installation: Option<Vec<u8>>,
 }
 
 impl BackupMetadata {
@@ -44,6 +45,7 @@ impl BackupMetadata {
             start_ns: save.start_ns,
             exported_at_ns: save.exported_at_ns,
             backup_version,
+            intended_installation: save.intended_installation,
         }
     }
 }

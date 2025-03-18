@@ -134,9 +134,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
 
         // start workers
-        if history_sync_url.is_some() {
-            client.start_sync_worker();
-        }
+        client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
 
         Ok(client)

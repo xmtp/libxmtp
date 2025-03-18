@@ -1,4 +1,5 @@
-#[cfg(any(test, feature = "test-utils"))]
+use crate::groups::device_sync::handle::SyncWorkerHandle;
+
 use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
@@ -153,9 +154,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
     pub(crate) version_info: Arc<VersionInfo>,
-
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<SyncWorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s
@@ -310,10 +309,8 @@ where
         // TODO: The only worker we have right now are the
         // sync workers. if we have other workers we
         // should create a better way to track them.
-        if self.history_sync_url.is_some() {
-            self.start_sync_worker();
-        }
 
+        self.start_sync_worker();
         self.start_disappearing_messages_cleaner_worker();
 
         Ok(())
@@ -611,14 +608,11 @@ where
         self.create_dm_by_inbox_id(inbox_id, opts).await
     }
 
-    pub(crate) fn create_sync_group(
+    pub(crate) async fn create_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-
-        Ok(sync_group)
+        Ok(MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider).await?)
     }
 
     /// Look up a group by its ID
