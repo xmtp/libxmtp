@@ -13,15 +13,17 @@ pub struct GetIdentityUpdatesV2 {
     #[builder(setter(into))]
     pub requests: Vec<Request>,
 }
+
 impl GetIdentityUpdatesV2 {
     pub fn builder() -> GetIdentityUpdatesV2Builder {
         Default::default()
     }
 }
+
 impl Endpoint for GetIdentityUpdatesV2 {
     type Output = GetIdentityUpdatesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/identity/v1/get-identity-updates")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -36,32 +38,20 @@ impl Endpoint for GetIdentityUpdatesV2 {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
+    use super::*;
+    use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::{GetIdentityUpdatesRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        use crate::v3::GetIdentityUpdatesV2;
-        use xmtp_api_grpc::grpc_client::GrpcClient;
-        use xmtp_api_grpc::LOCALHOST_ADDRESS;
-        use xmtp_proto::api_client::ApiBuilder;
-        use xmtp_proto::traits::Query;
-        use xmtp_proto::xmtp::identity::api::v1::{
-            get_identity_updates_request::Request, GetIdentityUpdatesResponse,
-        };
-
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = GetIdentityUpdatesV2::builder()
             .requests(vec![Request {
@@ -72,6 +62,6 @@ mod test {
             .unwrap();
 
         let result: GetIdentityUpdatesResponse = endpoint.query(&client).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        assert_eq!(result.responses.len(), 1);
     }
 }

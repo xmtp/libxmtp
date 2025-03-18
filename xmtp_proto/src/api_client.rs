@@ -19,11 +19,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpTestClient {
-    async fn create_local() -> Self;
-    async fn create_dev() -> Self;
+    type Builder: ApiBuilder;
+    fn create_local() -> Self::Builder;
+    fn create_local_d14n() -> Self::Builder;
+    fn create_local_payer() -> Self::Builder;
+    fn create_dev() -> Self::Builder;
 }
 
 pub type BoxedXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
@@ -239,7 +240,7 @@ pub trait XmtpMlsClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error>;
-    fn stats(&self) -> &ApiStats;
+    fn stats(&self) -> ApiStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -292,7 +293,7 @@ where
         (**self).query_welcome_messages(request).await
     }
 
-    fn stats(&self) -> &ApiStats {
+    fn stats(&self) -> ApiStats {
         (**self).stats()
     }
 }
@@ -347,7 +348,7 @@ where
         (**self).query_welcome_messages(request).await
     }
 
-    fn stats(&self) -> &ApiStats {
+    fn stats(&self) -> ApiStats {
         (**self).stats()
     }
 }
@@ -485,7 +486,7 @@ pub trait XmtpIdentityClient {
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 
-    fn identity_stats(&self) -> &IdentityStats;
+    fn identity_stats(&self) -> IdentityStats;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -525,7 +526,7 @@ where
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
-    fn identity_stats(&self) -> &IdentityStats {
+    fn identity_stats(&self) -> IdentityStats {
         (**self).identity_stats()
     }
 }
@@ -568,7 +569,7 @@ where
             .await
     }
 
-    fn identity_stats(&self) -> &IdentityStats {
+    fn identity_stats(&self) -> IdentityStats {
         (**self).identity_stats()
     }
 }

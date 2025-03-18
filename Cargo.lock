@@ -2557,12 +2557,12 @@ dependencies = [
 
 [[package]]
 name = "http-body-util"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
+checksum = "b021d93e26becf5dc7e1b75b1bed1fd93124b374ceb73f43d4d4eafec896a64a"
 dependencies = [
  "bytes",
- "futures-util",
+ "futures-core",
  "http 1.2.0",
  "http-body 1.0.1",
  "pin-project-lite",
@@ -7439,6 +7439,7 @@ dependencies = [
  "url",
  "valuable",
  "vergen-git2",
+ "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_id",
@@ -7470,12 +7471,16 @@ name = "xmtp_api_d14n"
 version = "1.0.0-rc1"
 dependencies = [
  "async-trait",
+ "ctor",
  "derive_builder",
+ "hex",
  "once_cell",
  "parking_lot 0.12.3",
  "prost",
  "prost-types",
  "tokio",
+ "tracing",
+ "wasm-bindgen-test",
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
@@ -7510,7 +7515,9 @@ version = "1.0.0-rc1"
 dependencies = [
  "async-trait",
  "bytes",
+ "ctor",
  "futures",
+ "hex",
  "http 1.2.0",
  "pin-project-lite",
  "prost",
@@ -7548,6 +7555,7 @@ dependencies = [
  "valuable",
  "valuable-serde",
  "xmtp_api",
+ "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_content_types",
@@ -7766,6 +7774,7 @@ dependencies = [
  "futures",
  "hex",
  "http 1.2.0",
+ "mockall",
  "openmls",
  "openmls_rust_crypto",
  "pbjson",

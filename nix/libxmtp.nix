@@ -21,6 +21,7 @@
 , zstd
 , llvmPackages_19
 , wasm-bindgen-cli
+, foundry-bin
 , ...
 }:
 
@@ -68,6 +69,7 @@ mkShell {
       wasm-bindgen-cli
       fenix.rust-analyzer
       zstd
+      foundry-bin
 
       # native libs
       openssl

@@ -1,12 +1,48 @@
-use crate::{HttpClientError, XmtpHttpApiClient};
+use crate::{ErrorResponse, HttpClientError, XmtpHttpApiClient};
 use bytes::Bytes;
-use http::Method;
 use std::pin::Pin;
-use xmtp_proto::traits::{ApiError, Client};
+use xmtp_proto::traits::{ApiClientError, Client};
 
-impl From<HttpClientError> for ApiError<HttpClientError> {
+impl From<HttpClientError> for ApiClientError<HttpClientError> {
     fn from(value: HttpClientError) -> Self {
-        ApiError::Client { source: value }
+        ApiClientError::Client { source: value }
+    }
+}
+
+impl XmtpHttpApiClient {
+    async fn request<T>(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Vec<u8>,
+    ) -> Result<http::Response<T>, HttpClientError>
+    where
+        T: Default + prost::Message + 'static,
+        Self: Sized,
+    {
+        let host = http::uri::Builder::from(http::uri::Uri::try_from(self.host_url.clone())?);
+        let uri = host.path_and_query(path).build()?;
+        trace!("uri={uri}");
+        let request = request.method("POST").uri(uri).body(body)?;
+        trace!("request={:?}", request);
+        let response = self.http_client.execute(request.try_into()?).await?;
+
+        if !response.status().is_success() {
+            return Err(HttpClientError::Grpc(ErrorResponse {
+                code: response.status().as_u16() as usize,
+                message: response.text().await.map_err(HttpClientError::from)?,
+                details: vec![],
+            }));
+        }
+        let mut parts = http::response::Builder::default()
+            .status(response.status())
+            .version(Default::default());
+        for (key, value) in response.headers() {
+            parts = parts.header(key, value);
+        }
+        let response = parts.body(prost::Message::decode(response.bytes().await?)?);
+
+        Ok(response?)
     }
 }
 
@@ -15,43 +51,24 @@ impl From<HttpClientError> for ApiError<HttpClientError> {
 impl Client for XmtpHttpApiClient {
     type Error = HttpClientError;
     type Stream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, HttpClientError>> + Send>>;
-    async fn request(
+    async fn request<T>(
         &self,
         request: http::request::Builder,
+        uri: http::uri::PathAndQuery,
         body: Vec<u8>,
-    ) -> Result<http::Response<Bytes>, ApiError<Self::Error>> {
-        let request = request.body(body.clone())?;
-        let (parts, _) = request.into_parts();
-
-        let url = format!("{}{}", self.host_url, parts.uri);
-        let mut req = self.http_client.request(Method::POST, url);
-
-        for (key, value) in parts.headers.iter() {
-            req = req.header(key, value);
-        }
-        let response = req
-            .body(body)
-            .send()
-            .await
-            .map_err(HttpClientError::from)?
-            .error_for_status()
-            .map_err(HttpClientError::from)?;
-
-        let status = response.status();
-        let headers = response.headers().clone();
-        let body = response.bytes().await.map_err(HttpClientError::from)?;
-
-        let mut http_response = http::Response::new(body);
-        *http_response.status_mut() = status;
-        *http_response.headers_mut() = headers;
-
-        Ok(http_response)
+    ) -> Result<http::Response<T>, ApiClientError<Self::Error>>
+    where
+        T: Default + prost::Message + 'static,
+        Self: Sized,
+    {
+        Ok(self.request(request, uri, body).await?)
     }
+
     async fn stream(
         &self,
         _request: http::request::Builder,
         _body: Vec<u8>,
-    ) -> Result<http::Response<Self::Stream>, ApiError<Self::Error>> {
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         // same as unary but server_streaming method
         todo!()
     }

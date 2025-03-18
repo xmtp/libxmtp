@@ -32,8 +32,11 @@ use tracing_subscriber::{
 };
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
-use xmtp_api_grpc::replication_client::ClientV4;
-use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, Error as GrpcError};
+use xmtp_api_d14n::compat::D14nClient;
+use xmtp_api_grpc::grpc_client::GrpcClient;
+use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
+use xmtp_proto::traits::ApiClientError;
+
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -60,14 +63,14 @@ use xmtp_mls::{
     },
     InboxOwner,
 };
-use xmtp_proto::api_client::BoxableXmtpApi;
+use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 #[macro_use]
 extern crate tracing;
 
 type Client = xmtp_mls::client::Client<XmtpApiClient>;
-type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<GrpcError>>;
+type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
 type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
@@ -240,30 +243,36 @@ async fn main() -> color_eyre::eyre::Result<()> {
     info!("Starting CLI Client....");
 
     let grpc: XmtpApiClient = match (cli.testnet, &cli.env) {
-        (true, Env::Local) => Arc::new(
-            ClientV4::create(
-                "http://localhost:5050".into(),
-                "http://localhost:5050".into(),
-                false,
-            )
-            .await?,
-        ),
-        (true, Env::Production) => Arc::new(
-            ClientV4::create(
-                "https://grpc.testnet.xmtp.network:443".into(),
-                "https://payer.testnet.xmtp.network:443".into(),
-                true,
-            )
-            .await?,
-        ),
-        (true, Env::Dev) => Arc::new(
-            ClientV4::create(
-                "https://grpc.testnet-staging.xmtp.network:443".into(),
-                "https://payer.testnet-staging.xmtp.network:443".into(),
-                true,
-            )
-            .await?,
-        ),
+        (true, Env::Local) => {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            let client = client.build().await?;
+
+            Arc::new(D14nClient::new(client.clone(), client))
+        }
+        (true, Env::Production) => {
+            let mut message = GrpcClient::builder();
+            message.set_host("https://grpc.testnet.xmtp.network:443".into());
+            message.set_tls(false);
+            let message = message.build().await?;
+            let mut payer = GrpcClient::builder();
+            payer.set_host("https://payer.testnet.xmtp.network:443".into());
+            payer.set_tls(true);
+            let payer = payer.build().await?;
+            Arc::new(D14nClient::new(message, payer))
+        }
+        (true, Env::Dev) => {
+            let mut message = GrpcClient::builder();
+            message.set_host("https://grpc.testnet-staging.xmtp.network:443".into());
+            message.set_tls(false);
+            let message = message.build().await?;
+            let mut payer = GrpcClient::builder();
+            payer.set_host("https://payer.testnet-staging.xmtp.network:443".into());
+            payer.set_tls(true);
+            let payer = payer.build().await?;
+            Arc::new(D14nClient::new(message, payer))
+        }
         (false, Env::Local) => Arc::new(ClientV3::create("http://localhost:5556", false).await?),
         (false, Env::Dev) => {
             Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)

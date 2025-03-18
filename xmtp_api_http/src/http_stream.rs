@@ -1,6 +1,6 @@
 //! Streams that work with HTTP POST requests
 
-use crate::{util::GrpcResponse, Error, HttpClientError};
+use crate::{util::GrpcResponse, HttpClientError};
 use futures::{
     stream::{self, Stream, StreamExt},
     Future,
@@ -15,6 +15,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 use xmtp_common::StreamWrapper;
+use xmtp_proto::traits::ApiClientError;
 
 #[derive(Deserialize, Serialize, Debug)]
 pub(crate) struct SubscriptionItem<T> {
@@ -67,7 +68,7 @@ impl<R> Stream for HttpPostStream<'_, R>
 where
     for<'de> R: Send + Deserialize<'de>,
 {
-    type Item = Result<R, HttpClientError>;
+    type Item = Result<R, ApiClientError<HttpClientError>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -78,7 +79,7 @@ where
         let item = ready!(this.http.as_mut().poll_next(cx));
         match item {
             Some(bytes) => {
-                let bytes = bytes?;
+                let bytes = bytes.map_err(HttpClientError::from)?;
                 let item = Self::on_bytes(bytes, this.remaining)?.pop();
                 if let Some(item) = item {
                     Ready(Some(Ok(item)))
@@ -180,7 +181,7 @@ where
     F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Send + Deserialize<'de> + 'static,
 {
-    type Item = Result<R, Error>;
+    type Item = Result<R, ApiClientError<HttpClientError>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -201,7 +202,7 @@ where
             Started { stream } => {
                 let item = ready!(stream.poll_next(cx));
                 tracing::trace!("stream id={} ready with item", &self.id);
-                Poll::Ready(item.map(|i| i.map_err(Error::from)))
+                Poll::Ready(item)
             }
         }
     }
@@ -266,7 +267,10 @@ pub async fn create_grpc_stream<
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> Result<stream::LocalBoxStream<'static, Result<R, Error>>, Error> {
+) -> Result<
+    stream::LocalBoxStream<'static, Result<R, ApiClientError<HttpClientError>>>,
+    ApiClientError<HttpClientError>,
+> {
     Ok(create_grpc_stream_inner(request, endpoint, http_client)
         .await?
         .boxed_local())
@@ -277,7 +281,10 @@ pub async fn create_grpc_stream<T, R>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> Result<stream::BoxStream<'static, Result<R, Error>>, Error>
+) -> Result<
+    stream::BoxStream<'static, Result<R, ApiClientError<HttpClientError>>>,
+    ApiClientError<HttpClientError>,
+>
 where
     T: Serialize + 'static,
     R: DeserializeOwned + Send + Sync + 'static,
@@ -292,7 +299,10 @@ pub async fn create_grpc_stream_inner<T, R>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
-) -> Result<impl Stream<Item = Result<R, Error>>, Error>
+) -> Result<
+    impl Stream<Item = Result<R, ApiClientError<HttpClientError>>>,
+    ApiClientError<HttpClientError>,
+>
 where
     T: Serialize + 'static,
     R: DeserializeOwned + Send + 'static,
