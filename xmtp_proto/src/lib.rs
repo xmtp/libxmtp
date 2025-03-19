@@ -6,9 +6,11 @@ mod generated {
 pub use generated::*;
 
 mod error;
+
 pub use error::*;
 
 pub mod api_client;
+pub mod codec;
 pub mod traits;
 
 #[cfg(feature = "convert")]

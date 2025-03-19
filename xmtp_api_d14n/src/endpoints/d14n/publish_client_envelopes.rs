@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -31,12 +32,12 @@ impl Endpoint for PublishClientEnvelopes {
         crate::path_and_query::<PublishClientEnvelopesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
-        let publish = PublishClientEnvelopesRequest {
+    fn body(&self) -> Result<Bytes, BodyError> {
+        Ok(PublishClientEnvelopesRequest {
             envelopes: self.envelopes.clone(),
-        };
-        tracing::debug!("publish {:?}", publish);
-        Ok(publish.encode_to_vec())
+        }
+        .encode_to_vec()
+        .into())
     }
 }
 

@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,7 +9,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct VerifySmartContractWalletSignatures {
     #[builder(setter(into))]
     pub signatures: Vec<VerifySmartContractWalletSignatureRequestSignature>,
@@ -30,11 +31,12 @@ impl Endpoint for VerifySmartContractWalletSignatures {
         crate::path_and_query::<VerifySmartContractWalletSignaturesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(VerifySmartContractWalletSignaturesRequest {
             signatures: self.signatures.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 

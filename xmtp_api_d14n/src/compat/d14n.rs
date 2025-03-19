@@ -326,7 +326,6 @@ where
         request: identity_v1::PublishIdentityUpdateRequest,
     ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
         let envelope: ClientEnvelope = request.try_into().map_err(ApiClientError::Conversion)?;
-        tracing::debug!("ENVELOPE: {:?}", envelope);
         let result = PublishClientEnvelopes::builder()
             .envelope(envelope)
             .build()?

@@ -10,16 +10,12 @@ impl From<HttpClientError> for ApiClientError<HttpClientError> {
 }
 
 impl XmtpHttpApiClient {
-    async fn request<T>(
+    async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
-        body: Vec<u8>,
-    ) -> Result<http::Response<T>, HttpClientError>
-    where
-        T: Default + prost::Message + 'static,
-        Self: Sized,
-    {
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, HttpClientError> {
         let host = http::uri::Builder::from(http::uri::Uri::try_from(self.host_url.clone())?);
         let uri = host.path_and_query(path).build()?;
         trace!("uri={uri}");
@@ -40,7 +36,7 @@ impl XmtpHttpApiClient {
         for (key, value) in response.headers() {
             parts = parts.header(key, value);
         }
-        let response = parts.body(prost::Message::decode(response.bytes().await?)?);
+        let response = parts.body(response.bytes().await?);
 
         Ok(response?)
     }
@@ -51,16 +47,12 @@ impl XmtpHttpApiClient {
 impl Client for XmtpHttpApiClient {
     type Error = HttpClientError;
     type Stream = Pin<Box<dyn futures::Stream<Item = Result<Bytes, HttpClientError>> + Send>>;
-    async fn request<T>(
+    async fn request(
         &self,
         request: http::request::Builder,
         uri: http::uri::PathAndQuery,
-        body: Vec<u8>,
-    ) -> Result<http::Response<T>, ApiClientError<Self::Error>>
-    where
-        T: Default + prost::Message + 'static,
-        Self: Sized,
-    {
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         Ok(self.request(request, uri, body).await?)
     }
 

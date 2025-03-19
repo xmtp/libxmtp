@@ -79,10 +79,9 @@ where
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
         UploadKeyPackage::builder()
-            .key_package(request.key_package.unwrap())
+            .key_package(request.key_package)
             .is_inbox_id_credential(request.is_inbox_id_credential)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -92,8 +91,7 @@ where
     ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
         FetchKeyPackages::builder()
             .installation_keys(request.installation_keys)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -103,8 +101,7 @@ where
     ) -> Result<(), Self::Error> {
         SendGroupMessages::builder()
             .messages(request.messages)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -114,8 +111,7 @@ where
     ) -> Result<(), Self::Error> {
         SendWelcomeMessages::builder()
             .messages(request.messages)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -125,8 +121,7 @@ where
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
         QueryGroupMessages::builder()
             .group_id(request.group_id)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -136,9 +131,8 @@ where
     ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
         QueryWelcomeMessages::builder()
             .installation_key(request.installation_key)
-            .paging_info(request.paging_info.unwrap())
-            .build()
-            .unwrap()
+            .paging_info(request.paging_info)
+            .build()?
             .query(&self.client)
             .await
     }
@@ -163,9 +157,8 @@ where
     ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
         PublishIdentityUpdate::builder()
             //todo: handle error or tryFrom
-            .identity_update(request.identity_update.unwrap())
-            .build()
-            .unwrap()
+            .identity_update(request.identity_update)
+            .build()?
             .query(&self.client)
             .await
     }
@@ -176,8 +169,7 @@ where
     ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
         GetIdentityUpdatesV2::builder()
             .requests(request.requests)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -203,8 +195,7 @@ where
                     .map(|r| r.identifier.clone())
                     .collect::<Vec<_>>(),
             )
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }
@@ -215,8 +206,7 @@ where
     ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
         VerifySmartContractWalletSignatures::builder()
             .signatures(request.signatures)
-            .build()
-            .unwrap()
+            .build()?
             .query(&self.client)
             .await
     }

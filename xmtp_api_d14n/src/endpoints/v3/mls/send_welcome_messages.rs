@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -6,7 +7,7 @@ use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::mls::api::v1::{SendWelcomeMessagesRequest, WelcomeMessageInput};
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct SendWelcomeMessages {
     #[builder(setter(into))]
     messages: Vec<WelcomeMessageInput>,
@@ -28,11 +29,12 @@ impl Endpoint for SendWelcomeMessages {
         crate::path_and_query::<SendWelcomeMessagesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(SendWelcomeMessagesRequest {
             messages: self.messages.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 

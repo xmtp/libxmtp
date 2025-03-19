@@ -8,6 +8,7 @@ use tonic::{
 use tracing::Instrument;
 use xmtp_proto::{
     api_client::ApiBuilder,
+    codec::TransparentCodec,
     traits::{ApiClientError, Client},
 };
 
@@ -32,16 +33,12 @@ impl Client for GrpcClient {
     type Error = crate::GrpcError;
     type Stream = tonic::Streaming<Bytes>;
 
-    async fn request<T>(
+    async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
-        body: Vec<u8>,
-    ) -> Result<http::Response<T>, ApiClientError<Self::Error>>
-    where
-        Self: Sized,
-        T: Default + prost::Message + 'static,
-    {
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         let client = &mut self.inner.clone();
         client
             .ready()
@@ -65,7 +62,7 @@ impl Client for GrpcClient {
         // must be lowercase otherwise panics
         metadata.append("x-app-version", self.app_version.clone());
         metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
-        let codec = tonic::codec::ProstCodec::default();
+        let codec = TransparentCodec::default();
 
         let response = client
             .unary(tonic_request, path, codec)

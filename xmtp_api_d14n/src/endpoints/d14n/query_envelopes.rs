@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -33,7 +34,7 @@ impl Endpoint for QueryEnvelope {
         crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
@@ -43,7 +44,7 @@ impl Endpoint for QueryEnvelope {
             limit: 0,
         };
         tracing::debug!("{:?}", query);
-        Ok(query.encode_to_vec())
+        Ok(query.encode_to_vec().into())
     }
 }
 
@@ -74,13 +75,13 @@ impl Endpoint for QueryEnvelopes {
         crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
-        let query = QueryEnvelopesRequest {
+    fn body(&self) -> Result<Bytes, BodyError> {
+        Ok(QueryEnvelopesRequest {
             query: Some(self.envelopes.clone()),
             limit: self.limit,
-        };
-        tracing::debug!("QUERY: {:?}", query);
-        Ok(query.encode_to_vec())
+        }
+        .encode_to_vec()
+        .into())
     }
 }
 
@@ -111,11 +112,6 @@ mod test {
             })
             .build()
             .unwrap();
-        if cfg!(any(feature = "http-api", target_arch = "wasm32")) {
-            assert!(endpoint.query(&client).await.is_err());
-            // TODO: Investigate why fails with http topic
-        } else {
-            assert!(endpoint.query(&client).await.is_ok());
-        }
+        assert!(endpoint.query(&client).await.is_err());
     }
 }
