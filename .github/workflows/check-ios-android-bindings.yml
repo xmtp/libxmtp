@@ -21,19 +21,17 @@ jobs:
         target:
           - x86_64-apple-darwin
           - aarch64-apple-darwin
+    ci:
+      permissions:
+        id-token: write
+        contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          # Mostly to avoid GitHub rate limiting
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - uses: cachix/cachix-action@v16
-        with:
-          name: xmtp
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -57,12 +55,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          # Mostly to avoid GitHub rate limiting
-          extra_nix_config: |
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - uses: cachix/cachix-action@v16
         with:
           name: xmtp
