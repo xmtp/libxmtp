@@ -128,7 +128,7 @@ impl IdentityAction for AddAssociation {
 
         // Validate the new member signature and get the recovered signer
         let new_member_address = &self.new_member_signature.signer;
-        // Validate the existing member signature and get the recovedred signer
+        // Validate the existing member signature and get the recovered signer
         let existing_member_identifier = &self.existing_member_signature.signer;
 
         if new_member_address.ne(&self.new_member_identifier) {
