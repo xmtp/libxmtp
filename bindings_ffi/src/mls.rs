@@ -287,7 +287,6 @@ impl FfiSignatureRequest {
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
-    #[allow(dead_code)]
     account_identifier: FfiIdentifier,
 }
 
@@ -3020,7 +3019,6 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
     async fn new_passkey_client() -> PasskeyUser {
         let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
         let parameters_from_rp = PublicKeyCredentialParameters {
