@@ -21,7 +21,7 @@ impl FetchKeyPackages {
 impl Endpoint for FetchKeyPackages {
     type Output = FetchKeyPackagesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/mls/v1/fetch-key-packages")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -36,37 +36,33 @@ impl Endpoint for FetchKeyPackages {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
+    use super::*;
+    use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FILE_DESCRIPTOR_SET};
         let pnq = crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_fetch_key_packages() {
-        use crate::v3::FetchKeyPackages;
-        use xmtp_api_grpc::{grpc_client::GrpcClient, LOCALHOST_ADDRESS};
-        use xmtp_proto::api_client::ApiBuilder;
-        use xmtp_proto::traits::Query;
-        use xmtp_proto::xmtp::mls::api::v1::FetchKeyPackagesResponse;
-
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
-
         let endpoint = FetchKeyPackages::builder()
             .installation_keys(vec![vec![1, 2, 3]])
             .build()
             .unwrap();
 
         let result: FetchKeyPackagesResponse = endpoint.query(&client).await.unwrap();
-        assert_eq!(result.key_packages, vec![]);
+        assert_eq!(
+            result,
+            FetchKeyPackagesResponse {
+                key_packages: vec![Default::default()]
+            }
+        );
     }
 }

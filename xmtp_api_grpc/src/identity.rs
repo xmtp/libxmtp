@@ -1,6 +1,7 @@
 use crate::Client;
 use xmtp_proto::{
     api_client::{IdentityStats, XmtpIdentityClient},
+    traits::ApiClientError,
     xmtp::identity::api::v1::{
         GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
         GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -12,7 +13,7 @@ use xmtp_proto::{
 
 #[async_trait::async_trait]
 impl XmtpIdentityClient for Client {
-    type Error = crate::Error;
+    type Error = ApiClientError<crate::GrpcError>;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn publish_identity_update(
@@ -27,7 +28,7 @@ impl XmtpIdentityClient for Client {
             .publish_identity_update(self.build_request(request))
             .await
             .map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::PublishIdentityUpdate, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::PublishIdentityUpdate, e.into()))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -43,7 +44,7 @@ impl XmtpIdentityClient for Client {
             .get_inbox_ids(self.build_request(request))
             .await
             .map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::GetInboxIds, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetInboxIds, e.into()))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -59,7 +60,7 @@ impl XmtpIdentityClient for Client {
             .get_identity_updates(self.build_request(request))
             .await
             .map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::GetIdentityUpdatesV2, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::GetIdentityUpdatesV2, e.into()))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -78,10 +79,10 @@ impl XmtpIdentityClient for Client {
             .await;
 
         res.map(|response| response.into_inner())
-            .map_err(|err| crate::Error::new(ApiEndpoint::VerifyScwSignature, err.into()))
+            .map_err(|err| ApiClientError::new(ApiEndpoint::VerifyScwSignature, err.into()))
     }
 
-    fn identity_stats(&self) -> &IdentityStats {
-        &self.identity_stats
+    fn identity_stats(&self) -> IdentityStats {
+        self.identity_stats.clone()
     }
 }

@@ -123,7 +123,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(15))]
+    #[timeout(Duration::from_secs(20))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;

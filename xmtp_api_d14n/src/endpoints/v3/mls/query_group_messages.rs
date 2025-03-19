@@ -25,7 +25,7 @@ impl QueryGroupMessages {
 impl Endpoint for QueryGroupMessages {
     type Output = QueryGroupMessagesResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/mls/v1/query-group-messages")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
@@ -41,30 +41,21 @@ impl Endpoint for QueryGroupMessages {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
     use crate::v3::QueryGroupMessages;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::mls::api::v1::{
-        QueryGroupMessagesRequest, QueryGroupMessagesResponse, FILE_DESCRIPTOR_SET,
-    };
+    use xmtp_proto::prelude::*;
+    use xmtp_proto::xmtp::mls::api::v1::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<QueryGroupMessagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = QueryGroupMessages::builder()
             .group_id(vec![1, 2, 3])
