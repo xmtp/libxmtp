@@ -1,5 +1,4 @@
 version: "3.8"
-
 services:
   node:
     image: xmtp/node-go:latest
@@ -26,7 +25,7 @@ services:
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ./dev/validation_service/Dockerfile
+      dockerfile: ./dev/validation_service/local.Dockerfile
     environment:
       ANVIL_URL: "http://anvil:8545"
   anvil:

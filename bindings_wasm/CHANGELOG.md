@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 1.1.0
+
+- Added `inbox_state_from_inbox_ids` method to `Client`
+
 ## 1.0.0
 
 - Improved DM stitching
