@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,8 +9,9 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 
 /// Query a single thing
 #[derive(Debug, Builder, Default, Clone)]
+#[builder(build_fn(error = "BodyError"))]
 pub struct QueryEnvelope {
-    #[builder(setter(into))]
+    #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
     #[builder(setter(into))]
     originator_node_ids: Vec<u32>,
@@ -32,22 +34,23 @@ impl Endpoint for QueryEnvelope {
         crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
-        Ok(QueryEnvelopesRequest {
+    fn body(&self) -> Result<Bytes, BodyError> {
+        let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
                 originator_node_ids: self.originator_node_ids.clone(),
                 last_seen: None,
             }),
-            limit: 1,
-        }
-        .encode_to_vec())
+            limit: 0,
+        };
+        tracing::debug!("{:?}", query);
+        Ok(query.encode_to_vec().into())
     }
 }
 
 /// Batch Query
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct QueryEnvelopes {
     #[builder(setter(into))]
     envelopes: EnvelopesQuery,
@@ -72,12 +75,13 @@ impl Endpoint for QueryEnvelopes {
         crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(QueryEnvelopesRequest {
             query: Some(self.envelopes.clone()),
             limit: self.limit,
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 
@@ -108,11 +112,6 @@ mod test {
             })
             .build()
             .unwrap();
-        if cfg!(any(feature = "http-api", target_arch = "wasm32")) {
-            assert!(endpoint.query(&client).await.is_err());
-            // TODO: Investigate why fails with http topic
-        } else {
-            assert!(endpoint.query(&client).await.is_ok());
-        }
+        assert!(endpoint.query(&client).await.is_err());
     }
 }

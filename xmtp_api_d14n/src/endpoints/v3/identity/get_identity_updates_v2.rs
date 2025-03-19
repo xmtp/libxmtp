@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,7 +9,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct GetIdentityUpdatesV2 {
     #[builder(setter(into))]
     pub requests: Vec<Request>,
@@ -30,11 +31,12 @@ impl Endpoint for GetIdentityUpdatesV2 {
         crate::path_and_query::<GetIdentityUpdatesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(GetIdentityUpdatesRequest {
             requests: self.requests.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 

@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,9 +9,9 @@ use xmtp_proto::xmtp::identity::api::v1::{
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(build_fn(error = "BodyError"))]
 pub struct PublishIdentityUpdate {
-    #[builder(setter(strip_option))]
+    #[builder(default)]
     pub identity_update: Option<IdentityUpdate>,
 }
 
@@ -30,11 +31,12 @@ impl Endpoint for PublishIdentityUpdate {
         crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(PublishIdentityUpdateRequest {
             identity_update: self.identity_update.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 
@@ -60,11 +62,11 @@ mod test {
         let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = PublishIdentityUpdate::builder()
-            .identity_update(IdentityUpdate {
+            .identity_update(Some(IdentityUpdate {
                 actions: vec![],
                 inbox_id: "".to_string(),
                 client_timestamp_ns: now_ns() as u64,
-            })
+            }))
             .build()
             .unwrap();
 

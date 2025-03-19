@@ -58,7 +58,7 @@ impl Logger {
         let app_filter = || EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}"));
         let file_filter = || {
             EnvFilter::builder().parse_lossy(
-                "xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",
+                "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",
             )
         };
         let subscriber = tracing_subscriber::registry();

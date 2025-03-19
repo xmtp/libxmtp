@@ -53,6 +53,7 @@ fdlimit = "0.3"
 rstest = "0.25"
 futures = { version = "0.3.30", default-features = false }
 getrandom = { version = "0.2", default-features = false }
+derive_builder = "0.20"
 arc-swap = "1.7"
 gloo-timers = "0.3"
 hex = "0.4.3"
