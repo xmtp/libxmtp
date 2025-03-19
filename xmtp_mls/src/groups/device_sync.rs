@@ -421,7 +421,7 @@ where
         Ok(sync_group)
     }
 
-    /// Called on sync group creation from a welcome.
+    /// Acknowledge the existence of a new sync group.
     /// Returns an error if sync group is already acknowledged by another installation.
     /// The first installation to acknowledge a sync group will the the installation to handle the sync.
     pub async fn acknowledge_new_sync_group(
@@ -434,8 +434,6 @@ where
 
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
-        // An empty message is an acknowledgement. Another device is handling the sync.
-        // So we'll stop here
         let acknowledgement = messages
             .into_iter()
             .find(|m| m.decrypted_message_bytes.is_empty());
