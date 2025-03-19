@@ -1,6 +1,7 @@
 //! Api Client Traits
 
 use http::{request, uri::PathAndQuery};
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
@@ -21,7 +22,7 @@ pub trait Endpoint {
 
     fn grpc_endpoint(&self) -> Cow<'static, str>;
 
-    fn body(&self) -> Result<Vec<u8>, BodyError>;
+    fn body(&self) -> Result<Bytes, BodyError>;
 }
 /*
 /// Stream
@@ -49,17 +50,12 @@ pub trait Client {
     type Error: XmtpApiError + std::error::Error + Send + Sync + 'static;
     type Stream: futures::Stream;
 
-    // TODO: this T can be removed if we figure out how to drop unknown fields from proto messages
-    // there must be a good way to do this with prost
-    async fn request<T>(
+    async fn request(
         &self,
         request: request::Builder,
         path: PathAndQuery,
-        body: Vec<u8>,
-    ) -> Result<http::Response<T>, ApiClientError<Self::Error>>
-    where
-        T: Default + prost::Message + 'static,
-        Self: Sized;
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>>;
 
     async fn stream(
         &self,
@@ -114,10 +110,11 @@ where
         };
         let path = http::uri::PathAndQuery::try_from(endpoint.as_ref())?;
         let rsp = client
-            .request::<T>(request, path, self.body()?)
+            .request(request, path, self.body()?)
             .await
             .map_err(|e| e.endpoint(endpoint.into_owned()))?;
-        Ok(rsp.into_body())
+        let value: T = prost::Message::decode(rsp.into_body())?;
+        Ok(value)
     }
 }
 
@@ -230,8 +227,8 @@ impl<E: std::error::Error + XmtpApiError> From<std::convert::Infallible> for Api
 
 #[derive(Debug, Error)]
 pub enum BodyError {
-    #[error("placeholder")]
-    Placeholder,
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl RetryableError for BodyError {
@@ -298,12 +295,12 @@ pub mod mock {
         impl Client for MockClient {
             type Error = MockError;
             type Stream = MockStreamT;
-            async fn request<T>(
+            async fn request(
                 &self,
                 request: http::request::Builder,
                 path: http::uri::PathAndQuery,
-                body: Vec<u8>,
-            ) -> Result<http::Response<T>, ApiClientError<MockError>> where Self: Sized, T: Default + prost::Message + 'static;
+                body: Bytes,
+            ) -> Result<http::Response<Bytes>, ApiClientError<MockError>>;
 
             async fn stream(
                 &self,
@@ -330,12 +327,12 @@ pub mod mock {
         impl Client for MockClient {
             type Error = MockError;
             type Stream = MockStreamT;
-            async fn request<T>(
+            async fn request(
                 &self,
                 request: http::request::Builder,
                 path: http::uri::PathAndQuery,
-                body: Vec<u8>,
-            ) -> Result<http::Response<T>, ApiClientError<MockError>> where Self: Sized, T: Default + prost::Message + 'static;
+                body: Bytes,
+            ) -> Result<http::Response<Bytes>, ApiClientError<MockError>>;
 
             async fn stream(
                 &self,

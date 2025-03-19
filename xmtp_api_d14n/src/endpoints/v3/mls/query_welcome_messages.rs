@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,11 +9,11 @@ use xmtp_proto::xmtp::mls::api::v1::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(build_fn(error = "BodyError"))]
 pub struct QueryWelcomeMessages {
     #[builder(setter(into))]
     installation_key: Vec<u8>,
-    #[builder(setter(skip))]
+    #[builder(setter(into), default)]
     paging_info: Option<PagingInfo>,
 }
 
@@ -33,12 +34,13 @@ impl Endpoint for QueryWelcomeMessages {
         crate::path_and_query::<QueryWelcomeMessagesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(QueryWelcomeMessagesRequest {
             installation_key: self.installation_key.clone(),
             paging_info: self.paging_info,
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 

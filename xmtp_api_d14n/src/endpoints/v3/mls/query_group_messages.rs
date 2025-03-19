@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,7 +9,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct QueryGroupMessages {
     #[builder(setter(into))]
     group_id: Vec<u8>,
@@ -32,12 +33,13 @@ impl Endpoint for QueryGroupMessages {
         crate::path_and_query::<QueryGroupMessagesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(QueryGroupMessagesRequest {
             group_id: self.group_id.clone(),
             paging_info: self.paging_info,
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 

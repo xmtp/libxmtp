@@ -22,6 +22,7 @@
 , llvmPackages_19
 , wasm-bindgen-cli
 , foundry-bin
+, graphite-cli
 , ...
 }:
 
@@ -46,7 +47,7 @@ let
 
   rust-toolchain = fenix.fromToolchainFile {
     file = ./../rust-toolchain.toml;
-    sha256 = "sha256-AJ6LX/Q/Er9kS15bn9iflkUwcgYqRQxiOIL2ToVAXaU=";
+    sha256 = "sha256-Hn2uaQzRLidAWpfmRwSRdImifGUCAb9HeAqTYFXWeQk=";
   };
 in
 mkShell {
@@ -80,6 +81,7 @@ mkShell {
       jdk21
       kotlin
       diesel-cli
+      graphite-cli
 
       # Random devtools
       # tokio-console

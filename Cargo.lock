@@ -7473,6 +7473,7 @@ dependencies = [
  "async-trait",
  "ctor",
  "derive_builder",
+ "futures",
  "hex",
  "once_cell",
  "parking_lot 0.12.3",
@@ -7769,6 +7770,7 @@ name = "xmtp_proto"
 version = "1.0.0-rc1"
 dependencies = [
  "async-trait",
+ "derive_builder",
  "dynosaur",
  "ed25519-dalek",
  "futures",

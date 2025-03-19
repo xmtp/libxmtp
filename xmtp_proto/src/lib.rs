@@ -6,9 +6,11 @@ mod generated {
 pub use generated::*;
 
 mod error;
+
 pub use error::*;
 
 pub mod api_client;
+pub mod codec;
 pub mod traits;
 
 #[cfg(feature = "convert")]
@@ -32,4 +34,12 @@ pub mod prelude {
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query};
     pub use super::XmtpApiError;
+}
+
+pub mod identity_v1 {
+    pub use super::xmtp::identity::api::v1::*;
+}
+
+pub mod mls_v1 {
+    pub use super::xmtp::mls::api::v1::*;
 }

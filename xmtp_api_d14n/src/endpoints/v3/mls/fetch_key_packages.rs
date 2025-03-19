@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -6,7 +7,7 @@ use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FetchKeyPackagesResponse};
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(setter(strip_option), build_fn(error = "BodyError"))]
 pub struct FetchKeyPackages {
     #[builder(setter(into))]
     installation_keys: Vec<Vec<u8>>,
@@ -28,11 +29,12 @@ impl Endpoint for FetchKeyPackages {
         crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(FetchKeyPackagesRequest {
             installation_keys: self.installation_keys.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 
