@@ -623,15 +623,15 @@ impl FfiXmtpClient {
     }
 
     /**
-     * Change recovery address
+     * Change the recovery identifier for your inboxId
      */
-    pub async fn change_recovery_address(
+    pub async fn change_recovery_identifier(
         &self,
-        new_recovery_address: FfiIdentifier,
+        new_recovery_identifier: FfiIdentifier,
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
-            .change_recovery_address(new_recovery_address.try_into()?)
+            .change_recovery_identifier(new_recovery_identifier.try_into()?)
             .await?;
 
         Ok(Arc::new(FfiSignatureRequest {

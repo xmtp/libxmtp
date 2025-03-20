@@ -358,10 +358,10 @@ where
         Ok(builder.build())
     }
 
-    /// Generate a `ChangeRecoveryAddress` signature request using a new wallet address
-    pub async fn change_recovery_address(
+    /// Generate a `ChangeRecoveryAddress` signature request using a new identifer
+    pub async fn change_recovery_identifier(
         &self,
-        new_recovery_address: Identifier,
+        new_recovery_identifier: Identifier,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.inbox_id();
         let current_state = retry_async!(
@@ -374,7 +374,7 @@ where
         let mut builder = SignatureRequestBuilder::new(inbox_id);
         let member_identifier: MemberIdentifier =
             current_state.recovery_identifier().clone().into();
-        builder = builder.change_recovery_address(member_identifier, new_recovery_address);
+        builder = builder.change_recovery_address(member_identifier, new_recovery_identifier);
         Ok(builder.build())
     }
 
@@ -1065,7 +1065,7 @@ pub(crate) mod tests {
 
         // Create a signature request to change the recovery address
         let mut change_recovery_request = client
-            .change_recovery_address(new_recovery_wallet.identifier())
+            .change_recovery_identifier(new_recovery_wallet.identifier())
             .await
             .unwrap();
 
