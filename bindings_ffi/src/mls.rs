@@ -7791,21 +7791,53 @@ mod tests {
         assert_eq!(state.installations.len(), 2);
 
         // Sync conversations
-        client_alix.conversations().sync_all_conversations(None).await.unwrap();
-        client_alix2.conversations().sync_all_conversations(None).await.unwrap();
-
-        let alix_group2 = client_alix2
-            .conversation(alix_group.id())
+        client_alix
+            .conversations()
+            .sync_all_conversations(None)
+            .await
             .unwrap();
-        assert_eq!(alix_group2.consent_state().unwrap(), FfiConsentState::Unknown);
+        client_alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_group2 = client_alix2.conversation(alix_group.id()).unwrap();
+        assert_eq!(
+            alix_group2.consent_state().unwrap(),
+            FfiConsentState::Unknown
+        );
 
         // Update consent state
-        alix_group.update_consent_state(FfiConsentState::Denied).unwrap();
-        client_alix.send_sync_request(FfiDeviceSyncKind::Consent).await.unwrap();
-        client_alix.conversations().sync_all_conversations(None).await.unwrap();
-        client_alix2.send_sync_request(FfiDeviceSyncKind::Consent).await.unwrap();
-        client_alix2.conversations().sync_all_conversations(None).await.unwrap();
+        alix_group
+            .update_consent_state(FfiConsentState::Denied)
+            .unwrap();
+        client_alix
+            .send_sync_request(FfiDeviceSyncKind::Consent)
+            .await
+            .unwrap();
+        client_alix
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_alix2
+            .send_sync_request(FfiDeviceSyncKind::Consent)
+            .await
+            .unwrap();
 
-        assert_eq!(alix_group2.consent_state().unwrap(), FfiConsentState::Denied);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        client_alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        assert_eq!(
+            alix_group2.consent_state().unwrap(),
+            FfiConsentState::Denied
+        );
     }
 }
