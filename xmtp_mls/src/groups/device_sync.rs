@@ -22,7 +22,7 @@ use aes_gcm::{
 #[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
 use futures::{future::join_all, Stream, StreamExt};
-use handle::SyncWorkerHandle;
+use handle::{SyncWorkerMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -159,19 +159,6 @@ where
         worker.spawn_worker();
     }
 
-    #[instrument(level = "trace", skip_all)]
-    pub fn start_disappearing_messages_cleaner_worker(&self) {
-        let client = self.clone();
-        tracing::trace!(
-            inbox_id = client.inbox_id(),
-            installation_id = hex::encode(client.installation_public_key()),
-            "starting expired messages cleaner worker"
-        );
-
-        let worker = DisappearingMessagesCleanerWorker::new(client);
-        worker.spawn_worker();
-    }
-
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
@@ -204,7 +191,7 @@ pub struct SyncWorker<ApiClient, V> {
     init: OnceCell<()>,
     retry: Retry,
 
-    handle: Arc<SyncWorkerHandle>,
+    handle: Arc<WorkerHandle<SyncWorkerMetric>>,
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -234,10 +221,20 @@ where
                     SyncEvent::NewSyncGroupFromWelcome => {
                         // A new sync group from a welcome indicates a new installation.
                         // We need to add that installation to the groups.
+                        if self
+                            .client
+                            .acknowledge_new_sync_group(&provider)
+                            .await
+                            .is_err()
+                        {
+                            // We do not want to process the new installation if another installation is already processing it.
+                            self.handle
+                                .increment_metric(SyncWorkerMetric::SyncGroupWelcomesProcessed);
+                            continue;
+                        }
                         self.client.add_new_installation_to_groups().await?;
                         self.handle
-                            .new_installations_added_to_groups
-                            .fetch_add(1, Ordering::Relaxed);
+                            .increment_metric(SyncWorkerMetric::SyncGroupWelcomesProcessed);
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
@@ -341,6 +338,7 @@ where
                 client.history_sync_url
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
+                // The only thing that sync init really does right now is ensures that there's a sync group.
                 client.ensure_sync_group(&provider).await?;
             }
             tracing::info!(
@@ -375,7 +373,7 @@ where
             stream,
             init: OnceCell::new(),
             retry,
-            handle: Arc::new(SyncWorkerHandle::new()),
+            handle: Arc::new(WorkerHandle::new()),
         }
     }
 
@@ -446,6 +444,7 @@ where
         let installation_id = self.installation_id();
         if installation_id != acknowledgement.sender_installation_id {
             // Another device acknowledged the group. They're handling it.
+            tracing::info!("Another installation already acknowledged the new sync group.");
             return Err(DeviceSyncError::SyncGroupAlreadyAcknowledged);
         }
 

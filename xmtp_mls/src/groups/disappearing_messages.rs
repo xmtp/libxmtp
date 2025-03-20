@@ -66,6 +66,19 @@ where
             }
         });
     }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::trace!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaner worker"
+        );
+
+        let worker = DisappearingMessagesCleanerWorker::new(client);
+        worker.spawn_worker();
+    }
 }
 
 impl<ApiClient, V> DisappearingMessagesCleanerWorker<ApiClient, V>

@@ -22,7 +22,7 @@ use xmtp_proto::api_client::XmtpTestClient;
 
 use crate::{
     builder::ClientBuilder,
-    groups::device_sync::handle::SyncWorkerHandle,
+    groups::device_sync::handle::WorkerHandle,
     identity::IdentityStrategy,
     storage::{DbConnection, EncryptedMessageStore, StorageOption},
     Client, InboxOwner, XmtpApi,

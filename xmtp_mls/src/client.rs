@@ -1,4 +1,4 @@
-use crate::groups::device_sync::handle::SyncWorkerHandle;
+use crate::groups::device_sync::handle::WorkerHandle;
 
 use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
@@ -154,7 +154,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
     pub(crate) version_info: Arc<VersionInfo>,
-    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<SyncWorkerHandle>>>>,
+    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
 }
 
 // most of these things are `Arc`'s

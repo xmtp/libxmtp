@@ -150,6 +150,7 @@ pub struct GroupQueryArgs {
     pub allowed_states: Option<Vec<GroupMembershipState>>,
     pub created_after_ns: Option<i64>,
     pub created_before_ns: Option<i64>,
+    pub activity_after_ns: Option<i64>,
     pub limit: Option<i64>,
     pub conversation_type: Option<ConversationType>,
     pub consent_states: Option<Vec<ConsentState>>,
@@ -159,69 +160,6 @@ pub struct GroupQueryArgs {
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
     fn as_ref(&self) -> &GroupQueryArgs {
-        self
-    }
-}
-
-impl GroupQueryArgs {
-    pub fn allowed_states(self, allowed_states: Vec<GroupMembershipState>) -> Self {
-        self.maybe_allowed_states(Some(allowed_states))
-    }
-
-    pub fn maybe_allowed_states(
-        mut self,
-        allowed_states: Option<Vec<GroupMembershipState>>,
-    ) -> Self {
-        self.allowed_states = allowed_states;
-        self
-    }
-
-    pub fn created_after_ns(self, created_after_ns: i64) -> Self {
-        self.maybe_created_after_ns(Some(created_after_ns))
-    }
-
-    pub fn maybe_created_after_ns(mut self, created_after_ns: Option<i64>) -> Self {
-        self.created_after_ns = created_after_ns;
-        self
-    }
-
-    pub fn created_before_ns(self, created_before_ns: i64) -> Self {
-        self.maybe_created_before_ns(Some(created_before_ns))
-    }
-
-    pub fn maybe_created_before_ns(mut self, created_before_ns: Option<i64>) -> Self {
-        self.created_before_ns = created_before_ns;
-        self
-    }
-
-    pub fn limit(self, limit: i64) -> Self {
-        self.maybe_limit(Some(limit))
-    }
-
-    pub fn maybe_limit(mut self, limit: Option<i64>) -> Self {
-        self.limit = limit;
-        self
-    }
-
-    pub fn conversation_type(self, conversation_type: ConversationType) -> Self {
-        self.maybe_conversation_type(Some(conversation_type))
-    }
-
-    pub fn maybe_conversation_type(mut self, conversation_type: Option<ConversationType>) -> Self {
-        self.conversation_type = conversation_type;
-        self
-    }
-
-    pub fn consent_states(self, consent_states: Vec<ConsentState>) -> Self {
-        self.maybe_consent_states(Some(consent_states))
-    }
-    pub fn maybe_consent_states(mut self, consent_states: Option<Vec<ConsentState>>) -> Self {
-        self.consent_states = consent_states;
-        self
-    }
-
-    pub fn include_sync_groups(mut self) -> Self {
-        self.include_sync_groups = true;
         self
     }
 }
@@ -273,6 +211,7 @@ impl DbConnection {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
+            activity_after_ns,
         } = args.as_ref();
 
         let mut query = groups_dsl::groups
@@ -302,7 +241,16 @@ impl DbConnection {
             query = query.filter(groups_dsl::membership_state.eq_any(allowed_states));
         }
 
-        if let Some(created_after_ns) = created_after_ns {
+        // activity_after_ns takes precedence over created_after_ns
+        if let Some(activity_after_ns) = activity_after_ns {
+            // "Activity after" means groups that were either created,
+            // or have sent a message after the specified time.
+            query = query.filter(
+                groups_dsl::last_message_ns
+                    .gt(activity_after_ns)
+                    .or(groups_dsl::created_at_ns.gt(created_after_ns)),
+            )
+        } else if let Some(created_after_ns) = created_after_ns {
             query = query.filter(groups_dsl::created_at_ns.gt(created_after_ns));
         }
 
