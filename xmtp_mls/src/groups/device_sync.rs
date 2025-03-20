@@ -20,8 +20,9 @@ use aes_gcm::{
     Aes256Gcm,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use backup::BackupError;
+use backup::{backup_exporter::BackupExporter, BackupError};
 use futures::{future::join_all, Stream, StreamExt};
+use futures_util::AsyncReadExt;
 use handle::{SyncWorkerMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
@@ -32,6 +33,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use tokio_util::io::ReaderStream;
 use tracing::{instrument, warn};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{
@@ -50,7 +52,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-#[cfg(not(target_arch = "wasm32"))]
+
 pub mod backup;
 pub mod consent_sync;
 pub mod handle;
@@ -62,10 +64,6 @@ pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
-    #[error("pin not found")]
-    PinNotFound,
-    #[error("pin does not match the expected value")]
-    PinMismatch,
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
     #[error("Serialization/Deserialization Error {0}")]
@@ -115,6 +113,10 @@ pub enum DeviceSyncError {
     Deserialization(#[from] DeserializationError),
     #[error("Sync group already acknowledged by another installation")]
     SyncGroupAlreadyAcknowledged,
+    #[error("Sync request is missing options")]
+    MissingOptions,
+    #[error("Missing sync server url")]
+    MissingSyncServerUrl,
 }
 
 impl DeviceSyncError {
@@ -153,7 +155,7 @@ where
         );
 
         let worker = SyncWorker::new(client);
-        *self.sync_worker_handle.lock() = Some(worker.handle.clone());
+        *self.device_sync.worker_handle.lock() = Some(worker.handle.clone());
         worker.spawn_worker();
     }
 
@@ -221,6 +223,7 @@ where
                     SyncEvent::NewSyncGroupFromWelcome => {
                         // A new sync group from a welcome indicates a new installation.
                         // We need to add that installation to the groups.
+                        let provider = self.client.mls_provider()?;
                         if self
                             .client
                             .acknowledge_new_sync_group(&provider)
@@ -335,7 +338,7 @@ where
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
-                client.history_sync_url
+                client.device_sync.history_sync_url
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
                 // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -412,7 +415,7 @@ where
     ) -> Result<MlsGroup<Self>, GroupError> {
         let sync_group = match self.get_sync_group(provider.conn_ref()) {
             Ok(group) => group,
-            Err(_) => self.create_sync_group(provider)?,
+            Err(_) => self.create_sync_group(provider).await?,
         };
         sync_group.sync_with_conn(provider).await?;
 
@@ -497,24 +500,58 @@ where
         Ok(request)
     }
 
-    pub(crate) async fn reply_to_sync_request(
+    pub(crate) async fn process_sync_request(
         &self,
-        provider: &XmtpOpenMlsProvider,
         request: DeviceSyncRequestProto,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let conn = provider.conn_ref();
+        let provider = Arc::new(self.mls_provider()?);
 
-        let records = match request.kind() {
-            DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
-            DeviceSyncKind::MessageHistory => {
-                vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
-            }
-            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
+        let Some(history_sync_url) = self.device_sync.history_sync_url else {
+            tracing::info!(
+                "Unable to process sync request due to not having a sync server url present."
+            );
+            return Err(DeviceSyncError::MissingSyncServerUrl);
+        };
+        let Some(options) = request.options else {
+            return Err(DeviceSyncError::MissingOptions);
         };
 
-        let reply = self
-            .create_sync_reply(&request.request_id, &records, request.kind())
-            .await?;
+        // Generate a random encryption key
+        let key = xmtp_common::rand_vec::<32>();
+
+        // Now we want to create an encrypted stream from our database to the history server.
+        //
+        // 1. Build the exporter
+        let exporter = BackupExporter::new(options, &provider, &key);
+        let metadata = exporter.metadata().clone();
+        // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
+        let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(exporter);
+        // 3. Add a stream layer over the async read
+        let stream = ReaderStream::new(exporter_compat);
+        // 4. Pipe that stream as the body to the request to the history server
+        let body = reqwest::Body::wrap_stream(stream);
+        // 5. Make the request
+        let url = format!("{history_sync_url}/upload");
+        let response = reqwest::Client::new().post(url).body(body).send().await?;
+
+        if let Err(err) = response.error_for_status() {
+            tracing::error!(
+                inbox_id = self.inbox_id(),
+                installation_id = hex::encode(self.installation_public_key()),
+                "Failed to upload file. Status code: {} Response: {response:?}",
+                response.status()
+            );
+            return Err(DeviceSyncError::Reqwest(err));
+        }
+
+        let reply = DeviceSyncReplyProto {
+            key,
+            request_id: request.request_id,
+            url: format!("{history_sync_url}/files/{}", response.text().await?),
+            metadata: Some(metadata),
+            ..Default::default()
+        };
+
         self.send_sync_reply(provider, reply.clone()).await?;
 
         Ok(reply)
@@ -527,16 +564,11 @@ where
     ) -> Result<(), DeviceSyncError> {
         // find the sync group
         let sync_group = self.get_sync_group(provider.conn_ref())?;
-
         // sync the group
         sync_group.sync_with_conn(provider).await?;
 
         let (msg, _request) = self
             .get_pending_sync_request(provider, contents.kind())
-            .await?;
-
-        // add original sender to all groups on this device on the node
-        self.ensure_member_of_all_groups(provider, &msg.sender_inbox_id)
             .await?;
 
         // the reply message
@@ -690,16 +722,6 @@ where
             .send()
             .await?;
 
-        if let Err(err) = response.error_for_status() {
-            tracing::error!(
-                inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.installation_public_key()),
-                "Failed to upload file. Status code: {} Response: {response:?}",
-                response.status()
-            );
-            return Err(DeviceSyncError::Reqwest(err));
-        }
-
         let sync_reply = DeviceSyncReplyProto {
             encryption_key: Some(enc_key.into()),
             request_id: request_id.to_string(),
@@ -799,14 +821,13 @@ pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, Devic
     tracing::info!("downloading history bundle from {:?}", url);
     let response = reqwest::Client::new().get(url).send().await?;
 
-    if !response.status().is_success() {
+    if let Err(err) = response.error_for_status() {
         tracing::error!(
             "Failed to download file. Status code: {} Response: {:?}",
             response.status(),
             response
         );
-        response.error_for_status()?;
-        unreachable!("Checked for error");
+        return Err(DeviceSyncError::Reqwest(err));
     }
 
     Ok(response.bytes().await?.to_vec())

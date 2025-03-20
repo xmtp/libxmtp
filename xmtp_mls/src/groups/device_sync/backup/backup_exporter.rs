@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, Back
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pub(super) struct BackupExporter {
+pub struct BackupExporter {
     stage: Stage,
     metadata: BackupMetadataSave,
     stream: BatchExportStream,
@@ -36,7 +36,7 @@ pub(super) enum Stage {
 }
 
 impl BackupExporter {
-    pub(super) fn new(
+    pub(crate) fn new(
         opts: BackupOptions,
         provider: &Arc<XmtpOpenMlsProvider>,
         key: &[u8],
@@ -58,8 +58,18 @@ impl BackupExporter {
             nonce_buffer,
         }
     }
+
+    pub(crate) fn metadata(&self) -> &BackupMetadataSave {
+        &self.metadata
+    }
 }
 
+// The reason this is future_util's AsyncRead and not tokio's AsyncRead
+// is because we need this to work on WASM, and tokio's AsyncRead makes
+// some assumptions about having access to std::fs, which WASM does not have.
+//
+// To get around this, we implement AsyncRead using future_util, and use a
+// compat layer from tokio_util to be able to interact with it in tokio.
 impl AsyncRead for BackupExporter {
     /// This function encrypts first, and compresses second.
     fn poll_read(

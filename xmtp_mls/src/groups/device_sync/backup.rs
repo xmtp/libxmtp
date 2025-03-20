@@ -4,27 +4,23 @@ use backup_exporter::BackupExporter;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
 
 pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
-mod backup_exporter;
+pub(crate) mod backup_exporter;
 mod backup_importer;
 mod export_stream;
+
+pub(crate) use backup_exporter::*;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error("Missing metadata")]
     MissingMetadata,
-}
-
-pub struct BackupOptions {
-    pub start_ns: Option<i64>,
-    pub end_ns: Option<i64>,
-    pub elements: Vec<BackupElementSelection>,
 }
 
 #[derive(Default)]
@@ -34,7 +30,6 @@ pub struct BackupMetadata {
     pub exported_at_ns: i64,
     pub start_ns: Option<i64>,
     pub end_ns: Option<i64>,
-    pub intended_installation: Option<Vec<u8>>,
 }
 
 impl BackupMetadata {
@@ -45,7 +40,6 @@ impl BackupMetadata {
             start_ns: save.start_ns,
             exported_at_ns: save.exported_at_ns,
             backup_version,
-            intended_installation: save.intended_installation,
         }
     }
 }
