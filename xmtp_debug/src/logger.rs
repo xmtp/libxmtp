@@ -33,7 +33,7 @@ impl<'a> From<&'a LogOptions> for Logger {
             json: options.json,
             logfmt: options.logfmt,
             show_fields: options.show_fields,
-            verbosity: options.verbose.clone(),
+            verbosity: options.verbose,
             human: options.human,
             guards: Vec::new(),
         }
