@@ -240,11 +240,11 @@ where
         Arc::make_mut(&mut self.version_info).test_update_version(version);
     }
 
-    pub fn api_stats(&self) -> &ApiStats {
+    pub fn api_stats(&self) -> ApiStats {
         self.api_client.api_client.stats()
     }
 
-    pub fn identity_api_stats(&self) -> &IdentityStats {
+    pub fn identity_api_stats(&self) -> IdentityStats {
         self.api_client.api_client.identity_stats()
     }
 }

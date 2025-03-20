@@ -17,6 +17,7 @@ use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
 use crate::identity::Identifier;
+use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
@@ -303,6 +304,23 @@ impl Client {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(inbox_id)
+  }
+
+  #[wasm_bindgen(js_name = inboxStateFromInboxIds)]
+  pub async fn inbox_state_from_inbox_ids(
+    &self,
+    inbox_ids: Vec<String>,
+    refresh_from_network: bool,
+  ) -> Result<Vec<InboxState>, JsError> {
+    let state = self
+      .inner_client
+      .inbox_addresses(
+        refresh_from_network,
+        inbox_ids.iter().map(String::as_str).collect(),
+      )
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    Ok(state.into_iter().map(Into::into).collect())
   }
 
   #[wasm_bindgen]

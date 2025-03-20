@@ -5,9 +5,12 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
+use xmtp_api_grpc::grpc_client::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
+use xmtp_api_d14n::compat::D14nClient;
+use xmtp_proto::api_client::ApiBuilder;
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -264,14 +267,11 @@ impl BackendOpts {
             let payer = self.payer_url()?;
             trace!(url = %network, payer = %payer, is_secure, "create grpc");
 
-            Ok(Arc::new(
-                xmtp_api_grpc::replication_client::ClientV4::create(
-                    network.as_str().to_string(),
-                    payer.as_str().to_string(),
-                    is_secure,
-                )
-                .await?,
-            ))
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            let client = client.build().await?;
+            Ok(Arc::new(D14nClient::new(client.clone(), client)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
             Ok(Arc::new(

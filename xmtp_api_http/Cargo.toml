@@ -23,9 +23,11 @@ xmtp_common.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["test-utils"] }
+hex.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+ctor.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "time"] }
