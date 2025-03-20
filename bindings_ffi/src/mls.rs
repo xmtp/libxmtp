@@ -622,6 +622,24 @@ impl FfiXmtpClient {
         }))
     }
 
+    /**
+     * Change recovery address
+     */
+    pub async fn change_recovery_address(
+        &self,
+        new_recovery_address: FfiIdentifier,
+    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+        let signature_request = self
+            .inner_client
+            .change_recovery_address(new_recovery_address.try_into()?)
+            .await?;
+
+        Ok(Arc::new(FfiSignatureRequest {
+            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
+        }))
+    }
+
     /// Backup your application to file for later restoration.
     pub async fn backup_to_file(
         &self,
