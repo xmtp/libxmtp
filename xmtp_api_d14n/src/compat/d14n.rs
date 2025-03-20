@@ -15,7 +15,7 @@ use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
-    build_welcome_message_topic, Extract
+    build_welcome_message_topic, Extract,
 };
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
     IdentityUpdateLog, Response,

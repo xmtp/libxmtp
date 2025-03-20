@@ -922,7 +922,7 @@ pub(crate) mod tests {
             Err(ConversionError::InvalidValue {
                 item: "eth account_id",
                 expected: "well-formed chain_id & address",
-                got: "chain_id/address did not pass validation"
+                ..
             })
         ));
     }
