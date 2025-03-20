@@ -1,6 +1,7 @@
+use crate::mls_v1::{self, GroupMessage, WelcomeMessage};
 use crate::v4_utils::{
-    build_identity_topic_from_hex_encoded, build_welcome_message_topic, extract_client_envelope,
-    get_group_message_topic, get_key_package_topic,
+    build_identity_topic_from_hex_encoded, build_welcome_message_topic, get_group_message_topic,
+    get_key_package_topic, Extract,
 };
 use crate::xmtp::identity::api::v1::get_identity_updates_response::IdentityUpdateLog;
 use crate::xmtp::identity::api::v1::PublishIdentityUpdateRequest;
@@ -13,6 +14,8 @@ use crate::xmtp::mls::api::v1::{
 use crate::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use crate::xmtp::xmtpv4::envelopes::{AuthenticatedData, ClientEnvelope, OriginatorEnvelope};
 use crate::ConversionError;
+use openmls::prelude::tls_codec::Deserialize;
+use openmls::{framing::MlsMessageIn, prelude::ProtocolMessage};
 
 mod inbox_id {
     use crate::xmtp::identity::MlsCredential;
@@ -60,13 +63,9 @@ impl TryFrom<OriginatorEnvelope> for KeyPackage {
     type Error = ConversionError;
 
     fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
-        let client_env =
-            extract_client_envelope(&originator).map_err(|_| ConversionError::Missing {
-                item: "client_env",
-                r#type: std::any::type_name::<OriginatorEnvelope>(),
-            })?;
+        let client_envelope = originator.client_envelope()?;
 
-        if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_env.payload {
+        if let Some(Payload::UploadKeyPackage(upload_key_package)) = client_envelope.payload {
             let key_package = upload_key_package
                 .key_package
                 .ok_or(ConversionError::Missing {
@@ -89,60 +88,29 @@ impl TryFrom<OriginatorEnvelope> for KeyPackage {
 impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
     type Error = ConversionError;
 
-    fn try_from(_envelope: OriginatorEnvelope) -> Result<Self, Self::Error> {
-        // temporary block until this function is updated to handle payer_envelope_bytes
-        Err(ConversionError::Missing {
+    fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        let unsigned_originator = originator.unsigned_originator_envelope()?;
+        let client_envelope = originator.client_envelope()?;
+        let payload = client_envelope.payload.ok_or(ConversionError::Missing {
             item: "identity_update",
             r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?;
+
+        let identity_update = match payload {
+            Payload::IdentityUpdate(update) => update,
+            _ => {
+                return Err(ConversionError::Missing {
+                    item: "identity_update",
+                    r#type: std::any::type_name::<OriginatorEnvelope>(),
+                })
+            }
+        };
+
+        Ok(IdentityUpdateLog {
+            sequence_id: unsigned_originator.originator_sequence_id,
+            server_timestamp_ns: unsigned_originator.originator_ns as u64,
+            update: Some(identity_update),
         })
-
-        //let mut unsigned_originator_envelope = envelope.unsigned_originator_envelope.as_slice();
-        //let originator_envelope = UnsignedOriginatorEnvelope::decode(
-        //    &mut unsigned_originator_envelope,
-        //)
-        //.map_err(|_| ConversionError::Missing {
-        //    item: "identity_update",
-        //    r#type: std::any::type_name::<OriginatorEnvelope>(),
-        //})?;
-
-        // let payer_envelope =
-        // originator_envelope
-        // .payer_envelope
-        // .ok_or(ConversionError::Missing {
-        // item: "identity_update",
-        // r#type: std::any::type_name::<OriginatorEnvelope>(),
-        // })?;
-
-        // TODO: validate payer signatures
-        // let mut unsigned_client_envelope = payer_envelope.unsigned_client_envelope.as_slice();
-        // let client_envelope =
-        // ClientEnvelope::decode(&mut unsigned_client_envelope).map_err(|_| {
-        // ConversionError::Missing {
-        // item: "identity_update",
-        // r#type: std::any::type_name::<OriginatorEnvelope>(),
-        // }
-        // })?;
-
-        // let payload = client_envelope.payload.ok_or(ConversionError::Missing {
-        // item: "identity_update",
-        // r#type: std::any::type_name::<OriginatorEnvelope>(),
-        // })?;
-
-        // let identity_update = match payload {
-        // Payload::IdentityUpdate(update) => update,
-        // _ => {
-        // return Err(ConversionError::Missing {
-        // item: "identity_update",
-        // r#type: std::any::type_name::<OriginatorEnvelope>(),
-        // })
-        // }
-        // };
-
-        // Ok(IdentityUpdateLog {
-        // sequence_id: originator_envelope.originator_sequence_id,
-        // server_timestamp_ns: originator_envelope.originator_ns as u64,
-        // update: Some(identity_update),
-        // })
     }
 }
 impl TryFrom<PublishIdentityUpdateRequest> for ClientEnvelope {
@@ -212,6 +180,107 @@ impl TryFrom<WelcomeMessageInput> for ClientEnvelope {
                 r#type: std::any::type_name::<WelcomeMessageInput>(),
             })
         }
+    }
+}
+
+/// TODO: Move conversions to api_d14n
+impl TryFrom<OriginatorEnvelope> for GroupMessage {
+    type Error = ConversionError;
+
+    fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        use mls_v1::group_message_input::Version;
+        let unsigned_originator = originator.unsigned_originator_envelope()?;
+        let client_envelope = originator.client_envelope()?;
+
+        let payload = client_envelope.payload.ok_or(ConversionError::Missing {
+            item: "payload",
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?;
+
+        let Payload::GroupMessage(msg_version) = payload else {
+            return Err(ConversionError::InvalidValue {
+                item: std::any::type_name::<OriginatorEnvelope>(),
+                expected: "Payload::GroupMessage",
+                got: payload.to_string(),
+            });
+        };
+
+        // in case more versions are added
+        #[allow(irrefutable_let_patterns)]
+        let Version::V1(msg_in) = msg_version.version.ok_or(ConversionError::Missing {
+            item: std::any::type_name::<Version>(),
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?
+        else {
+            return Err(ConversionError::InvalidVersion);
+        };
+
+        let msg = MlsMessageIn::tls_deserialize(&mut msg_in.data.as_slice())?;
+        let protocol_message: ProtocolMessage = msg.try_into_protocol_message()?;
+
+        // TODO:insipx: we could easily extract more information here to make
+        // processing messages easier
+        // for instance, we have the epoch, group_id and data, and we can create a XmtpGruopMessage
+        // struct to store this extra data rather than re-do deserialization
+        // in 'process_message'
+        // We can do that for v3 as well
+        let msg_in = mls_v1::group_message::Version::V1(mls_v1::group_message::V1 {
+            id: unsigned_originator.originator_sequence_id,
+            created_ns: unsigned_originator.originator_ns as u64,
+            group_id: protocol_message.group_id().to_vec(),
+            data: msg_in.data,
+            sender_hmac: msg_in.sender_hmac,
+            should_push: msg_in.should_push,
+        });
+        Ok(mls_v1::GroupMessage {
+            version: Some(msg_in),
+        })
+    }
+}
+
+// TODO:insipx: Can make conversion between originator and other types generic
+impl TryFrom<OriginatorEnvelope> for WelcomeMessage {
+    type Error = ConversionError;
+
+    fn try_from(originator: OriginatorEnvelope) -> Result<Self, Self::Error> {
+        use mls_v1::welcome_message_input::Version;
+        let unsigned_originator = originator.unsigned_originator_envelope()?;
+        let client_envelope = originator.client_envelope()?;
+
+        let payload = client_envelope.payload.ok_or(ConversionError::Missing {
+            item: "payload",
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?;
+
+        let Payload::WelcomeMessage(welcome_version) = payload else {
+            return Err(ConversionError::InvalidValue {
+                item: std::any::type_name::<OriginatorEnvelope>(),
+                expected: "Payload::WelcomeMessage",
+                got: payload.to_string(),
+            });
+        };
+
+        // in case more versions are added
+        #[allow(irrefutable_let_patterns)]
+        let Version::V1(welcome_in) = welcome_version.version.ok_or(ConversionError::Missing {
+            item: std::any::type_name::<Version>(),
+            r#type: std::any::type_name::<OriginatorEnvelope>(),
+        })?
+        else {
+            return Err(ConversionError::InvalidVersion);
+        };
+
+        let welcome_in = mls_v1::welcome_message::Version::V1(mls_v1::welcome_message::V1 {
+            id: unsigned_originator.originator_sequence_id,
+            created_ns: unsigned_originator.originator_ns as u64,
+            installation_key: welcome_in.installation_key,
+            data: welcome_in.data,
+            hpke_public_key: welcome_in.hpke_public_key,
+        });
+
+        Ok(mls_v1::WelcomeMessage {
+            version: Some(welcome_in),
+        })
     }
 }
 
