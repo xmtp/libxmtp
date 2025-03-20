@@ -264,14 +264,18 @@ impl BackendOpts {
         let is_secure = network.scheme() == "https";
 
         if self.d14n {
-            let payer = self.payer_url()?;
-            trace!(url = %network, payer = %payer, is_secure, "create grpc");
+            let payer_host = self.payer_url()?;
+            trace!(url = %network, payer = %payer_host, is_secure, "create grpc");
 
-            let mut client = GrpcClient::builder();
-            client.set_host("http://localhost:5050".into());
-            client.set_tls(false);
-            let client = client.build().await?;
-            Ok(Arc::new(D14nClient::new(client.clone(), client)))
+            let mut payer = GrpcClient::builder();
+            payer.set_host(payer_host.to_string());
+            payer.set_tls(is_secure);
+            let payer = payer.build().await?;
+            let mut message = GrpcClient::builder();
+            message.set_host(network.to_string());
+            message.set_tls(is_secure);
+            let message = message.build().await?;
+            Ok(Arc::new(D14nClient::new(message, payer)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
             Ok(Arc::new(
