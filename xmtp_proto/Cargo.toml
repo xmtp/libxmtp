@@ -6,17 +6,20 @@ version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+derive_builder.workspace = true
 dynosaur = "0.1"
 ed25519-dalek.workspace = true
 futures = { workspace = true }
 hex.workspace = true
 http = "1.2"
+mockall = { workspace = true, optional = true }
 openmls_rust_crypto = { workspace = true, optional = true }
 pbjson.workspace = true
 pbjson-types.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
 thiserror.workspace = true
+tonic = { workspace = true, default-features = false }
 tracing.workspace = true
 trait-variant = "0.1"
 xmtp_common.workspace = true
@@ -30,6 +33,9 @@ tonic = { workspace = true, features = [
   "prost",
 ] }
 
+[dev-dependencies]
+mockall = { workspace = true }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 openmls = { workspace = true, features = ["js"] }
 
@@ -39,7 +45,7 @@ wasm-bindgen-test.workspace = true
 [features]
 convert = ["openmls_rust_crypto", "proto_full"]
 default = ["proto_full"]
-test-utils = ["xmtp_common/test-utils"]
+test-utils = ["xmtp_common/test-utils", "dep:mockall"]
 http-api = []
 grpc-api = []
 

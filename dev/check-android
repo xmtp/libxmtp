@@ -1,0 +1,5 @@
+#!/bin/bash
+set -eou pipefail
+
+nix develop .#android --command \
+    cargo check --target x86_64-linux-android --manifest-path bindings_ffi/Cargo.toml

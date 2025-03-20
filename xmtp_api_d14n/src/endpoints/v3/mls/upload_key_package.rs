@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -7,9 +8,8 @@ use xmtp_proto::xmtp::mls::api::v1::{
 };
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(build_fn(error = "BodyError"))]
 pub struct UploadKeyPackage {
-    #[builder(setter(strip_option))]
     key_package: Option<KeyPackageUpload>,
     #[builder(setter(into))]
     is_inbox_id_credential: bool,
@@ -24,51 +24,43 @@ impl UploadKeyPackage {
 impl Endpoint for UploadKeyPackage {
     type Output = ();
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/mls/v1/upload-key-package")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         crate::path_and_query::<UploadKeyPackageRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(UploadKeyPackageRequest {
             key_package: self.key_package.clone(),
             is_inbox_id_credential: self.is_inbox_id_credential,
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
     use crate::v3::UploadKeyPackage;
-    use xmtp_api_grpc::grpc_client::GrpcClient;
-    use xmtp_api_grpc::LOCALHOST_ADDRESS;
-    use xmtp_proto::api_client::ApiBuilder;
-    use xmtp_proto::traits::Query;
-    use xmtp_proto::xmtp::mls::api::v1::{
-        KeyPackageUpload, UploadKeyPackageRequest, FILE_DESCRIPTOR_SET,
-    };
+    use xmtp_proto::prelude::*;
+    use xmtp_proto::xmtp::mls::api::v1::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         let pnq = crate::path_and_query::<UploadKeyPackageRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_get_identity_updates_v2() {
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = UploadKeyPackage::builder()
-            .key_package(KeyPackageUpload {
+            .key_package(Some(KeyPackageUpload {
                 key_package_tls_serialized: vec![1, 2, 3],
-            })
+            }))
             .is_inbox_id_credential(false)
             .build()
             .unwrap();

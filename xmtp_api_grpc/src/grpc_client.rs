@@ -8,17 +8,19 @@ use tonic::{
 use tracing::Instrument;
 use xmtp_proto::{
     api_client::ApiBuilder,
-    traits::{ApiError, Client},
+    codec::TransparentCodec,
+    traits::{ApiClientError, Client},
 };
 
 use crate::GrpcError;
 
-impl From<GrpcError> for ApiError<GrpcError> {
-    fn from(source: GrpcError) -> ApiError<GrpcError> {
-        ApiError::Client { source }
+impl From<GrpcError> for ApiClientError<GrpcError> {
+    fn from(source: GrpcError) -> ApiClientError<GrpcError> {
+        ApiClientError::Client { source }
     }
 }
 
+#[derive(Clone)]
 pub struct GrpcClient {
     inner: tonic::client::Grpc<Channel>,
     app_version: MetadataValue<metadata::Ascii>,
@@ -34,8 +36,9 @@ impl Client for GrpcClient {
     async fn request(
         &self,
         request: http::request::Builder,
-        body: Vec<u8>,
-    ) -> Result<http::Response<Bytes>, ApiError<Self::Error>> {
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError<Self::Error>> {
         let client = &mut self.inner.clone();
         client
             .ready()
@@ -50,8 +53,6 @@ impl Client for GrpcClient {
 
         let request = request.body(body)?;
         let (parts, body) = request.into_parts();
-        //TODO: HANDLE
-        let path = parts.uri.into_parts().path_and_query.expect("must exist");
         let mut tonic_request = tonic::Request::from_parts(
             MetadataMap::from_headers(parts.headers),
             parts.extensions,
@@ -61,7 +62,7 @@ impl Client for GrpcClient {
         // must be lowercase otherwise panics
         metadata.append("x-app-version", self.app_version.clone());
         metadata.append("x-libxmtp-version", self.libxmtp_version.clone());
-        let codec = tonic::codec::ProstCodec::default();
+        let codec = TransparentCodec::default();
 
         let response = client
             .unary(tonic_request, path, codec)
@@ -80,7 +81,7 @@ impl Client for GrpcClient {
         &self,
         _request: http::request::Builder,
         _body: Vec<u8>,
-    ) -> Result<http::Response<Self::Stream>, ApiError<Self::Error>> {
+    ) -> Result<http::Response<Self::Stream>, ApiClientError<Self::Error>> {
         // same as unary but server_streaming method
         todo!()
     }
@@ -196,4 +197,41 @@ pub async fn create_tls_channel(address: String) -> Result<Channel, GrpcBuilderE
         .await?;
 
     Ok(channel)
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use super::*;
+    use xmtp_proto::api_client::XmtpTestClient;
+
+    impl XmtpTestClient for GrpcClient {
+        type Builder = ClientBuilder;
+        fn create_local() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5556".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_d14n() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_payer() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_dev() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".into());
+            client.set_tls(true);
+            client
+        }
+    }
 }

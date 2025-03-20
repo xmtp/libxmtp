@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use prost::bytes::Bytes;
 use prost::Message;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
@@ -8,9 +9,9 @@ use xmtp_proto::xmtp::identity::api::v1::{
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
 #[derive(Debug, Builder, Default)]
-#[builder(setter(strip_option))]
+#[builder(build_fn(error = "BodyError"))]
 pub struct PublishIdentityUpdate {
-    #[builder(setter(strip_option))]
+    #[builder(default)]
     pub identity_update: Option<IdentityUpdate>,
 }
 
@@ -23,25 +24,28 @@ impl PublishIdentityUpdate {
 impl Endpoint for PublishIdentityUpdate {
     type Output = PublishIdentityUpdateResponse;
     fn http_endpoint(&self) -> Cow<'static, str> {
-        todo!()
+        Cow::Borrowed("/identity/v1/publish-identity-update")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {
         crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET)
     }
 
-    fn body(&self) -> Result<Vec<u8>, BodyError> {
+    fn body(&self) -> Result<Bytes, BodyError> {
         Ok(PublishIdentityUpdateRequest {
             identity_update: self.identity_update.clone(),
         }
-        .encode_to_vec())
+        .encode_to_vec()
+        .into())
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod test {
+    use super::*;
+    use xmtp_proto::prelude::*;
 
-    #[test]
+    #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::{
             PublishIdentityUpdateRequest, FILE_DESCRIPTOR_SET,
@@ -50,33 +54,22 @@ mod test {
         println!("{}", pnq);
     }
 
-    #[cfg(feature = "grpc-api")]
-    #[tokio::test]
+    #[xmtp_common::test]
     async fn test_publish_identity_update() {
-        use crate::v3::PublishIdentityUpdate;
-        use xmtp_api_grpc::grpc_client::GrpcClient;
-        use xmtp_api_grpc::{GrpcError, LOCALHOST_ADDRESS};
         use xmtp_common::time::now_ns;
-        use xmtp_proto::api_client::ApiBuilder;
-        use xmtp_proto::traits::Query;
-        use xmtp_proto::xmtp::identity::api::v1::PublishIdentityUpdateResponse;
-
         use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
-        let mut client = GrpcClient::builder();
-        client.set_app_version("0.0.0".into()).unwrap();
-        client.set_tls(false);
-        client.set_host(LOCALHOST_ADDRESS.to_string());
+
+        let client = crate::TestClient::create_local();
         let client = client.build().await.unwrap();
         let endpoint = PublishIdentityUpdate::builder()
-            .identity_update(IdentityUpdate {
+            .identity_update(Some(IdentityUpdate {
                 actions: vec![],
                 inbox_id: "".to_string(),
                 client_timestamp_ns: now_ns() as u64,
-            })
+            }))
             .build()
             .unwrap();
 
-        let _: Result<PublishIdentityUpdateResponse, xmtp_proto::traits::ApiError<GrpcError>> =
-            endpoint.query(&client).await;
+        let _: Result<PublishIdentityUpdateResponse, _> = endpoint.query(&client).await;
     }
 }

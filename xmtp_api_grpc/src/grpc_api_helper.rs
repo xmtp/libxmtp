@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use tracing::Instrument;
+use xmtp_proto::traits::ApiClientError;
 
 use crate::{GrpcBuilderError, GrpcError};
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
@@ -176,7 +177,8 @@ impl ApiBuilder for ClientBuilder {
                 .unwrap_or(MetadataValue::try_from("0.0.0")?),
             libxmtp_version: self
                 .libxmtp_version
-                .ok_or(crate::GrpcBuilderError::MissingLibxmtpVersion)?,
+                .unwrap_or(MetadataValue::try_from(env!("CARGO_PKG_VERSION"))?),
+
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
         })
@@ -384,7 +386,7 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
 #[async_trait::async_trait]
 impl XmtpMlsClient for Client {
-    type Error = crate::Error;
+    type Error = ApiClientError<GrpcError>;
 
     #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Self::Error> {
@@ -394,7 +396,7 @@ impl XmtpMlsClient for Client {
         client
             .upload_key_package(self.build_request(req))
             .await
-            .map_err(|e| crate::Error::new(ApiEndpoint::UploadKeyPackage, e.into()))?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::UploadKeyPackage, e.into()))?;
         Ok(())
     }
 
@@ -408,7 +410,7 @@ impl XmtpMlsClient for Client {
         let res = client.fetch_key_packages(self.build_request(req)).await;
 
         res.map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::FetchKeyPackages, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::FetchKeyPackages, e.into()))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -418,7 +420,7 @@ impl XmtpMlsClient for Client {
         client
             .send_group_messages(self.build_request(req))
             .await
-            .map_err(|e| crate::Error::new(ApiEndpoint::SendGroupMessages, e.into()))?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SendGroupMessages, e.into()))?;
         Ok(())
     }
 
@@ -432,7 +434,7 @@ impl XmtpMlsClient for Client {
         client
             .send_welcome_messages(self.build_request(req))
             .await
-            .map_err(|e| crate::Error::new(ApiEndpoint::SendWelcomeMessages, e.into()))?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SendWelcomeMessages, e.into()))?;
         Ok(())
     }
 
@@ -447,7 +449,7 @@ impl XmtpMlsClient for Client {
             .query_group_messages(self.build_request(req))
             .await
             .map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::QueryGroupMessages, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryGroupMessages, e.into()))
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -461,11 +463,11 @@ impl XmtpMlsClient for Client {
             .query_welcome_messages(self.build_request(req))
             .await
             .map(|r| r.into_inner())
-            .map_err(|e| crate::Error::new(ApiEndpoint::QueryWelcomeMessages, e.into()))
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryWelcomeMessages, e.into()))
     }
 
-    fn stats(&self) -> &ApiStats {
-        &self.stats
+    fn stats(&self) -> ApiStats {
+        self.stats.clone()
     }
 }
 
@@ -480,7 +482,7 @@ impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
 }
 
 impl Stream for GroupMessageStream {
-    type Item = Result<GroupMessage, crate::Error>;
+    type Item = Result<GroupMessage, ApiClientError<crate::GrpcError>>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
@@ -488,7 +490,7 @@ impl Stream for GroupMessageStream {
     ) -> std::task::Poll<Option<Self::Item>> {
         self.inner.poll_next_unpin(cx).map(|data| {
             data.map(|v| {
-                v.map_err(|e| crate::Error::new(ApiEndpoint::SubscribeGroupMessages, e.into()))
+                v.map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))
             })
         })
     }
@@ -505,21 +507,23 @@ impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
 }
 
 impl Stream for WelcomeMessageStream {
-    type Item = Result<WelcomeMessage, crate::Error>;
+    type Item = Result<WelcomeMessage, ApiClientError<crate::GrpcError>>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         self.inner.poll_next_unpin(cx).map(|data| {
-            data.map(|v| v.map_err(|e| crate::Error::new(ApiEndpoint::SubscribeWelcomes, e.into())))
+            data.map(|v| {
+                v.map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))
+            })
         })
     }
 }
 
 #[async_trait::async_trait]
 impl XmtpMlsStreams for Client {
-    type Error = crate::Error;
+    type Error = ApiClientError<crate::GrpcError>;
     type GroupMessageStream<'a> = GroupMessageStream;
     type WelcomeMessageStream<'a> = WelcomeMessageStream;
 
@@ -531,7 +535,7 @@ impl XmtpMlsStreams for Client {
         let res = client
             .subscribe_group_messages(self.build_request(req))
             .await
-            .map_err(|e| crate::Error::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?;
 
         let stream = res.into_inner();
         Ok(stream.into())
@@ -545,10 +549,47 @@ impl XmtpMlsStreams for Client {
         let res = client
             .subscribe_welcome_messages(self.build_request(req))
             .await
-            .map_err(|e| crate::Error::new(ApiEndpoint::SubscribeWelcomes, e.into()))?;
+            .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))?;
 
         let stream = res.into_inner();
 
         Ok(stream.into())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+mod test {
+    use super::*;
+    use xmtp_proto::api_client::XmtpTestClient;
+
+    impl XmtpTestClient for Client {
+        type Builder = ClientBuilder;
+        fn create_local() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5556".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_d14n() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_local_payer() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("http://localhost:5050".into());
+            client.set_tls(false);
+            client
+        }
+
+        fn create_dev() -> Self::Builder {
+            let mut client = Client::builder();
+            client.set_host("https://grpc.dev.xmtp.network:443".into());
+            client.set_tls(true);
+            client
+        }
     }
 }

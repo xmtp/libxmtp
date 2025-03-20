@@ -18,7 +18,7 @@ use xmtp_id::{
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
-use xmtp_proto::api_client::XmtpTestClient;
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 use crate::{
     builder::ClientBuilder,
@@ -78,7 +78,10 @@ impl<A, V> ClientBuilder<A, V> {
 
 impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
 
         build_with_verifier(
             owner,
@@ -90,7 +93,10 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     }
 
     pub async fn new_test_client_dev(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
 
         build_with_verifier(
             owner,
@@ -105,7 +111,10 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
         owner: &impl InboxOwner,
         history_sync_url: &str,
     ) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
 
         build_with_verifier(
             owner,
@@ -120,7 +129,10 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     pub async fn new_mock_dev_client(
         owner: impl InboxOwner,
     ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
 
         build_with_verifier(
             owner,
@@ -134,23 +146,39 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
 
 impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     pub async fn local_client(self) -> ClientBuilder<TestClient, V> {
-        self.api_client(<TestClient as XmtpTestClient>::create_local().await)
+        self.api_client(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
+        )
     }
 
     pub async fn dev_client(self) -> ClientBuilder<TestClient, V> {
-        self.api_client(<TestClient as XmtpTestClient>::create_dev().await)
+        self.api_client(
+            <TestClient as XmtpTestClient>::create_dev()
+                .build()
+                .await
+                .unwrap(),
+        )
     }
 }
 
 impl ClientBuilder<TestClient, RemoteSignatureVerifier<TestClient>> {
     /// Create a client pointed at the local container with the default remote verifier
     pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_local().await;
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
         inner_build(owner, api_client).await
     }
 
     pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev().await;
+        let api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
         inner_build(owner, api_client).await
     }
 }

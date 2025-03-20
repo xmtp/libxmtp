@@ -1,0 +1,5 @@
+#!/bin/bash
+set -eou pipefail
+
+nix develop . --command \
+  cargo check --target aarch64-apple-darwin --manifest-path bindings_ffi/Cargo.toml

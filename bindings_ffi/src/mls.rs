@@ -2663,11 +2663,13 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::join_all;
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
         client::{Client, DefaultClientData},
         types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
     };
+    use public_suffix::PublicSuffixList;
 
     struct PkUserValidationMethod {}
     #[async_trait::async_trait]
@@ -2710,11 +2712,13 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
+        GenericError,
     };
     use ethers::utils::hex;
     use prost::Message;
     use std::{
         collections::HashMap,
+        ops::Deref,
         sync::{
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
@@ -2903,6 +2907,13 @@ mod tests {
     }
 
     async fn register_client(inbox_owner: &LocalWalletInboxOwner, client: &FfiXmtpClient) {
+        register_client_no_panic(inbox_owner, client).await.unwrap()
+    }
+
+    async fn register_client_no_panic(
+        inbox_owner: &LocalWalletInboxOwner,
+        client: &FfiXmtpClient,
+    ) -> Result<(), GenericError> {
         let signature_request = client.signature_request().unwrap();
         signature_request
             .add_ecdsa_signature(
@@ -2910,9 +2921,10 @@ mod tests {
                     .sign(signature_request.signature_text().await.unwrap())
                     .unwrap(),
             )
-            .await
-            .unwrap();
-        client.register_identity(signature_request).await.unwrap();
+            .await?;
+        client.register_identity(signature_request).await?;
+
+        Ok(())
     }
 
     /// Create a new test client with a given wallet.
@@ -2958,6 +2970,177 @@ mod tests {
 
         register_client(&ffi_inbox_owner, &client).await;
         client
+    }
+
+    async fn new_test_client_no_panic(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+        history_sync_url: Option<String>,
+    ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            history_sync_url,
+        )
+        .await?;
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        register_client_no_panic(&ffi_inbox_owner, &client).await?;
+
+        Ok(client)
+    }
+
+    type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
+    type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+
+    #[allow(dead_code)]
+    struct PasskeyUser {
+        pk_cred: PasskeyCredential,
+        pk_client: PasskeyClient,
+        client: Arc<FfiXmtpClient>,
+    }
+
+    impl Deref for PasskeyUser {
+        type Target = Arc<FfiXmtpClient>;
+        fn deref(&self) -> &Self::Target {
+            &self.client
+        }
+    }
+
+    async fn new_passkey_client() -> PasskeyUser {
+        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
+        let parameters_from_rp = PublicKeyCredentialParameters {
+            ty: PublicKeyCredentialType::PublicKey,
+            alg: coset::iana::Algorithm::ES256,
+        };
+        let pk_user_entity = PublicKeyCredentialUserEntity {
+            id: random_vec(32).into(),
+            display_name: "Alex Passkey".into(),
+            name: "apk@example.org".into(),
+        };
+        let pk_auth_store: Option<Passkey> = None;
+        let pk_aaguid = Aaguid::new_empty();
+        let pk_user_validation_method = PkUserValidationMethod {};
+        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
+        let mut pk_client = Client::new(pk_auth);
+
+        let request = CredentialCreationOptions {
+            public_key: PublicKeyCredentialCreationOptions {
+                rp: PublicKeyCredentialRpEntity {
+                    id: None, // Leaving the ID as None means use the effective domain
+                    name: origin.domain().unwrap().into(),
+                },
+                user: pk_user_entity,
+                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
+                // It's guaranteed to be unique, and that's good enough for us.
+                // All we care about is if that unique credential signs below.
+                challenge: Bytes::from(vec![]),
+                pub_key_cred_params: vec![parameters_from_rp],
+                timeout: None,
+                exclude_credentials: None,
+                authenticator_selection: None,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        // Now create the credential.
+        let pk_cred = pk_client
+            .register(origin.clone(), request, DefaultClientData)
+            .await
+            .unwrap();
+
+        let public_key = pk_cred.response.public_key.as_ref().unwrap()[26..].to_vec();
+
+        let identity = FfiIdentifier {
+            identifier: hex::encode(public_key.clone()),
+            identifier_kind: FfiIdentifierKind::Passkey,
+        };
+
+        let nonce = 0;
+        let inbox_id = identity.inbox_id(nonce).unwrap();
+
+        let db_path = tmp_path();
+        let db_enc_key = static_enc_key().to_vec();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(db_path),
+            Some(db_enc_key),
+            &inbox_id,
+            identity,
+            nonce,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        let signature_request = client.signature_request().unwrap();
+        let challenge = signature_request
+            .signature_text()
+            .await
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let sign_request = CredentialRequestOptions {
+            public_key: PublicKeyCredentialRequestOptions {
+                challenge: Bytes::from(challenge),
+                timeout: None,
+                rp_id: Some(String::from(origin.domain().unwrap())),
+                allow_credentials: None,
+                user_verification: UserVerificationRequirement::default(),
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        let cred = pk_client
+            .authenticate(origin.clone(), sign_request, DefaultClientData)
+            .await
+            .unwrap();
+        let resp = cred.response;
+
+        let signature = resp.signature.to_vec();
+
+        signature_request
+            .add_passkey_signature(FfiPasskeySignature {
+                public_key,
+                signature,
+                client_data_json: resp.client_data_json.to_vec(),
+                authenticator_data: resp.authenticator_data.to_vec(),
+            })
+            .await
+            .unwrap();
+        client.register_identity(signature_request).await.unwrap();
+
+        PasskeyUser {
+            pk_client,
+            pk_cred,
+            client,
+        }
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
@@ -3156,7 +3339,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = new_test_client().await;
+        let alex = new_passkey_client().await;
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3260,6 +3443,27 @@ mod tests {
             .expect("could not get state");
 
         assert_eq!(updated_state.members().len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn rapidfire_duplicate_create() {
+        let wallet = generate_local_wallet();
+        let mut futs = vec![];
+        for _ in 0..10 {
+            futs.push(new_test_client_no_panic(wallet.clone(), None));
+        }
+
+        let results = join_all(futs).await;
+
+        let mut num_okay = 0;
+        for result in results {
+            if result.is_ok() {
+                num_okay += 1;
+            }
+        }
+
+        // Only one client should get to sign up
+        assert_eq!(num_okay, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3373,92 +3577,7 @@ mod tests {
             // should be good
             .unwrap();
 
-        // TODO: I'll uncomment this as soon as PR 1733 goes live.
-        // Tested locally with this uncommented and it works.
         alex.apply_signature_request(sig_request).await.unwrap();
-
-        let nonce = 0;
-        let db_path = tmp_path();
-        let db_enc_key = static_enc_key().to_vec();
-        let ident = FfiIdentifier {
-            identifier: hex::encode(public_key.clone()),
-            identifier_kind: FfiIdentifierKind::Passkey,
-        };
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-        let client2 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(db_path),
-            Some(db_enc_key),
-            &inbox_id,
-            ident,
-            nonce,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-
-        let sig_request = client2.signature_request().unwrap().clone();
-        let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = challenge.as_bytes().to_vec();
-
-        let request = CredentialRequestOptions {
-            public_key: PublicKeyCredentialRequestOptions {
-                challenge: Bytes::from(challenge_bytes),
-                timeout: None,
-                rp_id: Some(String::from(origin.domain().unwrap())),
-                allow_credentials: None,
-                user_verification: UserVerificationRequirement::default(),
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        let cred = pk_client
-            .authenticate(origin, request, DefaultClientData)
-            .await
-            .unwrap();
-        let resp = cred.response;
-
-        let signature = resp.signature.to_vec();
-        sig_request
-            .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key: public_key.clone(),
-            })
-            .await
-            // should be good
-            .unwrap();
-
-        client2.register_identity(sig_request).await.unwrap();
-
-        let bob = new_test_client().await;
-        let fernando = new_test_client().await;
-        let group = client2
-            .conversations()
-            .create_group_with_inbox_ids(vec![bob.inbox_id()], FfiCreateGroupOptions::default())
-            .await
-            .unwrap();
-
-        let result = group
-            .add_members_by_inbox_id(vec![fernando.inbox_id(), alex.inbox_id()])
-            .await
-            .unwrap();
-
-        assert_eq!(result.added_members.len(), 2);
-
-        let members = group.list_members().await.unwrap();
-        let passkey_ident = client2.account_identifier.identifier.clone();
-        assert!(members.into_iter().any(|m| m
-            .account_identifiers
-            .into_iter()
-            .any(|i| i.identifier == passkey_ident)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3605,6 +3724,19 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // let coda = new_passkey_cred().await;
+        // Check if can message a passkey identifier
+        // TODO: enable when xmtp-node-go is updated
+        // let can_msg = client_amal
+        // .can_message(vec![coda.client.account_identifier.clone()])
+        // .await
+        // .unwrap();
+        // let can_msg = *can_msg
+        // .get(&coda.client.account_identifier)
+        // .unwrap_or(&false);
+        // assert!(can_msg);
+
         let can_message_result = client_amal
             .can_message(vec![bola.identifier()])
             .await
