@@ -614,7 +614,7 @@ pub(crate) mod tests {
             builder::{SignatureRequest, SignatureRequestError},
             test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
             unverified::UnverifiedSignature,
-            AssociationState, MemberIdentifier, MemberKind,
+            AssociationState, MemberIdentifier,
         },
         scw_verifier::SmartContractSignatureVerifier,
     };
