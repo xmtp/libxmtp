@@ -94,8 +94,6 @@ pub enum DeviceSyncError {
     NoReplyToProcess,
     #[error("generic: {0}")]
     Generic(String),
-    #[error("missing history sync url")]
-    MissingHistorySyncUrl,
     #[error("invalid history message payload")]
     InvalidPayload,
     #[error("invalid history bundle url")]
@@ -216,6 +214,8 @@ where
                     }
                     SyncEvent::Request { message_id } => {
                         let provider = self.client.mls_provider()?;
+                        self.handle
+                            .increment_metric(SyncWorkerMetric::SyncRequestsReceived);
                         self.on_request(message_id, &provider).await?
                     }
                     SyncEvent::NewSyncGroupFromWelcome => {
@@ -669,12 +669,13 @@ where
         request_id: &str,
         syncables: &[Vec<Syncable>],
         kind: DeviceSyncKind,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.history_sync_url else {
-            return Err(DeviceSyncError::MissingHistorySyncUrl);
+        let Some(url) = &self.device_sync.history_sync_url else {
+            tracing::warn!("Unable to send a device-sync backup without a history_sync_url.");
+            return Ok(None);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
@@ -689,29 +690,25 @@ where
             .send()
             .await?;
 
-        if !response.status().is_success() {
+        if let Err(err) = response.error_for_status() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
                 installation_id = hex::encode(self.installation_public_key()),
                 "Failed to upload file. Status code: {} Response: {response:?}",
                 response.status()
             );
-            response.error_for_status()?;
-            // checked for error, the above line bubbled up
-            unreachable!();
+            return Err(DeviceSyncError::Reqwest(err));
         }
-
-        let url = format!("{url}/files/{}", response.text().await?);
 
         let sync_reply = DeviceSyncReplyProto {
             encryption_key: Some(enc_key.into()),
             request_id: request_id.to_string(),
-            url,
+            url: format!("{url}/files/{}", response.text().await?),
             timestamp_ns: now_ns() as u64,
             kind: kind as i32,
         };
 
-        Ok(sync_reply)
+        Ok(Some(sync_reply))
     }
 
     async fn insert_encrypted_syncables(

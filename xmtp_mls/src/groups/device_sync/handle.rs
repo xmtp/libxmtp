@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
+    hash::Hash,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -20,11 +21,13 @@ where
 #[derive(PartialEq, Eq, Hash)]
 pub enum SyncWorkerMetric {
     SyncGroupWelcomesProcessed,
+    SyncRequestsReceived,
 }
 
-impl WorkerHandle<Metric>
+impl<Metric> WorkerHandle<Metric>
 where
     Metric: PartialEq + Hash,
+    Self: Default,
 {
     pub(super) fn new() -> Self {
         Self::default()

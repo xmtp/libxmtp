@@ -203,7 +203,7 @@ where
         .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
-        builder = builder.history_sync_url(history_sync_url);
+        builder = builder.device_sync_url(history_sync_url);
     }
 
     let client = builder.build().await.unwrap();

@@ -52,8 +52,10 @@ pub struct ClientBuilder<ApiClient, V> {
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
-    history_sync_url: Option<String>,
     scw_verifier: Option<V>,
+
+    device_sync_url: Option<String>,
+    disable_sync_worker: bool,
 }
 
 impl Client<(), ()> {
@@ -71,8 +73,9 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity: None,
             store: None,
             identity_strategy: strategy,
-            history_sync_url: None,
             scw_verifier: None,
+            device_sync_url: None,
+            disable_sync_worker: false,
         }
     }
 }
@@ -87,9 +90,9 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity,
             mut store,
             identity_strategy,
-            history_sync_url,
+            device_sync_url: history_sync_url,
             mut scw_verifier,
-            ..
+            disable_sync_worker,
         } = self;
 
         let api = api_client
@@ -134,25 +137,40 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
 
         // start workers
-        client.start_sync_worker();
+        if !disable_sync_worker {
+            client.start_sync_worker();
+        }
         client.start_disappearing_messages_cleaner_worker();
 
         Ok(client)
     }
 
-    pub fn identity(mut self, identity: Identity) -> Self {
-        self.identity = Some(identity);
-        self
+    pub fn identity(self, identity: Identity) -> Self {
+        Self {
+            identity: Some(identity),
+            ..self
+        }
     }
 
-    pub fn store(mut self, store: EncryptedMessageStore) -> Self {
-        self.store = Some(store);
-        self
+    pub fn store(self, store: EncryptedMessageStore) -> Self {
+        Self {
+            store: Some(store),
+            ..self
+        }
     }
 
-    pub fn history_sync_url(mut self, url: &str) -> Self {
-        self.history_sync_url = Some(url.into());
-        self
+    pub fn device_sync_url(self, url: &str) -> Self {
+        Self {
+            device_sync_url: Some(url.into()),
+            ..self
+        }
+    }
+
+    pub fn disable_sync_worker(self) -> Self {
+        Self {
+            disable_sync_worker: true,
+            ..self
+        }
     }
 
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, V> {
@@ -167,22 +185,14 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let wrapper = ApiClientWrapper::new(Arc::new(api_client), api_retry);
         ClientBuilder {
             api_client: Some(wrapper),
-            identity: self.identity,
-            store: self.store,
-            identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
-            scw_verifier: self.scw_verifier,
+            ..self
         }
     }
 
     pub fn with_scw_verifier<V2>(self, verifier: V2) -> ClientBuilder<ApiClient, V2> {
         ClientBuilder {
             scw_verifier: Some(verifier),
-            api_client: self.api_client,
-            identity: self.identity,
-            store: self.store,
-            identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
+            ..self
         }
     }
 
@@ -204,11 +214,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
         Ok(ClientBuilder {
             scw_verifier: Some(remote_verifier),
-            api_client: self.api_client,
-            identity: self.identity,
-            store: self.store,
-            identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
+            ..self
         })
     }
 }
