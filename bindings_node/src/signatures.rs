@@ -39,6 +39,7 @@ pub enum SignatureRequestType {
   CreateInbox,
   RevokeWallet,
   RevokeInstallations,
+  ChangeRecoveryIdentifier,
 }
 
 #[napi(object)]
@@ -145,6 +146,27 @@ impl Client {
     let mut signature_requests = self.signature_requests().lock().await;
 
     signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
+
+    Ok(signature_text)
+  }
+
+  #[napi]
+  pub async fn change_recovery_identifier_signature_text(
+    &self,
+    new_recovery_identifier: Identifier,
+  ) -> Result<String> {
+    let signature_request = self
+      .inner_client()
+      .change_recovery_identifier(new_recovery_identifier.try_into()?)
+      .await
+      .map_err(ErrorWrapper::from)?;
+    let signature_text = signature_request.signature_text();
+    let mut signature_requests = self.signature_requests().lock().await;
+
+    signature_requests.insert(
+      SignatureRequestType::ChangeRecoveryIdentifier,
+      signature_request,
+    );
 
     Ok(signature_text)
   }
