@@ -622,24 +622,6 @@ impl FfiXmtpClient {
         }))
     }
 
-    /**
-     * Change the recovery identifier for your inboxId
-     */
-    pub async fn change_recovery_identifier(
-        &self,
-        new_recovery_identifier: FfiIdentifier,
-    ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-        let signature_request = self
-            .inner_client
-            .change_recovery_identifier(new_recovery_identifier.try_into()?)
-            .await?;
-
-        Ok(Arc::new(FfiSignatureRequest {
-            inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
-        }))
-    }
-
     /// Backup your application to file for later restoration.
     pub async fn backup_to_file(
         &self,
