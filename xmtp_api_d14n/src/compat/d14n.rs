@@ -285,7 +285,7 @@ where
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
-                originator_node_ids: vec![], //todo: set later
+                originator_node_ids: vec![],
                 last_seen: None,             //todo: set later
             })
             .build()?
