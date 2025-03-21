@@ -162,7 +162,6 @@ where
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let inbox_id = self.inbox_id();
         let provider = self.mls_provider()?;
         let groups = self.find_groups(GroupQueryArgs::default())?;
 
@@ -503,10 +502,11 @@ where
     pub(crate) async fn process_sync_request(
         &self,
         request: DeviceSyncRequestProto,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<(), DeviceSyncError> {
         let provider = Arc::new(self.mls_provider()?);
+        let sync_group = self.get_sync_group(provider.conn_ref())?;
 
-        let Some(history_sync_url) = self.device_sync.history_sync_url else {
+        let Some(history_sync_url) = &self.device_sync.history_sync_url else {
             tracing::info!(
                 "Unable to process sync request due to not having a sync server url present."
             );
@@ -534,16 +534,17 @@ where
         let url = format!("{history_sync_url}/upload");
         let response = reqwest::Client::new().post(url).body(body).send().await?;
 
-        if let Err(err) = response.error_for_status() {
+        if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
                 installation_id = hex::encode(self.installation_public_key()),
-                "Failed to upload file. Status code: {} Response: {response:?}",
-                response.status()
+                "Failed to upload file. Status code: {:?}",
+                err.status()
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
 
+        // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
             key,
             request_id: request.request_id,
@@ -552,44 +553,20 @@ where
             ..Default::default()
         };
 
-        self.send_sync_reply(provider, reply.clone()).await?;
-
-        Ok(reply)
-    }
-
-    async fn send_sync_reply(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        contents: DeviceSyncReplyProto,
-    ) -> Result<(), DeviceSyncError> {
-        // find the sync group
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
-        // sync the group
-        sync_group.sync_with_conn(provider).await?;
-
-        let (msg, _request) = self
-            .get_pending_sync_request(provider, contents.kind())
-            .await?;
-
-        // the reply message
-        let (content_bytes, contents) = {
-            let content = DeviceSyncContent::Reply(contents);
-            let content_bytes = serde_json::to_vec(&content)?;
-            let DeviceSyncContent::Reply(contents) = content else {
-                unreachable!("This is a reply.");
-            };
-
-            (content_bytes, contents)
+        // Send the message out over the network
+        let content = DeviceSyncContent::Reply(reply);
+        let content_bytes = serde_json::to_vec(&content)?;
+        // Take the reply back out of the wrapper now that we've serialized it.
+        let DeviceSyncContent::Reply(reply) = content else {
+            unreachable!("This is a reply.");
         };
-
-        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                message_type: Some(MessageType::DeviceSyncReply(contents)),
+                message_type: Some(MessageType::DeviceSyncReply(reply)),
                 idempotency_key: now.to_string(),
             })),
-        })?;
-
-        sync_group.publish_intents(provider).await?;
+        });
+        sync_group.publish_intents(&provider).await?;
 
         Ok(())
     }

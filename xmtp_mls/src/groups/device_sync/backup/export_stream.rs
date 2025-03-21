@@ -22,10 +22,9 @@ pub(super) struct BatchExportStream {
 impl BatchExportStream {
     pub(super) fn new(opts: &BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
         let input_streams = opts
-            .elements
-            .iter()
+            .elements()
             .filter(|&e| !matches!(e, BackupElementSelection::Unspecified))
-            .flat_map(|&e| match e {
+            .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
                     vec![BackupRecordStreamer::<ConsentSave>::new_stream(
                         provider, opts,
