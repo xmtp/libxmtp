@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 #[builder(build_fn(error = "BodyError"))]
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
-    topics: Vec<Vec<u8>>
+    topics: Vec<Vec<u8>>,
 }
 
 impl QueryEnvelope {

@@ -204,15 +204,9 @@ pub struct BackendOpts {
     )]
     pub backend: BackendKind,
     /// URL Pointing to a backend. Conflicts with `backend`
-    #[arg(
-        short,
-        long,
-    )]
+    #[arg(short, long)]
     pub url: Option<url::Url>,
-    #[arg(
-        short,
-        long,
-    )]
+    #[arg(short, long)]
     pub payer_url: Option<url::Url>,
     /// Enable the decentralization backend
     #[arg(short, long)]
@@ -366,27 +360,24 @@ mod tests {
     #[test]
     fn url_and_payer_url_is_valid() {
         let opts = parse_backend_args(&[
-            "--url", "http://localhost:5050",
-            "--payer-url", "http://localhost:5050",
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
         ]);
         assert!(opts.is_ok());
     }
 
     #[test]
     fn backend_and_url_is_invalid() {
-        let opts = parse_backend_args(&[
-            "--backend", "local",
-            "--url", "http://localhost:5050",
-        ]);
+        let opts = parse_backend_args(&["--backend", "local", "--url", "http://localhost:5050"]);
         assert!(opts.is_err());
     }
 
     #[test]
     fn backend_and_payer_url_is_invalid() {
-        let opts = parse_backend_args(&[
-            "--backend", "local",
-            "--payer-url", "http://localhost:5050",
-        ]);
+        let opts =
+            parse_backend_args(&["--backend", "local", "--payer-url", "http://localhost:5050"]);
         assert!(opts.is_err());
     }
 
@@ -405,9 +396,12 @@ mod tests {
     #[test]
     fn backend_and_both_urls_is_invalid() {
         let opts = parse_backend_args(&[
-            "--backend", "local",
-            "--url", "http://localhost:5050",
-            "--payer-url", "http://localhost:5050",
+            "--backend",
+            "local",
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
         ]);
         assert!(opts.is_err());
     }

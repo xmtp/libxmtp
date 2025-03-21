@@ -286,7 +286,7 @@ where
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: None,             //todo: set later
+                last_seen: None, //todo: set later
             })
             .build()?
             .query(&self.message_client)
