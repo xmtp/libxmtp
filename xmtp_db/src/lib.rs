@@ -1,8 +1,15 @@
-pub(super) mod encrypted_store;
+mod configuration;
+pub mod encrypted_store;
 mod errors;
 pub mod serialization;
+pub use serialization::*;
 pub mod sql_key_store;
+mod traits;
 pub mod xmtp_openmls_provider;
+pub use traits::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
@@ -59,7 +66,7 @@ pub async fn init_sqlite() {}
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
     use super::*;
-    use diesel::{connection::LoadConnection, deserialize::FromSqlRow, sql_query, RunQueryDsl};
+    use diesel::{RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow, sql_query};
     impl DbConnection {
         /// Create a new table and register triggers for tracking column updates
         pub fn register_triggers(&self) {

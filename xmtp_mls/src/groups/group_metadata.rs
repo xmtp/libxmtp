@@ -168,7 +168,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: &DmMembers<Id>) -> Self {
-        format!("{members}")
+        members.to_string()
     }
 }
 
@@ -177,7 +177,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: DmMembers<Id>) -> Self {
-        format!("{members}")
+        members.to_string()
     }
 }
 

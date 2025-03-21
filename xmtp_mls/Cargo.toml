@@ -80,6 +80,7 @@ zeroize.workspace = true
 xmtp_api = { workspace = true }
 xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { workspace = true }
+xmtp_db = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
@@ -106,7 +107,6 @@ tracing-subscriber = { workspace = true, features = [
   "registry",
 ], optional = true }
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 diesel = { workspace = true, features = [
   "r2d2",
@@ -122,7 +122,6 @@ tokio = { workspace = true, features = [
 ] }
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
-libsqlite3-sys = { workspace = true }
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true

@@ -1,11 +1,11 @@
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
 
 use super::encrypted_store::db_connection::DbConnectionPrivate;
 use bincode;
 use diesel::{
     prelude::*,
     sql_types::Binary,
-    {sql_query, RunQueryDsl},
+    {RunQueryDsl, sql_query},
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
@@ -43,7 +43,7 @@ impl<C> SqlKeyStore<C> {
 
 impl<C> SqlKeyStore<C>
 where
-    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
 {
     fn select_query<const VERSION: u16>(
         &self,
@@ -288,7 +288,7 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
-    C: diesel::Connection<Backend = crate::storage::Sqlite> + diesel::connection::LoadConnection,
+    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
 {
     type Error = SqlKeyStoreError;
 
@@ -1029,23 +1029,21 @@ pub(crate) mod tests {
     use openmls::group::GroupId;
     use openmls_basic_credential::{SignatureKeyPair, StorageId};
     use openmls_traits::{
-        storage::{
-            traits::{self},
-            Entity, Key, StorageProvider, CURRENT_VERSION,
-        },
         OpenMlsProvider,
+        storage::{
+            CURRENT_VERSION, Entity, Key, StorageProvider,
+            traits::{self},
+        },
     };
     use serde::{Deserialize, Serialize};
 
     use super::SqlKeyStore;
     use crate::{
-        configuration::CIPHERSUITE,
-        storage::{
-            sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
-            EncryptedMessageStore, StorageOption,
-        },
+        EncryptedMessageStore, StorageOption, sql_key_store::SqlKeyStoreError,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
     use xmtp_common::tmp_path;
+    use xmtp_cryptography::configuration::CIPHERSUITE;
 
     #[xmtp_common::test]
     async fn store_read_delete() {
@@ -1061,28 +1059,34 @@ pub(crate) mod tests {
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let public_key = StorageId::from(signature_keys.to_public_vec());
-        assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-            .unwrap()
-            .is_none());
+        assert!(
+            key_store
+                .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
+                .unwrap()
+                .is_none()
+        );
 
         key_store
             .write_signature_key_pair::<StorageId, SignatureKeyPair>(&public_key, &signature_keys)
             .unwrap();
 
-        assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-            .unwrap()
-            .is_some());
+        assert!(
+            key_store
+                .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
+                .unwrap()
+                .is_some()
+        );
 
         key_store
             .delete_signature_key_pair::<StorageId>(&public_key)
             .unwrap();
 
-        assert!(key_store
-            .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
-            .unwrap()
-            .is_none());
+        assert!(
+            key_store
+                .signature_key_pair::<StorageId, SignatureKeyPair>(&public_key)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]

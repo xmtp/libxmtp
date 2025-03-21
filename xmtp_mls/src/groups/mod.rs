@@ -102,6 +102,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::group::StoredGroup;
 use xmtp_id::associations::Identifier;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -538,15 +539,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            membership_state,
-            context.inbox_id().to_string(),
-            None,
-            opts.message_disappearing_settings,
-            None,
-        );
+        let stored_group = StoredGroup::builder()
+            .group_id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(opts.message_disappearing_settings.map(|m| m.from_ns))
+            .message_disappear_in_ns(opts.message_disappearing_settings.map(|m| m.in_ns))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
@@ -594,19 +594,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            membership_state,
-            context.inbox_id().to_string(),
-            Some(DmMembers {
-                member_one_inbox_id: dm_target_inbox_id,
-                member_two_inbox_id: client.inbox_id().to_string(),
-            }),
-            opts.message_disappearing_settings,
-            None,
-        );
+        let stored_group = StoredGroup::builder()
+            .group_id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(opts.message_disappearing_settings.map(|m| m.from_ns))
+            .message_disappear_in_ns(opts.message_disappearing_settings.map(|m| m.in_ns))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
@@ -719,43 +714,34 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 }
             });
 
+            let group = StoredGroup::builder()
+                .group_id(group_id)
+                .created_at_ns(now_ns())
+                .added_by_inbox_id(added_by_inbox_id)
+                .welcome_id(welcome.id as i64)
+                .conversation_type(conversation_type)
+                .dm_id(dm_members.map(String::from))
+                .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
+                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
+
             let to_store = match conversation_type {
-                ConversationType::Group => StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Pending,
-                    added_by_inbox_id,
-                    welcome.id as i64,
-                    conversation_type,
-                    dm_members,
-                    disappearing_settings,
-                    paused_for_version,
-                ),
+                ConversationType::Group => {
+                    group
+                        .membership_state(GroupMembershipState::Pending)
+                        .paused_for_version(paused_for_version)
+                        .build()?
+                },
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
-                    StoredGroup::new_from_welcome(
-                        group_id.clone(),
-                        now_ns(),
-                        GroupMembershipState::Pending,
-                        added_by_inbox_id,
-                        welcome.id as i64,
-                        conversation_type,
-                        dm_members,
-                        disappearing_settings,
-                        None,
-                    )
+                    group
+                        .membership_state(GroupMembershipState::Pending)
+                        .build()?
                 }
-                ConversationType::Sync => StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Allowed,
-                    added_by_inbox_id,
-                    welcome.id as i64,
-                    conversation_type,
-                    dm_members,
-                    disappearing_settings,
-                    None,
-                ),
+                ConversationType::Sync => {
+                    group
+                        .membership_state(GroupMembershipState::Allowed)
+                        .build()?
+                },
             };
 
             // Insert or replace the group in the database.
@@ -803,8 +789,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
+        let stored_group = StoredGroup::builder()
+            .group_id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(GroupMembershipState::Allowed)
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
 
@@ -1660,18 +1649,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            GroupMembershipState::Allowed, // Use Allowed as default for tests
-            context.inbox_id().to_string(),
-            Some(DmMembers {
+        let stored_group = StoredGroup::builder()
+            .group_id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .dm_id(Some(DmMembers {
                 member_one_inbox_id: client.inbox_id().to_string(),
                 member_two_inbox_id: dm_target_inbox_id,
-            }),
-            None,
-            None,
-        );
+            }))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         Ok(Self::new_from_arc(

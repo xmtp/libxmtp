@@ -1,21 +1,14 @@
-use std::sync::atomic::AtomicBool;
-
-use crate::storage::{encrypted_store::schema::identity, StorageError};
+use crate::encrypted_store::schema::identity;
 use diesel::prelude::*;
-use xmtp_id::InboxId;
 
-use crate::{
-    identity::Identity,
-    impl_fetch, impl_store,
-    storage::serialization::{db_deserialize, db_serialize},
-};
+use crate::{impl_fetch, impl_store};
 
 /// Identity of this installation
 /// There can only be one.
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = identity)]
 pub struct StoredIdentity {
-    pub inbox_id: InboxId,
+    pub inbox_id: String,
     pub installation_keys: Vec<u8>,
     pub credential_bytes: Vec<u8>,
     rowid: Option<i32>,
@@ -25,40 +18,13 @@ impl_fetch!(StoredIdentity, identity);
 impl_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
-    pub fn new(inbox_id: InboxId, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {
+    pub fn new(inbox_id: String, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {
         Self {
             inbox_id,
             installation_keys,
             credential_bytes,
             rowid: None,
         }
-    }
-}
-
-impl TryFrom<&Identity> for StoredIdentity {
-    type Error = StorageError;
-
-    fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
-        Ok(StoredIdentity {
-            inbox_id: identity.inbox_id.clone(),
-            installation_keys: db_serialize(&identity.installation_keys)?,
-            credential_bytes: db_serialize(&identity.credential())?,
-            rowid: None,
-        })
-    }
-}
-
-impl TryFrom<StoredIdentity> for Identity {
-    type Error = StorageError;
-
-    fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
-        Ok(Identity {
-            inbox_id: identity.inbox_id.clone(),
-            installation_keys: db_deserialize(&identity.installation_keys)?,
-            credential: db_deserialize(&identity.credential_bytes)?,
-            signature_request: None,
-            is_ready: AtomicBool::new(true),
-        })
     }
 }
 

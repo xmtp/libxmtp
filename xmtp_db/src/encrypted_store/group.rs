@@ -1,18 +1,15 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::{
+    Sqlite,
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
     schema::groups::{self, dsl},
-    Sqlite,
 };
+use derive_builder::Builder;
 
-use crate::{
-    groups::group_metadata::DmMembers, impl_fetch, impl_store, DuplicateItem, StorageError,
-};
+use crate::{DuplicateItem, StorageError, impl_fetch, impl_store};
 
-use crate::storage::NotFound;
-
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::NotFound;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -26,9 +23,12 @@ use serde::{Deserialize, Serialize};
 
 pub type ID = Vec<u8>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Insertable, Identifiable, Queryable, Builder,
+)]
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
+#[builder(setter(into), build_fn(error = "StorageError"))]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
@@ -38,12 +38,15 @@ pub struct StoredGroup {
     /// Enum, [`GroupMembershipState`] representing access to the group
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
+    #[builder(default = "0")]
     pub installations_last_checked: i64,
     /// The inbox_id of who added the user to a group.
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
+    #[builder(default = None)]
     pub welcome_id: Option<i64>,
     /// The last time the leaf node encryption key was rotated
+    #[builder(default = "0")]
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     pub conversation_type: ConversationType,
@@ -59,92 +62,14 @@ pub struct StoredGroup {
     pub paused_for_version: Option<String>,
 }
 
+// TODO: Create two more structs that delegate to StoredGroup
+
 impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
-    /// Create a new group from a welcome message
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_from_welcome(
-        id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
-        added_by_inbox_id: String,
-        welcome_id: i64,
-        conversation_type: ConversationType,
-        dm_members: Option<DmMembers<String>>,
-        message_disappearing_settings: Option<MessageDisappearingSettings>,
-        paused_for_version: Option<String>,
-    ) -> Self {
-        Self {
-            id,
-            created_at_ns,
-            membership_state,
-            installations_last_checked: 0,
-            conversation_type,
-            added_by_inbox_id,
-            welcome_id: Some(welcome_id),
-            rotated_at_ns: 0,
-            dm_id: dm_members.map(String::from),
-            last_message_ns: None,
-            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
-            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
-            paused_for_version,
-        }
-    }
-
-    /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(
-        id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
-        added_by_inbox_id: String,
-        dm_members: Option<DmMembers<String>>,
-        message_disappearing_settings: Option<MessageDisappearingSettings>,
-        paused_for_version: Option<String>,
-    ) -> Self {
-        Self {
-            id,
-            created_at_ns,
-            membership_state,
-            installations_last_checked: 0,
-            conversation_type: match dm_members {
-                Some(_) => ConversationType::Dm,
-                None => ConversationType::Group,
-            },
-            added_by_inbox_id,
-            welcome_id: None,
-            rotated_at_ns: 0,
-            dm_id: dm_members.map(String::from),
-            last_message_ns: None,
-            message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
-            message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
-            paused_for_version,
-        }
-    }
-
-    /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
-    /// TODO: Set added_by_inbox to your own inbox_id
-    pub fn new_sync_group(
-        id: ID,
-        created_at_ns: i64,
-        membership_state: GroupMembershipState,
-    ) -> Self {
-        Self {
-            id,
-            created_at_ns,
-            membership_state,
-            installations_last_checked: 0,
-            conversation_type: ConversationType::Sync,
-            added_by_inbox_id: "".into(),
-            welcome_id: None,
-            rotated_at_ns: 0,
-            dm_id: None,
-            last_message_ns: None,
-            message_disappear_from_ns: None,
-            message_disappear_in_ns: None,
-            paused_for_version: None,
-        }
+    pub fn builder() -> StoredGroupBuilder {
+        StoredGroupBuilder::default()
     }
 }
 
@@ -265,8 +190,8 @@ impl DbConnection {
         &self,
         args: A,
     ) -> Result<Vec<StoredGroup>, StorageError> {
-        use crate::storage::schema::consent_records::dsl as consent_dsl;
-        use crate::storage::schema::groups::dsl as groups_dsl;
+        use crate::schema::consent_records::dsl as consent_dsl;
+        use crate::schema::groups::dsl as groups_dsl;
         let GroupQueryArgs {
             allowed_states,
             created_after_ns,
@@ -428,12 +353,12 @@ impl DbConnection {
         Ok(groups.into_iter().next())
     }
 
-    pub fn find_dm_group(
-        &self,
-        members: &DmMembers<&str>,
-    ) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, StorageError>
+    where
+        M: std::fmt::Display,
+    {
         let query = dsl::groups
-            .filter(dsl::dm_id.eq(Some(format!("{members}"))))
+            .filter(dsl::dm_id.eq(Some(members.to_string())))
             .order(dsl::last_message_ns.desc());
 
         self.raw_query_read(|conn| Ok(query.first(conn).optional()?))
@@ -592,7 +517,7 @@ impl DbConnection {
     }
 
     /// Get all the welcome ids turned into groups
-    pub(crate) fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+    pub fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
         self.raw_query_read(|conn| {
             Ok::<_, StorageError>(
                 dsl::groups
@@ -607,7 +532,7 @@ impl DbConnection {
     }
 
     pub fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
-        use crate::storage::schema::groups::dsl;
+        use crate::schema::groups::dsl;
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
@@ -619,7 +544,7 @@ impl DbConnection {
     }
 
     pub fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
-        use crate::storage::schema::groups::dsl;
+        use crate::schema::groups::dsl;
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
@@ -634,7 +559,7 @@ impl DbConnection {
         &self,
         group_id: &[u8],
     ) -> Result<Option<String>, StorageError> {
-        use crate::storage::schema::groups::dsl;
+        use crate::schema::groups::dsl;
 
         let paused_version = self.raw_query_read(|conn| {
             dsl::groups
@@ -757,11 +682,10 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        storage::{
-            consent_record::{ConsentType, StoredConsentRecord},
-            encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
-        },
         Fetch, Store,
+        consent_record::{ConsentType, StoredConsentRecord},
+        schema::groups::dsl::groups,
+        test_utils::with_connection,
     };
     use xmtp_common::{assert_ok, rand_vec, time::now_ns};
 
@@ -777,15 +701,13 @@ pub(crate) mod tests {
     ) -> StoredGroup {
         let id = rand_vec::<24>();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(
-            id,
-            created_at_ns,
-            membership_state,
-            "placeholder_address".to_string(),
-            None,
-            None,
-            None,
-        )
+        StoredGroup::builder()
+            .id(id)
+            .created_at_ns(created_at_ns)
+            .membership_state(membership_state)
+            .added_by_inbox_id("placeholder_address")
+            .build()
+            .unwrap()
     }
 
     /// Generate a test group with welcome
@@ -796,17 +718,15 @@ pub(crate) mod tests {
         let id = rand_vec::<24>();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new_from_welcome(
-            id,
-            created_at_ns,
-            membership_state,
-            "placeholder_address".to_string(),
-            welcome_id.unwrap_or(xmtp_common::rand_i64()),
-            ConversationType::Group,
-            None,
-            None,
-            None,
-        )
+        StoredGroup::builder()
+            .id(id)
+            .created_at_ns(created_at_ns)
+            .membership_state(membership_state)
+            .added_by_inbox_id("placeholder_address")
+            .welcome_id(welcome_id.unwrap_or(xmtp_common::rand_i64()))
+            .conversation_type(ConversationType::Group)
+            .build()
+            .unwrap()
     }
 
     /// Generate a test consent
@@ -826,22 +746,17 @@ pub(crate) mod tests {
 
     /// Generate a test dm group
     pub fn generate_dm(state: Option<GroupMembershipState>) -> StoredGroup {
-        let members = DmMembers {
-            member_one_inbox_id: "placeholder_inbox_id_1".to_string(),
-            member_two_inbox_id: format!(
-                "placeholder_inbox_id_{}",
+        StoredGroup::builder()
+            .id(rand_vec::<24>())
+            .created_at_ns(now_ns())
+            .membership_state(state.unwrap_or(GroupMembershipState::Allowed))
+            .added_by_inbox_id("placeholder_address")
+            .dm_id(format!(
+                "dm:placeholder_inbox_id_1:placeholder_inbox_id_{}",
                 TARGET_INBOX_ID.fetch_add(1, Ordering::SeqCst)
-            ),
-        };
-        StoredGroup::new(
-            rand_vec::<24>(),
-            now_ns(),
-            state.unwrap_or(GroupMembershipState::Allowed),
-            "placeholder_address".to_string(),
-            Some(members),
-            None,
-            None,
-        )
+            ))
+            .build()
+            .unwrap()
     }
 
     #[xmtp_common::test]
@@ -901,34 +816,26 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_dm_stitching() {
         with_connection(|conn| {
-            let dm1 = StoredGroup::new(
-                rand_vec::<24>(),
-                now_ns(),
-                GroupMembershipState::Allowed,
-                "placeholder_address".to_string(),
-                Some(DmMembers {
-                    member_one_inbox_id: "thats_me".to_string(),
-                    member_two_inbox_id: "some_wise_guy".to_string(),
-                }),
-                None,
-                None,
-            );
-            dm1.store(conn).unwrap();
-
-            let dm2 = StoredGroup::new(
-                rand_vec::<24>(),
-                now_ns(),
-                GroupMembershipState::Allowed,
-                "placeholder_address".to_string(),
-                Some(DmMembers {
-                    member_one_inbox_id: "some_wise_guy".to_string(),
-                    member_two_inbox_id: "thats_me".to_string(),
-                }),
-                None,
-                None,
-            );
-            dm2.store(conn).unwrap();
-
+            StoredGroup::builder()
+                .id(rand_vec::<24>())
+                .created_at_ns(now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("placeholder_address")
+                .dm_id(format!("dm:thats_me:some_wise_guy"))
+                .build()
+                .unwrap()
+                .store(conn)
+                .unwrap();
+            StoredGroup::builder()
+                .id(rand_vec::<24>())
+                .created_at_ns(now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("placeholder_address")
+                .dm_id(format!("dm:some_wise_guy:thats_me"))
+                .build()
+                .unwrap()
+                .store(conn)
+                .unwrap();
             let all_groups = conn.find_groups(GroupQueryArgs::default()).unwrap();
 
             assert_eq!(all_groups.len(), 1);
@@ -999,10 +906,7 @@ pub(crate) mod tests {
 
             // test find_dm_group
             let dm_result = conn
-                .find_dm_group(&DmMembers {
-                    member_one_inbox_id: "placeholder_inbox_id_1",
-                    member_two_inbox_id: &other_inbox_id,
-                })
+                .find_dm_group(format!("dm:placeholder_inbox_id_1:{}", &other_inbox_id))
                 .unwrap();
             assert!(dm_result.is_some());
 
@@ -1065,7 +969,13 @@ pub(crate) mod tests {
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
-            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
+            let sync_group = StoredGroup::builder()
+                .id(id)
+                .created_at_ns(created_at_ns)
+                .membership_state(membership_state)
+                .build()
+                .unwrap();
+
             let conversation_type = sync_group.conversation_type;
             assert_eq!(conversation_type, ConversationType::Sync);
 

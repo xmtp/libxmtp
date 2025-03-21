@@ -276,6 +276,7 @@ mod tests {
         }
 
         // cleanup
-        let _ = tokio::fs::remove_file(path).await;
+        l
+            et _ = tokio::fs::remove_file(path).await;
     }
 }

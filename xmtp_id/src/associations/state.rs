@@ -7,6 +7,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
 };
+use xmtp_db::association_state::StoredAssociationState;
 
 use super::{
     ident,
@@ -70,6 +71,14 @@ impl TryFrom<MemberIdentifier> for Identifier {
             }
         };
         Ok(ident)
+    }
+}
+
+impl TryFrom<StoredAssociationState> for AssociationState {
+    type Error = ConversionError;
+
+    fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
+        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
     }
 }
 

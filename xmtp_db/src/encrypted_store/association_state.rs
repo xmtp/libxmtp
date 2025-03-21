@@ -1,14 +1,10 @@
 use diesel::prelude::*;
-use prost::Message;
-use xmtp_id::{associations::AssociationState, InboxId};
-use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
-use xmtp_proto::ConversionError;
 
 use super::{
-    schema::association_state::{self, dsl},
     DbConnection,
+    schema::association_state::{self, dsl},
 };
-use crate::{impl_fetch, impl_store_or_ignore, storage::StorageError, Fetch, StoreOrIgnore};
+use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -22,26 +18,17 @@ pub struct StoredAssociationState {
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
-impl TryFrom<StoredAssociationState> for AssociationState {
-    type Error = ConversionError;
-
-    fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
-        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
-    }
-}
-
 impl StoredAssociationState {
     pub fn write_to_cache(
         conn: &DbConnection,
         inbox_id: String,
         sequence_id: i64,
-        state: AssociationState,
+        state: Vec<u8>,
     ) -> Result<(), StorageError> {
-        let state_proto: AssociationStateProto = state.into();
         let result = StoredAssociationState {
             inbox_id: inbox_id.clone(),
             sequence_id,
-            state: state_proto.encode_to_vec(),
+            state,
         }
         .store_or_ignore(conn);
 
@@ -56,11 +43,15 @@ impl StoredAssociationState {
         result
     }
 
-    pub fn read_from_cache(
+    pub fn read_from_cache<T>(
         conn: &DbConnection,
         inbox_id: impl AsRef<str>,
         sequence_id: i64,
-    ) -> Result<Option<AssociationState>, StorageError> {
+    ) -> Result<Option<T>, StorageError>
+    where
+        T: TryFrom<StoredAssociationState>,
+        StorageError: From<<T as TryFrom<StoredAssociationState>>::Error>,
+    {
         let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
@@ -79,15 +70,19 @@ impl StoredAssociationState {
         Ok(result)
     }
 
-    pub fn batch_read_from_cache(
+    pub fn batch_read_from_cache<T>(
         conn: &DbConnection,
-        identifiers: Vec<(InboxId, i64)>,
-    ) -> Result<Vec<AssociationState>, StorageError> {
+        identifiers: Vec<(String, i64)>,
+    ) -> Result<Vec<T>, StorageError>
+    where
+        T: TryFrom<StoredAssociationState>,
+        StorageError: From<<T as TryFrom<StoredAssociationState>>::Error>,
+    {
         if identifiers.is_empty() {
             return Ok(vec![]);
         }
 
-        let (inbox_ids, sequence_ids): (Vec<InboxId>, Vec<i64>) = identifiers.into_iter().unzip();
+        let (inbox_ids, sequence_ids): (Vec<String>, Vec<i64>) = identifiers.into_iter().unzip();
 
         let query = dsl::association_state
             .select((dsl::inbox_id, dsl::sequence_id, dsl::state))
@@ -103,7 +98,7 @@ impl StoredAssociationState {
         association_states
             .into_iter()
             .map(|stored_association_state| stored_association_state.try_into())
-            .collect::<Result<Vec<AssociationState>, ConversionError>>()
+            .collect::<Result<Vec<T>, _>>()
             .map_err(Into::into)
     }
 }
@@ -113,65 +108,72 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use xmtp_id::associations::Identifier;
-
-    use crate::storage::encrypted_store::tests::with_connection;
-
     use super::*;
+    use crate::test_utils::with_connection;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize)]
+    pub struct MockState {
+        sequence_id: u32,
+        inbox_id: String,
+    }
+    impl From<StoredAssociationState> for MockState {
+        fn from(v: StoredAssociationState) -> MockState {
+            crate::db_deserialize(&v.state).unwrap()
+        }
+    }
 
     #[xmtp_common::test]
     async fn test_batch_read() {
         with_connection(|conn| {
-            let association_state = AssociationState::new(
-                Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap(),
-                0,
-                None,
-            )
-            .unwrap();
-            let inbox_id = association_state.inbox_id().to_string();
+            let mock = MockState {
+                sequence_id: 1,
+                inbox_id: "test_id1".into(),
+            };
+
             StoredAssociationState::write_to_cache(
                 conn,
-                inbox_id.to_string(),
+                mock.inbox_id.clone(),
                 1,
-                association_state,
+                crate::db_serialize(&mock).unwrap(),
             )
             .unwrap();
 
-            let association_state_2 = AssociationState::new(
-                Identifier::eth("0x4567890abcdef1234567890abcdef12345678123").unwrap(),
-                2,
-                None,
-            )
-            .unwrap();
-            let inbox_id_2 = association_state_2.inbox_id().to_string();
+            let mock_2 = MockState {
+                sequence_id: 2,
+                inbox_id: "test_id2".to_string(),
+            };
+
             StoredAssociationState::write_to_cache(
                 conn,
-                association_state_2.inbox_id().to_string(),
+                mock_2.inbox_id.clone(),
                 2,
-                association_state_2,
+                crate::db_serialize(&mock_2).unwrap(),
             )
             .unwrap();
 
-            let first_association_state = StoredAssociationState::batch_read_from_cache(
-                conn,
-                vec![(inbox_id.to_string(), 1)],
-            )
-            .unwrap();
+            let first_association_state: Vec<MockState> =
+                StoredAssociationState::batch_read_from_cache(
+                    conn,
+                    vec![(mock.inbox_id.to_string(), 1)],
+                )
+                .unwrap();
             assert_eq!(first_association_state.len(), 1);
-            assert_eq!(&first_association_state[0].inbox_id(), &inbox_id);
+            assert_eq!(&first_association_state[0].inbox_id, &mock.inbox_id);
 
-            let both_association_states = StoredAssociationState::batch_read_from_cache(
-                conn,
-                vec![(inbox_id.to_string(), 1), (inbox_id_2.to_string(), 2)],
-            )
-            .unwrap();
+            let both_association_states: Vec<MockState> =
+                StoredAssociationState::batch_read_from_cache(
+                    conn,
+                    vec![(mock.inbox_id.clone(), 1), (mock_2.inbox_id.clone(), 2)],
+                )
+                .unwrap();
 
             assert_eq!(both_association_states.len(), 2);
 
-            let no_results = StoredAssociationState::batch_read_from_cache(
+            let no_results: Vec<MockState> = StoredAssociationState::batch_read_from_cache(
                 conn,
                 // Mismatched inbox_id and sequence_id
-                vec![(inbox_id.to_string(), 2)],
+                vec![(mock.inbox_id.clone(), 2)],
             )
             .unwrap();
             assert_eq!(no_results.len(), 0);

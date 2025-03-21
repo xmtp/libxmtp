@@ -1,11 +1,11 @@
-use crate::storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError};
+use crate::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use diesel::connection::TransactionManager;
 use parking_lot::Mutex;
 use std::{
     fmt,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 

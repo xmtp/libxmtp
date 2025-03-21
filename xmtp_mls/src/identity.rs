@@ -31,6 +31,7 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+use xmtp_db::identity::StoredIdentity;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -258,6 +259,32 @@ impl Clone for Identity {
     }
 }
 
+impl TryFrom<&Identity> for StoredIdentity {
+    type Error = StorageError;
+
+    fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
+        Ok(StoredIdentity {
+            inbox_id: identity.inbox_id.clone(),
+            installation_keys: db_serialize(&identity.installation_keys)?,
+            credential_bytes: db_serialize(&identity.credential())?,
+            rowid: None,
+        })
+    }
+}
+
+impl TryFrom<StoredIdentity> for Identity {
+    type Error = StorageError;
+
+    fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
+        Ok(Identity {
+            inbox_id: identity.inbox_id.clone(),
+            installation_keys: db_deserialize(&identity.installation_keys)?,
+            credential: db_deserialize(&identity.credential_bytes)?,
+            signature_request: None,
+            is_ready: AtomicBool::new(true),
+        })
+    }
+}
 impl Identity {
     /// Create a new [Identity] instance.
     ///

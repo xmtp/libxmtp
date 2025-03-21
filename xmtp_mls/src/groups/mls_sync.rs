@@ -10,7 +10,6 @@ use super::{
 };
 use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
-use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
@@ -26,21 +25,21 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
-    storage::{
-        db_connection::DbConnection,
-        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        refresh_state::EntityKind,
-        serialization::{db_deserialize, db_serialize},
-        sql_key_store,
-        user_preferences::StoredUserPreferences,
-        ProviderTransactions, StorageError,
-    },
     subscriptions::{LocalEvents, SyncMessage},
-    utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
-    Delete, Fetch, StoreOrIgnore,
+    utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{
+    db_connection::DbConnection,
+    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    serialization::{db_deserialize, db_serialize},
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+};
+
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -70,6 +69,7 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -1293,9 +1293,10 @@ where
                                 installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
+                            let id = utils::id::calculate_message_id_for_intent(&intent);
                             provider
                                 .conn_ref()
-                                .set_group_intent_error_and_fail_msg(&intent)?;
+                                .set_group_intent_error_and_fail_msg(&intent, id)?;
                         } else {
                             provider
                                 .conn_ref()

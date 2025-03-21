@@ -159,7 +159,7 @@ where
             conn,
             inbox_id.to_string(),
             last_sequence_id,
-            association_state.clone(),
+            association_state.encode_to_vec(),
         )?;
 
         Ok(association_state)
@@ -229,7 +229,7 @@ where
                 conn,
                 inbox_id.to_string(),
                 last_sequence_id,
-                final_state.clone(),
+                final_state.encode_to_vec(),
             )?;
         }
 
@@ -353,7 +353,15 @@ where
 
         // Cycle the HMAC key
         let conn = self.store().conn()?;
-        StoredUserPreferences::new_hmac_key(&conn, &self.local_events)?;
+        let hmac_key = StoredUserPreferences::new_hmac_key(&conn)?;
+        // Sync the new key to other devices
+        let _ = self
+            .local_events
+            .send(LocalEvents::OutgoingPreferenceUpdates(vec![
+                UserPreferenceUpdate::HmacKeyUpdate {
+                    key: hmac_key.clone(),
+                },
+            ]));
 
         Ok(builder.build())
     }

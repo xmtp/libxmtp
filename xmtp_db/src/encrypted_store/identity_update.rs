@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
-use crate::{impl_store, storage::StorageError};
+use crate::{StorageError, impl_store};
 
 use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
-
-use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -34,14 +32,6 @@ impl StoredIdentityUpdate {
             server_timestamp_ns,
             payload,
         }
-    }
-}
-
-impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
-    type Error = AssociationError;
-
-    fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
-        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
     }
 }
 
@@ -131,7 +121,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, test_utils::with_connection};
     use xmtp_common::{rand_time, rand_vec};
 
     use super::*;
