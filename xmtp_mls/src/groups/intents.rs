@@ -33,16 +33,15 @@ use super::{
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    storage::{
-        db_connection::DbConnection,
-        group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-        ProviderTransactions,
-    },
-    types::Address,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpOpenMlsProvider,
 };
-
+use xmtp_common::types::Address;
+use xmtp_db::{
+    db_connection::DbConnection,
+    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+    ProviderTransactions,
+};
 #[derive(Debug, Error)]
 pub enum IntentError {
     #[error("decode error: {0}")]

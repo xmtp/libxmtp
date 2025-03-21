@@ -7,7 +7,12 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
 };
+
+use prost::Message;
 use xmtp_db::association_state::StoredAssociationState;
+use xmtp_proto::{
+    xmtp::identity::associations::AssociationState as AssociationStateProto, ConversionError,
+};
 
 use super::{
     ident,

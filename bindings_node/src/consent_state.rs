@@ -1,6 +1,6 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
-use xmtp_mls::storage::consent_record::{
+use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
 

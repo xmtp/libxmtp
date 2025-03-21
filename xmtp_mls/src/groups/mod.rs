@@ -39,13 +39,6 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::storage::consent_record::ConsentType;
-use crate::storage::{
-    group::DmIdExt,
-    group_message::{ContentType, StoredGroupMessageWithReactions},
-    refresh_state::EntityKind,
-    NotFound, ProviderTransactions, StorageError,
-};
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -58,18 +51,8 @@ use crate::{
     identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
-    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
-    storage::{
-        consent_record::{ConsentState, StoredConsentRecord},
-        db_connection::DbConnection,
-        group::{ConversationType, GroupMembershipState, StoredGroup},
-        group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        sql_key_store,
-    },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    Store,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
@@ -102,7 +85,23 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::group::StoredGroup;
+use xmtp_db::consent_record::ConsentType;
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::Store;
+use xmtp_db::{
+    consent_record::{ConsentState, StoredConsentRecord},
+    db_connection::DbConnection,
+    group::{ConversationType, GroupMembershipState, StoredGroup},
+    group_intent::IntentKind,
+    group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+    sql_key_store,
+};
+use xmtp_db::{
+    group::DmIdExt,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    refresh_state::EntityKind,
+    NotFound, ProviderTransactions, StorageError,
+};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -129,7 +128,7 @@ pub enum GroupError {
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
@@ -540,12 +539,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
-            .group_id(group_id)
+            .id(group_id.clone())
             .created_at_ns(now_ns())
             .membership_state(membership_state)
             .added_by_inbox_id(context.inbox_id().to_string())
-            .message_disappear_from_ns(opts.message_disappearing_settings.map(|m| m.from_ns))
-            .message_disappear_in_ns(opts.message_disappearing_settings.map(|m| m.in_ns))
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
         stored_group.store(provider.conn_ref())?;
@@ -595,12 +598,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
-            .group_id(group_id)
+            .id(group_id.clone())
             .created_at_ns(now_ns())
             .membership_state(membership_state)
             .added_by_inbox_id(context.inbox_id().to_string())
-            .message_disappear_from_ns(opts.message_disappearing_settings.map(|m| m.from_ns))
-            .message_disappear_in_ns(opts.message_disappearing_settings.map(|m| m.in_ns))
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
         stored_group.store(provider.conn_ref())?;
@@ -715,7 +722,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             });
 
             let group = StoredGroup::builder()
-                .group_id(group_id)
+                .id(group_id)
                 .created_at_ns(now_ns())
                 .added_by_inbox_id(added_by_inbox_id)
                 .welcome_id(welcome.id as i64)
@@ -790,7 +797,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
-            .group_id(group_id)
+            .id(group_id)
             .created_at_ns(now_ns())
             .membership_state(GroupMembershipState::Allowed)
             .build()?;
@@ -1650,7 +1657,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
-            .group_id(group_id)
+            .id(group_id)
             .created_at_ns(now_ns())
             .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id(context.inbox_id().to_string())
@@ -2088,8 +2095,6 @@ pub(crate) mod tests {
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
-    use crate::storage::group::StoredGroup;
-    use crate::storage::schema::groups;
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -2103,16 +2108,18 @@ pub(crate) mod tests {
             validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
             PreconfiguredPolicies, UpdateAdminListType,
         },
-        storage::{
-            consent_record::ConsentState,
-            group::{ConversationType, GroupQueryArgs},
-            group_intent::{IntentKind, IntentState},
-            group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-            xmtp_openmls_provider::XmtpOpenMlsProvider,
-        },
         utils::test::FullXmtpClient,
     };
     use xmtp_common::StreamHandle as _;
+    use xmtp_db::group::StoredGroup;
+    use xmtp_db::schema::groups;
+    use xmtp_db::{
+        consent_record::ConsentState,
+        group::{ConversationType, GroupQueryArgs},
+        group_intent::{IntentKind, IntentState},
+        group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+    };
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client

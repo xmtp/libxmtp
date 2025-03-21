@@ -22,6 +22,13 @@ pub mod time {
 }
 
 pub mod id {
+    use xmtp_db::group_intent::IntentKind;
+
+    use crate::groups::intents::{IntentError, SendMessageIntentData};
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
+    use xmtp_proto::xmtp::mls::message_contents::{plaintext_envelope::V1, PlaintextEnvelope};
+
     /// Relies on a client-created idempotency_key (which could be a timestamp)
     pub fn calculate_message_id(
         group_id: &[u8],
@@ -50,7 +57,7 @@ pub mod id {
     /// an error occurs during decoding of intent data for [`IntentKind::SendMessage`].
     pub fn calculate_message_id_for_intent(
         intent: &xmtp_db::group_intent::StoredGroupIntent,
-    ) -> Result<Option<Vec<u8>, IntentError>> {
+    ) -> Result<Option<Vec<u8>>, IntentError> {
         if intent.kind != IntentKind::SendMessage {
             return Ok(None);
         }

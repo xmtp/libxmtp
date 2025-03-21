@@ -1,16 +1,19 @@
 use crate::encrypted_store::schema::identity;
+use derive_builder::Builder;
 use diesel::prelude::*;
 
 use crate::{impl_fetch, impl_store};
 
 /// Identity of this installation
 /// There can only be one.
-#[derive(Insertable, Queryable, Debug, Clone)]
+#[derive(Insertable, Queryable, Debug, Clone, Builder)]
 #[diesel(table_name = identity)]
+#[builder(setter(into), build_fn(error = "crate::StorageError"))]
 pub struct StoredIdentity {
     pub inbox_id: String,
     pub installation_keys: Vec<u8>,
     pub credential_bytes: Vec<u8>,
+    #[builder(setter(skip))]
     rowid: Option<i32>,
 }
 
@@ -18,6 +21,10 @@ impl_fetch!(StoredIdentity, identity);
 impl_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
+    pub fn builder() -> StoredIdentityBuilder {
+        StoredIdentityBuilder::default()
+    }
+
     pub fn new(inbox_id: String, installation_keys: Vec<u8>, credential_bytes: Vec<u8>) -> Self {
         Self {
             inbox_id,

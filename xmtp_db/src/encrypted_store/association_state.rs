@@ -5,6 +5,8 @@ use super::{
     schema::association_state::{self, dsl},
 };
 use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
+use prost::Message;
+use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -18,17 +20,19 @@ pub struct StoredAssociationState {
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
+// TODO: We can make a generic trait/object on DB for anything that decodes into prost::Message
+// and then have a re-usable cache object instead of re-implementing it on every db type.
 impl StoredAssociationState {
     pub fn write_to_cache(
         conn: &DbConnection,
         inbox_id: String,
         sequence_id: i64,
-        state: Vec<u8>,
+        state: AssociationStateProto,
     ) -> Result<(), StorageError> {
         let result = StoredAssociationState {
             inbox_id: inbox_id.clone(),
             sequence_id,
-            state,
+            state: state.encode_to_vec(),
         }
         .store_or_ignore(conn);
 
@@ -49,16 +53,15 @@ impl StoredAssociationState {
         sequence_id: i64,
     ) -> Result<Option<T>, StorageError>
     where
-        T: TryFrom<StoredAssociationState>,
-        StorageError: From<<T as TryFrom<StoredAssociationState>>::Error>,
+        T: TryFrom<AssociationStateProto>,
+        StorageError: From<<T as TryFrom<AssociationStateProto>>::Error>,
     {
         let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
-            .map(|stored_state| stored_state.try_into())
-            .transpose()?
+            .map(|stored_state| stored_state.state)
             .inspect(|_| {
                 tracing::debug!(
                     "Loaded association state from cache: {} {}",
@@ -66,8 +69,10 @@ impl StoredAssociationState {
                     sequence_id
                 )
             });
-
-        Ok(result)
+        let decoded = result
+            .map(|r| AssociationStateProto::decode(r.as_slice()))
+            .transpose()?;
+        Ok(decoded.map(|a| a.try_into()).transpose()?)
     }
 
     pub fn batch_read_from_cache<T>(
@@ -75,8 +80,8 @@ impl StoredAssociationState {
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<T>, StorageError>
     where
-        T: TryFrom<StoredAssociationState>,
-        StorageError: From<<T as TryFrom<StoredAssociationState>>::Error>,
+        T: TryFrom<AssociationStateProto>,
+        StorageError: From<<T as TryFrom<AssociationStateProto>>::Error>,
     {
         if identifiers.is_empty() {
             return Ok(vec![]);
@@ -97,8 +102,12 @@ impl StoredAssociationState {
 
         association_states
             .into_iter()
-            .map(|stored_association_state| stored_association_state.try_into())
-            .collect::<Result<Vec<T>, _>>()
+            .map(|stored_association_state| {
+                AssociationStateProto::decode(stored_association_state.state.as_slice())?
+                    .try_into()
+                    .map_err(StorageError::from)
+            })
+            .collect::<Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
 }

@@ -19,14 +19,14 @@ use crate::{
         device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
     },
-    storage::{
-        consent_record::StoredConsentRecord, group::ConversationType,
-        group_message::StoredGroupMessage, NotFound, StorageError,
-    },
     Client, XmtpApi,
 };
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::ConversationType,
+    group_message::StoredGroupMessage, NotFound, StorageError,
+};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 

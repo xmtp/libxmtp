@@ -1,10 +1,13 @@
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
-use crate::storage::{
+use xmtp_db::{
     association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
-use xmtp_id::{associations::Identifier, InboxId};
+use xmtp_id::{
+    associations::{AssociationState, Identifier},
+    InboxId,
+};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
@@ -47,7 +50,7 @@ where
             .collect::<Vec<_>>();
 
         let conn = provider.conn_ref();
-        let mut association_states =
+        let mut association_states: Vec<AssociationState> =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {

@@ -18,7 +18,7 @@ pub enum ProcessIntentError {
     #[error("diesel error: {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 impl RetryableError for ProcessIntentError {

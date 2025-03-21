@@ -1,11 +1,17 @@
-use crate::storage::{
-    association_state::StoredAssociationState, user_preferences::StoredUserPreferences,
+use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use crate::{
+    client::ClientError,
+    groups::group_membership::{GroupMembership, MembershipDiff},
+    subscriptions::LocalEvents,
+    Client, XmtpApi,
 };
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
+use xmtp_db::{association_state::StoredAssociationState, user_preferences::StoredUserPreferences};
+use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
         apply_update,
@@ -22,12 +28,6 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-use crate::{
-    client::ClientError,
-    groups::group_membership::{GroupMembership, MembershipDiff},
-    storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-    Client, XmtpApi,
-};
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
 
@@ -54,34 +54,6 @@ impl RetryableError for InstallationDiffError {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
         }
-    }
-}
-
-impl DbConnection {
-    /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
-    /// in the local DB
-    pub(crate) fn filter_inbox_ids_needing_updates<'a>(
-        &self,
-        filters: &[(InboxIdRef<'a>, i64)],
-    ) -> Result<Vec<&'a str>, ClientError> {
-        let existing_sequence_ids =
-            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
-
-        let needs_update = filters
-            .iter()
-            .filter_map(|filter| {
-                let existing_sequence_id = existing_sequence_ids.get(filter.0);
-                if let Some(sequence_id) = existing_sequence_id {
-                    if sequence_id.ge(&filter.1) {
-                        return None;
-                    }
-                }
-
-                Some(filter.0)
-            })
-            .collect::<Vec<&str>>();
-
-        Ok(needs_update)
     }
 }
 
@@ -159,7 +131,7 @@ where
             conn,
             inbox_id.to_string(),
             last_sequence_id,
-            association_state.encode_to_vec(),
+            association_state.clone().into(),
         )?;
 
         Ok(association_state)
@@ -229,7 +201,7 @@ where
                 conn,
                 inbox_id.to_string(),
                 last_sequence_id,
-                final_state.encode_to_vec(),
+                final_state.into(),
             )?;
         }
 
@@ -606,12 +578,11 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        builder::ClientBuilder,
-        groups::group_membership::GroupMembership,
-        storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::test::FullXmtpClient,
-        Client, XmtpApi,
+        builder::ClientBuilder, groups::group_membership::GroupMembership,
+        utils::test::FullXmtpClient, Client, XmtpApi,
     };
+    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
+
     use xmtp_common::rand_vec;
 
     use super::{is_member_of_association_state, load_identity_updates};

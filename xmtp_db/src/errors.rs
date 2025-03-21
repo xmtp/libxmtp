@@ -47,6 +47,8 @@ pub enum StorageError {
     #[cfg(target_arch = "wasm32")]
     #[cfg_attr(target_arch = "wasm32", error("wasm"))]
     Wasm,
+    #[error("decoding from database failed {}", _0)]
+    Prost(#[from] prost::DecodeError),
 }
 
 impl From<std::convert::Infallible> for StorageError {

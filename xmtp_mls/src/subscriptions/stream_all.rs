@@ -6,14 +6,14 @@ use std::{
 use crate::subscriptions::stream_messages::MessagesApiSubscription;
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{
-        group::{ConversationType, GroupQueryArgs},
-        group_message::StoredGroupMessage,
-    },
-    types::GroupId,
     Client,
 };
+
 use futures::stream::Stream;
+use xmtp_db::{
+    group::{ConversationType, GroupQueryArgs},
+    group_message::StoredGroupMessage,
+};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
@@ -22,6 +22,8 @@ use super::{
     stream_messages::StreamGroupMessages,
     Result, SubscribeError,
 };
+use xmtp_common::types::GroupId;
+
 use pin_project_lite::pin_project;
 
 pin_project! {

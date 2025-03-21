@@ -8,17 +8,14 @@ use std::{
 use super::{Result, SubscribeError};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{
-        group::StoredGroup, group_message::StoredGroupMessage, refresh_state::EntityKind,
-        StorageError,
-    },
-    types::GroupId,
     XmtpOpenMlsProvider,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
+use xmtp_common::types::GroupId;
 use xmtp_common::{retry_async, FutureWrapper, Retry};
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
@@ -72,18 +69,20 @@ impl std::fmt::Display for MessagePosition {
         write!(f, "{}", self.pos())
     }
 }
-
+/*
 impl From<StoredGroup> for (Vec<u8>, u64) {
     fn from(group: StoredGroup) -> (Vec<u8>, u64) {
         (group.id, 0u64)
     }
 }
-
+*/
+/*
 impl From<StoredGroup> for (Vec<u8>, MessagePosition) {
     fn from(group: StoredGroup) -> (Vec<u8>, MessagePosition) {
         (group.id, 0u64.into())
     }
 }
+*/
 
 impl From<u64> for MessagePosition {
     fn from(v: u64) -> MessagePosition {

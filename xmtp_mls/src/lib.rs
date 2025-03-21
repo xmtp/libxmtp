@@ -10,7 +10,6 @@ pub mod identity;
 pub mod identity_updates;
 mod intents;
 mod mutex_registry;
-pub mod storage;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
@@ -20,8 +19,8 @@ pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::Mutex as TokioMutex;
+use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;

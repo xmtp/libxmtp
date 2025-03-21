@@ -34,7 +34,6 @@ use xmtp_db::{
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     refresh_state::EntityKind,
-    serialization::{db_deserialize, db_serialize},
     sql_key_store,
     user_preferences::StoredUserPreferences,
     Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
@@ -101,7 +100,7 @@ pub enum GroupMessageProcessingError {
     #[error("invalid payload")]
     InvalidPayload,
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error("openmls process message error: {0}")]
@@ -553,7 +552,7 @@ where
                 // If no error committing the change, write a transcript message
                 self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
             }
-        } else if let Some(id) = intent.message_id()? {
+        } else if let Some(id) = crate::utils::id::calculate_message_id_for_intent(&intent)? {
             conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
         }
 
@@ -1293,7 +1292,7 @@ where
                                 installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
-                            let id = utils::id::calculate_message_id_for_intent(&intent);
+                            let id = utils::id::calculate_message_id_for_intent(&intent)?;
                             provider
                                 .conn_ref()
                                 .set_group_intent_error_and_fail_msg(&intent, id)?;
@@ -1745,7 +1744,14 @@ where
             Some(ikm) => ikm,
             None => {
                 let local_events = self.client.local_events();
-                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+                let hmac_key = StoredUserPreferences::new_hmac_key(&conn)?;
+                // Sync the new key to other devices
+                let _ = local_events.send(LocalEvents::OutgoingPreferenceUpdates(vec![
+                    UserPreferenceUpdate::HmacKeyUpdate {
+                        key: hmac_key.clone(),
+                    },
+                ]));
+                hmac_key
             }
         };
         ikm.extend(&self.group_id);
@@ -2007,14 +2013,14 @@ fn get_and_clear_pending_commit(
     let commit = openmls_group
         .pending_commit()
         .as_ref()
-        .map(db_serialize)
+        .map(xmtp_db::db_serialize)
         .transpose()?;
     openmls_group.clear_pending_commit(provider.storage())?;
     Ok(commit)
 }
 
 fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {
-    Ok(db_deserialize(data)?)
+    Ok(xmtp_db::db_deserialize(data)?)
 }
 
 #[cfg(test)]

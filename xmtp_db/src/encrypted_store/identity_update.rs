@@ -114,6 +114,30 @@ impl DbConnection {
         // Convert the Vec to a HashMap
         Ok(HashMap::from_iter(result_tuples))
     }
+
+    pub fn filter_inbox_ids_needing_updates<'a>(
+        &self,
+        filters: &[(&'a str, i64)],
+    ) -> Result<Vec<&'a str>, StorageError> {
+        let existing_sequence_ids =
+            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+
+        let needs_update = filters
+            .iter()
+            .filter_map(|filter| {
+                let existing_sequence_id = existing_sequence_ids.get(filter.0);
+                if let Some(sequence_id) = existing_sequence_id {
+                    if sequence_id.ge(&filter.1) {
+                        return None;
+                    }
+                }
+
+                Some(filter.0)
+            })
+            .collect::<Vec<&str>>();
+
+        Ok(needs_update)
+    }
 }
 
 #[cfg(test)]

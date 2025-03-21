@@ -5,8 +5,9 @@ pub mod serialization;
 pub use serialization::*;
 pub mod sql_key_store;
 mod traits;
-pub mod xmtp_openmls_provider;
 pub use traits::*;
+pub mod xmtp_openmls_provider;
+pub use xmtp_openmls_provider::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

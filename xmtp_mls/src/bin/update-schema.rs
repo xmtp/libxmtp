@@ -11,7 +11,7 @@ use std::{
 use rand::distributions::{Alphanumeric, DistString};
 use toml::Table;
 
-use xmtp_mls::storage::{EncryptedMessageStore, StorageOption};
+use xmtp_db::{EncryptedMessageStore, StorageOption};
 
 const DIESEL_TOML: &str = "./diesel.toml";
 
