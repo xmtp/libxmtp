@@ -641,7 +641,7 @@ impl FfiXmtpClient {
     pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
-        importer.insert(&provider).await?;
+        importer.run(&provider).await?;
         Ok(())
     }
 

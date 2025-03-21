@@ -912,7 +912,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///     timestamp attached to intent & stored message.
-    fn prepare_message<F>(
+    pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
         provider: &XmtpOpenMlsProvider,

@@ -55,9 +55,8 @@ pub enum LocalEvents {
 
 #[derive(Debug, Clone)]
 pub enum SyncEvent {
-    Request { message_id: Vec<u8> },
-    Reply { message_id: Vec<u8> },
     NewSyncGroupFromWelcome,
+    NewSyncGroupMsg(Vec<u8>),
 }
 
 impl LocalEvents {

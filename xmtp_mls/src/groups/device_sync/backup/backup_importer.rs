@@ -28,7 +28,7 @@ pub struct BackupImporter {
 }
 
 impl BackupImporter {
-    pub(super) async fn load(
+    pub(crate) async fn load(
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],
     ) -> Result<Self, DeviceSyncError> {
@@ -88,7 +88,7 @@ impl BackupImporter {
         Ok(None)
     }
 
-    pub async fn insert(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
+    pub async fn run(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
 
         while let Some(element) = self.next_element().await? {

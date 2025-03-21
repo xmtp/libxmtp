@@ -144,7 +144,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.run(&alix2_provider).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.run(&alix2_provider).await.unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
