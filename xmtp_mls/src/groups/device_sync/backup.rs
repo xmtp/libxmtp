@@ -4,27 +4,23 @@ use backup_exporter::BackupExporter;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
 
 pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
-mod backup_exporter;
+pub(crate) mod backup_exporter;
 mod backup_importer;
 mod export_stream;
+
+pub(crate) use backup_exporter::*;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error("Missing metadata")]
     MissingMetadata,
-}
-
-pub struct BackupOptions {
-    pub start_ns: Option<i64>,
-    pub end_ns: Option<i64>,
-    pub elements: Vec<BackupElementSelection>,
 }
 
 #[derive(Default)]
@@ -148,7 +144,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.run(&alix2_provider).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -240,7 +236,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.run(&alix2_provider).await.unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider

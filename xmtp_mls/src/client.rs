@@ -1,5 +1,4 @@
-#[cfg(any(test, feature = "test-utils"))]
-use crate::groups::device_sync::WorkerHandle;
+use crate::groups::device_sync::handle::{SyncWorkerMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
@@ -148,14 +147,18 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
-    pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
     pub(crate) version_info: Arc<VersionInfo>,
+    pub(crate) device_sync: DeviceSync,
+}
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+#[derive(Clone)]
+pub struct DeviceSync {
+    pub(crate) history_sync_url: Option<String>,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncWorkerMetric>>>>>,
+    pub(crate) disable_worker: bool,
 }
 
 // most of these things are `Arc`'s
@@ -164,13 +167,10 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
         Self {
             api_client: self.api_client.clone(),
             context: self.context.clone(),
-            history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             version_info: self.version_info.clone(),
-
-            #[cfg(any(test, feature = "test-utils"))]
-            sync_worker_handle: self.sync_worker_handle.clone(),
+            device_sync: self.device_sync.clone(),
         }
     }
 }
@@ -264,6 +264,7 @@ where
         store: EncryptedMessageStore,
         scw_verifier: V,
         history_sync_url: Option<String>,
+        disable_sync_worker: bool,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -280,12 +281,14 @@ where
         Self {
             api_client: api_client.into(),
             context,
-            history_sync_url,
             local_events: tx,
-            #[cfg(any(test, feature = "test-utils"))]
-            sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
             version_info: Arc::new(VersionInfo::default()),
+            device_sync: DeviceSync {
+                history_sync_url,
+                disable_worker: disable_sync_worker,
+                worker_handle: Arc::new(parking_lot::Mutex::default()),
+            },
         }
     }
 
@@ -310,10 +313,8 @@ where
         // TODO: The only worker we have right now are the
         // sync workers. if we have other workers we
         // should create a better way to track them.
-        if self.history_sync_url.is_some() {
-            self.start_sync_worker();
-        }
 
+        self.start_sync_worker();
         self.start_disappearing_messages_cleaner_worker();
 
         Ok(())
@@ -611,14 +612,11 @@ where
         self.create_dm_by_inbox_id(inbox_id, opts).await
     }
 
-    pub(crate) fn create_sync_group(
+    pub(crate) async fn create_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-
-        Ok(sync_group)
+        Ok(MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider).await?)
     }
 
     /// Look up a group by its ID
