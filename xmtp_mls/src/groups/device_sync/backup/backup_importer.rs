@@ -1,11 +1,7 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
-    storage::{
-        consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection,
-    },
-    Store, XmtpOpenMlsProvider,
+    XmtpOpenMlsProvider,
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
@@ -13,6 +9,10 @@ use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
+    DbConnection, Store,
+};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
 #[cfg(not(target_arch = "wasm32"))]

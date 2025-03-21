@@ -6,25 +6,16 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
-use prost::Message;
 use xmtp_common::fmt;
 
 use super::{
+    Sqlite,
     db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
-    Sqlite,
 };
 use crate::{
-    groups::intents::{IntentError, SendMessageIntentData},
-    impl_fetch, impl_store,
-    storage::{NotFound, StorageError},
-    utils::id::calculate_message_id,
-    Delete,
-};
-use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::{Content, V1},
-    PlaintextEnvelope,
+    Delete, impl_fetch, impl_store, {NotFound, StorageError},
 };
 pub type ID = i32;
 
@@ -118,41 +109,6 @@ impl std::fmt::Debug for StoredGroupIntent {
         write!(f, "published_in_epoch: {:?} ", self.published_in_epoch)?;
         write!(f, " }}")?;
         Ok(())
-    }
-}
-
-impl StoredGroupIntent {
-    /// Calculate the message id for this intent.
-    ///
-    /// # Note
-    /// This functions deserializes and decodes a [`PlaintextEnvelope`] from encoded bytes.
-    /// It would be costly to call this method while pulling extra data from a
-    /// [`PlaintextEnvelope`] elsewhere. The caller should consider combining implementations.
-    ///
-    /// # Returns
-    /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
-    /// an error occurs during decoding of intent data for [`IntentKind::SendMessage`].
-    pub fn message_id(&self) -> Result<Option<Vec<u8>>, IntentError> {
-        if self.kind != IntentKind::SendMessage {
-            return Ok(None);
-        }
-
-        let data = SendMessageIntentData::from_bytes(&self.data)?;
-        let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
-
-        // optimistic message should always have a plaintext envelope
-        let PlaintextEnvelope {
-            content:
-                Some(Content::V1(V1 {
-                    content: message,
-                    idempotency_key: key,
-                })),
-        } = envelope
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(calculate_message_id(&self.group_id, &message, &key)))
     }
 }
 
@@ -370,9 +326,10 @@ impl DbConnection {
     pub fn set_group_intent_error_and_fail_msg(
         &self,
         intent: &StoredGroupIntent,
+        msg_id: Option<Vec<u8>>,
     ) -> Result<(), StorageError> {
         self.set_group_intent_error(intent.id)?;
-        if let Some(id) = intent.message_id()? {
+        if let Some(id) = msg_id {
             self.set_delivery_status_to_failed(&id)?;
         }
         Ok(())
@@ -438,25 +395,22 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        storage::encrypted_store::{
-            group::{GroupMembershipState, StoredGroup},
-            tests::with_connection,
-        },
         Fetch, Store,
+        group::{GroupMembershipState, StoredGroup},
+        test_utils::with_connection,
     };
     use xmtp_common::rand_vec;
 
     fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
-        let group = StoredGroup::new(
-            group_id,
-            100,
-            GroupMembershipState::Allowed,
-            "placeholder_address".to_string(),
-            None,
-            None,
-            None,
-        );
-        group.store(conn).unwrap();
+        StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(100)
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id("placeholder_address")
+            .build()
+            .unwrap()
+            .store(conn)
+            .unwrap();
     }
 
     impl NewGroupIntent {
@@ -517,7 +471,6 @@ pub(crate) mod tests {
 
             assert_eq!(fetched.id, id);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -596,7 +549,6 @@ pub(crate) mod tests {
             results = conn.find_group_intents(group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -639,7 +591,6 @@ pub(crate) mod tests {
             assert_eq!(find_result.id, intent.id);
             assert_eq!(find_result.published_in_epoch, Some(1));
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -685,7 +636,6 @@ pub(crate) mod tests {
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -730,7 +680,6 @@ pub(crate) mod tests {
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -766,7 +715,6 @@ pub(crate) mod tests {
                 StorageError::NotFound(_)
             ));
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -794,6 +742,5 @@ pub(crate) mod tests {
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
         })
-        .await
     }
 }

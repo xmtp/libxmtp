@@ -5,8 +5,7 @@ use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
 };
-use crate::{groups::intents::IntentError, types::InstallationId};
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable, types::InstallationId};
 
 pub struct Mls;
 
@@ -22,8 +21,6 @@ pub enum StorageError {
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error(transparent)]
     NotFound(#[from] NotFound),
-    #[error(transparent)]
-    Intent(#[from] IntentError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -42,12 +39,23 @@ pub enum StorageError {
     DbSerialize,
     #[error(transparent)]
     MissingRequired(#[from] MissingRequired),
+    #[error("required fields missing from stored db type {0}")]
+    Builder(#[from] derive_builder::UninitializedFieldError),
     #[cfg(not(target_arch = "wasm32"))]
     #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
     Native(#[from] super::native::NativeStorageError),
     #[cfg(target_arch = "wasm32")]
     #[cfg_attr(target_arch = "wasm32", error("wasm"))]
     Wasm,
+    #[error("decoding from database failed {}", _0)]
+    Prost(#[from] prost::DecodeError),
+}
+
+impl From<std::convert::Infallible> for StorageError {
+    fn from(_: std::convert::Infallible) -> StorageError {
+        // infallible can never fail/occur
+        unreachable!()
+    }
 }
 
 impl StorageError {
@@ -122,8 +130,8 @@ impl RetryableError for DuplicateItem {
 
 impl RetryableError<Mls> for diesel::result::Error {
     fn is_retryable(&self) -> bool {
-        use diesel::result::Error::*;
         use DatabaseErrorKind::*;
+        use diesel::result::Error::*;
 
         match self {
             DatabaseError(UniqueViolation, _) => false,

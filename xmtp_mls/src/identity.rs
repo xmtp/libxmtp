@@ -1,14 +1,10 @@
 use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
-use crate::storage::db_connection::DbConnection;
-use crate::storage::identity::StoredIdentity;
-use crate::storage::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use crate::storage::ProviderTransactions;
-use crate::verified_key_package_v2::KeyPackageVerificationError;
-use crate::{
-    configuration::{CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID},
-    storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, StorageError},
-    Fetch, Store, XmtpApi,
+use crate::configuration::{
+    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
 };
+use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
+use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch, StorageError, Store};
+
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
@@ -31,6 +27,10 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
+use xmtp_db::db_connection::DbConnection;
+use xmtp_db::identity::StoredIdentity;
+use xmtp_db::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use xmtp_db::ProviderTransactions;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -198,7 +198,7 @@ pub enum IdentityError {
     #[error(transparent)]
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
-    StorageError(#[from] crate::storage::StorageError),
+    StorageError(#[from] xmtp_db::StorageError),
     #[error(transparent)]
     OpenMlsStorageError(#[from] SqlKeyStoreError),
     #[error(transparent)]
@@ -213,8 +213,6 @@ pub enum IdentityError {
     RequiredIdentityNotFound,
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
-    #[error(transparent)]
-    DieselResult(#[from] diesel::result::Error),
     #[error(transparent)]
     Association(#[from] AssociationError),
     #[error(transparent)]
@@ -231,7 +229,6 @@ impl RetryableError for IdentityError {
             Self::ApiClient(err) => retryable!(err),
             Self::StorageError(err) => retryable!(err),
             Self::OpenMlsStorageError(err) => retryable!(err),
-            Self::DieselResult(err) => retryable!(err),
             _ => false,
         }
     }
@@ -258,6 +255,31 @@ impl Clone for Identity {
     }
 }
 
+impl TryFrom<&Identity> for StoredIdentity {
+    type Error = StorageError;
+
+    fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
+        StoredIdentity::builder()
+            .inbox_id(identity.inbox_id.clone())
+            .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
+            .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
+            .build()
+    }
+}
+
+impl TryFrom<StoredIdentity> for Identity {
+    type Error = StorageError;
+
+    fn try_from(identity: StoredIdentity) -> Result<Self, Self::Error> {
+        Ok(Identity {
+            inbox_id: identity.inbox_id.clone(),
+            installation_keys: xmtp_db::db_deserialize(&identity.installation_keys)?,
+            credential: xmtp_db::db_deserialize(&identity.credential_bytes)?,
+            signature_request: None,
+            is_ready: AtomicBool::new(true),
+        })
+    }
+}
 impl Identity {
     /// Create a new [Identity] instance.
     ///
@@ -473,7 +495,7 @@ impl Identity {
     /// Generate a new key package and store the associated keys in the database.
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -596,7 +618,7 @@ impl Identity {
 
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
-    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<crate::storage::RawDbConnection>>,
+    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
 ) -> Result<Vec<u8>, IdentityError> {
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())

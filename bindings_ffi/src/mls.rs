@@ -12,6 +12,15 @@ use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_db::group::ConversationType;
+use xmtp_db::group_message::{ContentType, MsgQueryArgs};
+use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::{
+    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    group::GroupQueryArgs,
+    group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    EncryptedMessageStore, EncryptionKey, StorageOption,
+};
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
@@ -31,9 +40,6 @@ use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
-use xmtp_mls::storage::group::ConversationType;
-use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
-use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -49,12 +55,6 @@ use xmtp_mls::{
         GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
-    storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-        group::GroupQueryArgs,
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        EncryptedMessageStore, EncryptionKey, StorageOption,
-    },
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::ApiBuilder;
@@ -2758,15 +2758,16 @@ mod tests {
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{
         test_utils::WalletTestExt,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
-        storage::EncryptionKey,
         InboxOwner,
     };
+
     use xmtp_proto::xmtp::mls::message_contents::{
         content_types::{ReactionAction, ReactionSchema, ReactionV2},
         ContentTypeId, EncodedContent,
@@ -2976,7 +2977,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -3007,7 +3008,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -6915,7 +6916,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -6954,7 +6955,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ffi_ident,
             nonce,
@@ -7018,7 +7019,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
             ffi_ident,
             nonce,
@@ -7053,7 +7054,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -7075,7 +7076,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7094,7 +7095,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7124,7 +7125,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,

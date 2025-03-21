@@ -22,6 +22,13 @@ pub mod time {
 }
 
 pub mod id {
+    use xmtp_db::group_intent::IntentKind;
+
+    use crate::groups::intents::{IntentError, SendMessageIntentData};
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
+    use xmtp_proto::xmtp::mls::message_contents::{plaintext_envelope::V1, PlaintextEnvelope};
+
     /// Relies on a client-created idempotency_key (which could be a timestamp)
     pub fn calculate_message_id(
         group_id: &[u8],
@@ -36,6 +43,41 @@ pub mod id {
         id_vec.extend_from_slice(separator);
         id_vec.extend_from_slice(decrypted_message_bytes);
         super::hash::sha256(&id_vec)
+    }
+
+    /// Calculate the message id for this intent.
+    ///
+    /// # Note
+    /// This functions deserializes and decodes a [`PlaintextEnvelope`] from encoded bytes.
+    /// It would be costly to call this method while pulling extra data from a
+    /// [`PlaintextEnvelope`] elsewhere. The caller should consider combining implementations.
+    ///
+    /// # Returns
+    /// Returns [`Option::None`] if [`StoredGroupIntent`] is not [`IntentKind::SendMessage`] or if
+    /// an error occurs during decoding of intent data for [`IntentKind::SendMessage`].
+    pub fn calculate_message_id_for_intent(
+        intent: &xmtp_db::group_intent::StoredGroupIntent,
+    ) -> Result<Option<Vec<u8>>, IntentError> {
+        if intent.kind != IntentKind::SendMessage {
+            return Ok(None);
+        }
+
+        let data = SendMessageIntentData::from_bytes(&intent.data)?;
+        let envelope: PlaintextEnvelope = PlaintextEnvelope::decode(data.message.as_slice())?;
+
+        // optimistic message should always have a plaintext envelope
+        let PlaintextEnvelope {
+            content:
+                Some(Content::V1(V1 {
+                    content: message,
+                    idempotency_key: key,
+                })),
+        } = envelope
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(calculate_message_id(&intent.group_id, &message, &key)))
     }
 
     pub fn serialize_group_id(group_id: &[u8]) -> String {

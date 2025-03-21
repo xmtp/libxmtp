@@ -1,7 +1,7 @@
 use js_sys::Uint8Array;
 use prost::Message as ProstMessage;
 use wasm_bindgen::prelude::wasm_bindgen;
-use xmtp_mls::storage::group_message::{
+use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
 };

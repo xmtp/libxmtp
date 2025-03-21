@@ -2,7 +2,6 @@
 use crate::groups::device_sync::WorkerHandle;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::storage::consent_record::ConsentType;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -13,19 +12,9 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError},
     mutex_registry::MutexRegistry,
-    storage::{
-        consent_record::{ConsentState, StoredConsentRecord},
-        db_connection::DbConnection,
-        group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
-        group_message::StoredGroupMessage,
-        refresh_state::EntityKind,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-        EncryptedMessageStore, NotFound, StorageError,
-    },
     subscriptions::{LocalEventError, LocalEvents},
-    types::InstallationId,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    Fetch, XmtpApi,
+    XmtpApi,
 };
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use openmls::prelude::tls_codec::Error as TlsCodecError;
@@ -39,8 +28,20 @@ use std::{
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
+use xmtp_common::types::InstallationId;
 use xmtp_common::{retry_async, retryable, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::consent_record::ConsentType;
+use xmtp_db::Fetch;
+use xmtp_db::{
+    consent_record::{ConsentState, StoredConsentRecord},
+    db_connection::DbConnection,
+    group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
+    group_message::StoredGroupMessage,
+    refresh_state::EntityKind,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    EncryptedMessageStore, NotFound, StorageError,
+};
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -69,8 +70,6 @@ pub enum ClientError {
     PublishError(String),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("dieselError: {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error("API error: {0}")]
     Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
@@ -123,7 +122,6 @@ impl xmtp_common::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
             ClientError::Group(group_error) => retryable!(group_error),
-            ClientError::Diesel(diesel_error) => retryable!(diesel_error),
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Generic(err) => err.contains("database is locked"),
@@ -751,7 +749,7 @@ where
             .map(|conversation_item| {
                 let message = conversation_item.message_id.and_then(|message_id| {
                     // Only construct StoredGroupMessage if all fields are Some
-                    Some(StoredGroupMessage {
+                    let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
                         group_id: conversation_item.id.clone(),
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
@@ -765,7 +763,11 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
-                    })
+                    });
+                    if msg.is_none() {
+                        tracing::warn!("tried listing message, but message had missing fields so it was skipped");
+                    }
+                    msg
                 });
 
                 ConversationListItem {
@@ -1080,11 +1082,11 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
-    use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -1095,12 +1097,12 @@ pub(crate) mod tests {
         groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
-        storage::{
-            consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
-            schema::identity_updates,
-        },
         utils::test::HISTORY_SYNC_URL,
         XmtpApi,
+    };
+    use xmtp_db::{
+        consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
+        schema::identity_updates,
     };
 
     #[xmtp_common::test]
@@ -1126,7 +1128,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let members = group.members().await.unwrap();
-        // // The three installations should count as two members
+        // The three installations should count as two members
         assert_eq!(members.len(), 2);
     }
 

@@ -11,8 +11,18 @@ use super::{
     AccountId, Action, AddAssociation, CreateInbox, IdentityUpdate, RevokeAssociation,
     SignatureError,
 };
+use crate::associations::AssociationError;
 use futures::future::try_join_all;
+use xmtp_db::identity_update::StoredIdentityUpdate;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
+
+impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
+    type Error = AssociationError;
+
+    fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
+        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {

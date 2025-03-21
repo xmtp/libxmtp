@@ -1,10 +1,4 @@
-use crate::{
-    configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
-    storage::{
-        sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-    },
-};
+use crate::configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL};
 use openmls::{
     ciphersuite::hash_ref::KeyPackageRef,
     prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
@@ -18,6 +12,10 @@ use openmls_traits::OpenMlsProvider;
 use openmls_traits::{storage::StorageProvider, types::HpkeCiphertext};
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError};
+use xmtp_db::{
+    sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+};
 
 #[derive(Debug, Error)]
 pub enum HpkeError {

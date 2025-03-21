@@ -8,6 +8,7 @@ use std::{
 };
 use xmtp_api::identity::ApiIdentifier;
 use xmtp_cryptography::{signature::IdentifierValidationError, XmtpInstallationCredential};
+use xmtp_db::identity_cache::StoredIdentityKind;
 use xmtp_proto::{
     xmtp::identity::{
         api::v1::get_inbox_ids_request::Request as GetInboxIdsRequestProto,
@@ -32,6 +33,15 @@ pub enum MemberIdentifier {
 pub enum Identifier {
     Ethereum(ident::Ethereum),
     Passkey(ident::Passkey),
+}
+
+impl From<&Identifier> for StoredIdentityKind {
+    fn from(ident: &Identifier) -> Self {
+        match ident {
+            Identifier::Ethereum(_) => Self::Ethereum,
+            Identifier::Passkey(_) => Self::Passkey,
+        }
+    }
 }
 
 impl MemberIdentifier {

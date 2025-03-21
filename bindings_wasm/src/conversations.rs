@@ -10,14 +10,14 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
+use xmtp_db::consent_record::ConsentState as XmtpConsentState;
+use xmtp_db::group::ConversationType as XmtpConversationType;
+use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
   DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
-use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
-use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
-use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
-use xmtp_mls::storage::group::GroupQueryArgs;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
