@@ -199,25 +199,14 @@ pub struct BackendOpts {
         value_enum,
         short,
         long,
-        group = "constant-backend",
-        conflicts_with = "custom-backend",
+        conflicts_with_all = &["url", "payer_url"],
         default_value_t = BackendKind::Local
     )]
     pub backend: BackendKind,
     /// URL Pointing to a backend. Conflicts with `backend`
-    #[arg(
-        short,
-        long,
-        group = "custom-backend",
-        conflicts_with = "constant-backend"
-    )]
+    #[arg(short, long)]
     pub url: Option<url::Url>,
-    #[arg(
-        short,
-        long,
-        group = "custom-backend",
-        conflicts_with = "constant-backend"
-    )]
+    #[arg(short, long)]
     pub payer_url: Option<url::Url>,
     /// Enable the decentralization backend
     #[arg(short, long)]
@@ -349,5 +338,71 @@ impl From<BackendKind> for url::Url {
             Production => (*crate::constants::XMTP_PRODUCTION).clone(),
             Local => (*crate::constants::XMTP_LOCAL).clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse_backend_args(args: &[&str]) -> Result<BackendOpts, clap::Error> {
+        AppOpts::try_parse_from(std::iter::once("test").chain(args.iter().copied()))
+            .map(|app| app.backend)
+    }
+
+    #[test]
+    fn backend_only_is_valid() {
+        let opts = parse_backend_args(&["--backend", "local"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn url_and_payer_url_is_valid() {
+        let opts = parse_backend_args(&[
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
+        ]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn backend_and_url_is_invalid() {
+        let opts = parse_backend_args(&["--backend", "local", "--url", "http://localhost:5050"]);
+        assert!(opts.is_err());
+    }
+
+    #[test]
+    fn backend_and_payer_url_is_invalid() {
+        let opts =
+            parse_backend_args(&["--backend", "local", "--payer-url", "http://localhost:5050"]);
+        assert!(opts.is_err());
+    }
+
+    #[test]
+    fn url_only_is_valid_but_maybe_warning() {
+        let opts = parse_backend_args(&["--url", "http://localhost:5050"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn payer_url_only_is_valid_but_maybe_warning() {
+        let opts = parse_backend_args(&["--payer-url", "http://localhost:5050"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn backend_and_both_urls_is_invalid() {
+        let opts = parse_backend_args(&[
+            "--backend",
+            "local",
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
+        ]);
+        assert!(opts.is_err());
     }
 }
