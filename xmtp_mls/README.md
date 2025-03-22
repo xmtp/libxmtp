@@ -192,10 +192,12 @@ The database is used for both, the MLS state, as well as the decrypted messages.
 
 - Implements XIP 43
 - Handles signature validation
-
-:::warning
-Possibly small changes that need to be documented
-:::
+- Provides identity management for XMTP inboxes
+- Implements wallet address verification for both EOA and Smart Contract Wallets
+- Supports legacy V2 identity migration
+- Defines core types like `InboxId` and `InboxIdRef`
+- Provides the `InboxOwner` trait for wallet interactions
+- Includes utilities for smart contract detection and verification
 
 ## MLS
 
@@ -300,9 +302,7 @@ Further note that the secure transport is supposed to protect MLS and XMTP metad
 To hide the remaining metadata, XMTP uses GRPC with TLS.
 TLS is instantiated through [Rustls](https://github.com/xmtp/libxmtp/blob/3af97cb69435e5b9daa4577bad6a3bd187834d97/xmtp_api_grpc/src/grpc_api_helper.rs#L59).
 
-:::warning
-A specific (set of) ciphersuite should be picked to use for TLS. Update here when that's done.
-:::
+XMTP uses the default TLS configuration provided by Rustls via the `ClientTlsConfig::new().with_enabled_roots()` method. This configuration uses the system's root certificate store and the default set of modern and secure ciphersuites supported by Rustls, which typically includes TLS 1.2 and TLS 1.3 with AEAD ciphers like AES-GCM and ChaCha20-Poly1305.
 
 ### Last Resort Key Packages Only
 
