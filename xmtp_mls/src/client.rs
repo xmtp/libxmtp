@@ -752,7 +752,7 @@ where
             .map(|conversation_item| {
                 let message = conversation_item.message_id.and_then(|message_id| {
                     // Only construct StoredGroupMessage if all fields are Some
-                    Some(StoredGroupMessage {
+                    let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
                         group_id: conversation_item.id.clone(),
                         decrypted_message_bytes: conversation_item.decrypted_message_bytes?,
@@ -766,7 +766,11 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
-                    })
+                    });
+                    if msg.is_none() {
+                        tracing::warn!("tried listing message, but message had missing fields so it was skipped");
+                    }
+                    msg
                 });
 
                 ConversationListItem {

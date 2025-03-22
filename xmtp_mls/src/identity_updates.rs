@@ -47,12 +47,15 @@ pub struct InstallationDiff {
 pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error(transparent)]
+    Storage(#[from] xmtp_db::StorageError)
 }
 
 impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
+            InstallationDiffError::Storage(e) => retryable!(e)
         }
     }
 }
@@ -201,7 +204,7 @@ where
                 conn,
                 inbox_id.to_string(),
                 last_sequence_id,
-                final_state.into(),
+                final_state.clone().into(),
             )?;
         }
 

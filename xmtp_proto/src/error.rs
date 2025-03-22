@@ -238,7 +238,7 @@ pub enum ConversionError {
         /// description of the item expected, i.e 'a negative integer'
         expected: &'static str,
         /// description of the value received i.e 'a positive integer'
-        got: &'static str,
+        got: String,
     },
     #[error("decoding proto {0}")]
     Decode(#[from] prost::DecodeError),

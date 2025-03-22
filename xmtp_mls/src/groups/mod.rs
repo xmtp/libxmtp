@@ -721,10 +721,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 }
             });
 
-            let group = StoredGroup::builder()
-                .id(group_id)
+            let mut group = StoredGroup::builder();
+            group.id(group_id)
                 .created_at_ns(now_ns())
-                .added_by_inbox_id(added_by_inbox_id)
+                .added_by_inbox_id(&added_by_inbox_id)
                 .welcome_id(welcome.id as i64)
                 .conversation_type(conversation_type)
                 .dm_id(dm_members.map(String::from))

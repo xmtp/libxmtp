@@ -1,7 +1,7 @@
 use super::*;
-use xmtp_proto::xmtp::device_sync::{
-    backup_element::Element,
-    message_backup::{ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave},
+use xmtp_proto::ConversionError;
+use xmtp_proto::xmtp::device_sync::message_backup::{
+    ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
 };
 
 impl TryFrom<GroupMessageSave> for StoredGroupMessage {

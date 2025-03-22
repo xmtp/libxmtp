@@ -54,7 +54,7 @@ pub struct StoredGroup {
     #[builder(default = "self.default_conversation_type()")]
     pub conversation_type: ConversationType,
     /// The inbox_id of the DM target
-    #[builder(default = None, setter(strip_option))]
+    #[builder(default = None)]
     pub dm_id: Option<String>,
     /// Timestamp of when the last message was sent for this group (updated automatically in a trigger)
     #[builder(default = None)]

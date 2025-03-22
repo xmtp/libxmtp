@@ -117,17 +117,22 @@ impl From<ConversationType> for ConversationTypeProto {
         }
     }
 }
-/*
+
 impl TryFrom<i32> for ConversationType {
-    type Error = GroupMetadataError;
+    type Error = xmtp_proto::ConversionError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Ok(match value {
             1 => Self::Group,
             2 => Self::Dm,
             3 => Self::Sync,
-            _ => return Err(GroupMetadataError::InvalidConversationType),
+            n => {
+                return Err(ConversionError::InvalidValue {
+                    item: "ConversationType",
+                    expected: "number between 1 - 3",
+                    got: n.to_string(),
+                });
+            }
         })
     }
 }
-*/

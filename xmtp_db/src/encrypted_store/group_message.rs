@@ -26,6 +26,7 @@ use super::{
     },
 };
 use crate::{StorageError, impl_fetch, impl_store, impl_store_or_ignore};
+mod convert;
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,

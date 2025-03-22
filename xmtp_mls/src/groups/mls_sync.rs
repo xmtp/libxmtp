@@ -1008,7 +1008,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         intent: &StoredGroupIntent,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), IntentError> {
         if intent.kind == MetadataUpdate {
             let data = UpdateMetadataIntentData::try_from(intent.data.clone())?;
 
@@ -1380,7 +1380,8 @@ where
     ) -> Result<Option<PublishIntentData>, GroupError> {
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
-                let intent_data = UpdateGroupMembershipIntentData::try_from(&intent.data)?;
+                let intent_data =
+                    UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
                 let signer = &self.context().identity.installation_keys;
                 apply_update_group_membership_intent(
                     self.client.as_ref(),

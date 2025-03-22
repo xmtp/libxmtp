@@ -18,7 +18,7 @@ use xmtp_proto::xmtp::mls::database::{
         Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
     },
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    update_permission_data::{Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
+    update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
     AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
     InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
@@ -50,8 +50,24 @@ pub enum IntentError {
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
-    #[error("generic: {0}")]
-    Generic(String),
+    #[error(transparent)]
+    Storage(#[from] xmtp_db::StorageError),
+    #[error("missing update permission")]
+    MissingUpdatePermissionVersion,
+    #[error("missing payload")]
+    MissingPayload,
+    #[error("missing update admin version")]
+    MissingUpdateAdminVersion,
+    #[error("missing post commit action")]
+    MissingPostCommit,
+    #[error("unsupported permission version")]
+    UnsupportedPermissionVersion,
+    #[error("unknown permission update type")]
+    UnknownPermissionUpdateType,
+    #[error("unknown value for PermissionPolicyOption")]
+    UnknownPermissionPolicyOption,
+    #[error("unknown value for AdminListActionType")]
+    UnknownAdminListAction,
 }
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
@@ -130,7 +146,7 @@ impl SendMessageIntentData {
         let msg = SendMessageData::decode(data)?;
         let payload_bytes = match msg.version {
             Some(SendMessageVersion::V1(v1)) => v1.payload_bytes,
-            None => return Err(IntentError::Generic("missing payload".to_string())),
+            None => return Err(IntentError::MissingPayload),
         };
 
         Ok(Self::new(payload_bytes))
@@ -185,7 +201,7 @@ impl TryFrom<AddressesOrInstallationIdsProtoWrapper> for AddressesOrInstallation
             Some(AddressesOrInstallationIdsProto::InstallationIds(ids)) => Ok(
                 AddressesOrInstallationIds::InstallationIds(ids.installation_ids),
             ),
-            _ => Err(IntentError::Generic("missing payload".to_string())),
+            _ => Err(IntentError::MissingPayload),
         }
     }
 }
@@ -283,11 +299,11 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
 
         let field_name = match msg.version {
             Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_name.clone(),
-            None => return Err(IntentError::Generic("missing payload".to_string())),
+            None => return Err(IntentError::MissingPayload),
         };
         let field_value = match msg.version {
             Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_value.clone(),
-            None => return Err(IntentError::Generic("missing payload".to_string())),
+            None => return Err(IntentError::MissingPayload),
         };
 
         Ok(Self::new(field_name, field_value))
@@ -403,18 +419,18 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
                 v1.failed_installations,
             ))
         } else {
-            Err(IntentError::Generic("missing payload".to_string()))
+            Err(IntentError::MissingPayload)
         }
     }
 }
 
-impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
+impl<'a> TryFrom<&'a [u8]> for UpdateGroupMembershipIntentData {
     type Error = IntentError;
 
-    fn try_from(data: &Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
         if let UpdateGroupMembershipData {
             version: Some(UpdateGroupMembershipVersion::V1(v1)),
-        } = UpdateGroupMembershipData::decode(data.as_slice())?
+        } = UpdateGroupMembershipData::decode(data)?
         {
             Ok(Self::new(
                 v1.membership_updates,
@@ -422,11 +438,10 @@ impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
                 v1.failed_installations,
             ))
         } else {
-            Err(IntentError::Generic("missing payload".to_string()))
+            Err(IntentError::MissingPayload)
         }
     }
 }
-
 #[repr(i32)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AdminListActionType {
@@ -437,7 +452,7 @@ pub enum AdminListActionType {
 }
 
 impl TryFrom<i32> for AdminListActionType {
-    type Error = &'static str;
+    type Error = IntentError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -445,7 +460,7 @@ impl TryFrom<i32> for AdminListActionType {
             2 => Ok(AdminListActionType::Remove),
             3 => Ok(AdminListActionType::AddSuper),
             4 => Ok(AdminListActionType::RemoveSuper),
-            _ => Err("Unknown value for AdminListActionType"),
+            _ => Err(IntentError::UnknownAdminListAction),
         }
     }
 }
@@ -491,22 +506,13 @@ impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
 
         let action_type: AdminListActionType = match msg.version {
             Some(UpdateAdminListsVersion::V1(ref v1)) => {
-                AdminListActionType::try_from(v1.admin_list_update_type)
-                    .map_err(|e| IntentError::Generic(e.to_string()))?
+                AdminListActionType::try_from(v1.admin_list_update_type)?
             }
-            None => {
-                return Err(IntentError::Generic(
-                    "missing update admin version".to_string(),
-                ))
-            }
+            None => return Err(IntentError::MissingUpdateAdminVersion),
         };
         let inbox_id = match msg.version {
             Some(UpdateAdminListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
-            None => {
-                return Err(IntentError::Generic(
-                    "missing update admin version".to_string(),
-                ))
-            }
+            None => return Err(IntentError::MissingUpdateAdminVersion),
         };
 
         Ok(Self::new(action_type, inbox_id))
@@ -524,7 +530,7 @@ pub enum PermissionUpdateType {
 }
 
 impl TryFrom<i32> for PermissionUpdateType {
-    type Error = &'static str;
+    type Error = IntentError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -533,7 +539,7 @@ impl TryFrom<i32> for PermissionUpdateType {
             3 => Ok(PermissionUpdateType::AddAdmin),
             4 => Ok(PermissionUpdateType::RemoveAdmin),
             5 => Ok(PermissionUpdateType::UpdateMetadata),
-            _ => Err("Unknown value for PermissionUpdateType"),
+            _ => Err(IntentError::UnknownPermissionUpdateType),
         }
     }
 }
@@ -548,7 +554,7 @@ pub enum PermissionPolicyOption {
 }
 
 impl TryFrom<i32> for PermissionPolicyOption {
-    type Error = &'static str;
+    type Error = IntentError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
@@ -556,7 +562,7 @@ impl TryFrom<i32> for PermissionPolicyOption {
             2 => Ok(PermissionPolicyOption::Deny),
             3 => Ok(PermissionPolicyOption::AdminOnly),
             4 => Ok(PermissionPolicyOption::SuperAdminOnly),
-            _ => Err("Unknown value for PermissionPolicyOption"),
+            _ => Err(IntentError::UnknownPermissionPolicyOption),
         }
     }
 }
@@ -649,34 +655,16 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
 
     fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
         let msg = UpdatePermissionData::decode(Bytes::from(data))?;
-
-        let update_type: PermissionUpdateType = match msg.version {
-            Some(UpdatePermissionVersion::V1(ref v1)) => {
-                PermissionUpdateType::try_from(v1.permission_update_type)
-                    .map_err(|e| IntentError::Generic(e.to_string()))?
-            }
-            None => {
-                return Err(IntentError::Generic(
-                    "missing update permission version".to_string(),
-                ))
-            }
+        let Some(UpdatePermissionVersion::V1(update_permission_data::V1 {
+            permission_update_type,
+            permission_policy_option,
+            metadata_field_name,
+        })) = msg.version
+        else {
+            return Err(IntentError::UnsupportedPermissionVersion);
         };
-        let policy_option: PermissionPolicyOption = match msg.version {
-            Some(UpdatePermissionVersion::V1(ref v1)) => {
-                PermissionPolicyOption::try_from(v1.permission_policy_option)
-                    .map_err(|e| IntentError::Generic(e.to_string()))?
-            }
-            None => {
-                return Err(IntentError::Generic(
-                    "missing update permission version".to_string(),
-                ))
-            }
-        };
-        let metadata_field_name = match msg.version {
-            Some(UpdatePermissionVersion::V1(ref v1)) => v1.metadata_field_name.clone(),
-            None => None,
-        };
-
+        let update_type: PermissionUpdateType = permission_update_type.try_into()?;
+        let policy_option: PermissionPolicyOption = permission_policy_option.try_into()?;
         Ok(Self::new(update_type, policy_option, metadata_field_name))
     }
 }
@@ -765,9 +753,7 @@ impl PostCommitAction {
                     proto.welcome_message,
                 )))
             }
-            None => Err(IntentError::Generic(
-                "missing post commit action".to_string(),
-            )),
+            None => Err(IntentError::MissingPostCommit),
         }
     }
 

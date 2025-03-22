@@ -26,6 +26,8 @@ pub enum GroupMetadataError {
     InvalidDmMembers,
     #[error("missing a dm member")]
     MissingDmMember,
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 /// `GroupMetadata` is immutable and created at the time of group creation.
